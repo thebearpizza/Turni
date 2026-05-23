@@ -90,7 +90,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
               </div>
 
               {/* Date */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3">
                 <div>
                   <label className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-2 block">Dal</label>
                   <input
