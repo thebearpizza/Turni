@@ -36,7 +36,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [role, setRole] = useState<Role>('dipendente')
-  const [restaurantId, setRestaurantId] = useState('')
+  const [restaurantId, setRestaurantId] = useState('none')
   const [canPostBulletin, setCanPostBulletin] = useState(false)
 
   function openCreate() {
@@ -45,7 +45,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
     setPassword('')
     setFullName('')
     setRole('dipendente')
-    setRestaurantId('')
+    setRestaurantId('none')
     setCanPostBulletin(false)
     setError(null)
     setShowForm(true)
@@ -57,7 +57,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
     setPassword('')
     setFullName(p.full_name)
     setRole(p.role)
-    setRestaurantId(p.restaurant_id ?? '')
+    setRestaurantId(p.restaurant_id ?? 'none')
     setCanPostBulletin(p.can_post_bulletin)
     setError(null)
     setShowForm(true)
@@ -76,7 +76,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             id: editing.id,
             full_name: fullName,
             role,
-            restaurant_id: restaurantId || null,
+            restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
           }),
         })
@@ -92,7 +92,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             password,
             full_name: fullName,
             role,
-            restaurant_id: restaurantId || null,
+            restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
           }),
         })
@@ -227,7 +227,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
               <Select value={restaurantId} onValueChange={setRestaurantId}>
                 <SelectTrigger><SelectValue placeholder="Nessun ristorante" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nessun ristorante</SelectItem>
+                  <SelectItem value="none">Nessun ristorante</SelectItem>
                   {restaurants.map(r => (
                     <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                   ))}
