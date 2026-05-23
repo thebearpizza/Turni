@@ -13,7 +13,7 @@ export default async function ApprovazioniPage() {
 
   let query = supabase
     .from('absences')
-    .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+    .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
 

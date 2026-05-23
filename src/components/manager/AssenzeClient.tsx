@@ -75,7 +75,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
     const supabase = createClient()
     let query = supabase
       .from('absences')
-      .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+      .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
       .lte('start_date', end)
       .gte('end_date', start)
       .order('start_date', { ascending: false })
@@ -127,7 +127,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           notes: notes || null,
         })
         .eq('id', editing.id)
-        .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+        .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
         .single()
       if (error) { setSaveError(error.message); setSaving(false); return }
       if (data) setAbsences(as => as.map(a => a.id === data.id ? data : a))
@@ -141,7 +141,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           certificate_code: type === 'malattia' ? certCode || null : null,
           notes: notes || null, created_by: user!.id, status: 'approved',
         })
-        .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+        .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
         .single()
       if (error) { setSaveError(error.message); setSaving(false); return }
       if (data) setAbsences(as => [data, ...as])

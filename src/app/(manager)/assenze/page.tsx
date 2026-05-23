@@ -32,7 +32,7 @@ export default async function AssenzePage() {
 
   let query = supabase
     .from('absences')
-    .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+    .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
     .lte('start_date', endDate)
     .gte('end_date', startDate)
     .order('start_date', { ascending: false })
