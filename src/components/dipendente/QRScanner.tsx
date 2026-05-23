@@ -52,7 +52,7 @@ export function QRScanner({ onScan, onClose }: Props) {
         <p className="text-white font-medium">Inquadra il QR Code del ristorante</p>
         <button
           onClick={onClose}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 text-white"
+          className="w-10 h-10 flex items-center justify-center rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>

@@ -94,58 +94,63 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   return (
     <main className="min-h-screen bg-slate-950 text-white flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 pt-safe">
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <div>
-          <p className="text-slate-400 text-sm capitalize">{dateDisplay}</p>
-          <p className="font-semibold">{profile.full_name}</p>
+          <p className="text-slate-400 text-xs capitalize tracking-wide">{dateDisplay}</p>
+          <p className="font-semibold text-sm leading-tight">{profile.full_name}</p>
+          {profile.restaurant?.name && (
+            <p className="text-slate-500 text-xs">{profile.restaurant.name}</p>
+          )}
         </div>
         <button
           onClick={handleLogout}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
           aria-label="Logout"
         >
           <LogOut className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Orologio grande */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6">
+      {/* Contenuto centrale */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
+
+        {/* Orologio */}
         <div className="text-center">
-          <div className="text-7xl font-mono font-bold tracking-tight tabular-nums">
+          <div className="text-7xl font-mono font-bold tracking-tight tabular-nums leading-none">
             {timeDisplay}
           </div>
           {attendance && (
-            <div className="mt-4 text-center">
-              <p className="text-slate-400 text-sm mb-1">Turno in corso</p>
-              <div className="text-3xl font-mono text-emerald-400 tabular-nums">
+            <div className="mt-5 text-center">
+              <p className="text-slate-400 text-xs uppercase tracking-widest mb-1.5">Turno in corso</p>
+              <div className="text-4xl font-mono text-emerald-400 tabular-nums font-semibold">
                 {formatDuration(elapsedSeconds)}
               </div>
             </div>
           )}
         </div>
 
-        {/* Messaggio feedback */}
+        {/* Feedback */}
         {message && (
-          <div className={`w-full max-w-xs rounded-xl px-4 py-3 text-sm text-center font-medium ${
+          <div className={`w-full max-w-xs rounded-md px-4 py-3 text-sm text-center font-medium border ${
             message.type === 'success'
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-              : 'bg-red-500/20 text-red-400 border border-red-500/30'
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              : 'bg-red-500/10 text-red-400 border-red-500/30'
           }`}>
             {message.text}
           </div>
         )}
 
-        {/* Pulsante principale QR */}
+        {/* Pulsante QR principale */}
         <button
           onClick={() => setShowScanner(true)}
           disabled={loading}
-          className={`w-full max-w-xs py-5 rounded-2xl flex items-center justify-center gap-3 text-lg font-semibold transition-all active:scale-95 ${
+          className={`w-full max-w-xs h-14 rounded-md flex items-center justify-center gap-3 text-base font-semibold transition-colors active:scale-[0.98] disabled:opacity-50 ${
             attendance
               ? 'bg-amber-500 hover:bg-amber-400 text-black'
               : 'bg-emerald-500 hover:bg-emerald-400 text-black'
-          } disabled:opacity-50`}
+          }`}
         >
-          <Camera className="w-6 h-6" />
+          <Camera className="w-5 h-5" />
           {loading
             ? 'Elaborazione...'
             : attendance
@@ -153,7 +158,6 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
             : 'Scansiona Ingresso'}
         </button>
 
-        {/* In development: simula scansione */}
         {process.env.NODE_ENV === 'development' && (
           <button
             onClick={() => handleScan('__SIMULATE__')}
@@ -164,17 +168,16 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           </button>
         )}
 
-        {/* Pulsante assenza */}
+        {/* Link assenza */}
         <button
           onClick={() => setShowAbsence(true)}
-          className="flex items-center gap-2 text-slate-400 hover:text-slate-300 transition-colors text-sm"
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-300 transition-colors text-sm"
         >
           <UserX className="w-4 h-4" />
           Richiedi Assenza
         </button>
       </div>
 
-      {/* Scanner QR */}
       {showScanner && (
         <QRScanner
           onScan={handleScan}
@@ -182,7 +185,6 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         />
       )}
 
-      {/* Dialog assenza */}
       {showAbsence && (
         <AbsenceRequestDialog
           userId={userId}
