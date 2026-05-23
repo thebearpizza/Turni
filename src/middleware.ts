@@ -9,9 +9,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
+        getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
@@ -23,7 +21,16 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+  const path = request.nextUrl.pathname
+
+  if (!user && !path.startsWith('/login') && !path.startsWith('/api')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  if (user && path === '/login') {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
 
   return supabaseResponse
 }

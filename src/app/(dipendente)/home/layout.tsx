@@ -1,10 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
-export default async function HomePage() {
+export default async function DipendanteLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase
@@ -13,11 +12,8 @@ export default async function HomePage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile) redirect('/login')
+  // Manager e capo_servizio non devono accedere a questa area
+  if (profile?.role !== 'dipendente') redirect('/dashboard')
 
-  if (profile.role === 'dipendente') {
-    redirect('/home')
-  } else {
-    redirect('/dashboard')
-  }
+  return <>{children}</>
 }

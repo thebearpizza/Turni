@@ -1,0 +1,56 @@
+import { createClient } from '@/lib/supabase/server'
+import { AssenzeClient } from '@/components/manager/AssenzeClient'
+import { formatInTimeZone } from 'date-fns-tz'
+
+const TZ = 'Europe/Rome'
+
+export default async function AssenzePage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, restaurant_id')
+    .eq('id', user!.id)
+    .single()
+
+  const { data: restaurants } = await supabase
+    .from('restaurants')
+    .select('id, name')
+    .order('name')
+
+  const { data: dipendenti } = await supabase
+    .from('profiles')
+    .select('id, full_name, restaurant_id')
+    .eq('role', 'dipendente')
+    .order('full_name')
+
+  const nowRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
+  const [year, month] = nowRome.split('-').map(Number)
+  const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0]
+  const endDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
+
+  let query = supabase
+    .from('absences')
+    .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`)
+    .order('start_date', { ascending: false })
+
+  if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
+    query = query.eq('restaurant_id', profile.restaurant_id)
+  }
+
+  const { data: absences } = await query
+
+  return (
+    <div className="p-6 lg:p-8">
+      <AssenzeClient
+        initialAbsences={absences ?? []}
+        restaurants={restaurants ?? []}
+        dipendenti={dipendenti ?? []}
+        currentUserRole={profile?.role ?? 'capo_servizio'}
+        currentRestaurantId={profile?.restaurant_id ?? null}
+      />
+    </div>
+  )
+}
