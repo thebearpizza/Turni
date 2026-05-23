@@ -1,5 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+
+const TZ = 'Europe/Rome'
+
+function todayRomeBounds(): { start: string; end: string } {
+  const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+  const start = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
+  const end = fromZonedTime(`${todayRome}T23:59:59`, TZ).toISOString()
+  return { start, end }
+}
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -47,21 +57,32 @@ export async function POST(request: Request) {
   const nowUtc = new Date().toISOString()
 
   if (type === 'in') {
-    // Controlla se esiste già un turno aperto oggi
-    const todayStart = new Date()
-    todayStart.setUTCHours(0, 0, 0, 0)
+    const { start: todayStart, end: todayEnd } = todayRomeBounds()
 
-    const { data: existing } = await supabase
+    // Blocca se c'è già un turno aperto (check_out nullo)
+    const { data: openShift } = await supabase
       .from('attendances')
       .select('id')
       .eq('user_id', user.id)
       .is('check_out', null)
-      .gte('check_in', todayStart.toISOString())
+      .gte('check_in', todayStart)
       .maybeSingle()
 
-    if (existing) {
+    if (openShift) {
       return NextResponse.json({ error: 'Hai già un turno aperto' }, { status: 409 })
     }
+
+    // Controlla se esiste un turno completato oggi (turno spezzato)
+    const { data: completedToday } = await supabase
+      .from('attendances')
+      .select('id')
+      .eq('user_id', user.id)
+      .not('check_out', 'is', null)
+      .gte('check_in', todayStart)
+      .lte('check_in', todayEnd)
+      .maybeSingle()
+
+    const isSplitShift = !!completedToday
 
     const { data: attendance, error } = await supabase
       .from('attendances')
@@ -69,6 +90,7 @@ export async function POST(request: Request) {
         user_id: user.id,
         restaurant_id: restaurant.id,
         check_in: nowUtc,
+        is_split_shift: isSplitShift,
       })
       .select()
       .single()
@@ -77,7 +99,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Errore registrazione' }, { status: 500 })
     }
 
-    return NextResponse.json({ attendance })
+    return NextResponse.json({ attendance, splitShift: isSplitShift })
   } else {
     // check-out: trova il turno aperto
     const { data: openAttendance, error: findError } = await supabase

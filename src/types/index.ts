@@ -28,6 +28,7 @@ export interface Attendance {
   restaurant_id: string | null
   check_in: string
   check_out: string | null
+  is_split_shift: boolean
   notes: string | null
   created_at: string
   updated_at: string

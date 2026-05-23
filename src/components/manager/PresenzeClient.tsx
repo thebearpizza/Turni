@@ -233,6 +233,11 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
                             In corso
                           </Badge>
                         )}
+                        {p.is_split_shift && (
+                          <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
+                            Spezzato
+                          </Badge>
+                        )}
                         {p.restaurant && (
                           <span className="text-xs text-muted-foreground">{p.restaurant.name}</span>
                         )}

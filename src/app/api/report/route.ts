@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
-import { formatInTimeZone } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes, getDaysInMonth } from 'date-fns'
 import { ABSENCE_CODES } from '@/types'
 import type { AbsenceType } from '@/types'
@@ -46,6 +46,9 @@ export async function POST(request: Request) {
   const daysInMonth = getDaysInMonth(new Date(year, monthNum - 1))
   const startDate = `${month}-01`
   const endDate = `${month}-${String(daysInMonth).padStart(2, '0')}`
+  // Use Rome-midnight boundaries so after-midnight check-ins are included correctly
+  const rangeStart = fromZonedTime(`${startDate}T00:00:00`, TZ).toISOString()
+  const rangeEnd = fromZonedTime(`${endDate}T23:59:59`, TZ).toISOString()
 
   const admin = createAdminClient()
 
@@ -79,8 +82,8 @@ export async function POST(request: Request) {
       .from('attendances')
       .select('*')
       .eq('restaurant_id', restaurantId)
-      .gte('check_in', `${startDate}T00:00:00Z`)
-      .lte('check_in', `${endDate}T23:59:59Z`)
+      .gte('check_in', rangeStart)
+      .lte('check_in', rangeEnd)
 
     // Assenze del mese per il ristorante
     const { data: absences } = await admin
@@ -119,11 +122,12 @@ export async function POST(request: Request) {
     }
 
     const CELL_COLORS: Record<string, string> = {
-      P: 'FFd4edda', // verde pastello
-      F: 'FFe8d5f5', // lilla
-      M: 'FFd0e8f5', // azzurro
-      R: 'FFf5d0d0', // rosso pastello
-      AI: 'FFd8c5f0', // viola
+      P: 'FFd4edda',   // verde pastello
+      PP: 'FF86efac',  // verde intenso (doppio turno >12h)
+      F: 'FFe8d5f5',   // lilla
+      M: 'FFd0e8f5',   // azzurro
+      R: 'FFf5d0d0',   // rosso pastello
+      AI: 'FFd8c5f0',  // viola
     }
 
     for (const emp of employees) {
@@ -151,24 +155,29 @@ export async function POST(request: Request) {
           continue
         }
 
-        // Controlla presenza
-        const att = attendances?.find(a => {
+        // Tutte le sessioni di questo dipendente in questo giorno (Rome time)
+        const daySessions = attendances?.filter(a => {
           if (a.user_id !== emp.id) return false
           const dayRome = formatInTimeZone(new Date(a.check_in), TZ, 'yyyy-MM-dd')
           return dayRome === dateStr
-        })
+        }) ?? []
 
-        if (att) {
+        if (daySessions.length > 0) {
+          const hasOpen = daySessions.some(a => !a.check_out)
+          const dayMinutes = daySessions.reduce((sum, a) => {
+            if (!a.check_out) return sum
+            return sum + differenceInMinutes(new Date(a.check_out), new Date(a.check_in))
+          }, 0)
+
           if (type === 'presenze') {
-            row.push('P')
+            row.push(dayMinutes > 720 ? 'PP' : 'P')
           } else {
-            if (att.check_out) {
-              const mins = differenceInMinutes(new Date(att.check_out), new Date(att.check_in))
-              totalMinutes += mins
-              workDays++
-              row.push(minutesToHours(mins))
-            } else {
+            if (hasOpen && dayMinutes === 0) {
               row.push('In corso')
+            } else {
+              totalMinutes += dayMinutes
+              workDays++
+              row.push(minutesToHours(dayMinutes))
             }
           }
         } else {

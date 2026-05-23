@@ -86,7 +86,12 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         setMessage({ text: 'Uscita registrata con successo', type: 'success' })
       } else {
         setAttendance(data.attendance)
-        setMessage({ text: 'Entrata registrata con successo', type: 'success' })
+        setMessage({
+          text: data.splitShift
+            ? 'Turno spezzato registrato — il manager ne sarà informato'
+            : 'Entrata registrata con successo',
+          type: 'success',
+        })
       }
       router.refresh()
     } catch {
