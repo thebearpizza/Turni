@@ -40,7 +40,8 @@ export default async function AssenzePage() {
     query = query.eq('restaurant_id', profile.restaurant_id)
   }
 
-  const { data: absences } = await query
+  const { data: absences, error: absencesError } = await query
+  if (absencesError) console.error('[assenze] query error:', absencesError.message)
 
   return (
     <div className="p-6 lg:p-8">

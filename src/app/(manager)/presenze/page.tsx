@@ -36,7 +36,8 @@ export default async function PresenzePage() {
     query = query.eq('restaurant_id', profile.restaurant_id)
   }
 
-  const { data: presenze } = await query
+  const { data: presenze, error: presenzeError } = await query
+  if (presenzeError) console.error('[presenze] query error:', presenzeError.message)
 
   return (
     <div className="p-6 lg:p-8">

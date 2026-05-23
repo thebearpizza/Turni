@@ -21,7 +21,8 @@ export default async function ApprovazioniPage() {
     query = query.eq('restaurant_id', profile.restaurant_id)
   }
 
-  const { data: requests } = await query
+  const { data: requests, error: requestsError } = await query
+  if (requestsError) console.error('[approvazioni] query error:', requestsError.message)
 
   return (
     <div className="p-6 lg:p-8">
