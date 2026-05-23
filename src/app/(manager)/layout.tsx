@@ -18,7 +18,7 @@ export default async function ManagerLayout({ children }: { children: React.Reac
   return (
     <div className="flex min-h-screen bg-background">
       <ManagerSidebar profile={profile} />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto pt-14 lg:pt-0">
         {children}
       </main>
     </div>

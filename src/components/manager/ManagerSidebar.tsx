@@ -103,7 +103,9 @@ export function ManagerSidebar({ profile }: Props) {
         >
           <Menu className="w-5 h-5" />
         </button>
-        <span className="ml-3 font-semibold">Turni</span>
+        <span className="ml-3 font-semibold">
+          {navItems.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Turni'}
+        </span>
       </div>
 
       {open && (
@@ -121,8 +123,6 @@ export function ManagerSidebar({ profile }: Props) {
         </div>
       )}
 
-      {/* Spacer per il fixed header mobile */}
-      <div className="lg:hidden h-14 shrink-0" />
     </>
   )
 }
