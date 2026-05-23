@@ -64,6 +64,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   const [certCode, setCertCode] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const loadAbsences = useCallback(async (month: string, restaurantId: string) => {
     setLoading(true)
@@ -75,12 +76,14 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
     let query = supabase
       .from('absences')
       .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
-      .or(`start_date.lte.${end},end_date.gte.${start}`)
+      .lte('start_date', end)
+      .gte('end_date', start)
       .order('start_date', { ascending: false })
 
     if (restaurantId !== 'all') query = query.eq('restaurant_id', restaurantId)
 
-    const { data } = await query
+    const { data, error } = await query
+    if (error) console.error('[assenze] loadAbsences error:', error.message)
     setAbsences(data ?? [])
     setLoading(false)
   }, [])
@@ -109,13 +112,14 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
 
   async function handleSave() {
     setSaving(true)
+    setSaveError(null)
     const supabase = createClient()
 
     const selectedDip = dipendenti.find(d => d.id === userId)
     const restaurantId = selectedDip?.restaurant_id ?? null
 
     if (editing) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('absences')
         .update({
           type, start_date: startDate, end_date: endDate,
@@ -125,10 +129,11 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
         .eq('id', editing.id)
         .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
         .single()
+      if (error) { setSaveError(error.message); setSaving(false); return }
       if (data) setAbsences(as => as.map(a => a.id === data.id ? data : a))
     } else {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('absences')
         .insert({
           user_id: userId, restaurant_id: restaurantId, type,
@@ -138,6 +143,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
         })
         .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
         .single()
+      if (error) { setSaveError(error.message); setSaving(false); return }
       if (data) setAbsences(as => [data, ...as])
     }
 
@@ -256,6 +262,9 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
               <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} />
             </div>
           </div>
+          {saveError && (
+            <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{saveError}</p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button onClick={handleSave} disabled={saving || (!editing && !userId) || !startDate || !endDate}>

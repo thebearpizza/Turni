@@ -33,7 +33,8 @@ export default async function AssenzePage() {
   let query = supabase
     .from('absences')
     .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
-    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`)
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
     .order('start_date', { ascending: false })
 
   if (profile?.role === 'capo_servizio' && profile.restaurant_id) {

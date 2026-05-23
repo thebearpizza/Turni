@@ -19,6 +19,9 @@ const fieldCls =
 
 const labelCls = 'text-slate-400 text-xs font-medium uppercase tracking-wide mb-2 block'
 
+/* Dipendenti non possono inserire "Assenza Ingiustificata" — solo il manager la assegna */
+const DIPENDENTE_TYPES: AbsenceType[] = ['ferie', 'malattia', 'riposo']
+
 export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   const [type, setType] = useState<AbsenceType>('ferie')
   const [startDate, setStartDate] = useState('')
@@ -26,12 +29,14 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
+    setError(null)
     const supabase = createClient()
-    await supabase.from('absences').insert({
+    const { error: insertError } = await supabase.from('absences').insert({
       user_id: userId,
       restaurant_id: restaurantId,
       type,
@@ -41,6 +46,11 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
       created_by: userId,
       status: 'pending',
     })
+    if (insertError) {
+      setError('Errore durante l\'invio. Riprova.')
+      setLoading(false)
+      return
+    }
     setDone(true)
     setLoading(false)
     setTimeout(onClose, 1800)
@@ -87,7 +97,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(ABSENCE_LABELS) as AbsenceType[]).map(t => (
+                    {DIPENDENTE_TYPES.map(t => (
                       <SelectItem key={t} value={t}>{ABSENCE_LABELS[t]}</SelectItem>
                     ))}
                   </SelectContent>
@@ -132,6 +142,12 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
                   className="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2.5 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-500 resize-none transition-colors"
                 />
               </div>
+
+              {error && (
+                <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2.5">
+                  {error}
+                </p>
+              )}
 
               <button
                 type="submit"
