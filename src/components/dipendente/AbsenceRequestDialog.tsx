@@ -46,7 +46,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
 
       {/* Sheet */}
       <div
-        className="relative w-full max-w-lg bg-slate-900 rounded-t-3xl pb-safe"
+        className="relative w-full max-w-lg bg-slate-900 rounded-t-3xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
@@ -54,7 +54,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
           <div className="w-10 h-1 rounded-full bg-slate-600" />
         </div>
 
-        <div className="px-6 pb-8">
+        <div className="px-5 pb-10">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-white text-xl font-bold">Richiedi Assenza</h2>
