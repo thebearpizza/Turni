@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Pencil, Clock } from 'lucide-react'
+import { Pencil, Clock, Radio } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import type { Attendance, Restaurant } from '@/types'
@@ -40,6 +40,64 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
   const [editCheckIn, setEditCheckIn] = useState('')
   const [editCheckOut, setEditCheckOut] = useState('')
   const [saving, setSaving] = useState(false)
+  const [isLive, setIsLive] = useState(false)
+
+  // Refs so the realtime handler always reads current filter values without re-subscribing
+  const monthRef = useRef(selectedMonth)
+  const restaurantRef = useRef(selectedRestaurant)
+  useEffect(() => { monthRef.current = selectedMonth }, [selectedMonth])
+  useEffect(() => { restaurantRef.current = selectedRestaurant }, [selectedRestaurant])
+
+  // Supabase Realtime subscription — wired once on mount
+  useEffect(() => {
+    const supabase = createClient()
+
+    const channel = supabase
+      .channel('rt-presenze')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendances' },
+        async (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string }).id
+            setPresenze(ps => ps.filter(p => p.id !== deletedId))
+            return
+          }
+
+          const rec = payload.new as { id: string; check_in: string; restaurant_id: string | null }
+
+          // Filter: check if record falls within selected month
+          const [y, m] = monthRef.current.split('-').map(Number)
+          const monthStart = new Date(Date.UTC(y, m - 1, 1))
+          const monthEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+          const checkIn = new Date(rec.check_in)
+          if (checkIn < monthStart || checkIn > monthEnd) return
+
+          // Filter: check restaurant (skip if 'all')
+          if (restaurantRef.current !== 'all' && rec.restaurant_id !== restaurantRef.current) return
+
+          // Fetch full record with profile + restaurant joins
+          const { data } = await supabase
+            .from('attendances')
+            .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
+            .eq('id', rec.id)
+            .single()
+
+          if (!data) return
+
+          if (payload.eventType === 'INSERT') {
+            setPresenze(ps => [data, ...ps])
+          } else {
+            setPresenze(ps => ps.map(p => p.id === data.id ? data : p))
+          }
+        }
+      )
+      .subscribe(status => {
+        setIsLive(status === 'SUBSCRIBED')
+      })
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   const loadPresenze = useCallback(async (month: string, restaurantId: string) => {
     setLoading(true)
@@ -74,7 +132,6 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
 
   function openEdit(p: typeof initialPresenze[0]) {
     setEditing(p)
-    // Converti UTC → Europe/Rome per l'input datetime-local
     setEditCheckIn(formatInTimeZone(new Date(p.check_in), TZ, "yyyy-MM-dd'T'HH:mm"))
     setEditCheckOut(p.check_out ? formatInTimeZone(new Date(p.check_out), TZ, "yyyy-MM-dd'T'HH:mm") : '')
   }
@@ -106,8 +163,19 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Presenze</h1>
-        <p className="text-muted-foreground text-sm">{presenze.length} timbrature</p>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Presenze</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">{presenze.length} timbrature</p>
+        </div>
+        {/* Indicatore live */}
+        <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${
+          isLive
+            ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-800'
+            : 'text-muted-foreground bg-muted border-border'
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+          {isLive ? 'Live' : 'Connessione...'}
+        </div>
       </div>
 
       {/* Filtri */}
@@ -133,17 +201,17 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
         )}
       </div>
 
-      {/* Tabella / Lista */}
+      {/* Lista */}
       {loading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+            <div key={i} className="h-16 bg-muted animate-pulse rounded-md" />
           ))}
         </div>
       ) : presenze.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Nessuna presenze nel periodo selezionato
+            Nessuna presenza nel periodo selezionato
           </CardContent>
         </Card>
       ) : (

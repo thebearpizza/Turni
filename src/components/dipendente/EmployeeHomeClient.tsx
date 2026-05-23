@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
-import { Button } from '@/components/ui/button'
-import { LogOut, Camera, Clock, UserX } from 'lucide-react'
+import { BulletinDrawer } from './BulletinDrawer'
+import { LogOut, Camera, UserX, Megaphone } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { useRouter } from 'next/navigation'
@@ -31,15 +31,29 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const [attendance, setAttendance] = useState<Attendance | null>(openAttendance)
   const [showScanner, setShowScanner] = useState(false)
   const [showAbsence, setShowAbsence] = useState(false)
+  const [showBulletin, setShowBulletin] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
   const router = useRouter()
 
   usePushNotifications()
 
+  // Clock tick
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  // Unread bulletins badge (count newer than last open)
+  useEffect(() => {
+    const lastSeen = localStorage.getItem('bulletins_last_seen') ?? '1970-01-01T00:00:00Z'
+    const supabase = createClient()
+    supabase
+      .from('bulletins')
+      .select('id', { count: 'exact', head: true })
+      .gt('created_at', lastSeen)
+      .then(({ count }) => setUnreadCount(count ?? 0))
   }, [])
 
   const elapsedSeconds = attendance
@@ -88,6 +102,12 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     router.push('/login')
   }
 
+  function handleOpenBulletin() {
+    setShowBulletin(true)
+    localStorage.setItem('bulletins_last_seen', new Date().toISOString())
+    setUnreadCount(0)
+  }
+
   const timeDisplay = formatInTimeZone(now, TZ, 'HH:mm:ss')
   const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy")
 
@@ -102,13 +122,31 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
             <p className="text-slate-500 text-xs">{profile.restaurant.name}</p>
           )}
         </div>
-        <button
-          onClick={handleLogout}
-          className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
-          aria-label="Logout"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Pulsante Bacheca */}
+          <button
+            onClick={handleOpenBulletin}
+            className="relative w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
+            aria-label="Bacheca"
+          >
+            <Megaphone className="w-4 h-4" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Pulsante Logout */}
+          <button
+            onClick={handleLogout}
+            className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700"
+            aria-label="Logout"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Contenuto centrale */}
@@ -191,6 +229,10 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           restaurantId={profile.restaurant_id}
           onClose={() => setShowAbsence(false)}
         />
+      )}
+
+      {showBulletin && (
+        <BulletinDrawer onClose={() => setShowBulletin(false)} />
       )}
     </main>
   )
