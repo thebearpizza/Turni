@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Check, X, CalendarX } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
 import type { Absence, AbsenceType } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
 
@@ -75,7 +76,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Dal {r.start_date} al {r.end_date}
+                      Dal {formatDate(r.start_date)} al {formatDate(r.end_date)}
                     </p>
                     {r.restaurant && (
                       <p className="text-xs text-muted-foreground mt-0.5">{r.restaurant.name}</p>

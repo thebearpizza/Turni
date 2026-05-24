@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Pencil } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
+import { formatDate } from '@/lib/utils'
 import type { Absence, Restaurant, AbsenceType, AbsenceStatus } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
 
@@ -207,7 +208,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {a.start_date} → {a.end_date}
+                    {formatDate(a.start_date)} → {formatDate(a.end_date)}
                     {a.certificate_code && <span className="ml-2 text-xs">Cert: {a.certificate_code}</span>}
                   </p>
                 </div>

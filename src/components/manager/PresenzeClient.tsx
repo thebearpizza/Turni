@@ -402,7 +402,7 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
               {editing && (
                 <div className="text-xs text-muted-foreground border-l-2 border-border pl-3">
                   <div>{editing.profile?.full_name ?? '—'}</div>
-                  <div>{formatInTimeZone(new Date(editing.check_in), TZ, 'dd/MM/yyyy HH:mm')} → {editing.check_out ? formatInTimeZone(new Date(editing.check_out), TZ, 'HH:mm') : '—'}</div>
+                  <div>{formatInTimeZone(new Date(editing.check_in), TZ, 'dd-MM-yyyy HH:mm')} → {editing.check_out ? formatInTimeZone(new Date(editing.check_out), TZ, 'HH:mm') : '—'}</div>
                 </div>
               )}
               <DialogFooter>
