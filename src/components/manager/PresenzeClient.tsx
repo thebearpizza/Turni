@@ -180,16 +180,59 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
     setDeleting(false)
   }
 
-  // Raggruppa presenze per giorno Rome — ricalcolato solo quando la lista cambia
+  // Raggruppamento annidato Data -> Dipendente -> [blocchi]
+  // Ricalcolato solo quando l'array presenze cambia
   const groupedPresenze = useMemo(() => {
-    const groups = new Map<string, typeof presenze>()
+    type Row = {
+      userId: string
+      userName: string
+      restaurantName: string | null
+      blocks: typeof presenze
+      totalMinutes: number
+      hasOpen: boolean
+      hasSplit: boolean
+    }
+    const byDay = new Map<string, Map<string, Row>>()
+
     for (const p of presenze) {
       const dayKey = formatInTimeZone(new Date(p.check_in), TZ, 'yyyy-MM-dd')
-      const arr = groups.get(dayKey)
-      if (arr) arr.push(p)
-      else groups.set(dayKey, [p])
+      let dayMap = byDay.get(dayKey)
+      if (!dayMap) { dayMap = new Map(); byDay.set(dayKey, dayMap) }
+
+      let row = dayMap.get(p.user_id)
+      if (!row) {
+        row = {
+          userId: p.user_id,
+          userName: p.profile?.full_name ?? '—',
+          restaurantName: p.restaurant?.name ?? null,
+          blocks: [],
+          totalMinutes: 0,
+          hasOpen: false,
+          hasSplit: false,
+        }
+        dayMap.set(p.user_id, row)
+      }
+
+      row.blocks.push(p)
+      if (!p.check_out) row.hasOpen = true
+      else row.totalMinutes += differenceInMinutes(new Date(p.check_out), new Date(p.check_in))
+      if (p.is_split_shift) row.hasSplit = true
     }
-    return Array.from(groups.entries())
+
+    // Blocchi: ordinati per check_in ascendente (mattina → sera)
+    for (const dayMap of byDay.values()) {
+      for (const row of dayMap.values()) {
+        row.blocks.sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime())
+      }
+    }
+
+    // Giorni ordinati desc (oggi prima), dipendenti per nome asc
+    return Array.from(byDay.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([day, dayMap]) => [
+        day,
+        Array.from(dayMap.values()).sort((a, b) => a.userName.localeCompare(b.userName, 'it')),
+      ] as const)
   }, [presenze])
 
   function formatDayHeader(dayKey: string): string {
@@ -258,7 +301,7 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
         </Card>
       ) : (
         <div className="space-y-6">
-          {groupedPresenze.map(([dayKey, items]) => (
+          {groupedPresenze.map(([dayKey, rows]) => (
             <section key={dayKey}>
               {/* Header gruppo — stile Fluent/Windows: neutro, sottile, separato */}
               <div className="flex items-baseline justify-between border-b border-border pb-1.5 mb-2">
@@ -266,56 +309,75 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
                   {formatDayHeader(dayKey)}
                 </h2>
                 <span className="text-xs text-muted-foreground">
-                  {items.length} {items.length === 1 ? 'timbratura' : 'timbrature'}
+                  {rows.length} {rows.length === 1 ? 'dipendente' : 'dipendenti'}
                 </span>
               </div>
 
               <div className="space-y-2">
-                {items.map(p => {
-                  const checkIn = new Date(p.check_in)
-                  const checkOut = p.check_out ? new Date(p.check_out) : null
-                  const minutes = checkOut ? differenceInMinutes(checkOut, checkIn) : null
-
-                  return (
-                    <Card key={p.id}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-sm">{p.profile?.full_name ?? '—'}</span>
-                              {!p.check_out && (
-                                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
-                                  In corso
-                                </Badge>
-                              )}
-                              {p.is_split_shift && (
-                                <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
-                                  Spezzato
-                                </Badge>
-                              )}
-                              {p.restaurant && (
-                                <span className="text-xs text-muted-foreground">{p.restaurant.name}</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground flex-wrap">
-                              <span>↓ {formatInTimeZone(checkIn, TZ, 'HH:mm')}</span>
-                              {checkOut && <span>↑ {formatInTimeZone(checkOut, TZ, 'HH:mm')}</span>}
-                              {minutes !== null && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {formatDuration(minutes)}
-                                </span>
-                              )}
-                            </div>
+                {rows.map(row => (
+                  <Card key={`${dayKey}-${row.userId}`} className="rounded-sm">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-4">
+                        {/* Sezione sinistra: nome + badge stati + blocchi turno */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <span className="font-medium text-sm">{row.userName}</span>
+                            {row.hasOpen && (
+                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
+                                In corso
+                              </Badge>
+                            )}
+                            {row.hasSplit && (
+                              <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
+                                Spezzato
+                              </Badge>
+                            )}
+                            {row.restaurantName && (
+                              <span className="text-xs text-muted-foreground">{row.restaurantName}</span>
+                            )}
                           </div>
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
-                            <Pencil className="w-4 h-4" />
-                          </Button>
+
+                          {/* Blocchi turno: ogni badge è cliccabile → apre il dialog di modifica per quel blocco */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {row.blocks.map(b => {
+                              const isOpen = !b.check_out
+                              const checkIn = formatInTimeZone(new Date(b.check_in), TZ, 'HH:mm')
+                              const checkOut = b.check_out
+                                ? formatInTimeZone(new Date(b.check_out), TZ, 'HH:mm')
+                                : '···'
+                              return (
+                                <button
+                                  key={b.id}
+                                  onClick={() => openEdit(b)}
+                                  title="Modifica turno"
+                                  className={`group h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium tabular-nums rounded-sm border transition-colors ${
+                                    isOpen
+                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
+                                      : 'bg-zinc-100 border-border text-foreground hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                                  }`}
+                                >
+                                  <span>{checkIn} → {checkOut}</span>
+                                  <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                                </button>
+                              )
+                            })}
+                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
+
+                        {/* Sezione destra: totale ore + contatore turni */}
+                        <div className="shrink-0 text-right">
+                          <div className="text-sm font-semibold tabular-nums flex items-center gap-1.5 justify-end">
+                            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                            {formatDuration(row.totalMinutes)}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {row.blocks.length} {row.blocks.length === 1 ? 'turno' : 'turni'}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             </section>
           ))}
