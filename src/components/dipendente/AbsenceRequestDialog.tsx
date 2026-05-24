@@ -12,9 +12,12 @@ interface Props {
   onClose: () => void
 }
 
-/* Classe condivisa per tutti i form field single-line — simmetria assoluta h-10 */
+/* Classe condivisa per tutti i form field single-line — simmetria assoluta h-10
+ * NB: `appearance-none` + `box-border` + `min-w-0` sono necessari per evitare che
+ * <input type="date"> erediti la larghezza intrinseca del placeholder iOS Safari
+ * e sbordi rispetto al contenitore. */
 const fieldCls =
-  'w-full h-10 bg-background border border-input rounded-md px-3 text-foreground text-sm ' +
+  'block w-full min-w-0 h-10 box-border appearance-none bg-background border border-input rounded-md px-3 text-foreground text-sm ' +
   'focus:outline-none focus:ring-1 focus:ring-ring transition-colors'
 
 const labelCls = 'text-muted-foreground text-xs font-medium uppercase tracking-wide mb-2 block'
