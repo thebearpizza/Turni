@@ -237,7 +237,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
       )}
 
       {showBulletin && (
-        <BulletinDrawer onClose={() => setShowBulletin(false)} />
+        <BulletinDrawer userId={userId} onClose={() => setShowBulletin(false)} />
       )}
     </main>
   )

@@ -1,7 +1,7 @@
 export type Role = 'manager' | 'capo_servizio' | 'dipendente'
 export type AbsenceType = 'ferie' | 'malattia' | 'riposo' | 'assenza_ingiustificata'
 export type AbsenceStatus = 'pending' | 'approved' | 'rejected'
-export type BulletinTarget = 'all' | 'restaurant'
+export type BulletinTarget = 'all' | 'restaurant' | 'role' | 'users'
 
 export interface Restaurant {
   id: string
@@ -58,11 +58,21 @@ export interface Bulletin {
   title: string
   body: string
   target: BulletinTarget
+  target_roles: string[]
+  target_user_ids: string[]
   restaurant_id: string | null
   created_by: string
   created_at: string
   restaurant?: Restaurant
   author?: Profile
+}
+
+export interface BulletinRead {
+  id: string
+  bulletin_id: string
+  user_id: string
+  read_at: string
+  profile?: { id: string; full_name: string }
 }
 
 export interface PushSubscription {

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { X, Megaphone, Globe, Store } from 'lucide-react'
+import { X, Megaphone, Globe, Store, Users } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { it } from 'date-fns/locale'
 
@@ -9,15 +9,35 @@ type Bulletin = {
   id: string
   title: string
   body: string
-  target: 'all' | 'restaurant'
+  target: 'all' | 'restaurant' | 'role' | 'users'
+  target_user_ids: string[]
   created_at: string
 }
 
 interface Props {
+  userId: string
   onClose: () => void
 }
 
-export function BulletinDrawer({ onClose }: Props) {
+function TargetChip({ b }: { b: Bulletin }) {
+  if (b.target === 'all') return (
+    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
+      <Globe className="w-3 h-3" /> Tutti
+    </span>
+  )
+  if (b.target === 'restaurant') return (
+    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
+      <Store className="w-3 h-3" /> Ristorante
+    </span>
+  )
+  return (
+    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
+      <Users className="w-3 h-3" /> Per te
+    </span>
+  )
+}
+
+export function BulletinDrawer({ userId, onClose }: Props) {
   const [bulletins, setBulletins] = useState<Bulletin[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -25,13 +45,25 @@ export function BulletinDrawer({ onClose }: Props) {
     const supabase = createClient()
     supabase
       .from('bulletins')
-      .select('id, title, body, target, created_at')
+      .select('id, title, body, target, target_user_ids, created_at')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        setBulletins((data as Bulletin[]) ?? [])
+        const list = (data as Bulletin[]) ?? []
+        setBulletins(list)
         setLoading(false)
+
+        // Fire-and-forget: record reads for all visible bulletins
+        if (list.length > 0) {
+          supabase
+            .from('bulletin_reads')
+            .upsert(
+              list.map(b => ({ bulletin_id: b.id, user_id: userId })),
+              { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
+            )
+            .then(() => {})
+        }
       })
-  }, [])
+  }, [userId])
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
@@ -79,12 +111,7 @@ export function BulletinDrawer({ onClose }: Props) {
                 <div key={b.id} className="bg-muted border border-border rounded-md p-4">
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <p className="text-foreground text-sm font-semibold leading-tight">{b.title}</p>
-                    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
-                      {b.target === 'all'
-                        ? <><Globe className="w-3 h-3" /> Tutti</>
-                        : <><Store className="w-3 h-3" /> Ristorante</>
-                      }
-                    </span>
+                    <TargetChip b={b} />
                   </div>
                   <p className="text-foreground/80 text-sm leading-relaxed whitespace-pre-wrap">{b.body}</p>
                   <p className="text-muted-foreground text-xs mt-2.5">
