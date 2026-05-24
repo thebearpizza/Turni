@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Pencil, Clock, Radio } from 'lucide-react'
+import { Pencil, Clock, Trash2, AlertTriangle } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
+import { it } from 'date-fns/locale'
 import type { Attendance, Restaurant } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -40,6 +41,8 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
   const [editCheckIn, setEditCheckIn] = useState('')
   const [editCheckOut, setEditCheckOut] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [isLive, setIsLive] = useState(false)
 
   // Refs so the realtime handler always reads current filter values without re-subscribing
@@ -132,8 +135,14 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
 
   function openEdit(p: typeof initialPresenze[0]) {
     setEditing(p)
+    setConfirmingDelete(false)
     setEditCheckIn(formatInTimeZone(new Date(p.check_in), TZ, "yyyy-MM-dd'T'HH:mm"))
     setEditCheckOut(p.check_out ? formatInTimeZone(new Date(p.check_out), TZ, "yyyy-MM-dd'T'HH:mm") : '')
+  }
+
+  function closeEdit() {
+    setEditing(null)
+    setConfirmingDelete(false)
   }
 
   async function handleSave() {
@@ -154,8 +163,41 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
       .single()
 
     if (data) setPresenze(ps => ps.map(p => p.id === data.id ? data : p))
-    setEditing(null)
+    closeEdit()
     setSaving(false)
+  }
+
+  async function handleDelete() {
+    if (!editing) return
+    setDeleting(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('attendances').delete().eq('id', editing.id)
+    if (!error) {
+      // Optimistic local removal — Realtime DELETE event will reconcile too
+      setPresenze(ps => ps.filter(p => p.id !== editing.id))
+      closeEdit()
+    }
+    setDeleting(false)
+  }
+
+  // Raggruppa presenze per giorno Rome — ricalcolato solo quando la lista cambia
+  const groupedPresenze = useMemo(() => {
+    const groups = new Map<string, typeof presenze>()
+    for (const p of presenze) {
+      const dayKey = formatInTimeZone(new Date(p.check_in), TZ, 'yyyy-MM-dd')
+      const arr = groups.get(dayKey)
+      if (arr) arr.push(p)
+      else groups.set(dayKey, [p])
+    }
+    return Array.from(groups.entries())
+  }, [presenze])
+
+  function formatDayHeader(dayKey: string): string {
+    const [y, m, d] = dayKey.split('-').map(Number)
+    // Costruisci una data a mezzogiorno locale per evitare offset DST
+    const date = new Date(y, m - 1, d, 12, 0, 0)
+    const label = formatInTimeZone(date, TZ, 'EEEE d MMMM yyyy', { locale: it })
+    return label.charAt(0).toUpperCase() + label.slice(1)
   }
 
   const isManager = currentUserRole === 'manager'
@@ -215,85 +257,143 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {presenze.map(p => {
-            const checkIn = new Date(p.check_in)
-            const checkOut = p.check_out ? new Date(p.check_out) : null
-            const minutes = checkOut ? differenceInMinutes(checkOut, checkIn) : null
+        <div className="space-y-6">
+          {groupedPresenze.map(([dayKey, items]) => (
+            <section key={dayKey}>
+              {/* Header gruppo — stile Fluent/Windows: neutro, sottile, separato */}
+              <div className="flex items-baseline justify-between border-b border-border pb-1.5 mb-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  {formatDayHeader(dayKey)}
+                </h2>
+                <span className="text-xs text-muted-foreground">
+                  {items.length} {items.length === 1 ? 'timbratura' : 'timbrature'}
+                </span>
+              </div>
 
-            return (
-              <Card key={p.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm">{p.profile?.full_name ?? '—'}</span>
-                        {!p.check_out && (
-                          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
-                            In corso
-                          </Badge>
-                        )}
-                        {p.is_split_shift && (
-                          <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
-                            Spezzato
-                          </Badge>
-                        )}
-                        {p.restaurant && (
-                          <span className="text-xs text-muted-foreground">{p.restaurant.name}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground flex-wrap">
-                        <span>↓ {formatInTimeZone(checkIn, TZ, 'dd/MM HH:mm')}</span>
-                        {checkOut && <span>↑ {formatInTimeZone(checkOut, TZ, 'dd/MM HH:mm')}</span>}
-                        {minutes !== null && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatDuration(minutes)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
+              <div className="space-y-2">
+                {items.map(p => {
+                  const checkIn = new Date(p.check_in)
+                  const checkOut = p.check_out ? new Date(p.check_out) : null
+                  const minutes = checkOut ? differenceInMinutes(checkOut, checkIn) : null
+
+                  return (
+                    <Card key={p.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-sm">{p.profile?.full_name ?? '—'}</span>
+                              {!p.check_out && (
+                                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
+                                  In corso
+                                </Badge>
+                              )}
+                              {p.is_split_shift && (
+                                <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
+                                  Spezzato
+                                </Badge>
+                              )}
+                              {p.restaurant && (
+                                <span className="text-xs text-muted-foreground">{p.restaurant.name}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground flex-wrap">
+                              <span>↓ {formatInTimeZone(checkIn, TZ, 'HH:mm')}</span>
+                              {checkOut && <span>↑ {formatInTimeZone(checkOut, TZ, 'HH:mm')}</span>}
+                              {minutes !== null && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {formatDuration(minutes)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
       {/* Dialog modifica */}
-      <Dialog open={!!editing} onOpenChange={open => !open && setEditing(null)}>
+      <Dialog open={!!editing} onOpenChange={open => !open && closeEdit()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Modifica Timbratura</DialogTitle>
+            <DialogTitle>{confirmingDelete ? 'Elimina Timbratura' : 'Modifica Timbratura'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Entrata (ora locale)</Label>
-              <Input
-                type="datetime-local"
-                value={editCheckIn}
-                onChange={e => setEditCheckIn(e.target.value)}
-              />
+
+          {confirmingDelete ? (
+            <div className="space-y-4">
+              <div className="flex gap-3 items-start rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3">
+                <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-foreground">Sei sicuro di voler eliminare questa timbratura?</p>
+                  <p className="text-muted-foreground mt-1">L&apos;azione è irreversibile.</p>
+                </div>
+              </div>
+              {editing && (
+                <div className="text-xs text-muted-foreground border-l-2 border-border pl-3">
+                  <div>{editing.profile?.full_name ?? '—'}</div>
+                  <div>{formatInTimeZone(new Date(editing.check_in), TZ, 'dd/MM/yyyy HH:mm')} → {editing.check_out ? formatInTimeZone(new Date(editing.check_out), TZ, 'HH:mm') : '—'}</div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirmingDelete(false)} disabled={deleting} className="h-10 rounded-sm">
+                  Annulla
+                </Button>
+                <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="h-10 rounded-sm">
+                  {deleting ? 'Eliminazione...' : 'Elimina definitivamente'}
+                </Button>
+              </DialogFooter>
             </div>
-            <div className="space-y-2">
-              <Label>Uscita (ora locale)</Label>
-              <Input
-                type="datetime-local"
-                value={editCheckOut}
-                onChange={e => setEditCheckOut(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={saving || !editCheckIn}>
-              {saving ? 'Salvataggio...' : 'Salva'}
-            </Button>
-          </DialogFooter>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Entrata (ora locale)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={editCheckIn}
+                    onChange={e => setEditCheckIn(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Uscita (ora locale)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={editCheckOut}
+                    onChange={e => setEditCheckOut(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="sm:justify-between gap-2">
+                <Button
+                  variant="destructive"
+                  onClick={() => setConfirmingDelete(true)}
+                  disabled={saving}
+                  className="h-10 rounded-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Elimina
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={closeEdit} disabled={saving} className="h-10 rounded-sm">
+                    Annulla
+                  </Button>
+                  <Button onClick={handleSave} disabled={saving || !editCheckIn} className="h-10 rounded-sm">
+                    {saving ? 'Salvataggio...' : 'Salva'}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
