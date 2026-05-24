@@ -11,10 +11,16 @@ export interface Restaurant {
   created_at: string
 }
 
+export type Department = 'Sala' | 'Pizzeria' | 'Bar' | 'Cucina'
+
+export const DEPARTMENTS: Department[] = ['Sala', 'Pizzeria', 'Bar', 'Cucina']
+
 export interface Profile {
   id: string
   full_name: string
+  username: string | null
   role: Role
+  department: Department | null
   restaurant_id: string | null
   can_post_bulletin: boolean
   created_at: string

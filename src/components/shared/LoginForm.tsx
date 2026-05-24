@@ -6,11 +6,20 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
 
+// Must match the domain used in /api/users POST to generate fake-email accounts.
+const FAKE_DOMAIN = 'struttura.local'
+
+function resolveEmail(input: string): string {
+  // If the user typed a full email address (manager accounts), use it as-is.
+  // Otherwise treat it as a username and append the internal domain.
+  return input.includes('@') ? input : `${input}@${FAKE_DOMAIN}`
+}
+
 export function LoginForm() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [credential, setCredential] = useState('')
+  const [password, setPassword]     = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState<string | null>(null)
   const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent) {
@@ -19,10 +28,13 @@ export function LoginForm() {
     setError(null)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({
+      email: resolveEmail(credential.trim().toLowerCase()),
+      password,
+    })
 
     if (error) {
-      setError('Email o password non corretti')
+      setError('Username o password non corretti')
       setLoading(false)
       return
     }
@@ -34,15 +46,18 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="credential">Username</Label>
         <Input
-          id="email"
-          type="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          placeholder="mario@ristorante.it"
+          id="credential"
+          type="text"
+          value={credential}
+          onChange={e => setCredential(e.target.value)}
+          placeholder="mario.rossi"
           required
-          autoComplete="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
         />
       </div>
       <div className="space-y-2">

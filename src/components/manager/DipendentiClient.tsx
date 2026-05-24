@@ -8,64 +8,81 @@ import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Plus, Pencil, Trash2, User } from 'lucide-react'
-import type { Profile, Restaurant, Role } from '@/types'
-import { ROLE_LABELS } from '@/types'
+import type { Profile, Restaurant, Role, Department } from '@/types'
+import { ROLE_LABELS, DEPARTMENTS } from '@/types'
+
+const USERNAME_RE = /^[a-z0-9._-]+$/
+
+const roleColors: Record<Role, string> = {
+  manager:       'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  capo_servizio: 'bg-blue-100   text-blue-800  dark:bg-blue-900/30   dark:text-blue-300',
+  dipendente:    'bg-slate-100  text-slate-700 dark:bg-slate-800      dark:text-slate-300',
+}
+
+const deptColors: Record<Department, string> = {
+  Sala:     'bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-300',
+  Pizzeria: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  Bar:      'bg-cyan-100   text-cyan-800   dark:bg-cyan-900/30   dark:text-cyan-300',
+  Cucina:   'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300',
+}
+
+type DipWithRestaurant = Profile & { restaurant?: { id: string; name: string } | null }
 
 interface Props {
-  initialDipendenti: (Profile & { restaurant?: { id: string; name: string } | null })[]
+  initialDipendenti: DipWithRestaurant[]
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
   currentUserRole: string
 }
 
-const roleColors: Record<Role, string> = {
-  manager: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  capo_servizio: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  dipendente: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-}
-
 export function DipendentiClient({ initialDipendenti, restaurants, currentUserRole }: Props) {
   const [dipendenti, setDipendenti] = useState(initialDipendenti)
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
+  const [showForm, setShowForm]     = useState(false)
+  const [editing, setEditing]       = useState<DipWithRestaurant | null>(null)
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState<string | null>(null)
+  const [search, setSearch]         = useState('')
 
   // Form state
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-  const [role, setRole] = useState<Role>('dipendente')
-  const [restaurantId, setRestaurantId] = useState('none')
+  const [username, setUsername]           = useState('')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [password, setPassword]           = useState('')
+  const [fullName, setFullName]           = useState('')
+  const [role, setRole]                   = useState<Role>('dipendente')
+  const [department, setDepartment]       = useState<Department | ''>('')
+  const [restaurantId, setRestaurantId]   = useState('none')
   const [canPostBulletin, setCanPostBulletin] = useState(false)
+
+  function validateUsername(val: string) {
+    if (!val) { setUsernameError(null); return }
+    if (!USERNAME_RE.test(val)) {
+      setUsernameError('Solo lettere minuscole, numeri, punti, trattini e underscore')
+    } else {
+      setUsernameError(null)
+    }
+  }
 
   function openCreate() {
     setEditing(null)
-    setEmail('')
-    setPassword('')
-    setFullName('')
-    setRole('dipendente')
-    setRestaurantId('none')
-    setCanPostBulletin(false)
-    setError(null)
-    setShowForm(true)
+    setUsername(''); setUsernameError(null)
+    setPassword(''); setFullName('')
+    setRole('dipendente'); setDepartment('')
+    setRestaurantId('none'); setCanPostBulletin(false)
+    setError(null); setShowForm(true)
   }
 
-  function openEdit(p: Profile) {
+  function openEdit(p: DipWithRestaurant) {
     setEditing(p)
-    setEmail('')
-    setPassword('')
-    setFullName(p.full_name)
+    setUsername(''); setUsernameError(null)
+    setPassword(''); setFullName(p.full_name)
     setRole(p.role)
+    setDepartment((p.department as Department | null) ?? '')
     setRestaurantId(p.restaurant_id ?? 'none')
     setCanPostBulletin(p.can_post_bulletin)
-    setError(null)
-    setShowForm(true)
+    setError(null); setShowForm(true)
   }
 
   async function handleSave() {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
 
     try {
       if (editing) {
@@ -76,6 +93,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             id: editing.id,
             full_name: fullName,
             role,
+            department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
           }),
@@ -88,10 +106,11 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email,
+            username,
             password,
             full_name: fullName,
             role,
+            department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
           }),
@@ -115,10 +134,17 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
   }
 
   const filtered = dipendenti.filter(d =>
-    d.full_name.toLowerCase().includes(search.toLowerCase())
+    d.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    (d.username ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
   const isManager = currentUserRole === 'manager'
+  const needsDept = role !== 'manager'
+  const canSave = !!fullName.trim() &&
+    (editing
+      ? !usernameError
+      : !!username.trim() && !usernameError && !!password.trim()) &&
+    (!needsDept || !!department)
 
   return (
     <div>
@@ -129,14 +155,13 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
         </div>
         {isManager && (
           <Button onClick={openCreate} size="sm">
-            <Plus className="w-4 h-4" />
-            Nuovo
+            <Plus className="w-4 h-4" /> Nuovo
           </Button>
         )}
       </div>
 
       <Input
-        placeholder="Cerca per nome..."
+        placeholder="Cerca per nome o username..."
         value={search}
         onChange={e => setSearch(e.target.value)}
         className="mb-4 max-w-sm"
@@ -150,17 +175,22 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                 <User className="w-5 h-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
                   <p className="font-medium">{d.full_name}</p>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[d.role]}`}>
                     {ROLE_LABELS[d.role]}
                   </span>
+                  {d.department && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${deptColors[d.department as Department]}`}>
+                      {d.department}
+                    </span>
+                  )}
                 </div>
-                {(d as Profile & { restaurant?: { name: string } | null }).restaurant && (
-                  <p className="text-sm text-muted-foreground truncate">
-                    {(d as Profile & { restaurant?: { name: string } | null }).restaurant?.name}
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground truncate">
+                  {d.username ? `@${d.username}` : ''}
+                  {d.username && d.restaurant && ' · '}
+                  {d.restaurant?.name}
+                </p>
               </div>
               {isManager && (
                 <div className="flex gap-1 shrink-0">
@@ -168,8 +198,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                     <Pencil className="w-4 h-4" />
                   </Button>
                   <Button
-                    variant="ghost"
-                    size="icon"
+                    variant="ghost" size="icon"
                     onClick={() => handleDelete(d.id)}
                     className="text-destructive hover:text-destructive"
                   >
@@ -195,33 +224,71 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             <DialogTitle>{editing ? 'Modifica Utente' : 'Nuovo Utente'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+
+            {/* Username + Password — solo in creazione */}
             {!editing && (
-              <>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Email *</Label>
-                  <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="mario@esempio.it" required />
+                  <Label>Username *</Label>
+                  <Input
+                    value={username}
+                    onChange={e => { setUsername(e.target.value.toLowerCase()); validateUsername(e.target.value.toLowerCase()) }}
+                    placeholder="mario.rossi"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                  {usernameError && (
+                    <p className="text-xs text-destructive">{usernameError}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Password temporanea *</Label>
-                  <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min. 6 caratteri" required />
+                  <Label>Password *</Label>
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Min. 6 caratteri"
+                  />
                 </div>
-              </>
+              </div>
             )}
+
             <div className="space-y-2">
               <Label>Nome completo *</Label>
-              <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Mario Rossi" required />
+              <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Mario Rossi" />
             </div>
-            <div className="space-y-2">
-              <Label>Ruolo *</Label>
-              <Select value={role} onValueChange={v => setRole(v as Role)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(ROLE_LABELS) as Role[]).map(r => (
-                    <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Ruolo *</Label>
+                <Select value={role} onValueChange={v => { setRole(v as Role); if (v === 'manager') setDepartment('') }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ROLE_LABELS) as Role[]).map(r => (
+                      <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Reparto {needsDept ? '*' : ''}</Label>
+                <Select
+                  value={department}
+                  onValueChange={v => setDepartment(v as Department)}
+                  disabled={!needsDept}
+                >
+                  <SelectTrigger><SelectValue placeholder="Seleziona reparto" /></SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENTS.map(d => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
             <div className="space-y-2">
               <Label>Ristorante</Label>
               <Select value={restaurantId} onValueChange={setRestaurantId}>
@@ -234,17 +301,22 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                 </SelectContent>
               </Select>
             </div>
+
             {role === 'capo_servizio' && (
               <div className="flex items-center justify-between">
                 <Label>Può pubblicare in bacheca</Label>
                 <Switch checked={canPostBulletin} onCheckedChange={setCanPostBulletin} />
               </div>
             )}
-            {error && <p className="text-sm text-destructive">{error}</p>}
+
+            {error && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{error}</p>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={loading || !fullName.trim() || (!editing && (!email.trim() || !password.trim()))}>
+            <Button onClick={handleSave} disabled={loading || !canSave}>
               {loading ? 'Salvataggio...' : 'Salva'}
             </Button>
           </DialogFooter>
