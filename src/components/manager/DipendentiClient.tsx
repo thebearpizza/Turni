@@ -7,7 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Plus, Pencil, Trash2, User } from 'lucide-react'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2 } from 'lucide-react'
 import type { Profile, Restaurant, Role, Department } from '@/types'
 import { ROLE_LABELS, DEPARTMENTS } from '@/types'
 
@@ -36,13 +40,14 @@ interface Props {
 
 export function DipendentiClient({ initialDipendenti, restaurants, currentUserRole }: Props) {
   const [dipendenti, setDipendenti] = useState(initialDipendenti)
-  const [showForm, setShowForm]     = useState(false)
-  const [editing, setEditing]       = useState<DipWithRestaurant | null>(null)
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState<string | null>(null)
   const [search, setSearch]         = useState('')
 
-  // Form state
+  // ── Edit dialog ──────────────────────────────────────────────────────────
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing]   = useState<DipWithRestaurant | null>(null)
+  const [formLoading, setFormLoading] = useState(false)
+  const [formError, setFormError]     = useState<string | null>(null)
+
   const [username, setUsername]           = useState('')
   const [usernameError, setUsernameError] = useState<string | null>(null)
   const [password, setPassword]           = useState('')
@@ -52,47 +57,59 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
   const [restaurantId, setRestaurantId]   = useState('none')
   const [canPostBulletin, setCanPostBulletin] = useState(false)
 
+  // ── Password-reset dialog ─────────────────────────────────────────────
+  const [pwTarget, setPwTarget]   = useState<DipWithRestaurant | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [pwLoading, setPwLoading] = useState(false)
+  const [pwError, setPwError]     = useState<string | null>(null)
+  const [pwSuccess, setPwSuccess] = useState(false)
+
+  // ── Helpers ───────────────────────────────────────────────────────────
   function validateUsername(val: string) {
     if (!val) { setUsernameError(null); return }
-    if (!USERNAME_RE.test(val)) {
-      setUsernameError('Solo lettere minuscole, numeri, punti, trattini e underscore')
-    } else {
-      setUsernameError(null)
-    }
+    setUsernameError(USERNAME_RE.test(val)
+      ? null
+      : 'Solo lettere minuscole, numeri, punti, trattini e underscore')
   }
 
   function openCreate() {
     setEditing(null)
-    setUsername(''); setUsernameError(null)
-    setPassword(''); setFullName('')
-    setRole('dipendente'); setDepartment('')
+    setUsername(''); setUsernameError(null); setPassword('')
+    setFullName(''); setRole('dipendente'); setDepartment('')
     setRestaurantId('none'); setCanPostBulletin(false)
-    setError(null); setShowForm(true)
+    setFormError(null); setShowForm(true)
   }
 
   function openEdit(p: DipWithRestaurant) {
     setEditing(p)
-    setUsername(''); setUsernameError(null)
-    setPassword(''); setFullName(p.full_name)
-    setRole(p.role)
+    setUsername(''); setUsernameError(null); setPassword('')
+    setFullName(p.full_name); setRole(p.role)
     setDepartment((p.department as Department | null) ?? '')
     setRestaurantId(p.restaurant_id ?? 'none')
     setCanPostBulletin(p.can_post_bulletin)
-    setError(null); setShowForm(true)
+    setFormError(null); setShowForm(true)
   }
 
-  async function handleSave() {
-    setLoading(true); setError(null)
+  function openPasswordReset(p: DipWithRestaurant) {
+    setPwTarget(p); setNewPassword('')
+    setPwError(null); setPwSuccess(false)
+  }
 
+  function closePwDialog() {
+    setPwTarget(null); setNewPassword('')
+    setPwError(null); setPwSuccess(false)
+  }
+
+  // ── Save (create / edit) ──────────────────────────────────────────────
+  async function handleSave() {
+    setFormLoading(true); setFormError(null)
     try {
       if (editing) {
         const res = await fetch('/api/users', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id: editing.id,
-            full_name: fullName,
-            role,
+            id: editing.id, full_name: fullName, role,
             department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
@@ -106,10 +123,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            username,
-            password,
-            full_name: fullName,
-            role,
+            username, password, full_name: fullName, role,
             department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
@@ -121,9 +135,31 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
       }
       setShowForm(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Errore durante il salvataggio')
+      setFormError(e instanceof Error ? e.message : 'Errore durante il salvataggio')
     } finally {
-      setLoading(false)
+      setFormLoading(false)
+    }
+  }
+
+  // ── Reset password ────────────────────────────────────────────────────
+  async function handleResetPassword() {
+    if (!pwTarget) return
+    setPwLoading(true); setPwError(null)
+    try {
+      const res = await fetch('/api/users/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: pwTarget.id, password: newPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setPwSuccess(true)
+      // Auto-close after 1.2 s so the user sees the success confirmation
+      setTimeout(closePwDialog, 1200)
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : 'Errore durante il salvataggio')
+    } finally {
+      setPwLoading(false)
     }
   }
 
@@ -148,6 +184,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
 
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Dipendenti</h1>
@@ -167,6 +204,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
         className="mb-4 max-w-sm"
       />
 
+      {/* User list */}
       <div className="space-y-2">
         {filtered.map(d => (
           <Card key={d.id}>
@@ -192,19 +230,36 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                   {d.restaurant?.name}
                 </p>
               </div>
+
+              {/* Actions dropdown — manager only */}
               {isManager && (
-                <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(d)}>
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost" size="icon"
-                    onClick={() => handleDelete(d.id)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0">
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={() => openEdit(d)}>
+                      <Pencil className="w-4 h-4" /> Modifica
+                    </DropdownMenuItem>
+
+                    {/* "Cambia Password" is hidden for other managers */}
+                    {d.role !== 'manager' && (
+                      <DropdownMenuItem onClick={() => openPasswordReset(d)}>
+                        <KeyRound className="w-4 h-4" /> Cambia Password
+                      </DropdownMenuItem>
+                    )}
+
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => handleDelete(d.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4" /> Elimina
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </CardContent>
           </Card>
@@ -218,14 +273,13 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
         )}
       </div>
 
+      {/* ── Edit / Create dialog ────────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? 'Modifica Utente' : 'Nuovo Utente'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-
-            {/* Username + Password — solo in creazione */}
             {!editing && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -234,31 +288,20 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                     value={username}
                     onChange={e => { setUsername(e.target.value.toLowerCase()); validateUsername(e.target.value.toLowerCase()) }}
                     placeholder="mario.rossi"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
+                    autoCapitalize="none" autoCorrect="off" spellCheck={false}
                   />
-                  {usernameError && (
-                    <p className="text-xs text-destructive">{usernameError}</p>
-                  )}
+                  {usernameError && <p className="text-xs text-destructive">{usernameError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Password *</Label>
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="Min. 6 caratteri"
-                  />
+                  <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min. 6 caratteri" />
                 </div>
               </div>
             )}
-
             <div className="space-y-2">
               <Label>Nome completo *</Label>
               <Input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Mario Rossi" />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Ruolo *</Label>
@@ -271,55 +314,92 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <Label>Reparto {needsDept ? '*' : ''}</Label>
-                <Select
-                  value={department}
-                  onValueChange={v => setDepartment(v as Department)}
-                  disabled={!needsDept}
-                >
+                <Select value={department} onValueChange={v => setDepartment(v as Department)} disabled={!needsDept}>
                   <SelectTrigger><SelectValue placeholder="Seleziona reparto" /></SelectTrigger>
                   <SelectContent>
-                    {DEPARTMENTS.map(d => (
-                      <SelectItem key={d} value={d}>{d}</SelectItem>
-                    ))}
+                    {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
             <div className="space-y-2">
               <Label>Ristorante</Label>
               <Select value={restaurantId} onValueChange={setRestaurantId}>
                 <SelectTrigger><SelectValue placeholder="Nessun ristorante" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nessun ristorante</SelectItem>
-                  {restaurants.map(r => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
+                  {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
             {role === 'capo_servizio' && (
               <div className="flex items-center justify-between">
                 <Label>Può pubblicare in bacheca</Label>
                 <Switch checked={canPostBulletin} onCheckedChange={setCanPostBulletin} />
               </div>
             )}
-
-            {error && (
-              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{error}</p>
+            {formError && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{formError}</p>
             )}
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={loading || !canSave}>
-              {loading ? 'Salvataggio...' : 'Salva'}
+            <Button onClick={handleSave} disabled={formLoading || !canSave}>
+              {formLoading ? 'Salvataggio...' : 'Salva'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reset password dialog ───────────────────────────────────────── */}
+      <Dialog open={!!pwTarget} onOpenChange={open => { if (!open) closePwDialog() }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reimposta password</DialogTitle>
+            {pwTarget && (
+              <p className="text-sm text-muted-foreground mt-0.5">{pwTarget.full_name}</p>
+            )}
+          </DialogHeader>
+
+          {pwSuccess ? (
+            <div className="flex flex-col items-center gap-3 py-4 text-center">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                Password aggiornata con successo
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="new-password">Nuova password *</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="Min. 6 caratteri"
+                  autoComplete="new-password"
+                />
+                {newPassword.length > 0 && newPassword.length < 6 && (
+                  <p className="text-xs text-muted-foreground">Almeno 6 caratteri</p>
+                )}
+              </div>
+              {pwError && (
+                <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{pwError}</p>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={closePwDialog} disabled={pwLoading}>Annulla</Button>
+                <Button
+                  onClick={handleResetPassword}
+                  disabled={pwLoading || newPassword.trim().length < 6}
+                >
+                  {pwLoading ? 'Salvataggio...' : 'Salva'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
