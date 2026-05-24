@@ -1,9 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { X, Megaphone, Globe, Store, Users } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import { it } from 'date-fns/locale'
+import { X, Megaphone, Globe, Store, Users, ChevronDown } from 'lucide-react'
+import { formatInTimeZone } from 'date-fns-tz'
+
+const TZ = 'Europe/Rome'
 
 type Bulletin = {
   id: string
@@ -19,27 +20,19 @@ interface Props {
   onClose: () => void
 }
 
-function TargetChip({ b }: { b: Bulletin }) {
-  if (b.target === 'all') return (
-    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
-      <Globe className="w-3 h-3" /> Tutti
-    </span>
-  )
-  if (b.target === 'restaurant') return (
-    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
-      <Store className="w-3 h-3" /> Ristorante
-    </span>
-  )
-  return (
-    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
-      <Users className="w-3 h-3" /> Per te
-    </span>
-  )
+function TargetChip({ target }: { target: Bulletin['target'] }) {
+  const base = 'shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap'
+  if (target === 'all')        return <span className={base}><Globe  className="w-3 h-3" /> Tutti</span>
+  if (target === 'restaurant') return <span className={base}><Store  className="w-3 h-3" /> Ristorante</span>
+  return                              <span className={base}><Users  className="w-3 h-3" /> Per te</span>
 }
 
 export function BulletinDrawer({ userId, onClose }: Props) {
-  const [bulletins, setBulletins] = useState<Bulletin[]>([])
-  const [loading, setLoading] = useState(true)
+  const [bulletins, setBulletins]   = useState<Bulletin[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  // track IDs already inserted in this session to avoid redundant upserts
+  const [sentReadIds, setSentReadIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const supabase = createClient()
@@ -48,22 +41,28 @@ export function BulletinDrawer({ userId, onClose }: Props) {
       .select('id, title, body, target, target_user_ids, created_at')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        const list = (data as Bulletin[]) ?? []
-        setBulletins(list)
+        setBulletins((data as Bulletin[]) ?? [])
         setLoading(false)
-
-        // Fire-and-forget: record reads for all visible bulletins
-        if (list.length > 0) {
-          supabase
-            .from('bulletin_reads')
-            .upsert(
-              list.map(b => ({ bulletin_id: b.id, user_id: userId })),
-              { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
-            )
-            .then(() => {})
-        }
       })
   }, [userId])
+
+  function handleToggle(b: Bulletin) {
+    const opening = expandedId !== b.id
+    setExpandedId(opening ? b.id : null)
+
+    // Only fire the read receipt on the first open of each bulletin
+    if (opening && !sentReadIds.has(b.id)) {
+      setSentReadIds(prev => new Set(prev).add(b.id))
+      const supabase = createClient()
+      supabase
+        .from('bulletin_reads')
+        .upsert(
+          [{ bulletin_id: b.id, user_id: userId }],
+          { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
+        )
+        .then(() => {})
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
@@ -97,7 +96,7 @@ export function BulletinDrawer({ userId, onClose }: Props) {
           {loading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 bg-muted rounded-md animate-pulse" />
+                <div key={i} className="h-14 bg-muted rounded-md animate-pulse" />
               ))}
             </div>
           ) : bulletins.length === 0 ? (
@@ -106,19 +105,41 @@ export function BulletinDrawer({ userId, onClose }: Props) {
               <p className="text-muted-foreground text-sm">Nessun comunicato</p>
             </div>
           ) : (
-            <div className="space-y-3 pb-safe">
-              {bulletins.map(b => (
-                <div key={b.id} className="bg-muted border border-border rounded-md p-4">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="text-foreground text-sm font-semibold leading-tight">{b.title}</p>
-                    <TargetChip b={b} />
+            <div className="divide-y divide-border border border-border rounded-md overflow-hidden pb-safe">
+              {bulletins.map(b => {
+                const isOpen = expandedId === b.id
+                return (
+                  <div key={b.id} className="bg-muted">
+                    {/* Row header — always visible, click to toggle */}
+                    <button
+                      onClick={() => handleToggle(b)}
+                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-accent/50 transition-colors"
+                    >
+                      <ChevronDown
+                        className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-foreground text-sm font-semibold leading-tight truncate">
+                          {b.title}
+                        </p>
+                        <p className="text-muted-foreground text-xs mt-0.5 tabular-nums">
+                          {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
+                        </p>
+                      </div>
+                      <TargetChip target={b.target} />
+                    </button>
+
+                    {/* Expanded body */}
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-1 border-t border-border bg-card">
+                        <p className="text-foreground/80 text-sm leading-relaxed whitespace-pre-wrap">
+                          {b.body}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-foreground/80 text-sm leading-relaxed whitespace-pre-wrap">{b.body}</p>
-                  <p className="text-muted-foreground text-xs mt-2.5">
-                    {formatDistanceToNow(new Date(b.created_at), { addSuffix: true, locale: it })}
-                  </p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
