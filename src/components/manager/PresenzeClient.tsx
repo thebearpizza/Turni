@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Pencil, Clock, Trash2, AlertTriangle } from 'lucide-react'
+import { Clock, Trash2, AlertTriangle } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -350,14 +350,13 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
                                   key={b.id}
                                   onClick={() => openEdit(b)}
                                   title="Modifica turno"
-                                  className={`group h-10 px-3 inline-flex items-center gap-1.5 text-xs font-medium tabular-nums rounded-sm border transition-colors ${
+                                  className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border cursor-pointer transition-colors ${
                                     isOpen
                                       ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
                                       : 'bg-zinc-100 border-border text-foreground hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800'
                                   }`}
                                 >
-                                  <span>{checkIn} → {checkOut}</span>
-                                  <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                                  {checkIn} → {checkOut}
                                 </button>
                               )
                             })}
