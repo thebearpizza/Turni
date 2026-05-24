@@ -38,23 +38,23 @@ export function BulletinDrawer({ onClose }: Props) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       <div
-        className="relative w-full max-w-lg bg-slate-900 rounded-t-lg overflow-hidden flex flex-col max-h-[82vh]"
+        className="relative w-full max-w-lg bg-card border-t border-border rounded-t-md overflow-hidden flex flex-col max-h-[82vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 shrink-0">
-          <div className="w-10 h-1 rounded-full bg-slate-700" />
+          <div className="w-10 h-1 rounded-full bg-border" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
-            <Megaphone className="w-4 h-4 text-slate-400" />
-            <h2 className="text-white text-base font-semibold tracking-tight">Bacheca</h2>
+            <Megaphone className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-foreground text-base font-semibold tracking-tight">Bacheca</h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-md bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+            className="w-10 h-10 rounded-md bg-card border border-border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -65,29 +65,29 @@ export function BulletinDrawer({ onClose }: Props) {
           {loading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 bg-slate-800 rounded-md animate-pulse" />
+                <div key={i} className="h-20 bg-muted rounded-md animate-pulse" />
               ))}
             </div>
           ) : bulletins.length === 0 ? (
             <div className="py-12 text-center">
-              <Megaphone className="w-8 h-8 text-slate-700 mx-auto mb-3" />
-              <p className="text-slate-500 text-sm">Nessun comunicato</p>
+              <Megaphone className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground text-sm">Nessun comunicato</p>
             </div>
           ) : (
             <div className="space-y-3 pb-safe">
               {bulletins.map(b => (
-                <div key={b.id} className="bg-slate-800 border border-slate-700 rounded-md p-4">
+                <div key={b.id} className="bg-muted border border-border rounded-md p-4">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="text-white text-sm font-semibold leading-tight">{b.title}</p>
-                    <span className="shrink-0 flex items-center gap-1 text-slate-500 text-xs border border-slate-700 rounded px-1.5 py-0.5 whitespace-nowrap">
+                    <p className="text-foreground text-sm font-semibold leading-tight">{b.title}</p>
+                    <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap">
                       {b.target === 'all'
                         ? <><Globe className="w-3 h-3" /> Tutti</>
                         : <><Store className="w-3 h-3" /> Ristorante</>
                       }
                     </span>
                   </div>
-                  <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{b.body}</p>
-                  <p className="text-slate-600 text-xs mt-2.5">
+                  <p className="text-foreground/80 text-sm leading-relaxed whitespace-pre-wrap">{b.body}</p>
+                  <p className="text-muted-foreground text-xs mt-2.5">
                     {formatDistanceToNow(new Date(b.created_at), { addSuffix: true, locale: it })}
                   </p>
                 </div>
