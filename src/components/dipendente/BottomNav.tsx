@@ -5,8 +5,8 @@ import { Home, ClipboardList } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { href: '/home', icon: Home,          label: 'Home' },
-  { href: '/ods',  icon: ClipboardList, label: 'ODS'  },
+  { href: '/home',     icon: Home,          label: 'Home' },
+  { href: '/home/ods', icon: ClipboardList, label: 'ODS'  },
 ]
 
 export function BottomNav() {
