@@ -7,6 +7,7 @@ import { BulletinDrawer } from './BulletinDrawer'
 import { LogOut, Camera, UserX, Megaphone } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
+import { it } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
@@ -115,7 +116,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   }
 
   const timeDisplay = formatInTimeZone(now, TZ, 'HH:mm:ss')
-  const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy")
+  const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy", { locale: it })
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { Users, Clock, CalendarX, CheckCircle } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { it } from 'date-fns/locale'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
 
 const TZ = 'Europe/Rome'
@@ -62,7 +63,7 @@ export default async function DashboardPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground text-sm mt-0.5 capitalize">
-          {formatInTimeZone(new Date(), TZ, "EEEE d MMMM yyyy")}
+          {formatInTimeZone(new Date(), TZ, "EEEE d MMMM yyyy", { locale: it })}
         </p>
       </div>
 

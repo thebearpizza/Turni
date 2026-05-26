@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes, getDaysInMonth } from 'date-fns'
+import { it } from 'date-fns/locale'
 import { ABSENCE_CODES } from '@/types'
 import type { AbsenceType } from '@/types'
 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
   workbook.creator = 'Turni App'
   workbook.created = new Date()
 
-  const monthName = formatInTimeZone(new Date(year, monthNum - 1, 1), TZ, 'MMMM yyyy')
+  const monthName = formatInTimeZone(new Date(year, monthNum - 1, 1), TZ, 'MMMM yyyy', { locale: it })
 
   for (const restaurantId of allowedIds) {
     const { data: restaurant } = await admin
