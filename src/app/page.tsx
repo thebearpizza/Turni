@@ -15,7 +15,7 @@ export default async function HomePage() {
 
   if (!profile) redirect('/login')
 
-  if (profile.role === 'dipendente') {
+  if (profile.role === 'dipendente' || profile.role === 'capo_servizio') {
     redirect('/home')
   } else {
     redirect('/dashboard')

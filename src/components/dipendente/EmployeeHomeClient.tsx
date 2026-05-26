@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
 import { BulletinDrawer } from './BulletinDrawer'
-import { LogOut, Camera, UserX, Megaphone } from 'lucide-react'
+import { LogOut, Camera, UserX, Megaphone, LayoutDashboard } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { useRouter } from 'next/navigation'
@@ -129,6 +129,17 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Pulsante pannello gestione — solo capo_servizio */}
+          {profile.role === 'capo_servizio' && (
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="w-10 h-10 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
+              aria-label="Pannello gestione"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Pulsante Bacheca */}
           <button
             onClick={handleOpenBulletin}
