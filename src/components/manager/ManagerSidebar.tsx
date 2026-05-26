@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X, Bell
+  Menu, X, Bell, ClipboardList
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/types'
@@ -20,8 +20,9 @@ const navItems = [
   { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager', 'capo_servizio'] },
   { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager', 'capo_servizio'] },
   { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager', 'capo_servizio'] },
-  { href: '/bacheca', icon: MessageSquare, label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
-  { href: '/report', icon: FileSpreadsheet, label: 'Report', roles: ['manager', 'capo_servizio'] },
+  { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
+  { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
+  { href: '/report',  icon: FileSpreadsheet, label: 'Report',  roles: ['manager', 'capo_servizio'] },
 ]
 
 interface Props {

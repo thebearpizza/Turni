@@ -109,3 +109,39 @@ export const ROLE_LABELS: Record<Role, string> = {
   capo_servizio: 'Capo Servizio',
   dipendente: 'Dipendente',
 }
+
+// ── ODS (Ordine di Servizio) ─────────────────────────────────────────
+
+export type OdsTaskType = 'quotidiana' | 'settimanale' | 'bisettimanale' | 'straordinaria'
+
+export const ODS_TYPE_LABELS: Record<OdsTaskType, string> = {
+  quotidiana:    'Quotidiana',
+  settimanale:   'Settimanale',
+  bisettimanale: 'Bisettimanale',
+  straordinaria: 'Straordinaria',
+}
+
+export const ODS_DAYS_IT = [
+  'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica',
+] as const
+
+export interface OdsTask {
+  id:              string
+  title:           string
+  department:      string
+  restaurant_id:   string
+  creator_id:      string | null
+  assigned_to:     string | null
+  type:            OdsTaskType
+  recurrence_days: string[]
+  created_at:      string
+  updated_at:      string
+  assignee?:       { id: string; full_name: string } | null
+}
+
+export interface OdsCompletion {
+  id:           string
+  task_id:      string
+  user_id:      string
+  completed_at: string
+}
