@@ -12,6 +12,10 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'default',
     title: 'Turni',
+    startupImage: '/icon-512.png',
+  },
+  icons: {
+    apple: [{ url: '/icon-192.png', sizes: '192x192' }],
   },
 }
 

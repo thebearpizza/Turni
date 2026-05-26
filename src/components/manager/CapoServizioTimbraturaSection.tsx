@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Camera } from 'lucide-react'
 import { differenceInSeconds } from 'date-fns'
 import { QRScanner } from '@/components/dipendente/QRScanner'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import type { Attendance } from '@/types'
 
 interface Props {
@@ -64,10 +66,12 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
     }
   }, [attendance])
 
+  const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
   const isOut = !!attendance
 
   return (
     <>
+      <PushNotificationBanner permission={pushPermission} onSubscribe={subscribePush} />
       <div className="mt-4 bg-card border border-border rounded-md p-4 flex items-center gap-4">
         {/* Left: label + status */}
         <div className="flex-1 min-w-0">

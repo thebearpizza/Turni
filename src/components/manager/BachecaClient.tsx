@@ -86,7 +86,15 @@ export function BachecaClient({
       .select('*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name)')
       .single()
 
-    if (data) setBulletins(bs => [data, ...bs])
+    if (data) {
+      setBulletins(bs => [data, ...bs])
+      // Fire-and-forget: invia notifica push agli utenti target
+      fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bulletinId: data.id }),
+      }).catch(() => {})
+    }
     resetForm()
     setShowForm(false)
     setSaving(false)

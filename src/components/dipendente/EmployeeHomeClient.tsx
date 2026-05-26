@@ -9,6 +9,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import type { Profile, Attendance } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -37,7 +38,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const [unreadCount, setUnreadCount] = useState(0)
   const router = useRouter()
 
-  usePushNotifications()
+  const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
 
   // Clock tick
   useEffect(() => {
@@ -153,6 +154,9 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Banner notifiche push */}
+      <PushNotificationBanner permission={pushPermission} onSubscribe={subscribePush} />
 
       {/* Contenuto centrale */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
