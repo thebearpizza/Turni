@@ -32,6 +32,7 @@ interface Props {
 export function ManagerSidebar({ profile }: Props) {
   const [open, setOpen] = useState(false)
   const [unreadBulletins, setUnreadBulletins] = useState(0)
+  const [unreadOds, setUnreadOds]             = useState(0)
   const pathname = usePathname()
   const router = useRouter()
 
@@ -54,6 +55,29 @@ export function ManagerSidebar({ profile }: Props) {
     localStorage.setItem('bulletins_last_seen', new Date().toISOString())
     setUnreadBulletins(0)
   }, [pathname, profile.role])
+
+  // Notifiche ODS non lette (solo capo_servizio) con realtime
+  useEffect(() => {
+    if (profile.role !== 'capo_servizio') return
+    const supabase = createClient()
+
+    async function fetchUnread() {
+      const { count } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .is('read_at', null)
+      setUnreadOds(count ?? 0)
+    }
+
+    fetchUnread()
+
+    const channel = supabase
+      .channel('sidebar_ods_notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, fetchUnread)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [profile.role])
 
   const visibleItems = navItems.filter(item => item.roles.includes(profile.role))
 
@@ -88,6 +112,11 @@ export function ManagerSidebar({ profile }: Props) {
             {href === '/bacheca' && profile.role === 'capo_servizio' && unreadBulletins > 0 && (
               <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
                 {unreadBulletins > 9 ? '9+' : unreadBulletins}
+              </span>
+            )}
+            {href === '/ods' && profile.role === 'capo_servizio' && unreadOds > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadOds > 9 ? '9+' : unreadOds}
               </span>
             )}
           </Link>

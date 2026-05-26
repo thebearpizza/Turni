@@ -1,6 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { createOdsTask } from '@/app/actions/ods'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,6 +49,16 @@ export function OdsManagerClient({
 
   const [tasks, setTasks]       = useState<OdsTask[]>(initialTasks)
   const [deptFilter, setDeptFilter] = useState<string>('tutti')
+
+  // Mark ODS notifications as read when this page is mounted
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .is('read_at', null)
+      .then(() => {})
+  }, [])
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving]     = useState(false)
 
@@ -98,36 +109,23 @@ export function OdsManagerClient({
   async function handleCreate() {
     if (!fTitle.trim() || !fDept) return
     setSaving(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const { data } = await supabase
-      .from('ods_tasks')
-      .insert({
+    try {
+      const task = await createOdsTask({
         title:           fTitle.trim(),
         department:      fDept,
-        restaurant_id:   fRestaurantId || currentRestaurantId,
-        creator_id:      user!.id,
-        assigned_to:     fAssignedTo === '__none__' ? null : fAssignedTo,
+        restaurant_id:   (fRestaurantId || currentRestaurantId) ?? '',
         type:            fType,
         recurrence_days: (fType === 'settimanale' || fType === 'bisettimanale') ? fDays : [],
+        assigned_to:     fAssignedTo === '__none__' ? null : fAssignedTo,
       })
-      .select('*, assignee:profiles!assigned_to(id, full_name)')
-      .single()
-
-    if (data) {
-      setTasks(prev => [data as unknown as OdsTask, ...prev])
-      // Fire-and-forget push notification
-      fetch('/api/ods/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: data.id, event: 'created' }),
-      }).catch(() => {})
+      setTasks(prev => [task, ...prev])
+      resetForm()
+      setShowForm(false)
+    } catch (err) {
+      console.error('Errore creazione ODS:', err)
+    } finally {
+      setSaving(false)
     }
-
-    resetForm()
-    setShowForm(false)
-    setSaving(false)
   }
 
   async function handleDelete(id: string) {

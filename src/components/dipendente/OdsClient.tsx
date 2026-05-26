@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ClipboardList, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -27,6 +27,16 @@ interface Props {
 export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: Props) {
   const [completed, setCompleted] = useState<Set<string>>(new Set(completedTaskIds))
   const [filter, setFilter]       = useState<'tutte' | OdsTaskType>('tutte')
+
+  // Mark all unread ODS notifications as read when this page is opened
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .is('read_at', null)
+      .then(() => {})
+  }, [])
 
   const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
 

@@ -145,3 +145,15 @@ export interface OdsCompletion {
   user_id:      string
   completed_at: string
 }
+
+// ── In-app Notifications ─────────────────────────────────────────────
+
+export interface AppNotification {
+  id:         string
+  user_id:    string
+  title:      string
+  message:    string
+  link:       string | null
+  read_at:    string | null
+  created_at: string
+}
