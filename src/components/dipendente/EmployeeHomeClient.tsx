@@ -1,15 +1,18 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
 import { BulletinDrawer } from './BulletinDrawer'
-import { LogOut, Camera, UserX, Megaphone } from 'lucide-react'
+import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { LogOut, Camera, UserX, Megaphone, MapPin } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import type { Profile, Attendance } from '@/types'
 
@@ -29,25 +32,24 @@ function formatDuration(seconds: number): string {
 }
 
 export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
-  const [now, setNow] = useState(new Date())
+  const [now, setNow]             = useState(new Date())
   const [attendance, setAttendance] = useState<Attendance | null>(openAttendance)
   const [showScanner, setShowScanner] = useState(false)
   const [showAbsence, setShowAbsence] = useState(false)
   const [showBulletin, setShowBulletin] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [loading, setLoading]     = useState(false)
+  const [message, setMessage]     = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const router = useRouter()
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
+  const { status: geoStatus, check: checkGeo } = useGeofence()
 
-  // Clock tick
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(interval)
   }, [])
 
-  // Unread bulletins badge (count newer than last open)
   useEffect(() => {
     const lastSeen = localStorage.getItem('bulletins_last_seen') ?? '1970-01-01T00:00:00Z'
     const supabase = createClient()
@@ -61,6 +63,32 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const elapsedSeconds = attendance
     ? differenceInSeconds(now, new Date(attendance.check_in))
     : 0
+
+  // Geofence-aware scan trigger
+  const handleScanPress = useCallback(async () => {
+    setMessage(null)
+
+    // If geolocation is unavailable entirely, allow scan
+    if (!('geolocation' in navigator)) {
+      setShowScanner(true)
+      return
+    }
+
+    const result = await checkGeo()
+
+    if (result === 'outside') {
+      setMessage({ text: 'Sei troppo lontano dalla sede per timbrare', type: 'error' })
+      return
+    }
+    if (result === 'denied') {
+      // Graceful fallback: warn but allow
+      setMessage({ text: 'Permesso GPS non concesso — timbratura consentita senza verifica posizione', type: 'error' })
+      setTimeout(() => { setMessage(null); setShowScanner(true) }, 2000)
+      return
+    }
+    // 'inside' | 'unsupported' → allow
+    setShowScanner(true)
+  }, [checkGeo])
 
   const handleScan = useCallback(async (qrSecret: string) => {
     setShowScanner(false)
@@ -117,6 +145,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
 
   const timeDisplay = formatInTimeZone(now, TZ, 'HH:mm:ss')
   const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy", { locale: it })
+  const isGeoChecking = geoStatus === 'checking'
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
@@ -130,11 +159,11 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Pulsante Bacheca */}
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
           <button
             onClick={handleOpenBulletin}
-            className="relative w-10 h-10 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
+            className="relative w-9 h-9 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
             aria-label="Bacheca"
           >
             <Megaphone className="w-4 h-4" />
@@ -144,11 +173,9 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
               </span>
             )}
           </button>
-
-          {/* Pulsante Logout */}
           <button
             onClick={handleLogout}
-            className="w-10 h-10 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
+            className="w-9 h-9 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
             aria-label="Logout"
           >
             <LogOut className="w-4 h-4" />
@@ -156,55 +183,79 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         </div>
       </div>
 
-      {/* Banner notifiche push */}
       <PushNotificationBanner permission={pushPermission} onSubscribe={subscribePush} />
 
-      {/* Contenuto centrale */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
 
-        {/* Orologio */}
-        <div className="text-center">
+        {/* Clock */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="text-center"
+        >
           <div className="text-7xl font-mono font-bold tracking-tight tabular-nums leading-none text-foreground">
             {timeDisplay}
           </div>
-          {attendance && (
-            <div className="mt-5 text-center">
-              <p className="text-muted-foreground text-xs uppercase tracking-widest mb-1.5">Turno in corso</p>
-              <div className="text-4xl font-mono text-emerald-600 dark:text-emerald-400 tabular-nums font-semibold">
-                {formatDuration(elapsedSeconds)}
-              </div>
-            </div>
+          <AnimatePresence>
+            {attendance && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25 }}
+                className="mt-5 text-center overflow-hidden"
+              >
+                <p className="text-muted-foreground text-xs uppercase tracking-widest mb-1.5">Turno in corso</p>
+                <div className="text-4xl font-mono text-emerald-600 dark:text-emerald-400 tabular-nums font-semibold">
+                  {formatDuration(elapsedSeconds)}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+
+        {/* Feedback messages */}
+        <AnimatePresence mode="wait">
+          {message && (
+            <motion.div
+              key={message.text}
+              initial={{ opacity: 0, y: 6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.97 }}
+              transition={{ duration: 0.2 }}
+              className={`w-full max-w-xs rounded-md px-4 py-3 text-sm text-center font-medium border ${
+                message.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
+                  : 'bg-destructive/10 text-destructive border-destructive/30'
+              }`}
+            >
+              {message.text}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
 
-        {/* Feedback */}
-        {message && (
-          <div className={`w-full max-w-xs rounded-md px-4 py-3 text-sm text-center font-medium border ${
-            message.type === 'success'
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
-              : 'bg-destructive/10 text-destructive border-destructive/30'
-          }`}>
-            {message.text}
-          </div>
-        )}
-
-        {/* Pulsante QR principale — touch target h-14 mobile */}
-        <button
-          onClick={() => setShowScanner(true)}
-          disabled={loading}
+        {/* QR scan button */}
+        <motion.button
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={handleScanPress}
+          disabled={loading || isGeoChecking}
           className={`w-full max-w-xs h-14 rounded-md flex items-center justify-center gap-3 text-base font-semibold border transition-colors active:scale-[0.98] disabled:opacity-50 ${
             attendance
               ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
               : 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
           }`}
         >
-          <Camera className="w-5 h-5" />
-          {loading
+          {isGeoChecking
+            ? <><MapPin className="w-5 h-5 animate-pulse" /> Verifica posizione...</>
+            : loading
             ? 'Elaborazione...'
-            : attendance
-            ? 'Scansiona Uscita'
-            : 'Scansiona Ingresso'}
-        </button>
+            : <><Camera className="w-5 h-5" />{attendance ? 'Scansiona Uscita' : 'Scansiona Ingresso'}</>
+          }
+        </motion.button>
 
         {process.env.NODE_ENV === 'development' && (
           <button
@@ -216,34 +267,21 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           </button>
         )}
 
-        {/* Link assenza */}
-        <button
+        <motion.button
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3, delay: 0.2 }}
           onClick={() => setShowAbsence(true)}
           className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm"
         >
           <UserX className="w-4 h-4" />
           Richiedi Assenza
-        </button>
+        </motion.button>
       </div>
 
-      {showScanner && (
-        <QRScanner
-          onScan={handleScan}
-          onClose={() => setShowScanner(false)}
-        />
-      )}
-
-      {showAbsence && (
-        <AbsenceRequestDialog
-          userId={userId}
-          restaurantId={profile.restaurant_id}
-          onClose={() => setShowAbsence(false)}
-        />
-      )}
-
-      {showBulletin && (
-        <BulletinDrawer userId={userId} onClose={() => setShowBulletin(false)} />
-      )}
+      {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+      {showAbsence && <AbsenceRequestDialog userId={userId} restaurantId={profile.restaurant_id} onClose={() => setShowAbsence(false)} />}
+      {showBulletin && <BulletinDrawer userId={userId} onClose={() => setShowBulletin(false)} />}
     </main>
   )
 }

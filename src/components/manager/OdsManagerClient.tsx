@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { createOdsTask } from '@/app/actions/ods'
 import { Button } from '@/components/ui/button'
@@ -171,20 +172,30 @@ export function OdsManagerClient({
 
       {/* Task list */}
       {filteredTasks.length === 0 ? (
-        <div className="py-14 text-center text-muted-foreground text-sm border border-border rounded-md">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="py-14 text-center text-muted-foreground text-sm border border-border rounded-md"
+        >
           Nessun ordine di servizio
-        </div>
+        </motion.div>
       ) : (
         <div className="space-y-2">
-          {filteredTasks.map(task => {
+          <AnimatePresence initial={false} mode="popLayout">
+          {filteredTasks.map((task, i) => {
             const taskCompletions = completionMap[task.id] ?? []
             const isVisibleToday =
               task.type === 'quotidiana' || task.type === 'straordinaria' ||
               task.recurrence_days.some(d => d.toLowerCase() === todayName)
 
             return (
-              <div
+              <motion.div
                 key={task.id}
+                layout
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}
+                transition={{ duration: 0.2, delay: i * 0.03 }}
                 className={`bg-card border border-border rounded-sm px-4 py-3 flex items-start gap-3 ${
                   !isVisibleToday ? 'opacity-50' : ''
                 }`}
@@ -246,9 +257,10 @@ export function OdsManagerClient({
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 )}
-              </div>
+              </motion.div>
             )
           })}
+          </AnimatePresence>
         </div>
       )}
 

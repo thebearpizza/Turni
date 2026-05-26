@@ -10,6 +10,8 @@ import {
   Menu, X, Bell, ClipboardList
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { useBadging } from '@/hooks/useBadging'
 import type { Profile } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
@@ -35,6 +37,7 @@ export function ManagerSidebar({ profile }: Props) {
   const [unreadOds, setUnreadOds]             = useState(0)
   const pathname = usePathname()
   const router = useRouter()
+  useBadging(unreadOds)
 
   // Conteggio comunicati non letti (solo capo_servizio)
   useEffect(() => {
@@ -133,13 +136,16 @@ export function ManagerSidebar({ profile }: Props) {
             <p className="text-xs text-muted-foreground">{ROLE_LABELS[profile.role]}</p>
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
-        >
-          <LogOut className="w-4 h-4" />
-          Esci
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Esci
+          </button>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   )

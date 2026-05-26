@@ -27,11 +27,11 @@
 }
 
 .dark {
-  --background: 222.2 84% 4.9%;
+  --background: 240 5% 10%;    /* #18181b zinc-900 */
   --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
+  --card: 240 4% 13%;          /* slightly lighter zinc */
   --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
+  --popover: 240 4% 13%;
   --popover-foreground: 210 40% 98%;
   --primary: 210 40% 98%;
   --primary-foreground: 222.2 47.4% 11.2%;
@@ -81,4 +81,21 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* ── Shimmer skeleton animation ──────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.skeleton-shimmer {
+  animation: shimmer 1.6s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted))         0%,
+    hsl(var(--accent) / 0.7) 50%,
+    hsl(var(--muted))        100%
+  );
+  background-size: 200% 100%;
 }

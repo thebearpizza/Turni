@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Home, ClipboardList } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useBadging } from '@/hooks/useBadging'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -14,6 +15,7 @@ const TABS = [
 export function BottomNav() {
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
+  useBadging(unread)
 
   useEffect(() => {
     const supabase = createClient()
