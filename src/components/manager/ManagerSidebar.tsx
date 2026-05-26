@@ -91,7 +91,7 @@ export function ManagerSidebar({ profile }: Props) {
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border">
         <h1 className="text-xl font-bold">inTurno</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Gestione Presenze</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-1">

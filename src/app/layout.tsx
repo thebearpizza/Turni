@@ -5,12 +5,12 @@ import './globals.css'
 const geist = Geist({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'inTurno',
-  description: 'Applicazione aziendale per la gestione di turni, presenze e ordini di servizio',
+  title: 'inTurno – Gestione Turni, Presenze e ODS',
+  description: 'Piattaforma aziendale per la gestione ottimizzata di turni, presenze e ordini di servizio',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'inTurno',
     startupImage: '/icon-512.png',
   },
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#0f172a',
+  themeColor: '#18181b',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
