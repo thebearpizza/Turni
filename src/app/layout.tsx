@@ -5,13 +5,13 @@ import './globals.css'
 const geist = Geist({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Turni',
-  description: 'Gestione presenze personale ristorante',
+  title: 'inTurno',
+  description: 'Applicazione aziendale per la gestione di turni, presenze e ordini di servizio',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Turni',
+    title: 'inTurno',
     startupImage: '/icon-512.png',
   },
   icons: {

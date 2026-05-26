@@ -90,7 +90,7 @@ export function ManagerSidebar({ profile }: Props) {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border">
-        <h1 className="text-xl font-bold">Turni</h1>
+        <h1 className="text-xl font-bold">inTurno</h1>
         <p className="text-xs text-muted-foreground mt-0.5">Gestione Presenze</p>
       </div>
 
@@ -160,7 +160,7 @@ export function ManagerSidebar({ profile }: Props) {
           <Menu className="w-5 h-5" />
         </button>
         <span className="ml-3 font-semibold flex-1">
-          {navItems.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Turni'}
+          {navItems.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'inTurno'}
         </span>
         {profile.role === 'capo_servizio' && (
           <Link href="/bacheca" className="relative p-2 rounded-md hover:bg-accent text-muted-foreground">

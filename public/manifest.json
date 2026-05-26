@@ -1,7 +1,7 @@
 {
-  "name": "Turni",
-  "short_name": "Turni",
-  "description": "Gestione presenze personale ristorante",
+  "name": "inTurno",
+  "short_name": "inTurno",
+  "description": "Applicazione aziendale per la gestione di turni, presenze e ordini di servizio",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
