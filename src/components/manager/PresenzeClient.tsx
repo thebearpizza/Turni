@@ -12,6 +12,7 @@ import { Clock, Trash2, AlertTriangle, Plus } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
+import { LiveShiftCounter } from './LiveShiftCounter'
 import type { Attendance, Restaurant } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -381,7 +382,9 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
               </div>
 
               <div className="space-y-2">
-                {rows.map(row => (
+                {rows.map(row => {
+                  const openBlock = row.hasOpen ? row.blocks.find(b => !b.check_out) : undefined
+                  return (
                   <Card key={`${dayKey}-${row.userId}`} className="rounded-sm">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-4">
@@ -434,7 +437,14 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
                         <div className="shrink-0 text-right">
                           <div className="text-sm font-semibold tabular-nums flex items-center gap-1.5 justify-end">
                             <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                            {formatDuration(row.totalMinutes)}
+                            {openBlock ? (
+                              <LiveShiftCounter
+                                checkInTime={openBlock.check_in}
+                                baseMinutes={row.totalMinutes}
+                              />
+                            ) : (
+                              formatDuration(row.totalMinutes)
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground mt-0.5">
                             {row.blocks.length} {row.blocks.length === 1 ? 'turno' : 'turni'}
@@ -443,7 +453,8 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  )
+                })}
               </div>
             </section>
           ))}
