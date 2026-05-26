@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Globe, Store, Users, Eye } from 'lucide-react'
+import { Plus, Trash2, Globe, Store, Users, Eye, ChevronDown } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
 import { ROLE_LABELS } from '@/types'
@@ -62,6 +62,10 @@ export function BachecaClient({
   // Contatori lettura per ogni bulletin (aggiornati al mount e dopo ogni nuova pubblicazione)
   const [readCounts, setReadCounts] = useState<Record<string, number>>({})
 
+  // Espansione e tracciamento letture per capo_servizio
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [sentReadIds, setSentReadIds] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!bulletins.length) return
     const supabase = createClient()
@@ -78,19 +82,22 @@ export function BachecaClient({
       })
   }, [bulletins])
 
-  // Traccia lettura per capo_servizio (che legge dalla pagina /bacheca, non dal drawer)
-  useEffect(() => {
-    if (currentUserRole === 'manager') return
-    if (!currentUserId || !bulletins.length) return
-    const supabase = createClient()
-    supabase
-      .from('bulletin_reads')
-      .upsert(
-        bulletins.map(b => ({ bulletin_id: b.id, user_id: currentUserId })),
-        { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
-      )
-      .then(() => {})
-  }, [bulletins, currentUserId, currentUserRole])
+  function handleToggle(b: BulletinWithRelations) {
+    const opening = expandedId !== b.id
+    setExpandedId(opening ? b.id : null)
+
+    if (opening && !sentReadIds.has(b.id)) {
+      setSentReadIds(prev => new Set(prev).add(b.id))
+      const supabase = createClient()
+      supabase
+        .from('bulletin_reads')
+        .upsert(
+          [{ bulletin_id: b.id, user_id: currentUserId }],
+          { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
+        )
+        .then(() => {})
+    }
+  }
 
   function resetForm() {
     setTitle(''); setBody(''); setTargetType('all')
@@ -201,53 +208,81 @@ export function BachecaClient({
         </Card>
       ) : (
         <div className="space-y-4">
-          {bulletins.map(b => (
-            <Card key={b.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <CardTitle className="text-base">{b.title}</CardTitle>
-                      <TargetBadge b={b} />
+          {bulletins.map(b => {
+            const isManager = currentUserRole === 'manager'
+            const isOpen = isManager || expandedId === b.id
+            const canViewReads = isManager || (currentUserRole === 'capo_servizio' && canPost)
+            return (
+              <Card key={b.id}>
+                <CardHeader className={isOpen ? 'pb-2' : 'pb-3'}>
+                  <div className="flex items-start justify-between gap-3">
+                    {!isManager ? (
+                      <button
+                        onClick={() => handleToggle(b)}
+                        className="flex-1 text-left flex items-start gap-2 min-w-0"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 text-muted-foreground shrink-0 mt-0.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <CardTitle className="text-base">{b.title}</CardTitle>
+                            <TargetBadge b={b} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {b.author?.full_name && <>{b.author.full_name} · </>}
+                            {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
+                          </p>
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <CardTitle className="text-base">{b.title}</CardTitle>
+                          <TargetBadge b={b} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {b.author?.full_name && <>{b.author.full_name} · </>}
+                          {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
+                        </p>
+                        {(readCounts[b.id] ?? 0) > 0 && (
+                          <p className="text-xs text-muted-foreground/70 mt-0.5">
+                            Letto da {readCounts[b.id]} {readCounts[b.id] === 1 ? 'persona' : 'persone'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canViewReads && (
+                        <Button
+                          variant="ghost" size="icon"
+                          onClick={() => openReads(b)}
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Visualizza letture"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {isManager && (
+                        <Button
+                          variant="ghost" size="icon"
+                          onClick={() => handleDelete(b.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {b.author?.full_name && <>{b.author.full_name} · </>}
-                      {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
-                    </p>
-                    {(readCounts[b.id] ?? 0) > 0 && (
-                      <p className="text-xs text-muted-foreground/70 mt-0.5">
-                        Letto da {readCounts[b.id]} {readCounts[b.id] === 1 ? 'persona' : 'persone'}
-                      </p>
-                    )}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {currentUserRole === 'manager' && (
-                      <Button
-                        variant="ghost" size="icon"
-                        onClick={() => openReads(b)}
-                        className="text-muted-foreground hover:text-foreground"
-                        title="Visualizza letture"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                    )}
-                    {currentUserRole === 'manager' && (
-                      <Button
-                        variant="ghost" size="icon"
-                        onClick={() => handleDelete(b.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <p className="text-sm whitespace-pre-wrap">{b.body}</p>
-              </CardContent>
-            </Card>
-          ))}
+                </CardHeader>
+                {isOpen && (
+                  <CardContent className="pt-0">
+                    <p className="text-sm whitespace-pre-wrap">{b.body}</p>
+                  </CardContent>
+                )}
+              </Card>
+            )
+          })}
         </div>
       )}
 
