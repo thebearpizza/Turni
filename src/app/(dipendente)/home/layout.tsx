@@ -12,8 +12,8 @@ export default async function DipendanteLayout({ children }: { children: React.R
     .eq('id', user.id)
     .single()
 
-  // Solo i manager non devono accedere a questa area
-  if (profile?.role !== 'dipendente' && profile?.role !== 'capo_servizio') redirect('/dashboard')
+  // Solo i dipendenti accedono a questa area
+  if (profile?.role !== 'dipendente') redirect('/dashboard')
 
   return <>{children}</>
 }
