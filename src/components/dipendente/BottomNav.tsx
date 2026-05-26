@@ -48,7 +48,7 @@ export function BottomNav() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 bg-card border-t border-border flex h-14">
       {TABS.map(({ href, icon: Icon, label }) => {
-        const active = pathname === href || pathname.startsWith(href + '/')
+        const active = href === '/home' ? pathname === '/home' : pathname === href || pathname.startsWith(href + '/')
         const showBadge = href === '/home/ods' && unread > 0
 
         return (
