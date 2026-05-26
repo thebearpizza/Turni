@@ -36,7 +36,14 @@ export default async function PresenzePage() {
     query = query.eq('restaurant_id', profile.restaurant_id)
   }
 
-  const { data: presenze, error: presenzeError } = await query
+  const [{ data: presenze, error: presenzeError }, { data: dipendenti }] = await Promise.all([
+    query,
+    supabase
+      .from('profiles')
+      .select('id, full_name, role')
+      .in('role', ['dipendente', 'capo_servizio'])
+      .order('full_name'),
+  ])
   if (presenzeError) console.error('[presenze] query error:', presenzeError.message)
 
   return (
@@ -44,6 +51,7 @@ export default async function PresenzePage() {
       <PresenzeClient
         initialPresenze={presenze ?? []}
         restaurants={restaurants ?? []}
+        dipendenti={dipendenti ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
       />

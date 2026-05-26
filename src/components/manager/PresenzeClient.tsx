@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Clock, Trash2, AlertTriangle } from 'lucide-react'
+import { Clock, Trash2, AlertTriangle, Plus } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -22,6 +22,7 @@ interface Props {
     restaurant?: { id: string; name: string } | null
   })[]
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
+  dipendenti: { id: string; full_name: string; role: string }[]
   currentUserRole: string
   currentRestaurantId: string | null
 }
@@ -32,7 +33,7 @@ function formatDuration(minutes: number): string {
   return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
-export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, currentRestaurantId }: Props) {
+export function PresenzeClient({ initialPresenze, restaurants, dipendenti, currentUserRole, currentRestaurantId }: Props) {
   const [presenze, setPresenze] = useState(initialPresenze)
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
@@ -44,6 +45,13 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
   const [deleting, setDeleting] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [isLive, setIsLive] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [newUserId, setNewUserId] = useState('')
+  const [newDate, setNewDate] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [newCheckIn, setNewCheckIn] = useState('')
+  const [newCheckOut, setNewCheckOut] = useState('')
+  const [addError, setAddError] = useState<string | null>(null)
+  const [addSaving, setAddSaving] = useState(false)
 
   // Refs so the realtime handler always reads current filter values without re-subscribing
   const monthRef = useRef(selectedMonth)
@@ -89,7 +97,11 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
           if (!data) return
 
           if (payload.eventType === 'INSERT') {
-            setPresenze(ps => [data, ...ps])
+            setPresenze(ps =>
+              ps.some(p => p.id === data.id)
+                ? ps.map(p => p.id === data.id ? data : p)
+                : [data, ...ps]
+            )
           } else {
             setPresenze(ps => ps.map(p => p.id === data.id ? data : p))
           }
@@ -180,6 +192,53 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
     setDeleting(false)
   }
 
+  function resetAddForm() {
+    setNewUserId('')
+    setNewDate(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+    setNewCheckIn('')
+    setNewCheckOut('')
+    setAddError(null)
+  }
+
+  async function handleAddPresenza() {
+    if (!newUserId || !newDate || !newCheckIn) return
+    setAddSaving(true)
+    setAddError(null)
+
+    const res = await fetch('/api/presenze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: newUserId,
+        date: newDate,
+        checkIn: newCheckIn,
+        checkOut: newCheckOut || undefined,
+      }),
+    })
+    const data = await res.json()
+
+    if (!res.ok) {
+      setAddError(data.error || 'Errore durante il salvataggio')
+      setAddSaving(false)
+      return
+    }
+
+    // Optimistic add if the new record falls within the current filter
+    const [y, m] = selectedMonth.split('-').map(Number)
+    const monthStart = new Date(Date.UTC(y, m - 1, 1))
+    const monthEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+    const checkInDate = new Date(data.attendance.check_in)
+    const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
+    const matchesRestaurant = selectedRestaurant === 'all' || data.attendance.restaurant_id === selectedRestaurant
+    if (matchesMonth && matchesRestaurant) {
+      setPresenze(ps => [data.attendance, ...ps])
+    }
+
+    setShowAdd(false)
+    resetAddForm()
+    setAddSaving(false)
+  }
+
   // Raggruppamento annidato Data -> Dipendente -> [blocchi]
   // Ricalcolato solo quando l'array presenze cambia
   const groupedPresenze = useMemo(() => {
@@ -252,14 +311,22 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
           <h1 className="text-xl font-semibold tracking-tight">Presenze</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{presenze.length} timbrature</p>
         </div>
-        {/* Indicatore live */}
-        <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${
-          isLive
-            ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-800'
-            : 'text-muted-foreground bg-muted border-border'
-        }`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
-          {isLive ? 'Live' : 'Connessione...'}
+        <div className="flex items-center gap-2">
+          {isManager && (
+            <Button onClick={() => setShowAdd(true)} size="sm" className="h-8 rounded-sm px-3 text-xs gap-1.5">
+              <Plus className="w-3.5 h-3.5" />
+              Aggiungi Presenza
+            </Button>
+          )}
+          {/* Indicatore live */}
+          <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${
+            isLive
+              ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-800'
+              : 'text-muted-foreground bg-muted border-border'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+            {isLive ? 'Live' : 'Connessione...'}
+          </div>
         </div>
       </div>
 
@@ -455,6 +522,78 @@ export function PresenzeClient({ initialPresenze, restaurants, currentUserRole, 
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Dialog aggiunta manuale */}
+      <Dialog open={showAdd} onOpenChange={open => { if (!open) { setShowAdd(false); resetAddForm() } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aggiungi Presenza</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Dipendente</Label>
+              <Select value={newUserId} onValueChange={setNewUserId}>
+                <SelectTrigger className="h-10 rounded-sm">
+                  <SelectValue placeholder="Seleziona dipendente..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {dipendenti.map(d => (
+                    <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Data</Label>
+              <Input
+                type="date"
+                value={newDate}
+                onChange={e => setNewDate(e.target.value)}
+                className="h-10 rounded-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Ora Ingresso</Label>
+                <Input
+                  type="time"
+                  value={newCheckIn}
+                  onChange={e => setNewCheckIn(e.target.value)}
+                  className="h-10 rounded-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Ora Uscita</Label>
+                <Input
+                  type="time"
+                  value={newCheckOut}
+                  onChange={e => setNewCheckOut(e.target.value)}
+                  className="h-10 rounded-sm"
+                />
+              </div>
+            </div>
+            {addError && (
+              <p className="text-sm text-destructive">{addError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowAdd(false); resetAddForm() }}
+              disabled={addSaving}
+              className="h-10 rounded-sm"
+            >
+              Annulla
+            </Button>
+            <Button
+              onClick={handleAddPresenza}
+              disabled={addSaving || !newUserId || !newDate || !newCheckIn}
+              className="h-10 rounded-sm"
+            >
+              {addSaving ? 'Salvataggio...' : 'Aggiungi'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
