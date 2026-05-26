@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,9 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Globe, Store, Users, Eye } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
@@ -61,6 +59,39 @@ export function BachecaClient({
   const [reads, setReads] = useState<BulletinRead[]>([])
   const [loadingReads, setLoadingReads] = useState(false)
 
+  // Contatori lettura per ogni bulletin (aggiornati al mount e dopo ogni nuova pubblicazione)
+  const [readCounts, setReadCounts] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    if (!bulletins.length) return
+    const supabase = createClient()
+    supabase
+      .from('bulletin_reads')
+      .select('bulletin_id')
+      .in('bulletin_id', bulletins.map(b => b.id))
+      .then(({ data }) => {
+        const counts: Record<string, number> = {}
+        data?.forEach(r => {
+          counts[r.bulletin_id] = (counts[r.bulletin_id] ?? 0) + 1
+        })
+        setReadCounts(counts)
+      })
+  }, [bulletins])
+
+  // Traccia lettura per capo_servizio (che legge dalla pagina /bacheca, non dal drawer)
+  useEffect(() => {
+    if (currentUserRole === 'manager') return
+    if (!currentUserId || !bulletins.length) return
+    const supabase = createClient()
+    supabase
+      .from('bulletin_reads')
+      .upsert(
+        bulletins.map(b => ({ bulletin_id: b.id, user_id: currentUserId })),
+        { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
+      )
+      .then(() => {})
+  }, [bulletins, currentUserId, currentUserRole])
+
   function resetForm() {
     setTitle(''); setBody(''); setTargetType('all')
     setRestaurantId(currentRestaurantId ?? '')
@@ -88,6 +119,7 @@ export function BachecaClient({
 
     if (data) {
       setBulletins(bs => [data, ...bs])
+      setReadCounts(prev => ({ ...prev, [data.id]: 0 }))
       // Fire-and-forget: invia notifica push agli utenti target
       fetch('/api/push/send', {
         method: 'POST',
@@ -179,8 +211,14 @@ export function BachecaClient({
                       <TargetBadge b={b} />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {b.author?.full_name} · {formatDistanceToNow(new Date(b.created_at), { addSuffix: true, locale: it })}
+                      {b.author?.full_name && <>{b.author.full_name} · </>}
+                      {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
                     </p>
+                    {(readCounts[b.id] ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground/70 mt-0.5">
+                        Letto da {readCounts[b.id]} {readCounts[b.id] === 1 ? 'persona' : 'persone'}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {currentUserRole === 'manager' && (

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X
+  Menu, X, Bell
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/types'
@@ -30,8 +30,29 @@ interface Props {
 
 export function ManagerSidebar({ profile }: Props) {
   const [open, setOpen] = useState(false)
+  const [unreadBulletins, setUnreadBulletins] = useState(0)
   const pathname = usePathname()
   const router = useRouter()
+
+  // Conteggio comunicati non letti (solo capo_servizio)
+  useEffect(() => {
+    if (profile.role !== 'capo_servizio') return
+    const lastSeen = localStorage.getItem('bulletins_last_seen') ?? '1970-01-01T00:00:00Z'
+    const supabase = createClient()
+    supabase
+      .from('bulletins')
+      .select('id', { count: 'exact', head: true })
+      .gt('created_at', lastSeen)
+      .then(({ count }) => setUnreadBulletins(count ?? 0))
+  }, [profile.role])
+
+  // Azzera il badge quando si visita /bacheca
+  useEffect(() => {
+    if (profile.role !== 'capo_servizio') return
+    if (pathname !== '/bacheca') return
+    localStorage.setItem('bulletins_last_seen', new Date().toISOString())
+    setUnreadBulletins(0)
+  }, [pathname, profile.role])
 
   const visibleItems = navItems.filter(item => item.roles.includes(profile.role))
 
@@ -62,7 +83,12 @@ export function ManagerSidebar({ profile }: Props) {
             )}
           >
             <Icon className="w-4 h-4 shrink-0" />
-            {label}
+            <span className="flex-1">{label}</span>
+            {href === '/bacheca' && profile.role === 'capo_servizio' && unreadBulletins > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadBulletins > 9 ? '9+' : unreadBulletins}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
@@ -103,9 +129,19 @@ export function ManagerSidebar({ profile }: Props) {
         >
           <Menu className="w-5 h-5" />
         </button>
-        <span className="ml-3 font-semibold">
+        <span className="ml-3 font-semibold flex-1">
           {navItems.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Turni'}
         </span>
+        {profile.role === 'capo_servizio' && (
+          <Link href="/bacheca" className="relative p-2 rounded-md hover:bg-accent text-muted-foreground">
+            <Bell className="w-5 h-5" />
+            {unreadBulletins > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadBulletins > 9 ? '9+' : unreadBulletins}
+              </span>
+            )}
+          </Link>
+        )}
       </div>
 
       {open && (

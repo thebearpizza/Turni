@@ -13,6 +13,7 @@ type Bulletin = {
   target: 'all' | 'restaurant' | 'role' | 'users'
   target_user_ids: string[]
   created_at: string
+  author?: { full_name: string } | null
 }
 
 interface Props {
@@ -38,10 +39,10 @@ export function BulletinDrawer({ userId, onClose }: Props) {
     const supabase = createClient()
     supabase
       .from('bulletins')
-      .select('id, title, body, target, target_user_ids, created_at')
+      .select('id, title, body, target, target_user_ids, created_at, author:profiles!created_by(full_name)')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
-        setBulletins((data as Bulletin[]) ?? [])
+        setBulletins((data as unknown as Bulletin[]) ?? [])
         setLoading(false)
       })
   }, [userId])
@@ -123,6 +124,9 @@ export function BulletinDrawer({ userId, onClose }: Props) {
                           {b.title}
                         </p>
                         <p className="text-muted-foreground text-xs mt-0.5 tabular-nums">
+                          {b.author?.full_name && (
+                            <span className="not-italic">{b.author.full_name} · </span>
+                          )}
                           {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
                         </p>
                       </div>
