@@ -107,7 +107,7 @@ export function ManagerSidebar({ profile }: Props) {
         <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {visibleItems.map(({ href, icon: Icon, label }) => (
           <Link
             key={href}
@@ -163,7 +163,7 @@ export function ManagerSidebar({ profile }: Props) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-card shrink-0">
+      <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
         <SidebarContent />
       </aside>
 

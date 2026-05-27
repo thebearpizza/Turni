@@ -16,9 +16,9 @@ export default async function ManagerLayout({ children }: { children: React.Reac
   if (!profile || profile.role === 'dipendente') redirect('/home')
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <ManagerSidebar profile={profile} />
-      <main className="flex-1 overflow-auto pt-14 lg:pt-0">
+      <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
         {children}
       </main>
     </div>
