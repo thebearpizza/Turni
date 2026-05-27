@@ -35,6 +35,12 @@ export function BulletinDrawer({ userId, onClose }: Props) {
   // track IDs already inserted in this session to avoid redundant upserts
   const [sentReadIds, setSentReadIds] = useState<Set<string>>(new Set())
 
+  // Lock body scroll while drawer is open; restore on unmount
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   useEffect(() => {
     const supabase = createClient()
     supabase
@@ -72,6 +78,7 @@ export function BulletinDrawer({ userId, onClose }: Props) {
       <div
         className="relative w-full max-w-lg bg-card border-t border-border rounded-t-md overflow-hidden flex flex-col max-h-[82vh]"
         onClick={e => e.stopPropagation()}
+        onTouchMove={e => e.stopPropagation()}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 shrink-0">

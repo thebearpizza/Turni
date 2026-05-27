@@ -11,6 +11,12 @@ export function QRScanner({ onScan, onClose }: Props) {
   const scannerRef = useRef<unknown>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Lock body scroll while scanner overlay is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   useEffect(() => {
     let html5QrCode: unknown
 

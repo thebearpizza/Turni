@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { X, CheckCircle2 } from 'lucide-react'
@@ -34,6 +34,12 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Lock body scroll while dialog is open; restore on unmount
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -66,6 +72,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
       <div
         className="relative w-full max-w-lg bg-card border-t border-border rounded-t-md overflow-hidden"
         onClick={e => e.stopPropagation()}
+        onTouchMove={e => e.stopPropagation()}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">

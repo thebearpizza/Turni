@@ -193,7 +193,10 @@ export function ManagerSidebar({ profile }: Props) {
       {open && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <aside className="relative w-72 bg-card border-r border-border flex flex-col">
+          <aside
+              className="relative w-72 bg-card border-r border-border flex flex-col"
+              onTouchMove={(e) => e.stopPropagation()}
+            >
             <button
               onClick={() => setOpen(false)}
               className="absolute top-4 right-4 p-1 rounded hover:bg-accent"
