@@ -82,6 +82,16 @@ export function ManagerSidebar({ profile }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [profile.role])
 
+  // Lock body scroll while mobile drawer is open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [open])
+
   const visibleItems = navItems.filter(item => item.roles.includes(profile.role))
 
   async function handleLogout() {
