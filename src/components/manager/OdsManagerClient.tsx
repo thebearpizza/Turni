@@ -253,7 +253,7 @@ export function OdsManagerClient({
                   <Button
                     variant="ghost" size="icon"
                     onClick={() => handleDelete(task.id)}
-                    className="text-destructive hover:text-destructive shrink-0"
+                    className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

@@ -99,7 +99,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                       size="sm"
                       onClick={() => handleReject(r.id)}
                       disabled={processing === r.id}
-                      className="text-destructive hover:text-destructive border-destructive/30"
+                      className="text-destructive hover:text-destructive border-destructive/30 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 dark:border-red-500/30"
                     >
                       <X className="w-4 h-4" />
                     </Button>

@@ -254,7 +254,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={() => handleDelete(d.id)}
-                      className="text-destructive focus:text-destructive"
+                      className="text-destructive focus:text-destructive dark:text-red-400 dark:focus:text-red-300 dark:focus:bg-red-500/10"
                     >
                       <Trash2 className="w-4 h-4" /> Elimina
                     </DropdownMenuItem>

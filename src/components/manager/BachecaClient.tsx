@@ -258,7 +258,7 @@ export function BachecaClient({
                         <Button
                           variant="ghost" size="icon"
                           onClick={() => openReads(b)}
-                          className="text-muted-foreground hover:text-foreground"
+                          className="text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-700/50"
                           title="Visualizza letture"
                         >
                           <Eye className="w-4 h-4" />
@@ -268,7 +268,7 @@ export function BachecaClient({
                         <Button
                           variant="ghost" size="icon"
                           onClick={() => handleDelete(b.id)}
-                          className="text-destructive hover:text-destructive"
+                          className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
