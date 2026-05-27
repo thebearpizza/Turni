@@ -16,7 +16,9 @@ export const metadata: Metadata = {
     startupImage: '/icon-512.png',
   },
   icons: {
-    apple: [{ url: '/icon-192.png', sizes: '192x192' }],
+    apple: [
+      { url: '/logo-branding.png', sizes: '180x180', type: 'image/png' },
+    ],
   },
 }
 
