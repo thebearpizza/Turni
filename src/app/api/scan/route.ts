@@ -59,28 +59,28 @@ export async function POST(request: Request) {
   if (type === 'in') {
     const { start: todayStart, end: todayEnd } = todayRomeBounds()
 
-    // Blocca se c'è già un turno aperto (check_out nullo)
-    const { data: openShift } = await supabase
-      .from('attendances')
-      .select('id')
-      .eq('user_id', user.id)
-      .is('check_out', null)
-      .gte('check_in', todayStart)
-      .maybeSingle()
+    // Run both checks in parallel — open shift check + split shift detection
+    const [{ data: openShift }, { data: completedToday }] = await Promise.all([
+      supabase
+        .from('attendances')
+        .select('id')
+        .eq('user_id', user.id)
+        .is('check_out', null)
+        .gte('check_in', todayStart)
+        .maybeSingle(),
+      supabase
+        .from('attendances')
+        .select('id')
+        .eq('user_id', user.id)
+        .not('check_out', 'is', null)
+        .gte('check_in', todayStart)
+        .lte('check_in', todayEnd)
+        .maybeSingle(),
+    ])
 
     if (openShift) {
       return NextResponse.json({ error: 'Hai già un turno aperto' }, { status: 409 })
     }
-
-    // Controlla se esiste un turno completato oggi (turno spezzato)
-    const { data: completedToday } = await supabase
-      .from('attendances')
-      .select('id')
-      .eq('user_id', user.id)
-      .not('check_out', 'is', null)
-      .gte('check_in', todayStart)
-      .lte('check_in', todayEnd)
-      .maybeSingle()
 
     const isSplitShift = !!completedToday
 

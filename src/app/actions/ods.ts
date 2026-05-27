@@ -91,24 +91,24 @@ export async function createOdsTask(input: CreateOdsInput): Promise<OdsTask> {
 
   const isPersonal = !!input.assigned_to
   const notifTitle = isPersonal ? 'Nuova mansione assegnata' : 'Nuova istruzione di Reparto'
-
-  // ── 5. In-app notifications (bulk insert) ──────────────────────────
-  await admin.from('notifications').insert(
-    recipients.map(r => ({
-      user_id: r.id,
-      title:   notifTitle,
-      message: input.title,
-      // dipendente → /home/ods, manager-area users → /ods
-      link:    r.role === 'dipendente' ? '/home/ods' : '/ods',
-    }))
-  )
-
-  // ── 6. Push notifications ──────────────────────────────────────────
   const recipientIds = recipients.map(r => r.id)
-  const { data: subs } = await admin
-    .from('push_subscriptions')
-    .select('endpoint, p256dh, auth_key, user_id')
-    .in('user_id', recipientIds)
+
+  // ── 5+6. Parallel: bulk insert in-app notifications + fetch push subscriptions ─
+  const [, { data: subs }] = await Promise.all([
+    admin.from('notifications').insert(
+      recipients.map(r => ({
+        user_id: r.id,
+        title:   notifTitle,
+        message: input.title,
+        // dipendente → /home/ods, manager-area users → /ods
+        link:    r.role === 'dipendente' ? '/home/ods' : '/ods',
+      }))
+    ),
+    admin
+      .from('push_subscriptions')
+      .select('endpoint, p256dh, auth_key, user_id')
+      .in('user_id', recipientIds),
+  ])
 
   if (subs?.length) {
     await Promise.allSettled(
