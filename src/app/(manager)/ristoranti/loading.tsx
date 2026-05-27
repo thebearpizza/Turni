@@ -1,2 +1,2 @@
-import { PageSkeleton } from '@/components/manager/PageSkeleton'
-export default function Loading() { return <PageSkeleton /> }
+import { CustomLoader } from '@/components/ui/CustomLoader'
+export default function Loading() { return <CustomLoader /> }
