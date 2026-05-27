@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Clock, Trash2, AlertTriangle, Plus } from 'lucide-react'
+import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -527,7 +528,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
                     Annulla
                   </Button>
                   <Button onClick={handleSave} disabled={saving || !editCheckIn} className="h-10 rounded-sm">
-                    {saving ? 'Salvataggio...' : 'Salva'}
+                    {saving ? <>Salvataggio<LoadingDots /></> : 'Salva'}
                   </Button>
                 </div>
               </DialogFooter>
@@ -602,7 +603,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
               disabled={addSaving || !newUserId || !newDate || !newCheckIn}
               className="h-10 rounded-sm"
             >
-              {addSaving ? 'Salvataggio...' : 'Aggiungi'}
+              {addSaving ? <>Salvataggio<LoadingDots /></> : 'Aggiungi'}
             </Button>
           </DialogFooter>
         </DialogContent>

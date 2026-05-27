@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Pencil } from 'lucide-react'
+import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
 import { formatDate } from '@/lib/utils'
 import type { Absence, Restaurant, AbsenceType, AbsenceStatus } from '@/types'
@@ -269,7 +270,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button onClick={handleSave} disabled={saving || (!editing && !userId) || !startDate || !endDate}>
-              {saving ? 'Salvataggio...' : 'Salva'}
+              {saving ? <>Salvataggio<LoadingDots /></> : 'Salva'}
             </Button>
           </DialogFooter>
         </DialogContent>

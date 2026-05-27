@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Globe, Store, Users, Eye, ChevronDown } from 'lucide-react'
+import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
 import { ROLE_LABELS } from '@/types'
@@ -371,7 +372,7 @@ export function BachecaClient({
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button onClick={handleSave} disabled={saving || !canSave}>
-              {saving ? 'Pubblicazione...' : 'Pubblica'}
+              {saving ? <>Pubblicazione<LoadingDots /></> : 'Pubblica'}
             </Button>
           </DialogFooter>
         </DialogContent>

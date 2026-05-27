@@ -14,6 +14,7 @@ import { Plus, Trash2, User, Users, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { DEPARTMENTS, ODS_TYPE_LABELS, ODS_DAYS_IT } from '@/types'
+import { LoadingDots } from '@/components/shared/LoadingDots'
 import type { OdsTask, OdsCompletion, OdsTaskType, Department } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -377,7 +378,7 @@ export function OdsManagerClient({
               onClick={handleCreate}
               disabled={saving || !fTitle.trim() || !fDept || (isManager && !fRestaurantId)}
             >
-              {saving ? 'Salvataggio...' : 'Crea Ordine'}
+              {saving ? <>Salvataggio<LoadingDots /></> : 'Crea Ordine'}
             </Button>
           </DialogFooter>
         </DialogContent>
