@@ -148,7 +148,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const isGeoChecking = geoStatus === 'checking'
 
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
+    <main className="h-[calc(100dvh-56px)] overflow-hidden bg-background text-foreground flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <div>

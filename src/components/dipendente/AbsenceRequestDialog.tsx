@@ -17,7 +17,7 @@ interface Props {
  * <input type="date"> erediti la larghezza intrinseca del placeholder iOS Safari
  * e sbordi rispetto al contenitore. */
 const fieldCls =
-  'block w-full min-w-0 h-10 box-border appearance-none bg-background border border-input rounded-md px-3 text-foreground text-sm ' +
+  'block w-full min-w-0 h-10 box-border appearance-none bg-background border border-input rounded-md px-3 text-foreground text-base ' +
   'focus:outline-none focus:ring-1 focus:ring-ring transition-colors'
 
 const labelCls = 'text-muted-foreground text-xs font-medium uppercase tracking-wide mb-2 block'
@@ -142,7 +142,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
                   onChange={e => setNotes(e.target.value)}
                   rows={3}
                   placeholder="Aggiungi una nota..."
-                  className="w-full bg-background border border-input rounded-md px-3 py-2.5 text-foreground text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring resize-none transition-colors"
+                  className="w-full bg-background border border-input rounded-md px-3 py-2.5 text-foreground text-base placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring resize-none transition-colors"
                 />
               </div>
 
