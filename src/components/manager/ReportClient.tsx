@@ -306,10 +306,14 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   }, [selectedMonth, selectedRestaurants.join(','), isManager, loadPreview])
 
   // Compute preview column structure from selectedMonth
-  const { days } = useMemo(() => {
+  const { days, monthLabel } = useMemo(() => {
     const [y, m] = selectedMonth.split('-').map(Number)
     const n = getDaysInMonth(new Date(y, m - 1))
-    return { days: Array.from({ length: n }, (_, i) => i + 1) }
+    const raw = new Intl.DateTimeFormat('it-IT', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1))
+    return {
+      days: Array.from({ length: n }, (_, i) => i + 1),
+      monthLabel: raw.charAt(0).toUpperCase() + raw.slice(1),
+    }
   }, [selectedMonth])
 
   // ── Open the editor for a given employee + day ─────────────────────────
@@ -569,7 +573,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           <div className="flex items-center gap-2 mb-2">
             <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
             <h2 className="text-sm font-semibold">Preview Presenze / Turni</h2>
-            <span className="text-xs text-muted-foreground">({selectedMonth})</span>
+            <span className="text-xs text-muted-foreground">({monthLabel})</span>
             {previewLoading && (
               <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>
             )}
@@ -635,7 +639,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           <div className="flex items-center gap-2 mb-2">
             <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
             <h2 className="text-sm font-semibold">Preview Ore Lavorate</h2>
-            <span className="text-xs text-muted-foreground">({selectedMonth})</span>
+            <span className="text-xs text-muted-foreground">({monthLabel})</span>
             {previewLoading && (
               <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>
             )}

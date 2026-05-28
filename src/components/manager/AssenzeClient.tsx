@@ -224,7 +224,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
       )}
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] overflow-y-auto" onInteractOutside={e => e.preventDefault()}>
           <DialogHeader><DialogTitle>{editing ? 'Modifica Assenza' : 'Nuova Assenza'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             {!editing && (

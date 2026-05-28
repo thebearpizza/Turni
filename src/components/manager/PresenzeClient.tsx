@@ -559,7 +559,7 @@ export function PresenzeClient({
 
       {/* Dialog modifica */}
       <Dialog open={!!editing} onOpenChange={open => !open && closeEdit()}>
-        <DialogContent>
+        <DialogContent onInteractOutside={e => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{confirmingDelete ? 'Elimina Timbratura' : 'Modifica Timbratura'}</DialogTitle>
           </DialogHeader>
@@ -636,7 +636,7 @@ export function PresenzeClient({
 
       {/* Dialog aggiunta manuale */}
       <Dialog open={showAdd} onOpenChange={open => { if (!open) { setShowAdd(false); resetAddForm() } }}>
-        <DialogContent>
+        <DialogContent onInteractOutside={e => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Aggiungi Presenza</DialogTitle>
           </DialogHeader>
