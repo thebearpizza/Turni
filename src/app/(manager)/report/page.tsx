@@ -22,6 +22,7 @@ export default async function ReportPage() {
         restaurants={restaurants ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
+        currentUserId={user!.id}
       />
     </div>
   )
