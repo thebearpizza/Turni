@@ -14,15 +14,37 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { LiveShiftCounter } from './LiveShiftCounter'
-import type { Attendance, Restaurant } from '@/types'
+import type { Attendance, Restaurant, AbsenceType } from '@/types'
+import { ABSENCE_LABELS } from '@/types'
 
 const TZ = 'Europe/Rome'
 
+// Absence badge colors matching AssenzeClient
+const ABSENCE_BADGE: Record<string, string> = {
+  ferie:                  'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
+  malattia:               'bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300',
+  riposo:                 'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300',
+  assenza_ingiustificata: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+}
+
+type AttendanceRow = Attendance & {
+  profile?: { id: string; full_name: string; role: string } | null
+  restaurant?: { id: string; name: string } | null
+}
+
+export type AbsenceItem = {
+  id: string
+  user_id: string
+  restaurant_id: string | null
+  type: string
+  start_date: string
+  end_date: string
+  profile?: { id: string; full_name: string } | null
+}
+
 interface Props {
-  initialPresenze: (Attendance & {
-    profile?: { id: string; full_name: string; role: string } | null
-    restaurant?: { id: string; name: string } | null
-  })[]
+  initialPresenze: AttendanceRow[]
+  initialAbsences: AbsenceItem[]
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
   dipendenti: { id: string; full_name: string; role: string }[]
   currentUserRole: string
@@ -35,30 +57,34 @@ function formatDuration(minutes: number): string {
   return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
-export function PresenzeClient({ initialPresenze, restaurants, dipendenti, currentUserRole, currentRestaurantId }: Props) {
-  const [presenze, setPresenze] = useState(initialPresenze)
-  const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
+export function PresenzeClient({
+  initialPresenze, initialAbsences,
+  restaurants, dipendenti, currentUserRole, currentRestaurantId,
+}: Props) {
+  const [presenze, setPresenze]   = useState(initialPresenze)
+  const [absences, setAbsences]   = useState(initialAbsences)
+  const [selectedMonth, setSelectedMonth]     = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
-  const [loading, setLoading] = useState(false)
-  const [editing, setEditing] = useState<typeof initialPresenze[0] | null>(null)
-  const [editCheckIn, setEditCheckIn] = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [editing, setEditing]     = useState<AttendanceRow | null>(null)
+  const [editCheckIn, setEditCheckIn]   = useState('')
   const [editCheckOut, setEditCheckOut] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [deleting, setDeleting]   = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [isLive, setIsLive] = useState(false)
-  const [showAdd, setShowAdd] = useState(false)
+  const [isLive, setIsLive]       = useState(false)
+  const [showAdd, setShowAdd]     = useState(false)
   const [newUserId, setNewUserId] = useState('')
-  const [newDate, setNewDate] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-  const [newCheckIn, setNewCheckIn] = useState('')
+  const [newDate, setNewDate]     = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [newCheckIn, setNewCheckIn]   = useState('')
   const [newCheckOut, setNewCheckOut] = useState('')
-  const [addError, setAddError] = useState<string | null>(null)
+  const [addError, setAddError]   = useState<string | null>(null)
   const [addSaving, setAddSaving] = useState(false)
 
   // Refs so the realtime handler always reads current filter values without re-subscribing
-  const monthRef = useRef(selectedMonth)
+  const monthRef      = useRef(selectedMonth)
   const restaurantRef = useRef(selectedRestaurant)
-  useEffect(() => { monthRef.current = selectedMonth }, [selectedMonth])
+  useEffect(() => { monthRef.current = selectedMonth },      [selectedMonth])
   useEffect(() => { restaurantRef.current = selectedRestaurant }, [selectedRestaurant])
 
   // Supabase Realtime subscription — wired once on mount
@@ -79,17 +105,14 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
 
           const rec = payload.new as { id: string; check_in: string; restaurant_id: string | null }
 
-          // Filter: check if record falls within selected month
           const [y, m] = monthRef.current.split('-').map(Number)
           const monthStart = new Date(Date.UTC(y, m - 1, 1))
-          const monthEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59))
-          const checkIn = new Date(rec.check_in)
+          const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+          const checkIn    = new Date(rec.check_in)
           if (checkIn < monthStart || checkIn > monthEnd) return
 
-          // Filter: check restaurant (skip if 'all')
           if (restaurantRef.current !== 'all' && rec.restaurant_id !== restaurantRef.current) return
 
-          // Fetch full record with profile + restaurant joins
           const { data } = await supabase
             .from('attendances')
             .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
@@ -109,45 +132,57 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
           }
         }
       )
-      .subscribe(status => {
-        setIsLive(status === 'SUBSCRIBED')
-      })
+      .subscribe(status => { setIsLive(status === 'SUBSCRIBED') })
 
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const loadPresenze = useCallback(async (month: string, restaurantId: string) => {
+  // Load presenze + absences for the given month / restaurant filter
+  const loadData = useCallback(async (month: string, restaurantId: string) => {
     setLoading(true)
     const [year, m] = month.split('-').map(Number)
-    const startDate = new Date(Date.UTC(year, m - 1, 1)).toISOString()
-    const endDate = new Date(Date.UTC(year, m, 0, 23, 59, 59)).toISOString()
+    const startIso = new Date(Date.UTC(year, m - 1, 1)).toISOString()
+    const endIso   = new Date(Date.UTC(year, m, 0, 23, 59, 59)).toISOString()
+    const monthStart = `${month}-01`
+    const monthEnd   = `${month}-${String(new Date(Date.UTC(year, m, 0)).getDate()).padStart(2, '0')}`
 
     const supabase = createClient()
-    let query = supabase
+    let presQ = supabase
       .from('attendances')
       .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
-      .gte('check_in', startDate)
-      .lte('check_in', endDate)
+      .gte('check_in', startIso)
+      .lte('check_in', endIso)
       .order('check_in', { ascending: false })
 
-    if (restaurantId !== 'all') query = query.eq('restaurant_id', restaurantId)
+    let absQ = supabase
+      .from('absences')
+      .select('id, user_id, restaurant_id, type, start_date, end_date, profile:profiles!user_id(id, full_name)')
+      .eq('status', 'approved')
+      .lte('start_date', monthEnd)
+      .gte('end_date', monthStart)
 
-    const { data } = await query
-    setPresenze(data ?? [])
+    if (restaurantId !== 'all') {
+      presQ = presQ.eq('restaurant_id', restaurantId)
+      absQ  = absQ.eq('restaurant_id', restaurantId)
+    }
+
+    const [{ data: p }, { data: a }] = await Promise.all([presQ, absQ])
+    setPresenze(p ?? [])
+    setAbsences((a ?? []) as unknown as AbsenceItem[])
     setLoading(false)
   }, [])
 
   function handleMonthChange(month: string) {
     setSelectedMonth(month)
-    loadPresenze(month, selectedRestaurant)
+    loadData(month, selectedRestaurant)
   }
 
   function handleRestaurantChange(restaurantId: string) {
     setSelectedRestaurant(restaurantId)
-    loadPresenze(selectedMonth, restaurantId)
+    loadData(selectedMonth, restaurantId)
   }
 
-  function openEdit(p: typeof initialPresenze[0]) {
+  function openEdit(p: AttendanceRow) {
     setEditing(p)
     setConfirmingDelete(false)
     setEditCheckIn(formatInTimeZone(new Date(p.check_in), TZ, "yyyy-MM-dd'T'HH:mm"))
@@ -165,7 +200,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
 
     const supabase = createClient()
     const updates: Record<string, string | null> = {
-      check_in: fromZonedTime(new Date(editCheckIn), TZ).toISOString(),
+      check_in:  fromZonedTime(new Date(editCheckIn), TZ).toISOString(),
       check_out: editCheckOut ? fromZonedTime(new Date(editCheckOut), TZ).toISOString() : null,
     }
 
@@ -187,7 +222,6 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
     const supabase = createClient()
     const { error } = await supabase.from('attendances').delete().eq('id', editing.id)
     if (!error) {
-      // Optimistic local removal — Realtime DELETE event will reconcile too
       setPresenze(ps => ps.filter(p => p.id !== editing.id))
       closeEdit()
     }
@@ -225,14 +259,13 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
       return
     }
 
-    // Optimistic add if the new record falls within the current filter
     const [y, m] = selectedMonth.split('-').map(Number)
     const monthStart = new Date(Date.UTC(y, m - 1, 1))
-    const monthEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+    const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
     const checkInDate = new Date(data.attendance.check_in)
     const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
-    const matchesRestaurant = selectedRestaurant === 'all' || data.attendance.restaurant_id === selectedRestaurant
-    if (matchesMonth && matchesRestaurant) {
+    const matchesRest  = selectedRestaurant === 'all' || data.attendance.restaurant_id === selectedRestaurant
+    if (matchesMonth && matchesRest) {
       setPresenze(ps => [data.attendance, ...ps])
     }
 
@@ -241,19 +274,29 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
     setAddSaving(false)
   }
 
-  // Raggruppamento annidato Data -> Dipendente -> [blocchi]
-  // Ricalcolato solo quando l'array presenze cambia
+  // ── Grouped presenze + absent employees ────────────────────────────────
+  // Depends on presenze, absences, and selectedMonth (for "show today" logic).
   const groupedPresenze = useMemo(() => {
-    type Row = {
+    type PresentRow = {
       userId: string
       userName: string
       restaurantName: string | null
-      blocks: typeof presenze
+      blocks: AttendanceRow[]
       totalMinutes: number
       hasOpen: boolean
       hasSplit: boolean
+      isAbsent: false
     }
-    const byDay = new Map<string, Map<string, Row>>()
+    type AbsentRow = {
+      userId: string
+      userName: string
+      isAbsent: true
+      absenceType: string
+    }
+    type Row = PresentRow | AbsentRow
+
+    // Build present rows (existing logic)
+    const byDay = new Map<string, Map<string, PresentRow>>()
 
     for (const p of presenze) {
       const dayKey = formatInTimeZone(new Date(p.check_in), TZ, 'yyyy-MM-dd')
@@ -270,6 +313,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
           totalMinutes: 0,
           hasOpen: false,
           hasSplit: false,
+          isAbsent: false,
         }
         dayMap.set(p.user_id, row)
       }
@@ -280,25 +324,56 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
       if (p.is_split_shift) row.hasSplit = true
     }
 
-    // Blocchi: ordinati per check_in ascendente (mattina → sera)
+    // Sort shift blocks within each employee row
     for (const dayMap of byDay.values()) {
       for (const row of dayMap.values()) {
         row.blocks.sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime())
       }
     }
 
-    // Giorni ordinati desc (oggi prima), dipendenti per nome asc
+    // Ensure today appears if the selected month is the current month and there
+    // are approved absences for today — even if nobody has clocked in yet.
+    const todayKey   = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+    const todayMonth = todayKey.substring(0, 7)
+    if (todayMonth === selectedMonth) {
+      const hasAbsencesToday = absences.some(a => a.start_date <= todayKey && a.end_date >= todayKey)
+      if (hasAbsencesToday && !byDay.has(todayKey)) {
+        byDay.set(todayKey, new Map())
+      }
+    }
+
+    // Build absent rows: approved absence covers the day AND employee has no presenze that day
+    const byDayAbsent = new Map<string, Map<string, AbsentRow>>()
+    for (const [dayKey, presentMap] of byDay.entries()) {
+      const absentMap = new Map<string, AbsentRow>()
+      for (const absence of absences) {
+        if (absence.start_date > dayKey || absence.end_date < dayKey) continue
+        const uid = absence.user_id
+        if (presentMap.has(uid) || absentMap.has(uid)) continue
+        absentMap.set(uid, {
+          userId: uid,
+          userName: absence.profile?.full_name ?? '—',
+          isAbsent: true,
+          absenceType: absence.type,
+        })
+      }
+      byDayAbsent.set(dayKey, absentMap)
+    }
+
+    // Sort and merge present + absent per day
     return Array.from(byDay.entries())
       .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([day, dayMap]) => [
-        day,
-        Array.from(dayMap.values()).sort((a, b) => a.userName.localeCompare(b.userName, 'it')),
-      ] as const)
-  }, [presenze])
+      .map(([day, dayMap]) => {
+        const presentRows = Array.from(dayMap.values())
+          .sort((a, b) => a.userName.localeCompare(b.userName, 'it'))
+        const absentRows = Array.from((byDayAbsent.get(day) ?? new Map()).values())
+          .sort((a, b) => a.userName.localeCompare(b.userName, 'it'))
+        return [day, [...presentRows, ...absentRows] as Row[]] as const
+      })
+  }, [presenze, absences, selectedMonth])
 
   function formatDayHeader(dayKey: string): string {
     const [y, m, d] = dayKey.split('-').map(Number)
-    // Costruisci una data a mezzogiorno locale per evitare offset DST
     const date = new Date(y, m - 1, d, 12, 0, 0)
     const label = formatInTimeZone(date, TZ, 'EEEE d MMMM yyyy', { locale: it })
     return label.charAt(0).toUpperCase() + label.slice(1)
@@ -320,7 +395,6 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
               Aggiungi Presenza
             </Button>
           )}
-          {/* Indicatore live */}
           <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${
             isLive
               ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-800'
@@ -362,7 +436,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
             <div key={i} className="h-16 bg-muted animate-pulse rounded-md" />
           ))}
         </div>
-      ) : presenze.length === 0 ? (
+      ) : groupedPresenze.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Nessuna presenza nel periodo selezionato
@@ -372,7 +446,6 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
         <div className="space-y-6">
           {groupedPresenze.map(([dayKey, rows]) => (
             <section key={dayKey}>
-              {/* Header gruppo — stile Fluent/Windows: neutro, sottile, separato */}
               <div className="flex items-baseline justify-between border-b border-border pb-1.5 mb-2">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   {formatDayHeader(dayKey)}
@@ -384,76 +457,98 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
 
               <div className="space-y-2">
                 {rows.map(row => {
+                  // ── Absent employee row ──────────────────────────────
+                  if (row.isAbsent) {
+                    return (
+                      <Card
+                        key={`absent-${dayKey}-${row.userId}`}
+                        className="rounded-sm opacity-80 border-dashed"
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-sm text-muted-foreground">
+                                {row.userName}
+                              </span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ABSENCE_BADGE[row.absenceType] ?? ''}`}>
+                                {ABSENCE_LABELS[row.absenceType as AbsenceType] ?? row.absenceType}
+                              </span>
+                            </div>
+                            <span className="shrink-0 text-xs text-muted-foreground">Assente</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  }
+
+                  // ── Present employee row (existing logic) ────────────
                   const openBlock = row.hasOpen ? row.blocks.find(b => !b.check_out) : undefined
                   return (
-                  <Card key={`${dayKey}-${row.userId}`} className="rounded-sm">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        {/* Sezione sinistra: nome + badge stati + blocchi turno */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-2">
-                            <span className="font-medium text-sm">{row.userName}</span>
-                            {row.hasOpen && (
-                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
-                                In corso
-                              </Badge>
-                            )}
-                            {row.hasSplit && (
-                              <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
-                                Spezzato
-                              </Badge>
-                            )}
-                            {row.restaurantName && (
-                              <span className="text-xs text-muted-foreground">{row.restaurantName}</span>
-                            )}
+                    <Card key={`${dayKey}-${row.userId}`} className="rounded-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              <span className="font-medium text-sm">{row.userName}</span>
+                              {row.hasOpen && (
+                                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
+                                  In corso
+                                </Badge>
+                              )}
+                              {row.hasSplit && (
+                                <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
+                                  Spezzato
+                                </Badge>
+                              )}
+                              {row.restaurantName && (
+                                <span className="text-xs text-muted-foreground">{row.restaurantName}</span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {row.blocks.map(b => {
+                                const isOpen   = !b.check_out
+                                const checkIn  = formatInTimeZone(new Date(b.check_in), TZ, 'HH:mm')
+                                const checkOut = b.check_out
+                                  ? formatInTimeZone(new Date(b.check_out), TZ, 'HH:mm')
+                                  : '···'
+                                return (
+                                  <button
+                                    key={b.id}
+                                    onClick={() => openEdit(b)}
+                                    title="Modifica turno"
+                                    className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border cursor-pointer transition-colors ${
+                                      isOpen
+                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
+                                        : 'bg-zinc-100 border-border text-foreground hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                                    }`}
+                                  >
+                                    {checkIn} → {checkOut}
+                                  </button>
+                                )
+                              })}
+                            </div>
                           </div>
 
-                          {/* Blocchi turno: ogni badge è cliccabile → apre il dialog di modifica per quel blocco */}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {row.blocks.map(b => {
-                              const isOpen = !b.check_out
-                              const checkIn = formatInTimeZone(new Date(b.check_in), TZ, 'HH:mm')
-                              const checkOut = b.check_out
-                                ? formatInTimeZone(new Date(b.check_out), TZ, 'HH:mm')
-                                : '···'
-                              return (
-                                <button
-                                  key={b.id}
-                                  onClick={() => openEdit(b)}
-                                  title="Modifica turno"
-                                  className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border cursor-pointer transition-colors ${
-                                    isOpen
-                                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
-                                      : 'bg-zinc-100 border-border text-foreground hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800'
-                                  }`}
-                                >
-                                  {checkIn} → {checkOut}
-                                </button>
-                              )
-                            })}
+                          <div className="shrink-0 text-right">
+                            <div className="text-sm font-semibold tabular-nums flex items-center gap-1.5 justify-end">
+                              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                              {openBlock ? (
+                                <LiveShiftCounter
+                                  checkInTime={openBlock.check_in}
+                                  baseMinutes={row.totalMinutes}
+                                />
+                              ) : (
+                                formatDuration(row.totalMinutes)
+                              )}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                              {row.blocks.length} {row.blocks.length === 1 ? 'turno' : 'turni'}
+                            </div>
                           </div>
                         </div>
-
-                        {/* Sezione destra: totale ore + contatore turni */}
-                        <div className="shrink-0 text-right">
-                          <div className="text-sm font-semibold tabular-nums flex items-center gap-1.5 justify-end">
-                            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                            {openBlock ? (
-                              <LiveShiftCounter
-                                checkInTime={openBlock.check_in}
-                                baseMinutes={row.totalMinutes}
-                              />
-                            ) : (
-                              formatDuration(row.totalMinutes)
-                            )}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            {row.blocks.length} {row.blocks.length === 1 ? 'turno' : 'turni'}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
                   )
                 })}
               </div>
@@ -481,7 +576,9 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
               {editing && (
                 <div className="text-xs text-muted-foreground border-l-2 border-border pl-3">
                   <div>{editing.profile?.full_name ?? '—'}</div>
-                  <div>{formatInTimeZone(new Date(editing.check_in), TZ, 'dd-MM-yyyy HH:mm')} → {editing.check_out ? formatInTimeZone(new Date(editing.check_out), TZ, 'HH:mm') : '—'}</div>
+                  <div>
+                    {formatInTimeZone(new Date(editing.check_in), TZ, 'dd-MM-yyyy HH:mm')} → {editing.check_out ? formatInTimeZone(new Date(editing.check_out), TZ, 'HH:mm') : '—'}
+                  </div>
                 </div>
               )}
               <DialogFooter>
@@ -536,6 +633,7 @@ export function PresenzeClient({ initialPresenze, restaurants, dipendenti, curre
           )}
         </DialogContent>
       </Dialog>
+
       {/* Dialog aggiunta manuale */}
       <Dialog open={showAdd} onOpenChange={open => { if (!open) { setShowAdd(false); resetAddForm() } }}>
         <DialogContent>

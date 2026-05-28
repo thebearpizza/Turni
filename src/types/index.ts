@@ -7,6 +7,8 @@ export interface Restaurant {
   id: string
   name: string
   address: string | null
+  latitude: number | null
+  longitude: number | null
   qr_secret: string
   created_at: string
 }

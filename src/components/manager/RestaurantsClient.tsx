@@ -21,6 +21,8 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
   const [editing, setEditing] = useState<Restaurant | null>(null)
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [latitude, setLatitude] = useState('')
+  const [longitude, setLongitude] = useState('')
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
 
@@ -28,6 +30,8 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setEditing(null)
     setName('')
     setAddress('')
+    setLatitude('')
+    setLongitude('')
     setShowForm(true)
   }
 
@@ -35,17 +39,21 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setEditing(r)
     setName(r.name)
     setAddress(r.address ?? '')
+    setLatitude(r.latitude != null ? String(r.latitude) : '')
+    setLongitude(r.longitude != null ? String(r.longitude) : '')
     setShowForm(true)
   }
 
   async function handleSave() {
     setLoading(true)
     const supabase = createClient()
+    const lat = latitude !== '' ? parseFloat(latitude) : null
+    const lng = longitude !== '' ? parseFloat(longitude) : null
 
     if (editing) {
       const { data } = await supabase
         .from('restaurants')
-        .update({ name, address: address || null })
+        .update({ name, address: address || null, latitude: lat, longitude: lng })
         .eq('id', editing.id)
         .select()
         .single()
@@ -53,7 +61,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     } else {
       const { data } = await supabase
         .from('restaurants')
-        .insert({ name, address: address || null })
+        .insert({ name, address: address || null, latitude: lat, longitude: lng })
         .select()
         .single()
       if (data) setRestaurants(rs => [...rs, data])
@@ -156,6 +164,28 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
             <div className="space-y-2">
               <Label>Indirizzo</Label>
               <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="Via Roma 1, Milano" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Latitudine</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={latitude}
+                  onChange={e => setLatitude(e.target.value)}
+                  placeholder="es. 41.902782"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Longitudine</Label>
+                <Input
+                  type="number"
+                  step="0.000001"
+                  value={longitude}
+                  onChange={e => setLongitude(e.target.value)}
+                  placeholder="es. 12.496366"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
