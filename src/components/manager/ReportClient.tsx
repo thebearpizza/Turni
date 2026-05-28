@@ -1,15 +1,18 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { FileSpreadsheet, Download } from 'lucide-react'
-import { formatInTimeZone } from 'date-fns-tz'
-import { getDaysInMonth } from 'date-fns'
-import type { Restaurant } from '@/types'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { getDaysInMonth, differenceInMinutes } from 'date-fns'
+import type { Restaurant, AbsenceType } from '@/types'
+import { ABSENCE_CODES } from '@/types'
 
 const TZ = 'Europe/Rome'
+const TARGET_HOURS_PER_DAY = 8.5
 
 interface Props {
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
@@ -17,20 +20,24 @@ interface Props {
   currentRestaurantId: string | null
 }
 
-// Deterministic sample data for the preview tables
-const SAMPLE_NAMES = ['Mario Rossi', 'Laura Bianchi', 'Carlo Verdi', 'Sofia Esposito', 'Luca Moretti']
-
-function samplePresenzeCode(empIdx: number, day: number): string {
-  const codes = ['P', 'P', 'P', 'P', 'P', 'P', 'F', 'M', 'R', '']
-  return codes[(empIdx * 7 + day * 3) % codes.length]
+// ── Preview row types ───────────────────────────────────────────────────
+type PreviewRow = {
+  id: string
+  full_name: string
+  cells: Record<number, string>   // day (1..31) → cell code / value
+  totalMins?: number
+  totalLabel?: string
+  diffLabel?: string
+  diffMins?: number
 }
 
-function sampleOreValue(empIdx: number, day: number): string {
-  const vals = ['8h 30m', '9h 00m', '8h 00m', '7h 45m', '', '', 'F', 'M', 'R', '']
-  return vals[(empIdx * 11 + day * 5) % vals.length]
+function minutesToLabel(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
-// Cell background colours matching the Excel export
+// ── Cell styles — identical to Excel colour mapping ─────────────────────
 const PRESENZE_CELL_BG: Record<string, string> = {
   P:  'bg-green-100  text-green-900  dark:bg-green-900/30  dark:text-green-300',
   PP: 'bg-green-200  text-green-900  dark:bg-green-800/40  dark:text-green-200',
@@ -44,11 +51,15 @@ const ORE_CELL_BG: Record<string, string> = {
   F:  'bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-300',
   M:  'bg-blue-100   text-blue-900   dark:bg-blue-900/30   dark:text-blue-300',
   R:  'bg-red-100    text-red-900    dark:bg-red-900/30    dark:text-red-300',
+  AI: 'bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300',
 }
 
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
-const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
+const thCls    = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
+const tdCls    = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
 const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-white dark:bg-zinc-950 z-10'
+
+// Absence codes that should get coloured cells in the "Ore" table
+const ORE_ABSENCE_CODES = new Set(['F', 'M', 'R', 'AI'])
 
 export function ReportClient({ restaurants, currentUserRole, currentRestaurantId }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
@@ -56,6 +67,13 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
     currentRestaurantId ? [currentRestaurantId] : []
   )
   const [loading, setLoading] = useState<'presenze' | 'ore' | null>(null)
+
+  // Preview state
+  const [previewPresenze, setPreviewPresenze] = useState<PreviewRow[]>([])
+  const [previewOre, setPreviewOre]           = useState<PreviewRow[]>([])
+  const [previewLoading, setPreviewLoading]   = useState(false)
+  // Generation counter: prevents stale responses from overwriting newer ones
+  const genRef = useRef(0)
 
   const isManager = currentUserRole === 'manager'
 
@@ -98,11 +116,145 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
     }
   }
 
-  // Compute preview structure from selectedMonth
-  const { days, totalDays } = useMemo(() => {
+  // ── Preview data fetch ─────────────────────────────────────────────────
+  // Mirrors the logic in /api/report/route.ts, executed client-side so the
+  // preview stays in sync with whatever the Excel would contain.
+  const loadPreview = useCallback(async (month: string, restaurantIds: string[]) => {
+    const gen = ++genRef.current
+    setPreviewLoading(true)
+
+    const [year, monthNum] = month.split('-').map(Number)
+    const daysCount  = getDaysInMonth(new Date(year, monthNum - 1))
+    const monthStart = `${month}-01`
+    const monthEnd   = `${month}-${String(daysCount).padStart(2, '0')}`
+    const rangeStart = fromZonedTime(`${monthStart}T00:00:00`, TZ).toISOString()
+    const rangeEnd   = fromZonedTime(`${monthEnd}T23:59:59`, TZ).toISOString()
+
+    const supabase = createClient()
+
+    const [
+      { data: employees },
+      { data: attendances },
+      { data: absences },
+    ] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('role', ['dipendente', 'capo_servizio'])
+        .in('restaurant_id', restaurantIds)
+        .order('full_name'),
+      supabase
+        .from('attendances')
+        .select('user_id, check_in, check_out')
+        .in('restaurant_id', restaurantIds)
+        .gte('check_in', rangeStart)
+        .lte('check_in', rangeEnd),
+      supabase
+        .from('absences')
+        .select('user_id, type, start_date, end_date')
+        .in('restaurant_id', restaurantIds)
+        .eq('status', 'approved')
+        .lte('start_date', monthEnd)
+        .gte('end_date', monthStart),
+    ])
+
+    // Discard if a newer request has started
+    if (gen !== genRef.current) return
+
+    if (!employees?.length) {
+      setPreviewPresenze([])
+      setPreviewOre([])
+      setPreviewLoading(false)
+      return
+    }
+
+    const presRows: PreviewRow[] = []
+    const oreRows:  PreviewRow[] = []
+
+    for (const emp of employees) {
+      const presCells: Record<number, string> = {}
+      const oreCells:  Record<number, string> = {}
+      let totalMins = 0
+      let workDays  = 0
+
+      for (let day = 1; day <= daysCount; day++) {
+        const dateStr = `${month}-${String(day).padStart(2, '0')}`
+
+        // Approved absence takes priority over attendance
+        const absence = absences?.find(a =>
+          a.user_id === emp.id &&
+          a.start_date <= dateStr &&
+          a.end_date   >= dateStr
+        )
+        if (absence) {
+          const code = ABSENCE_CODES[absence.type as AbsenceType]
+          presCells[day] = code
+          oreCells[day]  = code
+          continue
+        }
+
+        // Sessions for this employee on this Rome-local day
+        const daySessions = attendances?.filter(a => {
+          if (a.user_id !== emp.id) return false
+          return formatInTimeZone(new Date(a.check_in), TZ, 'yyyy-MM-dd') === dateStr
+        }) ?? []
+
+        if (daySessions.length > 0) {
+          const hasOpen  = daySessions.some(a => !a.check_out)
+          const dayMins  = daySessions.reduce((sum, a) => {
+            if (!a.check_out) return sum
+            return sum + differenceInMinutes(new Date(a.check_out), new Date(a.check_in))
+          }, 0)
+
+          presCells[day] = dayMins > 720 ? 'PP' : 'P'
+
+          if (hasOpen && dayMins === 0) {
+            oreCells[day] = 'In corso'
+          } else {
+            totalMins += dayMins
+            workDays++
+            oreCells[day] = minutesToLabel(dayMins)
+          }
+        }
+      }
+
+      const targetMins = workDays * TARGET_HOURS_PER_DAY * 60
+      const diffMins   = totalMins - targetMins
+      const absDiff    = Math.abs(diffMins)
+
+      presRows.push({ id: emp.id, full_name: emp.full_name, cells: presCells })
+      oreRows.push({
+        id:         emp.id,
+        full_name:  emp.full_name,
+        cells:      oreCells,
+        totalMins,
+        totalLabel: minutesToLabel(totalMins),
+        diffMins,
+        diffLabel:  `${diffMins >= 0 ? '+' : '-'}${minutesToLabel(absDiff)}`,
+      })
+    }
+
+    setPreviewPresenze(presRows)
+    setPreviewOre(oreRows)
+    setPreviewLoading(false)
+  }, [])
+
+  // Re-fetch preview whenever month or restaurant selection changes
+  useEffect(() => {
+    const targets = isManager
+      ? (selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id))
+      : (currentRestaurantId ? [currentRestaurantId] : [])
+    if (targets.length === 0) return
+    loadPreview(selectedMonth, targets)
+  // selectedRestaurants.join is a stable primitive derived from the array
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth, selectedRestaurants.join(','), isManager, loadPreview])
+
+  // Compute preview column structure from selectedMonth
+  const { days } = useMemo(() => {
     const [y, m] = selectedMonth.split('-').map(Number)
     const n = getDaysInMonth(new Date(y, m - 1))
-    return { days: Array.from({ length: n }, (_, i) => i + 1), totalDays: n }
+    return { days: Array.from({ length: n }, (_, i) => i + 1) }
   }, [selectedMonth])
 
   return (
@@ -174,8 +326,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
 
       {/* ── Preview riquadri ─────────────────────────────────────────────
           Scroll confinato al container (overflow-auto + max-h).
-          La tabella usa whitespace-nowrap + minWidth: max-content per non
-          collassare i giorni, garantendo scroll X interno senza viewport leak. */}
+          La tabella usa minWidth: max-content per evitare che i giorni
+          collassino — scroll X interno, nessun leak a livello viewport. */}
       <div className="mt-10 space-y-8">
 
         {/* Riquadro 1 — Preview Presenze/Turni */}
@@ -184,9 +336,10 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
             <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
             <h2 className="text-sm font-semibold">Preview Presenze / Turni</h2>
             <span className="text-xs text-muted-foreground">({selectedMonth})</span>
+            {previewLoading && (
+              <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>
+            )}
           </div>
-          {/* overflow-auto confina lo scroll; max-h-[340px] limita altezza;
-              il contenuto non tracima mai nel layout principale */}
           <div className="w-full rounded-md border bg-muted/20 overflow-auto max-h-[340px]">
             <table
               className="border-collapse text-xs"
@@ -202,11 +355,23 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                 </tr>
               </thead>
               <tbody>
-                {SAMPLE_NAMES.map((name, empIdx) => (
-                  <tr key={name} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
-                    <td className={tdNameCls}>{name}</td>
+                {previewLoading && previewPresenze.length === 0 ? (
+                  <tr>
+                    <td colSpan={days.length + 2} className="text-center py-6 text-muted-foreground text-xs">
+                      Caricamento...
+                    </td>
+                  </tr>
+                ) : previewPresenze.length === 0 ? (
+                  <tr>
+                    <td colSpan={days.length + 2} className="text-center py-6 text-muted-foreground text-xs">
+                      Nessun dipendente trovato per i filtri selezionati
+                    </td>
+                  </tr>
+                ) : previewPresenze.map(row => (
+                  <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                    <td className={tdNameCls}>{row.full_name}</td>
                     {days.map(d => {
-                      const code = samplePresenzeCode(empIdx, d)
+                      const code = row.cells[d] ?? ''
                       return (
                         <td
                           key={d}
@@ -222,9 +387,11 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
               </tbody>
             </table>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-1.5">
-            Dati di esempio · Il file Excel conterrà i dati reali del mese selezionato
-          </p>
+          {!previewLoading && previewPresenze.length > 0 && (
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              {previewPresenze.length} dipendenti · dati reali dal database
+            </p>
+          )}
         </div>
 
         {/* Riquadro 2 — Preview Ore Lavorate */}
@@ -233,6 +400,9 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
             <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
             <h2 className="text-sm font-semibold">Preview Ore Lavorate</h2>
             <span className="text-xs text-muted-foreground">({selectedMonth})</span>
+            {previewLoading && (
+              <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>
+            )}
           </div>
           <div className="w-full rounded-md border bg-muted/20 overflow-auto max-h-[340px]">
             <table
@@ -251,52 +421,52 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                 </tr>
               </thead>
               <tbody>
-                {SAMPLE_NAMES.map((name, empIdx) => {
-                  // Compute a plausible sample total
-                  let workDays = 0
-                  let totalMins = 0
-                  const cells = days.map(d => {
-                    const val = sampleOreValue(empIdx, d)
-                    if (val && !['F', 'M', 'R', 'AI'].includes(val)) {
-                      const [hPart, mPart] = val.replace('m', '').split('h ')
-                      const mins = (parseInt(hPart) * 60) + (parseInt(mPart) || 0)
-                      totalMins += mins
-                      workDays++
-                    }
-                    return val
-                  })
-                  const targetMins  = workDays * 8.5 * 60
-                  const diffMins    = totalMins - targetMins
-                  const diffSign    = diffMins >= 0 ? '+' : '-'
-                  const absDiff     = Math.abs(diffMins)
-                  const diffLabel   = `${diffSign}${Math.floor(absDiff / 60)}h ${String(Math.round(absDiff % 60)).padStart(2, '0')}m`
-                  const totalLabel  = `${Math.floor(totalMins / 60)}h ${String(Math.round(totalMins % 60)).padStart(2, '0')}m`
-
-                  return (
-                    <tr key={name} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
-                      <td className={tdNameCls}>{name}</td>
-                      {cells.map((val, i) => (
+                {previewLoading && previewOre.length === 0 ? (
+                  <tr>
+                    <td colSpan={days.length + 4} className="text-center py-6 text-muted-foreground text-xs">
+                      Caricamento...
+                    </td>
+                  </tr>
+                ) : previewOre.length === 0 ? (
+                  <tr>
+                    <td colSpan={days.length + 4} className="text-center py-6 text-muted-foreground text-xs">
+                      Nessun dipendente trovato per i filtri selezionati
+                    </td>
+                  </tr>
+                ) : previewOre.map(row => (
+                  <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                    <td className={tdNameCls}>{row.full_name}</td>
+                    {days.map(d => {
+                      const val = row.cells[d] ?? ''
+                      const isAbsCode = ORE_ABSENCE_CODES.has(val)
+                      return (
                         <td
-                          key={i}
-                          className={`${tdCls} ${ORE_CELL_BG[val] ?? ''}`}
+                          key={d}
+                          className={`${tdCls} ${isAbsCode ? `font-semibold ${ORE_CELL_BG[val] ?? ''}` : ''}`}
                         >
-                          {['F', 'M', 'R', 'AI'].includes(val) ? val : (val || '')}
+                          {val}
                         </td>
-                      ))}
-                      <td className={`${tdCls} font-medium`}>{totalLabel}</td>
-                      <td className={`${tdCls} font-semibold ${diffMins >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-                        {diffLabel}
-                      </td>
-                      <td className={tdCls} />
-                    </tr>
-                  )
-                })}
+                      )
+                    })}
+                    <td className={`${tdCls} font-medium`}>{row.totalLabel}</td>
+                    <td className={`${tdCls} font-semibold ${
+                      (row.diffMins ?? 0) >= 0
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-red-700 dark:text-red-400'
+                    }`}>
+                      {row.diffLabel}
+                    </td>
+                    <td className={tdCls} />
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-1.5">
-            Dati di esempio · Il file Excel conterrà i dati reali del mese selezionato
-          </p>
+          {!previewLoading && previewOre.length > 0 && (
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              {previewOre.length} dipendenti · dati reali dal database
+            </p>
+          )}
         </div>
       </div>
     </div>

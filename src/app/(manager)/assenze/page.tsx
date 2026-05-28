@@ -19,10 +19,11 @@ export default async function AssenzePage() {
     .select('id, name')
     .order('name')
 
+  // Managers can assign absences to capo_servizio too, not just dipendenti
   const { data: dipendenti } = await supabase
     .from('profiles')
     .select('id, full_name, restaurant_id')
-    .eq('role', 'dipendente')
+    .in('role', ['dipendente', 'capo_servizio'])
     .order('full_name')
 
   const nowRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
