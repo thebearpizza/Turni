@@ -23,6 +23,7 @@ export interface Profile {
   department: Department | null
   restaurant_id: string | null
   can_post_bulletin: boolean
+  is_direttore: boolean
   created_at: string
   updated_at: string
   restaurant?: Restaurant

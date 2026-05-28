@@ -36,9 +36,14 @@ interface Props {
   initialDipendenti: DipWithRestaurant[]
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
   currentUserRole: string
+  currentIsDirettore?: boolean
+  currentRestaurantId?: string | null
 }
 
-export function DipendentiClient({ initialDipendenti, restaurants, currentUserRole }: Props) {
+export function DipendentiClient({
+  initialDipendenti, restaurants, currentUserRole,
+  currentIsDirettore = false, currentRestaurantId = null,
+}: Props) {
   const [dipendenti, setDipendenti] = useState(initialDipendenti)
   const [search, setSearch]         = useState('')
 
@@ -56,6 +61,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
   const [department, setDepartment]       = useState<Department | ''>('')
   const [restaurantId, setRestaurantId]   = useState('none')
   const [canPostBulletin, setCanPostBulletin] = useState(false)
+  const [isDirettore, setIsDirettore]     = useState(false)
 
   // ── Password-reset dialog ─────────────────────────────────────────────
   const [pwTarget, setPwTarget]   = useState<DipWithRestaurant | null>(null)
@@ -76,7 +82,9 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
     setEditing(null)
     setUsername(''); setUsernameError(null); setPassword('')
     setFullName(''); setRole('dipendente'); setDepartment('')
-    setRestaurantId('none'); setCanPostBulletin(false)
+    // A direttore is confined to its own restaurant; managers pick freely.
+    setRestaurantId(currentUserRole === 'manager' ? 'none' : (currentRestaurantId ?? 'none'))
+    setCanPostBulletin(false); setIsDirettore(false)
     setFormError(null); setShowForm(true)
   }
 
@@ -87,6 +95,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
     setDepartment((p.department as Department | null) ?? '')
     setRestaurantId(p.restaurant_id ?? 'none')
     setCanPostBulletin(p.can_post_bulletin)
+    setIsDirettore(p.is_direttore ?? false)
     setFormError(null); setShowForm(true)
   }
 
@@ -113,6 +122,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
+            is_direttore: role === 'capo_servizio' ? isDirettore : false,
           }),
         })
         const data = await res.json()
@@ -127,6 +137,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             department: department || null,
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
+            is_direttore: role === 'capo_servizio' ? isDirettore : false,
           }),
         })
         const data = await res.json()
@@ -175,6 +186,12 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
   )
 
   const isManager = currentUserRole === 'manager'
+  // A "Direttore" (capo_servizio + is_direttore) can manage users within its
+  // own restaurant, with manager-equivalent powers confined to that locale.
+  const canManageUsers = isManager || (currentUserRole === 'capo_servizio' && currentIsDirettore)
+  // Direttore cannot create/assign the manager role.
+  const assignableRoles = (Object.keys(ROLE_LABELS) as Role[])
+    .filter(r => isManager || r !== 'manager')
   const needsDept = role !== 'manager'
   const canSave = !!fullName.trim() &&
     (editing
@@ -190,7 +207,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
           <h1 className="text-2xl font-bold">Dipendenti</h1>
           <p className="text-muted-foreground text-sm mt-1">{dipendenti.length} utenti</p>
         </div>
-        {isManager && (
+        {canManageUsers && (
           <Button onClick={openCreate} size="sm">
             <Plus className="w-4 h-4" /> Nuovo
           </Button>
@@ -231,8 +248,8 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                 </p>
               </div>
 
-              {/* Actions dropdown — manager only */}
-              {isManager && (
+              {/* Actions dropdown — manager / direttore */}
+              {canManageUsers && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="shrink-0">
@@ -308,7 +325,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
                 <Select value={role} onValueChange={v => { setRole(v as Role); if (v === 'manager') setDepartment('') }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(ROLE_LABELS) as Role[]).map(r => (
+                    {assignableRoles.map(r => (
                       <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
                     ))}
                   </SelectContent>
@@ -326,7 +343,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
             </div>
             <div className="space-y-2">
               <Label>Ristorante</Label>
-              <Select value={restaurantId} onValueChange={setRestaurantId}>
+              <Select value={restaurantId} onValueChange={setRestaurantId} disabled={!isManager}>
                 <SelectTrigger><SelectValue placeholder="Nessun ristorante" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nessun ristorante</SelectItem>
@@ -335,10 +352,27 @@ export function DipendentiClient({ initialDipendenti, restaurants, currentUserRo
               </Select>
             </div>
             {role === 'capo_servizio' && (
-              <div className="flex items-center justify-between">
-                <Label>Può pubblicare in bacheca</Label>
-                <Switch checked={canPostBulletin} onCheckedChange={setCanPostBulletin} />
-              </div>
+              <>
+                {/* Direttore: global access to all departments of the restaurant.
+                    Only a manager can grant this flag. */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <Label>Direttore (Accesso Globale al Locale)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Gestisce ODS e utenti di tutti i reparti del ristorante.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={isDirettore}
+                    onCheckedChange={setIsDirettore}
+                    disabled={!isManager}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Può pubblicare in bacheca</Label>
+                  <Switch checked={canPostBulletin} onCheckedChange={setCanPostBulletin} />
+                </div>
+              </>
             )}
             {formError && (
               <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{formError}</p>

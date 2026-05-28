@@ -34,6 +34,7 @@ interface Props {
   currentUserRole:    string
   currentDepartment:  string | null
   currentRestaurantId: string | null
+  currentIsDirettore?: boolean
 }
 
 const TYPE_BADGE_CLASS: Record<OdsTaskType, string> = {
@@ -46,8 +47,13 @@ const TYPE_BADGE_CLASS: Record<OdsTaskType, string> = {
 export function OdsManagerClient({
   initialTasks, completions, staff, restaurants,
   currentUserId, currentUserRole, currentDepartment, currentRestaurantId,
+  currentIsDirettore = false,
 }: Props) {
   const isManager = currentUserRole === 'manager'
+  // Direttore (capo_servizio): operates across all departments of its restaurant.
+  const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
+  // Whether the department field is locked to the caller's own department.
+  const deptLocked = !!currentDepartment && !isDirettore
 
   const [tasks, setTasks]       = useState<OdsTask[]>(initialTasks)
   const [deptFilter, setDeptFilter] = useState<string>('tutti')
@@ -90,10 +96,13 @@ export function OdsManagerClient({
     ? tasks
     : tasks.filter(t => t.department === deptFilter)
 
-  // Staff scoped to selected restaurant (for the create form)
-  const scopedStaff = fRestaurantId
-    ? staff.filter(s => !currentDepartment || s.department === fDept || s.department === currentDepartment)
-    : staff
+  // Staff scoped to selected restaurant (for the create form).
+  // A direttore can assign to anyone in the currently-selected department.
+  const scopedStaff = isDirettore
+    ? (fDept ? staff.filter(s => s.department === fDept) : staff)
+    : fRestaurantId
+      ? staff.filter(s => !currentDepartment || s.department === fDept || s.department === currentDepartment)
+      : staff
 
   function resetForm() {
     setFTitle('')
@@ -140,7 +149,7 @@ export function OdsManagerClient({
   const canDelete = (task: OdsTask) =>
     isManager ||
     (currentUserRole === 'capo_servizio' &&
-      (!currentDepartment || task.department === currentDepartment))
+      (isDirettore || !currentDepartment || task.department === currentDepartment))
 
   const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
 
@@ -284,7 +293,7 @@ export function OdsManagerClient({
             {/* Reparto */}
             <div className="space-y-2">
               <Label>Reparto *</Label>
-              {currentDepartment ? (
+              {deptLocked ? (
                 <div className="flex h-10 items-center rounded-sm border border-input bg-muted px-3 text-sm text-muted-foreground">
                   {currentDepartment}
                 </div>

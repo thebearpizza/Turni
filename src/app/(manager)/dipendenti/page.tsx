@@ -7,7 +7,7 @@ export default async function DipendentiPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
 
@@ -34,6 +34,8 @@ export default async function DipendentiPage() {
         initialDipendenti={dipendenti ?? []}
         restaurants={restaurants ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
+        currentIsDirettore={profile?.is_direttore ?? false}
+        currentRestaurantId={profile?.restaurant_id ?? null}
       />
     </div>
   )

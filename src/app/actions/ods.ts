@@ -28,7 +28,7 @@ export async function createOdsTask(input: CreateOdsInput): Promise<OdsTask> {
 
   const { data: caller } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, department')
+    .select('role, restaurant_id, department, is_direttore')
     .eq('id', user.id)
     .single()
 
@@ -37,11 +37,13 @@ export async function createOdsTask(input: CreateOdsInput): Promise<OdsTask> {
   }
 
   // ── 2. Capo servizio security: must own the restaurant + department ─
+  // A "Direttore" (capo_servizio with is_direttore) bypasses the department
+  // restriction and operates across all departments of its own restaurant.
   if (caller.role === 'capo_servizio') {
     if (input.restaurant_id !== caller.restaurant_id) {
       throw new Error('Non autorizzato: ristorante non corrispondente')
     }
-    if (caller.department && input.department !== caller.department) {
+    if (!caller.is_direttore && caller.department && input.department !== caller.department) {
       throw new Error('Non autorizzato: reparto non corrispondente')
     }
   }

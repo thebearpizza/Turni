@@ -18,7 +18,7 @@ export default async function OdsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, department, restaurant_id, can_post_bulletin')
+    .select('role, department, restaurant_id, can_post_bulletin, is_direttore')
     .eq('id', user!.id)
     .single()
 
@@ -75,6 +75,7 @@ export default async function OdsPage() {
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentDepartment={profile?.department ?? null}
         currentRestaurantId={profile?.restaurant_id ?? null}
+        currentIsDirettore={profile?.is_direttore ?? false}
       />
     </div>
   )
