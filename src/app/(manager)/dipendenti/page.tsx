@@ -1,7 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { DipendentiClient } from '@/components/manager/DipendentiClient'
 
-export default async function DipendentiPage() {
+export default async function DipendentiPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ restaurant_id?: string }>
+}) {
+  const { restaurant_id: restaurantIdParam } = await searchParams
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -16,14 +22,16 @@ export default async function DipendentiPage() {
     .select('id, name')
     .order('name')
 
-  // Manager vede tutti, capo_servizio vede solo il suo ristorante
   let query = supabase
     .from('profiles')
     .select('*, restaurant:restaurants(id, name)')
     .order('full_name')
 
   if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
+    // Capo servizio is always locked to own restaurant — URL param ignored
     query = query.eq('restaurant_id', profile.restaurant_id)
+  } else if (profile?.role === 'manager' && restaurantIdParam) {
+    query = query.eq('restaurant_id', restaurantIdParam)
   }
 
   const { data: dipendenti } = await query
@@ -36,6 +44,7 @@ export default async function DipendentiPage() {
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentIsDirettore={profile?.is_direttore ?? false}
         currentRestaurantId={profile?.restaurant_id ?? null}
+        currentRestaurantFilter={restaurantIdParam ?? null}
       />
     </div>
   )

@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,12 +39,17 @@ interface Props {
   currentUserRole: string
   currentIsDirettore?: boolean
   currentRestaurantId?: string | null
+  currentRestaurantFilter?: string | null
 }
 
 export function DipendentiClient({
   initialDipendenti, restaurants, currentUserRole,
   currentIsDirettore = false, currentRestaurantId = null,
+  currentRestaurantFilter = null,
 }: Props) {
+  const router   = useRouter()
+  const pathname = usePathname()
+
   const [dipendenti, setDipendenti] = useState(initialDipendenti)
   const [search, setSearch]         = useState('')
 
@@ -69,6 +75,14 @@ export function DipendentiClient({
   const [pwLoading, setPwLoading] = useState(false)
   const [pwError, setPwError]     = useState<string | null>(null)
   const [pwSuccess, setPwSuccess] = useState(false)
+
+  // ── Restaurant filter (manager only, URL-based — SSR-friendly) ─────────
+  function handleRestaurantFilter(value: string) {
+    const params = new URLSearchParams()
+    if (value !== 'all') params.set('restaurant_id', value)
+    const qs = params.toString()
+    router.push(qs ? `${pathname}?${qs}` : pathname)
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────
   function validateUsername(val: string) {
@@ -214,12 +228,31 @@ export function DipendentiClient({
         )}
       </div>
 
-      <Input
-        placeholder="Cerca per nome o username..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="mb-4 max-w-sm"
-      />
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <Input
+          placeholder="Cerca per nome o username..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="sm:max-w-sm"
+        />
+        {/* Restaurant filter — manager only. Capo servizio is locked server-side. */}
+        {isManager && (
+          <Select
+            value={currentRestaurantFilter ?? 'all'}
+            onValueChange={handleRestaurantFilter}
+          >
+            <SelectTrigger className="sm:w-56">
+              <SelectValue placeholder="Tutti i ristoranti" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tutti i ristoranti</SelectItem>
+              {restaurants.map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
 
       {/* User list */}
       <div className="space-y-2">
@@ -341,16 +374,21 @@ export function DipendentiClient({
                 </Select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Ristorante</Label>
-              <Select value={restaurantId} onValueChange={setRestaurantId} disabled={!isManager}>
-                <SelectTrigger><SelectValue placeholder="Nessun ristorante" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nessun ristorante</SelectItem>
-                  {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Restaurant field — manager only. For capo servizio / direttore the
+                value is auto-set to its own restaurant in openCreate/openEdit and
+                hidden, so it can never assign a user to another locale. */}
+            {isManager && (
+              <div className="space-y-2">
+                <Label>Ristorante</Label>
+                <Select value={restaurantId} onValueChange={setRestaurantId}>
+                  <SelectTrigger><SelectValue placeholder="Nessun ristorante" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nessun ristorante</SelectItem>
+                    {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {role === 'capo_servizio' && (
               <>
                 {/* Direttore: global access to all departments of the restaurant.
