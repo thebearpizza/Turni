@@ -48,9 +48,10 @@ interface Props {
   dipendenti: DipProfile[]
   currentUserRole: string
   currentRestaurantId: string | null
+  isDirectore: boolean
 }
 
-export function AssenzeClient({ initialAbsences, restaurants, dipendenti, currentUserRole, currentRestaurantId }: Props) {
+export function AssenzeClient({ initialAbsences, restaurants, dipendenti, currentUserRole, currentRestaurantId, isDirectore }: Props) {
   const [absences, setAbsences] = useState(initialAbsences)
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
@@ -113,6 +114,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   }
 
   async function handleSave() {
+    if (!canEdit) { showUnauthorized(); return }
     setSaving(true)
     setSaveError(null)
     const supabase = createClient()
@@ -154,6 +156,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   }
 
   async function handleDelete(id: string) {
+    if (!canEdit) { showUnauthorized(); return }
     if (!confirm('Eliminare questa assenza?')) return
     const supabase = createClient()
     await supabase.from('absences').delete().eq('id', id)
@@ -161,14 +164,23 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   }
 
   const isManager = currentUserRole === 'manager'
+  const canEdit   = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
+
+  const [unauthorizedMsg, setUnauthorizedMsg] = useState(false)
+  function showUnauthorized() {
+    setUnauthorizedMsg(true)
+    setTimeout(() => setUnauthorizedMsg(false), 3000)
+  }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Assenze</h1>
-        <Button onClick={openCreate} size="sm">
-          <Plus className="w-4 h-4" /> Nuova
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} size="sm">
+            <Plus className="w-4 h-4" /> Nuova
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 mb-6">
@@ -213,10 +225,12 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
                     {a.certificate_code && <span className="ml-2 text-xs">Cert: {a.certificate_code}</span>}
                   </p>
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(a)} className="text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-700/50"><Pencil className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="w-4 h-4" /></Button>
-                </div>
+                {canEdit && (
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(a)} className="text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-700/50"><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="w-4 h-4" /></Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -275,6 +289,13 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unauthorized toast */}
+      {unauthorizedMsg && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-destructive text-destructive-foreground px-4 py-3 rounded-md shadow-lg text-sm font-medium animate-in slide-in-from-bottom-2">
+          Azione riservata alla direzione
+        </div>
+      )}
     </div>
   )
 }

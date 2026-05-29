@@ -49,6 +49,7 @@ interface Props {
   dipendenti: { id: string; full_name: string; role: string }[]
   currentUserRole: string
   currentRestaurantId: string | null
+  isDirectore: boolean
 }
 
 function formatDuration(minutes: number): string {
@@ -59,7 +60,7 @@ function formatDuration(minutes: number): string {
 
 export function PresenzeClient({
   initialPresenze, initialAbsences,
-  restaurants, dipendenti, currentUserRole, currentRestaurantId,
+  restaurants, dipendenti, currentUserRole, currentRestaurantId, isDirectore,
 }: Props) {
   const [presenze, setPresenze]   = useState(initialPresenze)
   const [absences, setAbsences]   = useState(initialAbsences)
@@ -195,6 +196,7 @@ export function PresenzeClient({
   }
 
   async function handleSave() {
+    if (!canEdit) { showUnauthorized(); return }
     if (!editing) return
     setSaving(true)
 
@@ -217,6 +219,7 @@ export function PresenzeClient({
   }
 
   async function handleDelete() {
+    if (!canEdit) { showUnauthorized(); return }
     if (!editing) return
     setDeleting(true)
     const supabase = createClient()
@@ -237,6 +240,7 @@ export function PresenzeClient({
   }
 
   async function handleAddPresenza() {
+    if (!canEdit) { showUnauthorized(); return }
     if (!newUserId || !newDate || !newCheckIn) return
     setAddSaving(true)
     setAddError(null)
@@ -380,6 +384,13 @@ export function PresenzeClient({
   }
 
   const isManager = currentUserRole === 'manager'
+  const canEdit   = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
+
+  const [unauthorizedMsg, setUnauthorizedMsg] = useState(false)
+  function showUnauthorized() {
+    setUnauthorizedMsg(true)
+    setTimeout(() => setUnauthorizedMsg(false), 3000)
+  }
 
   return (
     <div>
@@ -389,7 +400,7 @@ export function PresenzeClient({
           <p className="text-muted-foreground text-sm mt-0.5">{presenze.length} timbrature</p>
         </div>
         <div className="flex items-center gap-2">
-          {isManager && (
+          {canEdit && (
             <Button onClick={() => setShowAdd(true)} size="sm" className="h-8 rounded-sm px-3 text-xs gap-1.5">
               <Plus className="w-3.5 h-3.5" />
               Aggiungi Presenza
@@ -512,7 +523,7 @@ export function PresenzeClient({
                                 const checkOut = b.check_out
                                   ? formatInTimeZone(new Date(b.check_out), TZ, 'HH:mm')
                                   : '···'
-                                return (
+                                return canEdit ? (
                                   <button
                                     key={b.id}
                                     onClick={() => openEdit(b)}
@@ -525,6 +536,17 @@ export function PresenzeClient({
                                   >
                                     {checkIn} → {checkOut}
                                   </button>
+                                ) : (
+                                  <span
+                                    key={b.id}
+                                    className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border ${
+                                      isOpen
+                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
+                                        : 'bg-zinc-100 border-border text-foreground dark:bg-zinc-900'
+                                    }`}
+                                  >
+                                    {checkIn} → {checkOut}
+                                  </span>
                                 )
                               })}
                             </div>
@@ -706,6 +728,13 @@ export function PresenzeClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unauthorized toast */}
+      {unauthorizedMsg && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-destructive text-destructive-foreground px-4 py-3 rounded-md shadow-lg text-sm font-medium animate-in slide-in-from-bottom-2">
+          Azione riservata alla direzione
+        </div>
+      )}
     </div>
   )
 }

@@ -104,6 +104,12 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   // canEdit: manager always yes; capo_servizio only when is_direttore = true
   const canEdit = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
 
+  const [unauthorizedMsg, setUnauthorizedMsg] = useState(false)
+  function showUnauthorized() {
+    setUnauthorizedMsg(true)
+    setTimeout(() => setUnauthorizedMsg(false), 3000)
+  }
+
   // ── Cell editor dialog state ──────────────────────────────────────────
   const [editorOpen, setEditorOpen]   = useState(false)
   const [editorEmp, setEditorEmp]     = useState<EmployeeRec | null>(null)
@@ -391,6 +397,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
 
   // ── Save handler (create / edit / delete from a single cell) ───────────
   async function handleEditorSave() {
+    if (!canEdit) { showUnauthorized(); return }
     if (!editorEmp) return
     setEditorSaving(true)
     setEditorError(null)
@@ -473,6 +480,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   }
 
   async function handleDeleteAbsence() {
+    if (!canEdit) { showUnauthorized(); return }
     if (!absId) return
     setEditorSaving(true)
     setEditorError(null)
@@ -870,6 +878,13 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Unauthorized toast */}
+      {unauthorizedMsg && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-destructive text-destructive-foreground px-4 py-3 rounded-md shadow-lg text-sm font-medium animate-in slide-in-from-bottom-2">
+          Azione riservata alla direzione
+        </div>
+      )}
     </div>
   )
 }
