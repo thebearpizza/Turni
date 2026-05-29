@@ -39,6 +39,7 @@ export default async function DipendentiPage({
   return (
     <div className="p-6 lg:p-8">
       <DipendentiClient
+        key={restaurantIdParam ?? 'all'}
         initialDipendenti={dipendenti ?? []}
         restaurants={restaurants ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
