@@ -11,12 +11,18 @@ export async function POST(request: NextRequest) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, is_direttore')
     .eq('id', user.id)
     .single()
 
-  if (callerProfile?.role !== 'manager') {
-    return NextResponse.json({ error: 'Accesso riservato ai manager' }, { status: 403 })
+  const isManager    = callerProfile?.role === 'manager'
+  const isDirectore  = callerProfile?.role === 'capo_servizio' && callerProfile?.is_direttore === true
+
+  if (!isManager && !isDirectore) {
+    return NextResponse.json(
+      { error: 'Non autorizzato. Solo i manager e i direttori possono modificare le presenze.' },
+      { status: 403 }
+    )
   }
 
   const body = await request.json()

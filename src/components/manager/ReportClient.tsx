@@ -24,6 +24,7 @@ interface Props {
   currentUserRole: string
   currentRestaurantId: string | null
   currentUserId: string
+  isDirectore: boolean
 }
 
 // ── Raw record shapes kept in state for the cell editor ─────────────────
@@ -79,7 +80,7 @@ const ORE_ABSENCE_CODES = new Set(['F', 'M', 'R', 'AI'])
 
 const DIPENDENTE_ABSENCE_TYPES: AbsenceType[] = ['ferie', 'malattia', 'riposo', 'assenza_ingiustificata']
 
-export function ReportClient({ restaurants, currentUserRole, currentRestaurantId, currentUserId }: Props) {
+export function ReportClient({ restaurants, currentUserRole, currentRestaurantId, currentUserId, isDirectore }: Props) {
   const router = useRouter()
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>(
@@ -100,6 +101,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   const absRef    = useRef<AbsenceRec[]>([])
 
   const isManager = currentUserRole === 'manager'
+  // canEdit: manager always yes; capo_servizio only when is_direttore = true
+  const canEdit = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
 
   // ── Cell editor dialog state ──────────────────────────────────────────
   const [editorOpen, setEditorOpen]   = useState(false)
@@ -318,6 +321,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
 
   // ── Open the editor for a given employee + day ─────────────────────────
   function openCell(employeeId: string, day: number) {
+    if (!canEdit) return   // read-only for non-direttore capo_servizio
     const emp = empMapRef.current.get(employeeId)
     if (!emp) return
     const dateStr = `${selectedMonth}-${String(day).padStart(2, '0')}`
@@ -613,9 +617,9 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                       return (
                         <td
                           key={d}
-                          onClick={() => openCell(row.id, d)}
-                          title="Clicca per modificare"
-                          className={`${tdCls} font-semibold ${cellInteractive} ${PRESENZE_CELL_BG[code] ?? ''}`}
+                          onClick={canEdit ? () => openCell(row.id, d) : undefined}
+                          title={canEdit ? 'Clicca per modificare' : undefined}
+                          className={`${tdCls} font-semibold ${canEdit ? cellInteractive : ''} ${PRESENZE_CELL_BG[code] ?? ''}`}
                         >
                           {code}
                         </td>
@@ -629,7 +633,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           </div>
           {!previewLoading && previewPresenze.length > 0 && (
             <p className="text-[11px] text-muted-foreground mt-1.5">
-              {previewPresenze.length} dipendenti · dati reali · clicca una cella per modificare
+              {previewPresenze.length} dipendenti · dati reali{canEdit ? ' · clicca una cella per modificare' : ''}
             </p>
           )}
         </div>
@@ -682,9 +686,9 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                       return (
                         <td
                           key={d}
-                          onClick={() => openCell(row.id, d)}
-                          title="Clicca per modificare"
-                          className={`${tdCls} ${cellInteractive} ${isAbsCode ? `font-semibold ${ORE_CELL_BG[val] ?? ''}` : ''}`}
+                          onClick={canEdit ? () => openCell(row.id, d) : undefined}
+                          title={canEdit ? 'Clicca per modificare' : undefined}
+                          className={`${tdCls} ${canEdit ? cellInteractive : ''} ${isAbsCode ? `font-semibold ${ORE_CELL_BG[val] ?? ''}` : ''}`}
                         >
                           {val}
                         </td>
@@ -706,7 +710,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           </div>
           {!previewLoading && previewOre.length > 0 && (
             <p className="text-[11px] text-muted-foreground mt-1.5">
-              {previewOre.length} dipendenti · dati reali · clicca una cella per modificare
+              {previewOre.length} dipendenti · dati reali{canEdit ? ' · clicca una cella per modificare' : ''}
             </p>
           )}
         </div>

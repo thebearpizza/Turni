@@ -7,7 +7,7 @@ export default async function ReportPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
 
@@ -23,6 +23,7 @@ export default async function ReportPage() {
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
         currentUserId={user!.id}
+        isDirectore={profile?.is_direttore ?? false}
       />
     </div>
   )
