@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import type { ConsultantMessage } from '@/types'
 
 const TZ = 'Europe/Rome'
+const MAX_BYTES = 10 * 1024 * 1024
 
 function fmtDate(iso: string | null) {
   if (!iso) return null
@@ -29,7 +30,7 @@ export function ConsultantInbox({ userId }: Props) {
   const [showCompose, setShowCompose] = useState(false)
   const [msgTitle, setMsgTitle]       = useState('')
   const [msgBody, setMsgBody]         = useState('')
-  const [file, setFile]               = useState<File | null>(null)
+  const [files, setFiles]             = useState<File[]>([])
   const [sending, setSending]         = useState(false)
   const [sendError, setSendError]     = useState<string | null>(null)
 
@@ -38,19 +39,16 @@ export function ConsultantInbox({ userId }: Props) {
     if (!res.ok) return
     const data: ConsultantMessage[] = await res.json()
     setMessages(data)
-    // Derive managerId from the first message
     if (data.length > 0) setManagerId(data[0].manager_id)
     setLoading(false)
   }, [userId])
 
   useEffect(() => { loadMessages() }, [loadMessages])
 
-  // Expand a message — marks it read if the current user is the recipient
   async function handleExpand(msg: ConsultantMessage) {
     const isAlreadyOpen = expandedId === msg.id
     setExpandedId(isAlreadyOpen ? null : msg.id)
 
-    // Mark read if: message was sent by manager, consultant hasn't read it yet
     if (!isAlreadyOpen && msg.sent_by_manager && !msg.read_at) {
       const res = await fetch(`/api/consultant-messages/${msg.id}/read`, { method: 'POST' })
       if (res.ok) {
@@ -64,31 +62,52 @@ export function ConsultantInbox({ userId }: Props) {
     const res = await fetch(`/api/consultant-messages/${msg.id}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: attachment.path }),
+      body: JSON.stringify({ path: attachment.path, name: attachment.name }),
     })
     if (!res.ok) { alert('Impossibile scaricare il file'); return }
 
     const { signedUrl, downloaded_at } = await res.json()
 
-    // Update local state with downloaded_at timestamp
     if (downloaded_at) {
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, downloaded_at } : m))
     }
 
-    // Open the signed URL for download
-    window.open(signedUrl, '_blank', 'noopener,noreferrer')
+    const a = document.createElement('a')
+    a.href = signedUrl
+    a.download = attachment.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? [])
+    const total = selected.reduce((sum, f) => sum + f.size, 0)
+    if (total > MAX_BYTES) {
+      setSendError('Il limite massimo per gli allegati è di 10 MB totali')
+      e.target.value = ''
+      return
+    }
+    setSendError(null)
+    setFiles(selected)
   }
 
   async function handleSend() {
     if (!msgTitle.trim() || !msgBody.trim()) return
     if (!managerId) { setSendError('Nessun manager trovato'); return }
+
+    const total = files.reduce((sum, f) => sum + f.size, 0)
+    if (total > MAX_BYTES) {
+      setSendError('Il limite massimo per gli allegati è di 10 MB totali')
+      return
+    }
+
     setSending(true)
     setSendError(null)
     try {
-      let attachments: Array<{ name: string; path: string }> = []
+      const attachments: Array<{ name: string; path: string }> = []
 
-      if (file) {
-        // Upload the file directly via a form submission to the upload API
+      for (const file of files) {
         const formData = new FormData()
         formData.append('file', file)
         formData.append('consultantId', userId)
@@ -102,14 +121,14 @@ export function ConsultantInbox({ userId }: Props) {
           throw new Error(err.error ?? 'Errore upload file')
         }
         const uploaded = await uploadRes.json()
-        attachments = [{ name: file.name, path: uploaded.path }]
+        attachments.push({ name: file.name, path: uploaded.path })
       }
 
       const res = await fetch('/api/consultant-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          consultantId: managerId,  // when consultant sends, consultantId = managerId
+          consultantId: managerId,
           title: msgTitle,
           body: msgBody,
           attachments,
@@ -119,7 +138,7 @@ export function ConsultantInbox({ userId }: Props) {
         const err = await res.json()
         throw new Error(err.error ?? 'Errore invio')
       }
-      setMsgTitle(''); setMsgBody(''); setFile(null); setShowCompose(false)
+      setMsgTitle(''); setMsgBody(''); setFiles([]); setShowCompose(false)
       await loadMessages()
     } catch (e) {
       setSendError(e instanceof Error ? e.message : 'Errore invio')
@@ -159,12 +178,20 @@ export function ConsultantInbox({ userId }: Props) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Allegato <span className="text-muted-foreground font-normal">(opzionale)</span></Label>
+            <Label>
+              Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali)</span>
+            </Label>
             <input
               type="file"
-              onChange={e => setFile(e.target.files?.[0] ?? null)}
+              multiple
+              onChange={handleFileChange}
               className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-primary file:text-primary-foreground"
             />
+            {files.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {files.length} file{files.length > 1 ? '' : ''} · {(files.reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB
+              </p>
+            )}
           </div>
           {sendError && <p className="text-xs text-destructive">{sendError}</p>}
           <div className="flex gap-2 justify-end">
@@ -211,7 +238,6 @@ function MessageRow({
 
   return (
     <div className={`border rounded-md overflow-hidden transition-colors ${unread ? 'border-primary/50 bg-primary/5' : 'border-border bg-card'}`}>
-      {/* Header row — click to expand */}
       <button
         onClick={onExpand}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
@@ -235,7 +261,6 @@ function MessageRow({
         <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
           <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
 
-          {/* Attachments */}
           {msg.attachments?.length > 0 && (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Allegati</p>
@@ -252,7 +277,6 @@ function MessageRow({
             </div>
           )}
 
-          {/* Read / download receipts */}
           <div className="space-y-0.5 pt-1">
             {msg.read_at && !fromMe && (
               <p className="text-[11px] text-muted-foreground">Letto il: {fmtDate(msg.read_at)}</p>

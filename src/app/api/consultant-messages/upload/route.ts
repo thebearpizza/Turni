@@ -16,6 +16,9 @@ export async function POST(request: Request) {
   if (!file || !consultantId) {
     return NextResponse.json({ error: 'File o consultantId mancante' }, { status: 400 })
   }
+  if (file.size > 10 * 1024 * 1024) {
+    return NextResponse.json({ error: 'Il file supera il limite di 10 MB' }, { status: 413 })
+  }
 
   const ext = file.name.split('.').pop() ?? 'bin'
   const path = `${consultantId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`

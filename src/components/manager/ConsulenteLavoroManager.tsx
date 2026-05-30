@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, ChevronDown, ChevronUp, Trash2, Pencil, Paperclip,
-  Clock, BriefcaseBusiness, Send,
+  Clock, BriefcaseBusiness, Send, Eye, EyeOff,
 } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
 
 const TZ = 'Europe/Rome'
+const MAX_BYTES = 10 * 1024 * 1024
 
 function fmtDate(iso: string | null) {
   if (!iso) return 'Mai'
@@ -34,13 +35,15 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   // Create / edit modal
   const [modalOpen, setModalOpen]         = useState(false)
   const [editTarget, setEditTarget]       = useState<ConsultantProfile | null>(null)
-  const [formName, setFormName]           = useState('')
-  const [formUsername, setFormUsername]   = useState('')
-  const [formPassword, setFormPassword]   = useState('')
+  const [formName, setFormName]               = useState('')
+  const [formUsername, setFormUsername]       = useState('')
+  const [formPassword, setFormPassword]       = useState('')
+  const [formNewPassword, setFormNewPassword] = useState('')
+  const [showNewPwd, setShowNewPwd]           = useState(false)
   const [formRestaurants, setFormRestaurants] = useState<string[]>([])
-  const [formHours, setFormHours]         = useState(false)
-  const [formSaving, setFormSaving]       = useState(false)
-  const [formError, setFormError]         = useState<string | null>(null)
+  const [formHours, setFormHours]             = useState(false)
+  const [formSaving, setFormSaving]           = useState(false)
+  const [formError, setFormError]             = useState<string | null>(null)
 
   // Delete confirm
   const [deleteTarget, setDeleteTarget]   = useState<ConsultantProfile | null>(null)
@@ -51,12 +54,12 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   const [threadLoading, setThreadLoading] = useState<Record<string, boolean>>({})
 
   // Compose message state (per consultant id → open)
-  const [composeOpen, setComposeOpen]     = useState<Record<string, boolean>>({})
-  const [composeTitle, setComposeTitle]   = useState<Record<string, string>>({})
-  const [composeBody, setComposeBody]     = useState<Record<string, string>>({})
-  const [composeFile, setComposeFile]     = useState<Record<string, File | null>>({})
+  const [composeOpen, setComposeOpen]       = useState<Record<string, boolean>>({})
+  const [composeTitle, setComposeTitle]     = useState<Record<string, string>>({})
+  const [composeBody, setComposeBody]       = useState<Record<string, string>>({})
+  const [composeFiles, setComposeFiles]     = useState<Record<string, File[]>>({})
   const [composeSending, setComposeSending] = useState<Record<string, boolean>>({})
-  const [composeError, setComposeError]   = useState<Record<string, string | null>>({})
+  const [composeError, setComposeError]     = useState<Record<string, string | null>>({})
 
   // Message expand state
   const [msgExpanded, setMsgExpanded]     = useState<Record<string, string | null>>({})
@@ -95,7 +98,8 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   // ── Create / edit consultant ──────────────────────────────────────────────
   function openCreate() {
     setEditTarget(null)
-    setFormName(''); setFormUsername(''); setFormPassword('')
+    setFormName(''); setFormUsername(''); setFormPassword(''); setFormNewPassword('')
+    setShowNewPwd(false)
     setFormRestaurants([]); setFormHours(false)
     setFormError(null)
     setModalOpen(true)
@@ -106,6 +110,8 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
     setFormName(c.full_name)
     setFormUsername(c.username ?? '')
     setFormPassword('')
+    setFormNewPassword('')
+    setShowNewPwd(false)
     setFormRestaurants(c.consultant_restaurant_ids ?? [])
     setFormHours(c.can_view_hours)
     setFormError(null)
@@ -136,6 +142,16 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
           }),
         })
         if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+
+        if (formNewPassword.trim()) {
+          if (formNewPassword.length < 6) throw new Error('La password deve essere di almeno 6 caratteri')
+          const pwRes = await fetch('/api/users/password', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: editTarget.id, password: formNewPassword }),
+          })
+          if (!pwRes.ok) { const e = await pwRes.json(); throw new Error(e.error) }
+        }
       } else {
         if (!formUsername.trim() || !formPassword.trim() || !formName.trim()) {
           throw new Error('Username, password e nome sono obbligatori')
@@ -181,12 +197,18 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
     const body  = composeBody[consultantId] ?? ''
     if (!title.trim() || !body.trim()) return
 
+    const filesToSend = composeFiles[consultantId] ?? []
+    const total = filesToSend.reduce((sum, f) => sum + f.size, 0)
+    if (total > MAX_BYTES) {
+      setComposeError(prev => ({ ...prev, [consultantId]: 'Il limite massimo per gli allegati è di 10 MB totali' }))
+      return
+    }
+
     setComposeSending(prev => ({ ...prev, [consultantId]: true }))
     setComposeError(prev => ({ ...prev, [consultantId]: null }))
     try {
-      let attachments: Array<{ name: string; path: string }> = []
-      const file = composeFile[consultantId]
-      if (file) {
+      const attachments: Array<{ name: string; path: string }> = []
+      for (const file of filesToSend) {
         const fd = new FormData()
         fd.append('file', file)
         fd.append('consultantId', consultantId)
@@ -196,7 +218,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
           throw new Error(e.error ?? 'Errore upload')
         }
         const uploaded = await uploadRes.json()
-        attachments = [{ name: file.name, path: uploaded.path }]
+        attachments.push({ name: file.name, path: uploaded.path })
       }
 
       const res = await fetch('/api/consultant-messages', {
@@ -210,7 +232,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       }
       setComposeTitle(prev => ({ ...prev, [consultantId]: '' }))
       setComposeBody(prev => ({ ...prev, [consultantId]: '' }))
-      setComposeFile(prev => ({ ...prev, [consultantId]: null }))
+      setComposeFiles(prev => ({ ...prev, [consultantId]: [] }))
       setComposeOpen(prev => ({ ...prev, [consultantId]: false }))
       await loadThread(consultantId)
     } catch (e) {
@@ -245,7 +267,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
     const res = await fetch(`/api/consultant-messages/${msg.id}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: att.path }),
+      body: JSON.stringify({ path: att.path, name: att.name }),
     })
     if (!res.ok) { alert('Impossibile generare il link'); return }
     const { signedUrl, downloaded_at } = await res.json()
@@ -257,7 +279,12 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
         ),
       }))
     }
-    window.open(signedUrl, '_blank', 'noopener,noreferrer')
+    const a = document.createElement('a')
+    a.href = signedUrl
+    a.download = att.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   return (
@@ -374,12 +401,28 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Allegato <span className="text-muted-foreground font-normal">(opzionale)</span></Label>
+                        <Label className="text-xs">Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali)</span></Label>
                         <input
                           type="file"
-                          onChange={e => setComposeFile(prev => ({ ...prev, [c.id]: e.target.files?.[0] ?? null }))}
+                          multiple
+                          onChange={e => {
+                            const selected = Array.from(e.target.files ?? [])
+                            const total = selected.reduce((sum, f) => sum + f.size, 0)
+                            if (total > MAX_BYTES) {
+                              setComposeError(prev => ({ ...prev, [c.id]: 'Il limite massimo per gli allegati è di 10 MB totali' }))
+                              e.target.value = ''
+                              return
+                            }
+                            setComposeError(prev => ({ ...prev, [c.id]: null }))
+                            setComposeFiles(prev => ({ ...prev, [c.id]: selected }))
+                          }}
                           className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-primary file:text-primary-foreground"
                         />
+                        {(composeFiles[c.id]?.length ?? 0) > 0 && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {composeFiles[c.id].length} file · {(composeFiles[c.id].reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB
+                          </p>
+                        )}
                       </div>
                       {composeError[c.id] && <p className="text-xs text-destructive">{composeError[c.id]}</p>}
                       <div className="flex gap-2 justify-end">
@@ -504,7 +547,29 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
             )}
 
             {editTarget && (
-              <p className="text-xs text-muted-foreground">Username: <span className="font-mono">{editTarget.username}</span> (non modificabile)</p>
+              <>
+                <p className="text-xs text-muted-foreground">Username: <span className="font-mono">{editTarget.username}</span> (non modificabile)</p>
+                <div className="space-y-1.5">
+                  <Label>Nuova password <span className="text-muted-foreground font-normal">(opzionale)</span></Label>
+                  <div className="relative">
+                    <Input
+                      type={showNewPwd ? 'text' : 'password'}
+                      value={formNewPassword}
+                      onChange={e => setFormNewPassword(e.target.value)}
+                      placeholder="Lascia vuoto per non modificare"
+                      className="h-10 rounded-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwd(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      tabIndex={-1}
+                    >
+                      {showNewPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="space-y-1.5">

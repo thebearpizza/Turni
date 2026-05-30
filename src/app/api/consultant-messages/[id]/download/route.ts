@@ -14,7 +14,7 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
 
-  const { path } = await request.json()
+  const { path, name } = await request.json()
   if (!path) return NextResponse.json({ error: 'Path mancante' }, { status: 400 })
 
   const { data: msg, error: fetchErr } = await supabase
@@ -43,9 +43,10 @@ export async function POST(
   }
 
   // Generate a 1-hour signed URL
+  const filename = name ?? path.split('/').pop() ?? 'file'
   const { data: signedData, error: signErr } = await supabase.storage
     .from('consultant_files')
-    .createSignedUrl(path, 3600)
+    .createSignedUrl(path, 3600, { download: filename })
 
   if (signErr || !signedData?.signedUrl) {
     return NextResponse.json({ error: 'Impossibile generare il link di download' }, { status: 500 })
