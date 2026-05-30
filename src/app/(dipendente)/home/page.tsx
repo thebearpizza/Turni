@@ -7,18 +7,19 @@ export default async function EmployeeHomePage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, restaurant:restaurants(id, name)')
+    .select('*, restaurant:restaurants(id, name, latitude, longitude)')
     .eq('id', user!.id)
     .single()
 
-  // Controlla se c'è un turno aperto oggi
-  const today = new Date().toISOString().split('T')[0]
+  // Open shift = any record with check_out IS NULL, regardless of when it started.
+  // Date-filtering here caused cross-midnight shifts to disappear from the UI.
   const { data: openAttendance } = await supabase
     .from('attendances')
     .select('*')
     .eq('user_id', user!.id)
     .is('check_out', null)
-    .gte('check_in', today + 'T00:00:00Z')
+    .order('check_in', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   return (

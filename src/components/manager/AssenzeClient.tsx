@@ -47,9 +47,10 @@ interface Props {
   dipendenti: DipProfile[]
   currentUserRole: string
   currentRestaurantId: string | null
+  isDirectore?: boolean
 }
 
-export function AssenzeClient({ initialAbsences, restaurants, dipendenti, currentUserRole, currentRestaurantId }: Props) {
+export function AssenzeClient({ initialAbsences, restaurants, dipendenti, currentUserRole, currentRestaurantId, isDirectore = false }: Props) {
   const [absences, setAbsences] = useState(initialAbsences)
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
@@ -160,14 +161,17 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   }
 
   const isManager = currentUserRole === 'manager'
+  const canEdit = isManager || isDirectore
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Assenze</h1>
-        <Button onClick={openCreate} size="sm">
-          <Plus className="w-4 h-4" /> Nuova
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} size="sm">
+            <Plus className="w-4 h-4" /> Nuova
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 mb-6">
@@ -212,10 +216,12 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
                     {a.certificate_code && <span className="ml-2 text-xs">Cert: {a.certificate_code}</span>}
                   </p>
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(a)}><Pencil className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
-                </div>
+                {canEdit && (
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(a)}><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

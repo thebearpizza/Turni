@@ -3,6 +3,17 @@ import { NextResponse } from 'next/server'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
 const TZ = 'Europe/Rome'
+const RAGGIO_MAX = 100 // metres
+
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R  = 6_371_000
+  const φ1 = (lat1 * Math.PI) / 180
+  const φ2 = (lat2 * Math.PI) / 180
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180
+  const a  = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 function todayRomeBounds(): { start: string; end: string } {
   const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
@@ -19,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
   }
 
-  const { qr_secret, type } = await request.json()
+  const { qr_secret, type, latitude, longitude } = await request.json()
 
   if (!qr_secret || !['in', 'out'].includes(type)) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
@@ -54,33 +65,46 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'QR Code non riconosciuto' }, { status: 404 })
   }
 
+  // Server-side geofence validation — skipped only in dev simulation
+  const isDevSimulate = process.env.NODE_ENV === 'development' && qr_secret === '__SIMULATE__'
+  if (!isDevSimulate && restaurant.latitude != null && restaurant.longitude != null) {
+    if (latitude == null || longitude == null) {
+      return NextResponse.json({ error: 'Coordinate GPS mancanti' }, { status: 400 })
+    }
+    const dist = haversine(latitude, longitude, restaurant.latitude, restaurant.longitude)
+    if (dist > RAGGIO_MAX) {
+      return NextResponse.json({ error: 'Sei troppo lontano dalla sede per timbrare' }, { status: 403 })
+    }
+  }
+
   const nowUtc = new Date().toISOString()
 
   if (type === 'in') {
     const { start: todayStart, end: todayEnd } = todayRomeBounds()
 
-    // Blocca se c'è già un turno aperto (check_out nullo)
-    const { data: openShift } = await supabase
-      .from('attendances')
-      .select('id')
-      .eq('user_id', user.id)
-      .is('check_out', null)
-      .gte('check_in', todayStart)
-      .maybeSingle()
+    // The open-shift guard must NOT be date-scoped: a shift started before
+    // midnight Rome is still open if check_out is null.  Only split-shift
+    // detection (completed turni within today's Rome window) needs a date range.
+    const [{ data: openShift }, { data: completedToday }] = await Promise.all([
+      supabase
+        .from('attendances')
+        .select('id')
+        .eq('user_id', user.id)
+        .is('check_out', null)
+        .maybeSingle(),              // any open shift, no date filter
+      supabase
+        .from('attendances')
+        .select('id')
+        .eq('user_id', user.id)
+        .not('check_out', 'is', null)
+        .gte('check_in', todayStart)
+        .lte('check_in', todayEnd)
+        .maybeSingle(),
+    ])
 
     if (openShift) {
       return NextResponse.json({ error: 'Hai già un turno aperto' }, { status: 409 })
     }
-
-    // Controlla se esiste un turno completato oggi (turno spezzato)
-    const { data: completedToday } = await supabase
-      .from('attendances')
-      .select('id')
-      .eq('user_id', user.id)
-      .not('check_out', 'is', null)
-      .gte('check_in', todayStart)
-      .lte('check_in', todayEnd)
-      .maybeSingle()
 
     const isSplitShift = !!completedToday
 

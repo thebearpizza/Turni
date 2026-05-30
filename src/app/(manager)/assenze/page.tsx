@@ -10,7 +10,7 @@ export default async function AssenzePage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
 
@@ -52,6 +52,7 @@ export default async function AssenzePage() {
         dipendenti={dipendenti ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
+        isDirectore={profile?.is_direttore ?? false}
       />
     </div>
   )

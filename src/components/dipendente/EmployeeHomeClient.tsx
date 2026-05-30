@@ -4,19 +4,20 @@ import { createClient } from '@/lib/supabase/client'
 import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
 import { BulletinDrawer } from './BulletinDrawer'
-import { LogOut, Camera, UserX, Megaphone } from 'lucide-react'
+import { LogOut, Camera, UserX, Megaphone, MapPin } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import type { Profile, Attendance } from '@/types'
 
 const TZ = 'Europe/Rome'
 
 interface Props {
-  profile: Profile & { restaurant?: { id: string; name: string } | null }
+  profile: Profile & { restaurant?: { id: string; name: string; latitude?: number | null; longitude?: number | null } | null }
   openAttendance: Attendance | null
   userId: string
 }
@@ -40,6 +41,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const router = useRouter()
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
+  const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
   // Clock tick
   useEffect(() => {
@@ -62,6 +64,24 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     ? differenceInSeconds(now, new Date(attendance.check_in))
     : 0
 
+  // Geofence-aware scan trigger — fail-closed
+  const handleScanPress = useCallback(async () => {
+    setMessage(null)
+    const restaurantLat = profile.restaurant?.latitude ?? undefined
+    const restaurantLng = profile.restaurant?.longitude ?? undefined
+    const result = await checkGeo(restaurantLat, restaurantLng)
+    if (result === 'outside') {
+      setMessage({ text: 'Sei troppo lontano dalla sede per timbrare', type: 'error' })
+      return
+    }
+    if (result === 'denied') {
+      setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      return
+    }
+    // 'inside' → allow
+    setShowScanner(true)
+  }, [checkGeo, profile.restaurant])
+
   const handleScan = useCallback(async (qrSecret: string) => {
     setShowScanner(false)
     setLoading(true)
@@ -74,6 +94,8 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         body: JSON.stringify({
           qr_secret: qrSecret,
           type: attendance ? 'out' : 'in',
+          latitude: userCoordsRef.current?.latitude,
+          longitude: userCoordsRef.current?.longitude,
         }),
       })
       const data = await res.json()
@@ -117,6 +139,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
 
   const timeDisplay = formatInTimeZone(now, TZ, 'HH:mm:ss')
   const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy", { locale: it })
+  const isGeoChecking = geoStatus === 'checking'
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
@@ -190,20 +213,20 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
 
         {/* Pulsante QR principale — touch target h-14 mobile */}
         <button
-          onClick={() => setShowScanner(true)}
-          disabled={loading}
+          onClick={handleScanPress}
+          disabled={loading || isGeoChecking}
           className={`w-full max-w-xs h-14 rounded-md flex items-center justify-center gap-3 text-base font-semibold border transition-colors active:scale-[0.98] disabled:opacity-50 ${
             attendance
               ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
               : 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
           }`}
         >
-          <Camera className="w-5 h-5" />
-          {loading
+          {isGeoChecking
+            ? <><MapPin className="w-5 h-5 animate-pulse" /> Verifica posizione...</>
+            : loading
             ? 'Elaborazione...'
-            : attendance
-            ? 'Scansiona Uscita'
-            : 'Scansiona Ingresso'}
+            : <><Camera className="w-5 h-5" />{attendance ? 'Scansiona Uscita' : 'Scansiona Ingresso'}</>
+          }
         </button>
 
         {process.env.NODE_ENV === 'development' && (
