@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'capo_servizio' | 'dipendente'
+export type Role = 'manager' | 'capo_servizio' | 'dipendente' | 'consulente_lavoro'
 export type AbsenceType = 'ferie' | 'malattia' | 'riposo' | 'assenza_ingiustificata'
 export type AbsenceStatus = 'pending' | 'approved' | 'rejected'
 export type BulletinTarget = 'all' | 'restaurant' | 'role' | 'users'
@@ -26,6 +26,9 @@ export interface Profile {
   restaurant_id: string | null
   can_post_bulletin: boolean
   is_direttore: boolean
+  consultant_restaurant_ids: string[]
+  can_view_hours: boolean
+  last_active_at: string | null
   created_at: string
   updated_at: string
   restaurant?: Restaurant
@@ -111,6 +114,22 @@ export const ROLE_LABELS: Record<Role, string> = {
   manager: 'Manager',
   capo_servizio: 'Capo Servizio',
   dipendente: 'Dipendente',
+  consulente_lavoro: 'Consulente del Lavoro',
+}
+
+// ── Consultant Messaging ─────────────────────────────────────────────
+
+export interface ConsultantMessage {
+  id: string
+  manager_id: string
+  consultant_id: string
+  title: string
+  body: string
+  attachments: Array<{ name: string; path: string }>
+  sent_by_manager: boolean
+  created_at: string
+  read_at: string | null
+  downloaded_at: string | null
 }
 
 // ── ODS (Ordine di Servizio) ─────────────────────────────────────────

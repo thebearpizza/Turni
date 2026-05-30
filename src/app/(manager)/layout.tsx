@@ -14,6 +14,7 @@ export default async function ManagerLayout({ children }: { children: React.Reac
     .single()
 
   if (!profile || profile.role === 'dipendente') redirect('/home')
+  if (profile.role === 'consulente_lavoro') redirect('/consulente/dashboard')
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">

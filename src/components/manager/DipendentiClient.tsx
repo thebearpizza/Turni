@@ -19,9 +19,10 @@ import { ROLE_LABELS, DEPARTMENTS } from '@/types'
 const USERNAME_RE = /^[a-z0-9._-]+$/
 
 const roleColors: Record<Role, string> = {
-  manager:       'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  capo_servizio: 'bg-blue-100   text-blue-800  dark:bg-blue-900/30   dark:text-blue-300',
-  dipendente:    'bg-slate-100  text-slate-700 dark:bg-slate-800      dark:text-slate-300',
+  manager:           'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  capo_servizio:     'bg-blue-100   text-blue-800  dark:bg-blue-900/30   dark:text-blue-300',
+  dipendente:        'bg-slate-100  text-slate-700 dark:bg-slate-800      dark:text-slate-300',
+  consulente_lavoro: 'bg-amber-100  text-amber-800 dark:bg-amber-900/30  dark:text-amber-300',
 }
 
 const deptColors: Record<Department, string> = {
@@ -204,8 +205,9 @@ export function DipendentiClient({
   // own restaurant, with manager-equivalent powers confined to that locale.
   const canManageUsers = isManager || (currentUserRole === 'capo_servizio' && currentIsDirettore)
   // Direttore cannot create/assign the manager role.
+  // consulente_lavoro is managed via the dedicated ConsulenteLavoroManager section
   const assignableRoles = (Object.keys(ROLE_LABELS) as Role[])
-    .filter(r => isManager || r !== 'manager')
+    .filter(r => r !== 'consulente_lavoro' && (isManager || r !== 'manager'))
   const needsDept = role !== 'manager'
   const canSave = !!fullName.trim() &&
     (editing

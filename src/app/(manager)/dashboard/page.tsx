@@ -4,6 +4,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import Link from 'next/link'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
+import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroManager'
 
 const TZ = 'Europe/Rome'
 
@@ -16,6 +17,8 @@ export default async function DashboardPage() {
     .select('role, restaurant_id, restaurant:restaurants(latitude, longitude)')
     .eq('id', user!.id)
     .single()
+
+  const isManager = profile?.role === 'manager'
 
   const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
@@ -98,6 +101,26 @@ export default async function DashboardPage() {
           restaurantLng={(profile?.restaurant as { longitude?: number | null } | null)?.longitude ?? null}
         />
       )}
+
+      {/* Consulenti del Lavoro — solo manager */}
+      {isManager && (
+        <ConsulenteLavoroManagerSection managerId={user!.id} />
+      )}
     </div>
+  )
+}
+
+async function ConsulenteLavoroManagerSection({ managerId }: { managerId: string }) {
+  const supabase = await createClient()
+  const { data: restaurants } = await supabase
+    .from('restaurants')
+    .select('id, name')
+    .order('name')
+
+  return (
+    <ConsulenteLavoroManager
+      managerId={managerId}
+      restaurants={restaurants ?? []}
+    />
   )
 }
