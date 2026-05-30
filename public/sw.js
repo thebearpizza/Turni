@@ -2,7 +2,7 @@
 // Handles: push notifications, offline caching, App Badging
 
 const STATIC_CACHE = 'inturno-static-v1'
-const PAGES_CACHE  = 'inturno-pages-v1'
+const PAGES_CACHE  = 'inturno-pages-v2'
 
 // Assets to pre-cache on install (offline shell)
 const PRECACHE = [
@@ -55,18 +55,22 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // StaleWhileRevalidate for HTML pages
+  // NetworkFirst for HTML pages — authenticated pages render time-sensitive,
+  // user-specific state (open shift / timbratura status), so they must always
+  // reflect fresh server data when online.  StaleWhileRevalidate served a
+  // pre-check-in cached page for hours, making an open shift "disappear".
+  // Cache is used only as an offline fallback.
   if (request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
-      caches.open(PAGES_CACHE).then(cache =>
-        cache.match(request).then(cached => {
-          const fresh = fetch(request).then(res => {
-            if (res.ok) cache.put(request, res.clone())
-            return res
-          }).catch(() => cached)
-          return cached || fresh
-        }),
-      ),
+      fetch(request)
+        .then(res => {
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(PAGES_CACHE).then(cache => cache.put(request, copy))
+          }
+          return res
+        })
+        .catch(() => caches.open(PAGES_CACHE).then(cache => cache.match(request))),
     )
     return
   }
