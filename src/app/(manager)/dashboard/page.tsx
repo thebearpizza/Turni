@@ -13,7 +13,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, restaurant:restaurants(latitude, longitude)')
     .eq('id', user!.id)
     .single()
 
@@ -94,6 +94,8 @@ export default async function DashboardPage() {
       {isCapoServizio && (
         <CapoServizioTimbraturaSection
           initialOpenAttendance={openAttendanceResult.data ?? null}
+          restaurantLat={(profile?.restaurant as { latitude?: number | null } | null)?.latitude ?? null}
+          restaurantLng={(profile?.restaurant as { longitude?: number | null } | null)?.longitude ?? null}
         />
       )}
     </div>

@@ -4,11 +4,14 @@ import { Camera } from 'lucide-react'
 import { differenceInSeconds } from 'date-fns'
 import { QRScanner } from '@/components/dipendente/QRScanner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import type { Attendance } from '@/types'
 
 interface Props {
   initialOpenAttendance: Attendance | null
+  restaurantLat?: number | null
+  restaurantLng?: number | null
 }
 
 function formatDuration(s: number): string {
@@ -18,12 +21,13 @@ function formatDuration(s: number): string {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
 }
 
-export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) {
+export function CapoServizioTimbraturaSection({ initialOpenAttendance, restaurantLat, restaurantLng }: Props) {
   const [attendance, setAttendance] = useState<Attendance | null>(initialOpenAttendance)
   const [showScanner, setShowScanner] = useState(false)
   const [loading, setLoading]         = useState(false)
   const [message, setMessage]         = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [now, setNow]                 = useState(new Date())
+  const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
   // Tick only while a shift is open
   useEffect(() => {
@@ -34,6 +38,21 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
 
   const elapsed = attendance ? differenceInSeconds(now, new Date(attendance.check_in)) : 0
 
+  // Geofence-aware scan trigger — fail-closed
+  const handleScanPress = useCallback(async () => {
+    setMessage(null)
+    const result = await checkGeo(restaurantLat, restaurantLng)
+    if (result === 'outside') {
+      setMessage({ text: 'Sei troppo lontano dal ristorante per timbrare', type: 'error' })
+      return
+    }
+    if (result === 'denied' || result === 'unsupported') {
+      setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      return
+    }
+    setShowScanner(true)
+  }, [checkGeo, restaurantLat, restaurantLng])
+
   const handleScan = useCallback(async (qrSecret: string) => {
     setShowScanner(false)
     setLoading(true)
@@ -42,7 +61,12 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qr_secret: qrSecret, type: attendance ? 'out' : 'in' }),
+        body: JSON.stringify({
+          qr_secret: qrSecret,
+          type: attendance ? 'out' : 'in',
+          latitude: userCoordsRef.current?.latitude,
+          longitude: userCoordsRef.current?.longitude,
+        }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -68,6 +92,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
   const isOut = !!attendance
+  const isGeoChecking = geoStatus === 'checking'
 
   return (
     <>
@@ -108,8 +133,8 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
             </button>
           )}
           <button
-            onClick={() => setShowScanner(true)}
-            disabled={loading}
+            onClick={handleScanPress}
+            disabled={loading || isGeoChecking}
             className={`h-10 px-4 rounded-sm flex items-center gap-2 text-sm font-semibold border transition-colors disabled:opacity-50 ${
               isOut
                 ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
@@ -117,7 +142,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance }: Props) 
             }`}
           >
             <Camera className="w-4 h-4" />
-            {loading ? 'Elaborazione...' : isOut ? 'Timbra Uscita' : 'Timbra Ingresso'}
+            {isGeoChecking ? 'Verifica posizione...' : loading ? 'Elaborazione...' : isOut ? 'Timbra Uscita' : 'Timbra Ingresso'}
           </button>
         </div>
       </div>

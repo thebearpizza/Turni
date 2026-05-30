@@ -1,7 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-const SEDE_LAT   = 41.0229839
-const SEDE_LNG   = 9.5282387
 const RAGGIO_MAX = 100 // metres
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -19,37 +17,48 @@ export type GeofenceStatus = 'idle' | 'checking' | 'inside' | 'outside' | 'denie
 export function useGeofence() {
   const [status, setStatus]     = useState<GeofenceStatus>('idle')
   const [distance, setDistance] = useState<number | null>(null)
+  // Last device coordinates obtained — forwarded to the server for validation
+  const userCoordsRef = useRef<{ latitude: number; longitude: number } | null>(null)
 
-  function check(): Promise<GeofenceStatus> {
+  function check(restaurantLat?: number | null, restaurantLng?: number | null): Promise<GeofenceStatus> {
+    // Fail-closed: no geolocation API → block the action
     if (!('geolocation' in navigator)) {
-      setStatus('unsupported')
-      return Promise.resolve('unsupported')
+      setStatus('denied')
+      return Promise.resolve('denied')
     }
 
     setStatus('checking')
     return new Promise(resolve => {
       navigator.geolocation.getCurrentPosition(
         pos => {
-          const dist = haversine(pos.coords.latitude, pos.coords.longitude, SEDE_LAT, SEDE_LNG)
-          setDistance(dist)
-          const s: GeofenceStatus = dist <= RAGGIO_MAX ? 'inside' : 'outside'
-          setStatus(s)
-          resolve(s)
-        },
-        err => {
-          if (err.code === err.PERMISSION_DENIED) {
-            setStatus('denied')
-            resolve('denied')
-          } else {
-            // Timeout or unavailable — treat as unsupported, allow scan
-            setStatus('unsupported')
-            resolve('unsupported')
+          userCoordsRef.current = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
           }
+
+          if (restaurantLat != null && restaurantLng != null) {
+            const dist = haversine(pos.coords.latitude, pos.coords.longitude, restaurantLat, restaurantLng)
+            setDistance(dist)
+            const s: GeofenceStatus = dist <= RAGGIO_MAX ? 'inside' : 'outside'
+            setStatus(s)
+            resolve(s)
+          } else {
+            // No restaurant coordinates configured — position obtained, allow
+            setDistance(null)
+            setStatus('inside')
+            resolve('inside')
+          }
+        },
+        () => {
+          // Fail-closed: permission denied, timeout, or position unavailable
+          // all block the scan.
+          setStatus('denied')
+          resolve('denied')
         },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
       )
     })
   }
 
-  return { status, distance, check }
+  return { status, distance, check, userCoordsRef }
 }

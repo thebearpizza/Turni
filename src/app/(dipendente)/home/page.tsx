@@ -7,7 +7,7 @@ export default async function EmployeeHomePage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*, restaurant:restaurants(id, name)')
+    .select('*, restaurant:restaurants(id, name, latitude, longitude)')
     .eq('id', user!.id)
     .single()
 

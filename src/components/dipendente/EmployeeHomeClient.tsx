@@ -19,7 +19,7 @@ import type { Profile, Attendance } from '@/types'
 const TZ = 'Europe/Rome'
 
 interface Props {
-  profile: Profile & { restaurant?: { id: string; name: string } | null }
+  profile: Profile & { restaurant?: { id: string; name: string; latitude?: number | null; longitude?: number | null } | null }
   openAttendance: Attendance | null
   userId: string
 }
@@ -43,7 +43,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const router = useRouter()
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
-  const { status: geoStatus, check: checkGeo } = useGeofence()
+  const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000)
@@ -64,31 +64,24 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     ? differenceInSeconds(now, new Date(attendance.check_in))
     : 0
 
-  // Geofence-aware scan trigger
+  // Geofence-aware scan trigger — fail-closed
   const handleScanPress = useCallback(async () => {
     setMessage(null)
 
-    // If geolocation is unavailable entirely, allow scan
-    if (!('geolocation' in navigator)) {
-      setShowScanner(true)
-      return
-    }
-
-    const result = await checkGeo()
+    const result = await checkGeo(profile.restaurant?.latitude, profile.restaurant?.longitude)
 
     if (result === 'outside') {
-      setMessage({ text: 'Sei troppo lontano dalla sede per timbrare', type: 'error' })
+      setMessage({ text: 'Sei troppo lontano dal ristorante per timbrare', type: 'error' })
       return
     }
-    if (result === 'denied') {
-      // Graceful fallback: warn but allow
-      setMessage({ text: 'Permesso GPS non concesso — timbratura consentita senza verifica posizione', type: 'error' })
-      setTimeout(() => { setMessage(null); setShowScanner(true) }, 2000)
+    if (result === 'denied' || result === 'unsupported') {
+      // Fail-closed: no GPS consent or position unavailable → block
+      setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
       return
     }
-    // 'inside' | 'unsupported' → allow
+    // 'inside' → allow
     setShowScanner(true)
-  }, [checkGeo])
+  }, [checkGeo, profile.restaurant])
 
   const handleScan = useCallback(async (qrSecret: string) => {
     setShowScanner(false)
@@ -102,6 +95,8 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         body: JSON.stringify({
           qr_secret: qrSecret,
           type: attendance ? 'out' : 'in',
+          latitude: userCoordsRef.current?.latitude,
+          longitude: userCoordsRef.current?.longitude,
         }),
       })
       const data = await res.json()
