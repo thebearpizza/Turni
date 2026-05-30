@@ -47,7 +47,8 @@ export default async function DashboardPage() {
           .select('*')
           .eq('user_id', user!.id)
           .is('check_out', null)
-          .gte('check_in', todayStart)
+          .order('check_in', { ascending: false })
+          .limit(1)
           .maybeSingle()
       : Promise.resolve({ data: null }),
   ])

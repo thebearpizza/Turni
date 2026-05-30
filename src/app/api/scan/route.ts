@@ -57,17 +57,18 @@ export async function POST(request: Request) {
   const nowUtc = new Date().toISOString()
 
   if (type === 'in') {
+    // The open-shift guard must NOT be date-scoped: a shift started before
+    // midnight Rome is still open if check_out is null.  Only split-shift
+    // detection (completed turni within today's Rome window) needs a date range.
     const { start: todayStart, end: todayEnd } = todayRomeBounds()
 
-    // Run both checks in parallel — open shift check + split shift detection
     const [{ data: openShift }, { data: completedToday }] = await Promise.all([
       supabase
         .from('attendances')
         .select('id')
         .eq('user_id', user.id)
         .is('check_out', null)
-        .gte('check_in', todayStart)
-        .maybeSingle(),
+        .maybeSingle(),                    // any open shift, no date filter
       supabase
         .from('attendances')
         .select('id')
