@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, ImageOff } from 'lucide-react'
 import { differenceInSeconds } from 'date-fns'
 import { QRScanner } from '@/components/dipendente/QRScanner'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
@@ -27,6 +27,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
   const [loading, setLoading]         = useState(false)
   const [message, setMessage]         = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [now, setNow]                 = useState(new Date())
+  const [gpsFailed, setGpsFailed]     = useState(false)
   const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
   // Tick only while a shift is open
@@ -48,8 +49,10 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
     }
     if (result === 'denied' || result === 'unsupported') {
       setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      setGpsFailed(true)   // ← fallback only: show photo option
       return
     }
+    setGpsFailed(false)
     setShowScanner(true)
   }, [checkGeo, restaurantLat, restaurantLng])
 
@@ -89,6 +92,36 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
       setLoading(false)
     }
   }, [attendance])
+
+  async function handleFallbackPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const photo = e.target.files?.[0]
+    if (!photo) return
+    e.target.value = ''
+    setLoading(true)
+    setMessage(null)
+    try {
+      const fd = new FormData()
+      fd.append('photo', photo)
+      fd.append('type', attendance ? 'out' : 'in')
+      const res = await fetch('/api/clock-in-fallback', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        setMessage({ text: data.error ?? 'Errore timbratura di emergenza', type: 'error' })
+        return
+      }
+      if (attendance) {
+        setAttendance(null)
+      } else {
+        setAttendance(data.attendance)
+      }
+      setGpsFailed(false)
+      setMessage({ text: 'Timbratura registrata. In attesa di conferma dal Manager.', type: 'success' })
+    } catch {
+      setMessage({ text: 'Errore di rete, riprova', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
   const isOut = !!attendance
@@ -146,6 +179,26 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
           </button>
         </div>
       </div>
+
+      {/* GPS fallback — shown only when GPS denied/unavailable */}
+      {gpsFailed && (
+        <label className={`mt-2 flex items-center gap-2.5 justify-center h-10 px-4 rounded-sm text-sm font-medium border cursor-pointer transition-colors
+          ${loading ? 'opacity-50 pointer-events-none' : ''}
+          border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100
+          dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50`}
+        >
+          <ImageOff className="w-4 h-4 shrink-0" />
+          Problemi col GPS? Timbra con foto
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={handleFallbackPhoto}
+            disabled={loading}
+          />
+        </label>
+      )}
 
       {showScanner && (
         <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />

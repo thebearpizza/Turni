@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { PresenzeClient, type AbsenceItem } from '@/components/manager/PresenzeClient'
+import { FallbackApprovalSection } from '@/components/manager/FallbackApprovalSection'
 import { formatInTimeZone } from 'date-fns-tz'
 
 const TZ = 'Europe/Rome'
@@ -48,10 +49,21 @@ export default async function PresenzePage() {
     absencesQuery  = absencesQuery.eq('restaurant_id', profile.restaurant_id)
   }
 
+  let pendingQuery = supabase
+    .from('attendances')
+    .select('id, user_id, check_in, check_out, fallback_photo_path, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
+    .eq('needs_manager_approval', true)
+    .order('check_in', { ascending: false })
+
+  if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
+    pendingQuery = pendingQuery.eq('restaurant_id', profile.restaurant_id)
+  }
+
   const [
     { data: presenze, error: presenzeError },
     { data: dipendenti },
     { data: absences },
+    { data: pendingFallback },
   ] = await Promise.all([
     presenzeQuery,
     supabase
@@ -60,12 +72,17 @@ export default async function PresenzePage() {
       .in('role', ['dipendente', 'capo_servizio'])
       .order('full_name'),
     absencesQuery,
+    pendingQuery,
   ])
 
   if (presenzeError) console.error('[presenze] query error:', presenzeError.message)
 
   return (
     <div className="p-6 lg:p-8">
+      <FallbackApprovalSection
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        initialPending={(pendingFallback ?? []) as any}
+      />
       <PresenzeClient
         initialPresenze={presenze ?? []}
         initialAbsences={(absences ?? []) as unknown as AbsenceItem[]}

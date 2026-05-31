@@ -6,7 +6,7 @@ import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
 import { BulletinDrawer } from './BulletinDrawer'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
-import { LogOut, Camera, UserX, Megaphone, MapPin } from 'lucide-react'
+import { LogOut, Camera, UserX, Megaphone, MapPin, ImageOff } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -40,6 +40,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const [loading, setLoading]     = useState(false)
   const [message, setMessage]     = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [gpsFailed, setGpsFailed] = useState(false)
   const router = useRouter()
 
   const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
@@ -77,9 +78,11 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     if (result === 'denied' || result === 'unsupported') {
       // Fail-closed: no GPS consent or position unavailable → block
       setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      setGpsFailed(true)   // ← fallback only: show photo option
       return
     }
     // 'inside' → allow
+    setGpsFailed(false)
     setShowScanner(true)
   }, [checkGeo, profile.restaurant])
 
@@ -125,6 +128,37 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
       setLoading(false)
     }
   }, [attendance, router])
+
+  async function handleFallbackPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const photo = e.target.files?.[0]
+    if (!photo) return
+    e.target.value = ''
+    setLoading(true)
+    setMessage(null)
+    try {
+      const fd = new FormData()
+      fd.append('photo', photo)
+      fd.append('type', attendance ? 'out' : 'in')
+      const res = await fetch('/api/clock-in-fallback', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        setMessage({ text: data.error ?? 'Errore timbratura di emergenza', type: 'error' })
+        return
+      }
+      if (attendance) {
+        setAttendance(null)
+      } else {
+        setAttendance(data.attendance)
+      }
+      setGpsFailed(false)
+      setMessage({ text: 'Timbratura registrata. In attesa di conferma dal Manager.', type: 'success' })
+      router.refresh()
+    } catch {
+      setMessage({ text: 'Errore di rete, riprova', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function handleLogout() {
     const supabase = createClient()
@@ -260,6 +294,35 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           >
             [DEV] Simula Scansione
           </button>
+        )}
+
+        {/* GPS fallback — shown only when GPS denied/unavailable */}
+        {gpsFailed && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-xs"
+          >
+            <label className={`w-full h-11 rounded-md flex items-center justify-center gap-2.5 text-sm font-medium border cursor-pointer transition-colors
+              ${loading ? 'opacity-50 pointer-events-none' : ''}
+              border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100
+              dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50`}
+            >
+              <ImageOff className="w-4 h-4 shrink-0" />
+              Problemi col GPS? Timbra con foto
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={handleFallbackPhoto}
+                disabled={loading}
+              />
+            </label>
+            <p className="text-[10px] text-muted-foreground text-center mt-1">
+              La timbratura sarà confermata dal Manager
+            </p>
+          </motion.div>
         )}
 
         <motion.button
