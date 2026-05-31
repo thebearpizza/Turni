@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 
 // GET /api/consultant-messages?consultantId=<uuid>
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
 }
 
 // DELETE /api/consultant-messages?id=<uuid>
+// Order: 1) fetch attachments → 2) storage.remove → 3) db.delete
 export async function DELETE(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -109,6 +111,27 @@ export async function DELETE(request: Request) {
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'ID mancante' }, { status: 400 })
 
+  // Step 1: fetch the message (scoped to the caller) to retrieve attachment paths
+  const { data: message } = await supabase
+    .from('consultant_messages')
+    .select('attachments')
+    .eq('id', id)
+    .or(`manager_id.eq.${user.id},consultant_id.eq.${user.id}`)
+    .maybeSingle()
+
+  // Step 2: remove physical files from storage before touching the DB row.
+  // Errors are intentionally ignored — a file already missing in storage
+  // must not prevent the message record from being deleted.
+  if (message?.attachments?.length) {
+    const paths = (message.attachments as Array<{ name: string; path: string }>)
+      .map(a => a.path)
+      .filter(Boolean)
+    if (paths.length > 0) {
+      await supabase.storage.from('consultant_files').remove(paths)
+    }
+  }
+
+  // Step 3: delete the DB row (same authorization filter as the SELECT above)
   const { error } = await supabase
     .from('consultant_messages')
     .delete()
@@ -116,5 +139,8 @@ export async function DELETE(request: Request) {
     .or(`manager_id.eq.${user.id},consultant_id.eq.${user.id}`)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  revalidatePath('/dashboard')
+  revalidatePath('/consulente/dashboard')
   return NextResponse.json({ success: true })
 }
