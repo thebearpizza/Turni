@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
+import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
@@ -59,6 +60,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   const [composeBody, setComposeBody]       = useState<Record<string, string>>({})
   const [composeFiles, setComposeFiles]     = useState<Record<string, File[]>>({})
   const [composeSending, setComposeSending] = useState<Record<string, boolean>>({})
+  const [composeMerging, setComposeMerging] = useState<Record<string, boolean>>({})
   const [composeError, setComposeError]     = useState<Record<string, string | null>>({})
 
   // Message expand state
@@ -204,13 +206,21 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       return
     }
 
-    setComposeSending(prev => ({ ...prev, [consultantId]: true }))
     setComposeError(prev => ({ ...prev, [consultantId]: null }))
+
     try {
       const attachments: Array<{ name: string; path: string }> = []
-      for (const file of filesToSend) {
+
+      if (filesToSend.length > 0) {
+        // Phase 1: merge & compress all files into one PDF client-side
+        setComposeMerging(prev => ({ ...prev, [consultantId]: true }))
+        const unifiedFile = await generateUnifiedPDF(filesToSend)
+        setComposeMerging(prev => ({ ...prev, [consultantId]: false }))
+
+        // Phase 2: upload the single unified PDF
+        setComposeSending(prev => ({ ...prev, [consultantId]: true }))
         const fd = new FormData()
-        fd.append('file', file)
+        fd.append('file', unifiedFile)
         fd.append('consultantId', consultantId)
         const uploadRes = await fetch('/api/consultant-messages/upload', { method: 'POST', body: fd })
         if (!uploadRes.ok) {
@@ -218,7 +228,9 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
           throw new Error(e.error ?? 'Errore upload')
         }
         const uploaded = await uploadRes.json()
-        attachments.push({ name: file.name, path: uploaded.path })
+        attachments.push({ name: unifiedFile.name, path: uploaded.path })
+      } else {
+        setComposeSending(prev => ({ ...prev, [consultantId]: true }))
       }
 
       const res = await fetch('/api/consultant-messages', {
@@ -236,6 +248,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       setComposeOpen(prev => ({ ...prev, [consultantId]: false }))
       await loadThread(consultantId)
     } catch (e) {
+      setComposeMerging(prev => ({ ...prev, [consultantId]: false }))
       setComposeError(prev => ({ ...prev, [consultantId]: e instanceof Error ? e.message : 'Errore' }))
     } finally {
       setComposeSending(prev => ({ ...prev, [consultantId]: false }))
@@ -401,10 +414,11 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali)</span></Label>
+                        <Label className="text-xs">Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali — unificati in un unico PDF)</span></Label>
                         <input
                           type="file"
                           multiple
+                          disabled={composeMerging[c.id] || composeSending[c.id]}
                           onChange={e => {
                             const selected = Array.from(e.target.files ?? [])
                             const total = selected.reduce((sum, f) => sum + f.size, 0)
@@ -416,11 +430,16 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                             setComposeError(prev => ({ ...prev, [c.id]: null }))
                             setComposeFiles(prev => ({ ...prev, [c.id]: selected }))
                           }}
-                          className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-primary file:text-primary-foreground"
+                          className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-primary file:text-primary-foreground disabled:opacity-50"
                         />
-                        {(composeFiles[c.id]?.length ?? 0) > 0 && (
+                        {(composeFiles[c.id]?.length ?? 0) > 0 && !composeMerging[c.id] && (
                           <p className="text-[10px] text-muted-foreground">
                             {composeFiles[c.id].length} file · {(composeFiles[c.id].reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB
+                          </p>
+                        )}
+                        {composeMerging[c.id] && (
+                          <p className="text-[10px] text-amber-600 dark:text-amber-400 animate-pulse">
+                            Elaborazione e unificazione file in corso...
                           </p>
                         )}
                       </div>
@@ -428,17 +447,18 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => setComposeOpen(prev => ({ ...prev, [c.id]: false }))}
-                          className="text-xs text-muted-foreground hover:text-foreground"
+                          disabled={composeMerging[c.id] || composeSending[c.id]}
+                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Annulla
                         </button>
                         <Button
                           size="sm"
                           onClick={() => handleSendMessage(c.id)}
-                          disabled={composeSending[c.id] || !composeTitle[c.id]?.trim() || !composeBody[c.id]?.trim()}
+                          disabled={composeMerging[c.id] || composeSending[c.id] || !composeTitle[c.id]?.trim() || !composeBody[c.id]?.trim()}
                           className="h-7 text-xs"
                         >
-                          {composeSending[c.id] ? 'Invio...' : 'Invia'}
+                          {composeMerging[c.id] ? 'Elaborazione...' : composeSending[c.id] ? 'Invio...' : 'Invia'}
                         </Button>
                       </div>
                     </div>
