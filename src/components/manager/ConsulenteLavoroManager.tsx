@@ -63,8 +63,9 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   const [composeMerging, setComposeMerging] = useState<Record<string, boolean>>({})
   const [composeError, setComposeError]     = useState<Record<string, string | null>>({})
 
-  // Message expand state
-  const [msgExpanded, setMsgExpanded]     = useState<Record<string, string | null>>({})
+  // Message expand / delete state
+  const [msgExpanded, setMsgExpanded]   = useState<Record<string, string | null>>({})
+  const [msgDeleting, setMsgDeleting]   = useState<Record<string, boolean>>({})
 
   const loadConsultants = useCallback(async () => {
     setLoadingList(true)
@@ -274,6 +275,23 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
         }))
       }
     }
+  }
+
+  async function handleMsgDelete(consultantId: string, msgId: string) {
+    setMsgDeleting(prev => ({ ...prev, [msgId]: true }))
+    const res = await fetch(`/api/consultant-messages?id=${msgId}`, { method: 'DELETE' })
+    if (res.ok) {
+      setThreads(prev => ({
+        ...prev,
+        [consultantId]: (prev[consultantId] ?? []).filter(m => m.id !== msgId),
+      }))
+      // Collapse if the deleted message was open
+      setMsgExpanded(prev => ({
+        ...prev,
+        [consultantId]: prev[consultantId] === msgId ? null : prev[consultantId],
+      }))
+    }
+    setMsgDeleting(prev => ({ ...prev, [msgId]: false }))
   }
 
   async function handleMsgDownload(consultantId: string, msg: ConsultantMessage, att: { name: string; path: string }) {
@@ -503,24 +521,36 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
 
                         return (
                           <div key={msg.id} className={`border rounded overflow-hidden ${unread ? 'border-primary/40 bg-primary/5' : 'border-border bg-background'}`}>
-                            <button
-                              onClick={() => handleMsgExpand(c.id, msg)}
-                              className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  {unread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                                  <p className="text-xs font-medium truncate">{msg.title}</p>
+                            <div className="flex items-center gap-1 pr-2">
+                              {/* Expand trigger — occupies all available space */}
+                              <button
+                                onClick={() => handleMsgExpand(c.id, msg)}
+                                className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    {unread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                                    <p className="text-xs font-medium truncate">{msg.title}</p>
+                                  </div>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {fromConsultant ? `Da ${c.full_name}` : 'Da te'} · {fmtDate(msg.created_at)}
+                                  </p>
                                 </div>
-                                <p className="text-[11px] text-muted-foreground">
-                                  {fromConsultant ? `Da ${c.full_name}` : 'Da te'} · {fmtDate(msg.created_at)}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {msg.attachments?.length > 0 && <Paperclip className="w-3 h-3 text-muted-foreground" />}
-                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-                              </div>
-                            </button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {msg.attachments?.length > 0 && <Paperclip className="w-3 h-3 text-muted-foreground" />}
+                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                                </div>
+                              </button>
+                              {/* Delete — manager only; absent from ConsultantInbox entirely */}
+                              <button
+                                onClick={() => handleMsgDelete(c.id, msg.id)}
+                                disabled={msgDeleting[msg.id]}
+                                className="shrink-0 p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                                title="Elimina messaggio"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
 
                             {isExpanded && (
                               <div className="px-3 pb-3 pt-2 border-t border-border space-y-2">

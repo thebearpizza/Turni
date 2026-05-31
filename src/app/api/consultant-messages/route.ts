@@ -101,11 +101,21 @@ export async function POST(request: Request) {
 }
 
 // DELETE /api/consultant-messages?id=<uuid>
-// Order: 1) fetch attachments → 2) storage.remove → 3) db.delete
+// Manager-only. Order: 1) role check → 2) fetch attachments → 3) storage.remove → 4) db.delete
 export async function DELETE(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
+
+  // RBAC hard lock — only managers may delete messages
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  if (callerProfile?.role !== 'manager') {
+    return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  }
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')
