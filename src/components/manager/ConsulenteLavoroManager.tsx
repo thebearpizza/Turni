@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
 import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
+import { createClient } from '@/lib/supabase/client'
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
@@ -66,6 +67,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   // Message expand / delete state
   const [msgExpanded, setMsgExpanded]   = useState<Record<string, string | null>>({})
   const [msgDeleting, setMsgDeleting]   = useState<Record<string, boolean>>({})
+  const [deleteMsgTarget, setDeleteMsgTarget] = useState<{ consultantId: string; msg: ConsultantMessage } | null>(null)
 
   const loadConsultants = useCallback(async () => {
     setLoadingList(true)
@@ -78,6 +80,47 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   }, [])
 
   useEffect(() => { loadConsultants() }, [loadConsultants])
+
+  // Supabase Realtime — listen to all consultant_messages for this manager
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('consultant-messages-manager')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'consultant_messages', filter: `manager_id=eq.${managerId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const msg = payload.new as ConsultantMessage
+            setThreads(prev => {
+              const cId = msg.consultant_id
+              if (!(cId in prev)) return prev          // thread not yet loaded — skip
+              if (prev[cId].some(m => m.id === msg.id)) return prev  // duplicate guard
+              return { ...prev, [cId]: [msg, ...prev[cId]] }
+            })
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string }).id
+            setThreads(prev => {
+              const next: Record<string, ConsultantMessage[]> = {}
+              for (const [cId, msgs] of Object.entries(prev)) {
+                next[cId] = msgs.filter(m => m.id !== deletedId)
+              }
+              return next
+            })
+            setMsgExpanded(prev => {
+              const next = { ...prev }
+              for (const [cId, openId] of Object.entries(prev)) {
+                if (openId === deletedId) next[cId] = null
+              }
+              return next
+            })
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [managerId])
 
   async function loadThread(consultantId: string) {
     setThreadLoading(prev => ({ ...prev, [consultantId]: true }))
@@ -292,6 +335,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       }))
     }
     setMsgDeleting(prev => ({ ...prev, [msgId]: false }))
+    setDeleteMsgTarget(null)
   }
 
   async function handleMsgDownload(consultantId: string, msg: ConsultantMessage, att: { name: string; path: string }) {
@@ -541,9 +585,9 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                                   {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
                                 </div>
                               </button>
-                              {/* Delete — manager only; absent from ConsultantInbox entirely */}
+                              {/* Delete — opens confirmation modal; absent from ConsultantInbox */}
                               <button
-                                onClick={() => handleMsgDelete(c.id, msg.id)}
+                                onClick={() => setDeleteMsgTarget({ consultantId: c.id, msg })}
                                 disabled={msgDeleting[msg.id]}
                                 className="shrink-0 p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                                 title="Elimina messaggio"
@@ -691,6 +735,39 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
             </Button>
             <Button onClick={handleSave} disabled={formSaving} className="h-10 rounded-sm">
               {formSaving ? 'Salvataggio...' : editTarget ? 'Salva modifiche' : 'Crea consulente'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete message confirmation */}
+      <Dialog open={!!deleteMsgTarget} onOpenChange={open => { if (!open) setDeleteMsgTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Elimina messaggio</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Sei sicuro di voler eliminare <strong>&ldquo;{deleteMsgTarget?.msg.title}&rdquo;</strong>?
+            {(deleteMsgTarget?.msg.attachments?.length ?? 0) > 0
+              ? " L'allegato verrà rimosso definitivamente."
+              : ' Questa azione è irreversibile.'}
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteMsgTarget(null)}
+              disabled={!!deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id]}
+              className="h-10 rounded-sm"
+            >
+              Annulla
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMsgTarget && handleMsgDelete(deleteMsgTarget.consultantId, deleteMsgTarget.msg.id)}
+              disabled={!!deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id]}
+              className="h-10 rounded-sm"
+            >
+              {deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id] ? 'Eliminazione...' : 'Conferma'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import type { ConsultantMessage } from '@/types'
+import { createClient } from '@/lib/supabase/client'
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
@@ -44,6 +45,34 @@ export function ConsultantInbox({ userId }: Props) {
   }, [userId])
 
   useEffect(() => { loadMessages() }, [loadMessages])
+
+  // Supabase Realtime — reflect manager inserts and deletes without a page refresh
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('consultant-messages-inbox')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'consultant_messages', filter: `consultant_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const msg = payload.new as ConsultantMessage
+            setMessages(prev => {
+              if (prev.some(m => m.id === msg.id)) return prev  // duplicate guard
+              return [msg, ...prev]
+            })
+            setManagerId(prev => prev ?? msg.manager_id)
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string }).id
+            setMessages(prev => prev.filter(m => m.id !== deletedId))
+            setExpandedId(prev => (prev === deletedId ? null : prev))
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [userId])
 
   async function handleExpand(msg: ConsultantMessage) {
     const isAlreadyOpen = expandedId === msg.id
