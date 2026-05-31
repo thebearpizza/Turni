@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       .from('profiles')
       .select('id, full_name')
       .eq('restaurant_id', restaurantId)
-      .eq('role', 'dipendente')
+      .in('role', ['dipendente', 'capo_servizio'])
       .order('full_name')
 
     if (!employees?.length) continue
