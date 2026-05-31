@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Plus, ChevronDown, ChevronUp, Trash2, Pencil, Paperclip,
+  Plus, ChevronDown, ChevronUp, Trash2, Pencil, Paperclip, X,
   Clock, BriefcaseBusiness, Send, Eye, EyeOff,
 } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -420,22 +420,47 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                           multiple
                           disabled={composeMerging[c.id] || composeSending[c.id]}
                           onChange={e => {
-                            const selected = Array.from(e.target.files ?? [])
-                            const total = selected.reduce((sum, f) => sum + f.size, 0)
+                            const incoming = Array.from(e.target.files ?? [])
+                            // Reset immediately so the same file can be re-selected and
+                            // subsequent picks don't accumulate inside the DOM input itself.
+                            e.target.value = ''
+                            const accumulated = [...(composeFiles[c.id] ?? []), ...incoming]
+                            const total = accumulated.reduce((sum, f) => sum + f.size, 0)
                             if (total > MAX_BYTES) {
-                              setComposeError(prev => ({ ...prev, [c.id]: 'Il limite massimo per gli allegati è di 10 MB totali' }))
-                              e.target.value = ''
+                              setComposeError(prev => ({ ...prev, [c.id]: `Il limite massimo è 10 MB (attuale: ${(total / 1024 / 1024).toFixed(1)} MB)` }))
                               return
                             }
                             setComposeError(prev => ({ ...prev, [c.id]: null }))
-                            setComposeFiles(prev => ({ ...prev, [c.id]: selected }))
+                            setComposeFiles(prev => ({ ...prev, [c.id]: accumulated }))
                           }}
                           className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-primary file:text-primary-foreground disabled:opacity-50"
                         />
                         {(composeFiles[c.id]?.length ?? 0) > 0 && !composeMerging[c.id] && (
-                          <p className="text-[10px] text-muted-foreground">
-                            {composeFiles[c.id].length} file · {(composeFiles[c.id].reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB
-                          </p>
+                          <ul className="mt-1 space-y-1">
+                            {composeFiles[c.id].map((file, idx) => (
+                              <li key={idx} className="flex items-center justify-between gap-2 rounded bg-muted/60 px-2 py-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
+                                  <span className="text-[10px] truncate">{file.name}</span>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">({(file.size / 1024).toFixed(0)} KB)</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setComposeFiles(prev => ({
+                                    ...prev,
+                                    [c.id]: (prev[c.id] ?? []).filter((_, i) => i !== idx),
+                                  }))}
+                                  className="shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                                  title="Rimuovi"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </li>
+                            ))}
+                            <p className="text-[10px] text-muted-foreground pt-0.5">
+                              Totale: {(composeFiles[c.id].reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB · verranno unificati in un PDF
+                            </p>
+                          </ul>
                         )}
                         {composeMerging[c.id] && (
                           <p className="text-[10px] text-amber-600 dark:text-amber-400 animate-pulse">
