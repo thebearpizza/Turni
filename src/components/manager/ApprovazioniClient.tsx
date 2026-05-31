@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Check, X, CalendarX } from 'lucide-react'
@@ -27,20 +27,20 @@ const typeBadgeClass: Record<AbsenceType, string> = {
 export function ApprovazioniClient({ initialRequests }: Props) {
   const [requests, setRequests] = useState<RequestWithRelations[]>(initialRequests)
   const [processing, setProcessing] = useState<string | null>(null)
+  const router = useRouter()
 
-  async function handleApprove(id: string) {
+  async function handleAction(id: string, action: 'approve' | 'reject') {
     setProcessing(id)
-    const supabase = createClient()
-    await supabase.from('absences').update({ status: 'approved' }).eq('id', id)
-    setRequests(rs => rs.filter(r => r.id !== id))
-    setProcessing(null)
-  }
-
-  async function handleReject(id: string) {
-    setProcessing(id)
-    const supabase = createClient()
-    await supabase.from('absences').update({ status: 'rejected' }).eq('id', id)
-    setRequests(rs => rs.filter(r => r.id !== id))
+    const res = await fetch('/api/assenze', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action }),
+    })
+    if (res.ok) {
+      setRequests(rs => rs.filter(r => r.id !== id))
+      // Trigger a re-render of server components on this page (FallbackApprovalSection)
+      router.refresh()
+    }
     setProcessing(null)
   }
 
@@ -88,7 +88,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                   <div className="flex gap-2 shrink-0">
                     <Button
                       size="sm"
-                      onClick={() => handleApprove(r.id)}
+                      onClick={() => handleAction(r.id, 'approve')}
                       disabled={processing === r.id}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
@@ -97,7 +97,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleReject(r.id)}
+                      onClick={() => handleAction(r.id, 'reject')}
                       disabled={processing === r.id}
                       className="text-destructive hover:text-destructive border-destructive/30 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 dark:border-red-500/30"
                     >

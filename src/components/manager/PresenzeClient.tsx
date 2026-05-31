@@ -325,13 +325,15 @@ export function PresenzeClient({
       row.blocks.push(p)
       if (!p.check_out) row.hasOpen = true
       else row.totalMinutes += differenceInMinutes(new Date(p.check_out), new Date(p.check_in))
-      if (p.is_split_shift) row.hasSplit = true
     }
 
-    // Sort shift blocks within each employee row
+    // Sort blocks and derive hasSplit dynamically from actual block count.
+    // Reading is_split_shift from the DB is unreliable after a block is deleted
+    // (the flag on the surviving block stays true). Counting real blocks is authoritative.
     for (const dayMap of byDay.values()) {
       for (const row of dayMap.values()) {
         row.blocks.sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime())
+        row.hasSplit = row.blocks.length > 1
       }
     }
 

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 
 const BUCKET = 'clock_in_proofs'
@@ -83,6 +84,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Errore registrazione' }, { status: 500 })
     }
 
+    revalidatePath('/dashboard')
+    revalidatePath('/presenze')
+    revalidatePath('/approvazioni')
     return NextResponse.json({ attendance }, { status: 201 })
   } else {
     // type === 'out'
