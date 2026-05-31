@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,6 +7,7 @@ import { Check, X, CalendarX } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import type { Absence, AbsenceType } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
+import { createClient } from '@/lib/supabase/client'
 
 type RequestWithRelations = Absence & {
   profile?: { id: string; full_name: string } | null
@@ -29,6 +30,47 @@ export function ApprovazioniClient({ initialRequests }: Props) {
   const [processing, setProcessing] = useState<string | null>(null)
   const router = useRouter()
 
+  // Supabase Realtime — keep the pending list in sync across all sessions
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('rt-approvazioni-absences')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'absences' },
+        async (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const rec = payload.new as { id: string; status: string }
+            if (rec.status !== 'pending') return
+            // Fetch with joins — payload.new doesn't include profile/restaurant
+            const { data } = await supabase
+              .from('absences')
+              .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
+              .eq('id', rec.id)
+              .single()
+            if (!data) return
+            setRequests(prev =>
+              prev.some(r => r.id === data.id)
+                ? prev
+                : [data as RequestWithRelations, ...prev]
+            )
+          } else if (payload.eventType === 'UPDATE') {
+            const rec = payload.new as { id: string; status: string }
+            if (rec.status !== 'pending') {
+              // Approved or rejected elsewhere → remove from queue
+              setRequests(prev => prev.filter(r => r.id !== rec.id))
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string }).id
+            setRequests(prev => prev.filter(r => r.id !== deletedId))
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   async function handleAction(id: string, action: 'approve' | 'reject') {
     setProcessing(id)
     const res = await fetch('/api/assenze', {
@@ -38,7 +80,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
     })
     if (res.ok) {
       setRequests(rs => rs.filter(r => r.id !== id))
-      // Trigger a re-render of server components on this page (FallbackApprovalSection)
+      // Re-render server components on this page (FallbackApprovalSection)
       router.refresh()
     }
     setProcessing(null)
