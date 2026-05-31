@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 
 const BUCKET = 'clock_in_proofs'
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
       await admin.storage.from(BUCKET).remove([photoPath])
     }
 
+    revalidatePath('/dashboard')
+    revalidatePath('/presenze')
+    revalidatePath('/approvazioni')
     return NextResponse.json({ success: true, action: 'approved' })
   } else {
     // reject — delete the whole attendance row first, then the file
@@ -84,6 +88,9 @@ export async function POST(request: Request) {
       await admin.storage.from(BUCKET).remove([photoPath])
     }
 
+    revalidatePath('/dashboard')
+    revalidatePath('/presenze')
+    revalidatePath('/approvazioni')
     return NextResponse.json({ success: true, action: 'rejected' })
   }
 }

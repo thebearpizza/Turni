@@ -5,6 +5,7 @@ import { it } from 'date-fns/locale'
 import Link from 'next/link'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
 import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroManager'
+import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
 
 const TZ = 'Europe/Rome'
 
@@ -14,11 +15,13 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, restaurant:restaurants(latitude, longitude)')
+    .select('role, restaurant_id, is_direttore, restaurant:restaurants(latitude, longitude)')
     .eq('id', user!.id)
     .single()
 
-  const isManager = profile?.role === 'manager'
+  const isManager   = profile?.role === 'manager'
+  const isDirettore = profile?.role === 'capo_servizio' && (profile as { is_direttore?: boolean }).is_direttore === true
+  const canSeeFallback = isManager || isDirettore
 
   const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
@@ -102,10 +105,46 @@ export default async function DashboardPage() {
         />
       )}
 
+      {/* Timbrature di emergenza — manager e direttori */}
+      {canSeeFallback && (
+        <FallbackPendingSection
+          isManager={isManager}
+          restaurantId={isDirettore ? (profile?.restaurant_id ?? null) : null}
+        />
+      )}
+
       {/* Consulenti del Lavoro — solo manager */}
       {isManager && (
         <ConsulenteLavoroManagerSection managerId={user!.id} />
       )}
+    </div>
+  )
+}
+
+async function FallbackPendingSection({
+  isManager,
+  restaurantId,
+}: {
+  isManager: boolean
+  restaurantId: string | null
+}) {
+  const supabase = await createClient()
+  let query = supabase
+    .from('attendances')
+    .select('id, user_id, check_in, check_out, fallback_photo_path, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
+    .eq('needs_manager_approval', true)
+    .order('check_in', { ascending: false })
+
+  if (!isManager && restaurantId) {
+    query = query.eq('restaurant_id', restaurantId)
+  }
+
+  const { data } = await query
+  if (!data?.length) return null
+
+  return (
+    <div className="mt-6">
+      <FallbackApprovalSection initialPending={data as unknown as PendingItem[]} />
     </div>
   )
 }

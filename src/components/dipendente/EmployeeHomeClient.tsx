@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
+import { compressImage } from '@/lib/compressImage'
 import type { Profile, Attendance } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -136,8 +137,12 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     setLoading(true)
     setMessage(null)
     try {
+      // Compress to max 800 px / 70 % quality before upload (~200 KB target)
+      let compressed = photo
+      try { compressed = await compressImage(photo, 800, 0.7) } catch { /* fallback to original */ }
+
       const fd = new FormData()
-      fd.append('photo', photo)
+      fd.append('photo', compressed)
       fd.append('type', attendance ? 'out' : 'in')
       const res = await fetch('/api/clock-in-fallback', { method: 'POST', body: fd })
       const data = await res.json()

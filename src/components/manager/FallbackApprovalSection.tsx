@@ -9,7 +9,7 @@ import { it } from 'date-fns/locale'
 const TZ = 'Europe/Rome'
 const BUCKET = 'clock_in_proofs'
 
-interface PendingItem {
+export interface PendingItem {
   id: string
   user_id: string
   check_in: string
@@ -25,10 +25,10 @@ interface Props {
 }
 
 export function FallbackApprovalSection({ initialPending }: Props) {
-  const [pending, setPending] = useState(initialPending)
-  const [loadingId, setLoadingId] = useState<string | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState<string | null>(null)
+  const [pending, setPending]           = useState(initialPending)
+  const [loadingId, setLoadingId]       = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl]     = useState<string | null>(null)
+  const [previewLoadId, setPreviewLoadId] = useState<string | null>(null)
 
   async function handleAction(attendanceId: string, action: 'approve' | 'reject') {
     setLoadingId(attendanceId)
@@ -44,14 +44,14 @@ export function FallbackApprovalSection({ initialPending }: Props) {
   }
 
   async function handlePreview(item: PendingItem) {
-    if (previewLoading === item.id) return
-    setPreviewLoading(item.id)
+    if (previewLoadId === item.id) return
+    setPreviewLoadId(item.id)
     const supabase = createClient()
     const { data } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(item.fallback_photo_path, 300) // 5-min URL
+      .createSignedUrl(item.fallback_photo_path, 300)
     if (data?.signedUrl) setPreviewUrl(data.signedUrl)
-    setPreviewLoading(null)
+    setPreviewLoadId(null)
   }
 
   if (pending.length === 0) return null
@@ -68,46 +68,56 @@ export function FallbackApprovalSection({ initialPending }: Props) {
 
       <div className="divide-y divide-border">
         {pending.map(item => {
-          const isWorking = loadingId === item.id
-          const isLoadingPrev = previewLoading === item.id
+          const isWorking    = loadingId === item.id
+          const isLoadingPrev = previewLoadId === item.id
           const checkIn  = formatInTimeZone(new Date(item.check_in), TZ, 'dd/MM/yyyy HH:mm', { locale: it })
           const checkOut = item.check_out
             ? formatInTimeZone(new Date(item.check_out), TZ, 'HH:mm', { locale: it })
             : null
 
           return (
-            <div key={item.id} className="flex items-center gap-3 px-4 py-3 bg-background flex-wrap">
-              <div className="flex-1 min-w-0">
+            /* ── Mobile: colonna / Desktop: riga ──────────────────────── */
+            <div
+              key={item.id}
+              className="flex flex-col gap-3 px-4 py-4 bg-background
+                         md:flex-row md:items-center md:justify-between md:gap-4"
+            >
+              {/* Info — occupa tutto su mobile, si restringe su desktop */}
+              <div className="min-w-0">
                 <p className="text-sm font-medium">{item.profile?.full_name ?? '—'}</p>
-                <p className="text-xs text-muted-foreground">
-                  {item.restaurant?.name && <span className="mr-2">{item.restaurant.name}</span>}
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {item.restaurant?.name && (
+                    <span className="mr-2">{item.restaurant.name}</span>
+                  )}
                   {checkOut ? `${checkIn} → ${checkOut}` : `Ingresso ${checkIn}`}
                 </p>
               </div>
 
-              <button
-                onClick={() => handlePreview(item)}
-                disabled={isLoadingPrev}
-                className="flex items-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50 shrink-0"
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                {isLoadingPrev ? 'Caricamento...' : 'Vedi foto'}
-              </button>
+              {/* Azioni — wrap automatico su mobile */}
+              <div className="flex flex-wrap items-center gap-2 md:shrink-0">
+                <button
+                  onClick={() => handlePreview(item)}
+                  disabled={isLoadingPrev}
+                  className="flex items-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  {isLoadingPrev ? 'Caricamento...' : 'Vedi foto'}
+                </button>
 
-              <div className="flex items-center gap-1.5 shrink-0">
                 <Button
                   size="sm"
-                  className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm"
+                  className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm"
                   onClick={() => handleAction(item.id, 'approve')}
                   disabled={isWorking}
                 >
                   <Check className="w-3.5 h-3.5 mr-1" />
                   Approva
                 </Button>
+
                 <Button
                   size="sm"
                   variant="destructive"
-                  className="h-7 px-3 text-xs rounded-sm"
+                  className="h-8 px-3 text-xs rounded-sm"
                   onClick={() => handleAction(item.id, 'reject')}
                   disabled={isWorking}
                 >
@@ -126,7 +136,10 @@ export function FallbackApprovalSection({ initialPending }: Props) {
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
           onClick={() => setPreviewUrl(null)}
         >
-          <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+          <div
+            className="relative max-w-lg w-full"
+            onClick={e => e.stopPropagation()}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewUrl}
