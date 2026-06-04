@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronUp, Paperclip, Send } from 'lucide-react'
+import { ChevronDown, ChevronUp, Paperclip, Send, CornerDownLeft, X } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { Input } from '@/components/ui/input'
@@ -34,6 +34,7 @@ export function ConsultantInbox({ userId }: Props) {
   const [files, setFiles]             = useState<File[]>([])
   const [sending, setSending]         = useState(false)
   const [sendError, setSendError]     = useState<string | null>(null)
+  const [replyToMsg, setReplyToMsg]   = useState<ConsultantMessage | null>(null)
 
   const loadMessages = useCallback(async () => {
     const res = await fetch(`/api/consultant-messages?consultantId=${userId}`)
@@ -73,6 +74,12 @@ export function ConsultantInbox({ userId }: Props) {
 
     return () => { supabase.removeChannel(channel) }
   }, [userId])
+
+  function handleReply(msg: ConsultantMessage) {
+    setReplyToMsg(msg)
+    setShowCompose(true)
+    setMsgTitle(prev => prev.trim() ? prev : `Re: ${msg.title}`)
+  }
 
   async function handleExpand(msg: ConsultantMessage) {
     const isAlreadyOpen = expandedId === msg.id
@@ -161,13 +168,14 @@ export function ConsultantInbox({ userId }: Props) {
           title: msgTitle,
           body: msgBody,
           attachments,
+          reply_to_id: replyToMsg?.id ?? null,
         }),
       })
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error ?? 'Errore invio')
       }
-      setMsgTitle(''); setMsgBody(''); setFiles([]); setShowCompose(false)
+      setMsgTitle(''); setMsgBody(''); setFiles([]); setShowCompose(false); setReplyToMsg(null)
       await loadMessages()
     } catch (e) {
       setSendError(e instanceof Error ? e.message : 'Errore invio')
@@ -192,6 +200,26 @@ export function ConsultantInbox({ userId }: Props) {
 
       {showCompose && (
         <div className="border border-border rounded-md p-4 space-y-3 bg-card">
+          {/* Reply context banner */}
+          {replyToMsg && (
+            <div className="flex items-start gap-2 rounded-sm bg-primary/5 border border-primary/20 px-3 py-2 text-xs">
+              <CornerDownLeft className="w-3 h-3 text-primary shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <span className="text-muted-foreground">In risposta a: </span>
+                <span className="font-medium">&ldquo;{replyToMsg.title}&rdquo;</span>
+                <p className="text-muted-foreground truncate mt-0.5">
+                  {replyToMsg.body.length > 80 ? replyToMsg.body.slice(0, 80) + '…' : replyToMsg.body}
+                </p>
+              </div>
+              <button
+                onClick={() => setReplyToMsg(null)}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                title="Annulla risposta"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Oggetto</Label>
             <Input value={msgTitle} onChange={e => setMsgTitle(e.target.value)} placeholder="Oggetto del messaggio" className="h-9 rounded-sm" />
@@ -236,18 +264,38 @@ export function ConsultantInbox({ userId }: Props) {
         <p className="text-sm text-muted-foreground">Nessun messaggio ancora. Il manager ti contatterà da qui.</p>
       )}
 
-      {messages.map(msg => {
+      {(() => {
+        const topLevel = messages
+          .filter(m => !m.reply_to_id)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        const replyMap: Record<string, ConsultantMessage[]> = {}
+        messages.filter(m => !!m.reply_to_id).forEach(m => {
+          const pid = m.reply_to_id!
+          if (!replyMap[pid]) replyMap[pid] = []
+          replyMap[pid].push(m)
+        })
+        Object.values(replyMap).forEach(arr =>
+          arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        )
+        return topLevel.flatMap(msg => [
+          { msg, isReply: false },
+          ...(replyMap[msg.id] ?? []).map(r => ({ msg: r, isReply: true })),
+        ])
+      })().map(({ msg, isReply }) => {
         const isExpanded = expandedId === msg.id
         const fromMe = !msg.sent_by_manager
         return (
-          <MessageRow
-            key={msg.id}
-            msg={msg}
-            isExpanded={isExpanded}
-            fromMe={fromMe}
-            onExpand={() => handleExpand(msg)}
-            onDownload={att => handleDownload(msg, att)}
-          />
+          <div key={msg.id} className={isReply ? 'ml-6 border-l-2 border-primary/20 pl-3' : ''}>
+            <MessageRow
+              msg={msg}
+              isExpanded={isExpanded}
+              fromMe={fromMe}
+              isReply={isReply}
+              onExpand={() => handleExpand(msg)}
+              onDownload={att => handleDownload(msg, att)}
+              onReply={() => handleReply(msg)}
+            />
+          </div>
         )
       })}
     </div>
@@ -255,36 +303,49 @@ export function ConsultantInbox({ userId }: Props) {
 }
 
 function MessageRow({
-  msg, isExpanded, fromMe, onExpand, onDownload,
+  msg, isExpanded, fromMe, isReply, onExpand, onDownload, onReply,
 }: {
   msg: ConsultantMessage
   isExpanded: boolean
   fromMe: boolean
+  isReply?: boolean
   onExpand: () => void
   onDownload: (att: { name: string; path: string }) => void
+  onReply: () => void
 }) {
   const unread = msg.sent_by_manager && !msg.read_at && !fromMe
 
   return (
     <div className={`border rounded-md overflow-hidden transition-colors ${unread ? 'border-primary/50 bg-primary/5' : 'border-border bg-card'}`}>
-      <button
-        onClick={onExpand}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {unread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
-            <p className="text-sm font-medium truncate">{msg.title}</p>
+      <div className="flex items-center gap-1 pr-2">
+        <button
+          onClick={onExpand}
+          className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              {unread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
+              {isReply && <CornerDownLeft className="w-3.5 h-3.5 text-primary/50 shrink-0" />}
+              <p className="text-sm font-medium truncate">{msg.title}</p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {fromMe ? 'Inviato da te' : 'Dal Manager'} · {fmtDate(msg.created_at)}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {fromMe ? 'Inviato da te' : 'Dal Manager'} · {fmtDate(msg.created_at)}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {msg.attachments?.length > 0 && <Paperclip className="w-3.5 h-3.5 text-muted-foreground" />}
-          {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-        </div>
-      </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {msg.attachments?.length > 0 && <Paperclip className="w-3.5 h-3.5 text-muted-foreground" />}
+            {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+        {/* Reply button */}
+        <button
+          onClick={onReply}
+          className="shrink-0 p-1.5 rounded transition-colors text-muted-foreground hover:text-primary"
+          title="Rispondi"
+        >
+          <CornerDownLeft className="w-4 h-4" />
+        </button>
+      </div>
 
       {isExpanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">

@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { consultantId, title, body: msgBody, attachments } = body
+  const { consultantId, title, body: msgBody, attachments, reply_to_id } = body
 
   if (!consultantId || !title || !msgBody) {
     return NextResponse.json({ error: 'Campi obbligatori mancanti' }, { status: 400 })
@@ -92,6 +92,7 @@ export async function POST(request: Request) {
       body:            msgBody,
       attachments:     attachments ?? [],
       sent_by_manager: sentByManager,
+      reply_to_id:     reply_to_id ?? null,
     })
     .select()
     .single()

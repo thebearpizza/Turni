@@ -55,8 +55,9 @@ export function OdsManagerClient({
   // Whether the department field is locked to the caller's own department.
   const deptLocked = !!currentDepartment && !isDirettore
 
-  const [tasks, setTasks]       = useState<OdsTask[]>(initialTasks)
-  const [deptFilter, setDeptFilter] = useState<string>('tutti')
+  const [tasks, setTasks]             = useState<OdsTask[]>(initialTasks)
+  const [deptFilter, setDeptFilter]   = useState<string>('tutti')
+  const [restFilter, setRestFilter]   = useState<string>('tutti')
 
   // Mark ODS notifications as read when this page is mounted
   useEffect(() => {
@@ -88,13 +89,17 @@ export function OdsManagerClient({
     completionMap[c.task_id].push(c)
   })
 
-  // Visible departments for filter
-  const allDepts = Array.from(new Set(tasks.map(t => t.department))).sort()
+  // Manager restaurant filter — applied before department filter
+  const tasksByRestaurant = (isManager && restFilter !== 'tutti')
+    ? tasks.filter(t => t.restaurant_id === restFilter)
+    : tasks
 
-  // Filter tasks
+  // Visible departments derive from the already-restaurant-filtered list
+  const allDepts = Array.from(new Set(tasksByRestaurant.map(t => t.department))).sort()
+
   const filteredTasks = deptFilter === 'tutti'
-    ? tasks
-    : tasks.filter(t => t.department === deptFilter)
+    ? tasksByRestaurant
+    : tasksByRestaurant.filter(t => t.department === deptFilter)
 
   // Staff scoped to selected restaurant (for the create form).
   // A direttore can assign to anyone in the currently-selected department.
@@ -162,6 +167,26 @@ export function OdsManagerClient({
           <Plus className="w-4 h-4" /> Nuovo Ordine
         </Button>
       </div>
+
+      {/* Restaurant filter — manager only */}
+      {isManager && restaurants.length > 0 && (
+        <div className="mb-4">
+          <Select
+            value={restFilter}
+            onValueChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
+          >
+            <SelectTrigger className="h-8 w-56 text-xs rounded-sm">
+              <SelectValue placeholder="Tutti i ristoranti" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tutti">Tutti i ristoranti</SelectItem>
+              {restaurants.map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Department filter pills */}
       <div className="flex gap-1.5 flex-wrap mb-5">

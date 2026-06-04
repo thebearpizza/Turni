@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, ChevronDown, ChevronUp, Trash2, Pencil, Paperclip, X,
-  Clock, BriefcaseBusiness, Send, Eye, EyeOff,
+  Clock, BriefcaseBusiness, Send, Eye, EyeOff, CornerDownLeft,
 } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -64,10 +64,11 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   const [composeMerging, setComposeMerging] = useState<Record<string, boolean>>({})
   const [composeError, setComposeError]     = useState<Record<string, string | null>>({})
 
-  // Message expand / delete state
+  // Message expand / delete / reply state
   const [msgExpanded, setMsgExpanded]   = useState<Record<string, string | null>>({})
   const [msgDeleting, setMsgDeleting]   = useState<Record<string, boolean>>({})
   const [deleteMsgTarget, setDeleteMsgTarget] = useState<{ consultantId: string; msg: ConsultantMessage } | null>(null)
+  const [replyTo, setReplyTo]           = useState<Record<string, ConsultantMessage | null>>({})
 
   const loadConsultants = useCallback(async () => {
     setLoadingList(true)
@@ -238,6 +239,16 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
   }
 
   // ── Messaging ─────────────────────────────────────────────────────────────
+  function handleReply(consultantId: string, msg: ConsultantMessage) {
+    setReplyTo(prev => ({ ...prev, [consultantId]: msg }))
+    setComposeOpen(prev => ({ ...prev, [consultantId]: true }))
+    // Pre-fill subject only if compose is blank
+    setComposeTitle(prev => ({
+      ...prev,
+      [consultantId]: prev[consultantId]?.trim() ? prev[consultantId] : `Re: ${msg.title}`,
+    }))
+  }
+
   async function handleSendMessage(consultantId: string) {
     const title = composeTitle[consultantId] ?? ''
     const body  = composeBody[consultantId] ?? ''
@@ -280,7 +291,13 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       const res = await fetch('/api/consultant-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ consultantId, title, body, attachments }),
+        body: JSON.stringify({
+          consultantId,
+          title,
+          body,
+          attachments,
+          reply_to_id: replyTo[consultantId]?.id ?? null,
+        }),
       })
       if (!res.ok) {
         const e = await res.json()
@@ -290,6 +307,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       setComposeBody(prev => ({ ...prev, [consultantId]: '' }))
       setComposeFiles(prev => ({ ...prev, [consultantId]: [] }))
       setComposeOpen(prev => ({ ...prev, [consultantId]: false }))
+      setReplyTo(prev => ({ ...prev, [consultantId]: null }))
       await loadThread(consultantId)
     } catch (e) {
       setComposeMerging(prev => ({ ...prev, [consultantId]: false }))
@@ -456,6 +474,28 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                   {/* Compose form */}
                   {composeOpen[c.id] && (
                     <div className="border border-border rounded-md p-3 space-y-2.5 bg-card">
+                      {/* Reply context banner */}
+                      {replyTo[c.id] && (
+                        <div className="flex items-start gap-2 rounded-sm bg-primary/5 border border-primary/20 px-3 py-2 text-xs">
+                          <CornerDownLeft className="w-3 h-3 text-primary shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-muted-foreground">In risposta a: </span>
+                            <span className="font-medium">&ldquo;{replyTo[c.id]!.title}&rdquo;</span>
+                            <p className="text-muted-foreground truncate mt-0.5">
+                              {replyTo[c.id]!.body.length > 80
+                                ? replyTo[c.id]!.body.slice(0, 80) + '…'
+                                : replyTo[c.id]!.body}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setReplyTo(prev => ({ ...prev, [c.id]: null }))}
+                            className="shrink-0 text-muted-foreground hover:text-foreground"
+                            title="Annulla risposta"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-xs">Oggetto</Label>
                         <Input
@@ -556,82 +596,116 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                     <p className="text-xs text-muted-foreground">Caricamento messaggi...</p>
                   ) : thread.length === 0 ? (
                     <p className="text-xs text-muted-foreground">Nessun messaggio ancora.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {thread.map(msg => {
-                        const isExpanded = msgExpanded[c.id] === msg.id
-                        const fromConsultant = !msg.sent_by_manager
-                        const unread = fromConsultant && !msg.read_at
+                  ) : (() => {
+                    // Build threaded display order: top-level newest-first,
+                    // replies oldest-first directly below their parent.
+                    const topLevel = thread
+                      .filter(m => !m.reply_to_id)
+                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    const replyMap: Record<string, ConsultantMessage[]> = {}
+                    thread.filter(m => !!m.reply_to_id).forEach(m => {
+                      const pid = m.reply_to_id!
+                      if (!replyMap[pid]) replyMap[pid] = []
+                      replyMap[pid].push(m)
+                    })
+                    Object.values(replyMap).forEach(arr =>
+                      arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    )
+                    const displayList = topLevel.flatMap(msg => [
+                      { msg, isReply: false },
+                      ...(replyMap[msg.id] ?? []).map(r => ({ msg: r, isReply: true })),
+                    ])
 
-                        return (
-                          <div key={msg.id} className={`border rounded overflow-hidden ${unread ? 'border-primary/40 bg-primary/5' : 'border-border bg-background'}`}>
-                            <div className="flex items-center gap-1 pr-2">
-                              {/* Expand trigger — occupies all available space */}
-                              <button
-                                onClick={() => handleMsgExpand(c.id, msg)}
-                                className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    {unread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                                    <p className="text-xs font-medium truncate">{msg.title}</p>
-                                  </div>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    {fromConsultant ? `Da ${c.full_name}` : 'Da te'} · {fmtDate(msg.created_at)}
-                                  </p>
+                    return (
+                      <div className="space-y-2">
+                        {displayList.map(({ msg, isReply }) => {
+                          const isExpanded = msgExpanded[c.id] === msg.id
+                          const fromConsultant = !msg.sent_by_manager
+                          const unread = fromConsultant && !msg.read_at
+
+                          return (
+                            <div
+                              key={msg.id}
+                              className={isReply ? 'ml-6 pl-3 border-l-2 border-primary/20' : ''}
+                            >
+                              <div className={`border rounded overflow-hidden ${unread ? 'border-primary/40 bg-primary/5' : 'border-border bg-background'}`}>
+                                <div className="flex items-center gap-1 pr-2">
+                                  {/* Expand trigger */}
+                                  <button
+                                    onClick={() => handleMsgExpand(c.id, msg)}
+                                    className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        {unread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                                        {isReply && <CornerDownLeft className="w-3 h-3 text-primary/50 shrink-0" />}
+                                        <p className="text-xs font-medium truncate">{msg.title}</p>
+                                      </div>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        {fromConsultant ? `Da ${c.full_name}` : 'Da te'} · {fmtDate(msg.created_at)}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {msg.attachments?.length > 0 && <Paperclip className="w-3 h-3 text-muted-foreground" />}
+                                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                                    </div>
+                                  </button>
+                                  {/* Reply */}
+                                  <button
+                                    onClick={() => handleReply(c.id, msg)}
+                                    className="shrink-0 p-1.5 rounded transition-colors text-muted-foreground hover:text-primary"
+                                    title="Rispondi"
+                                  >
+                                    <CornerDownLeft className="w-3.5 h-3.5" />
+                                  </button>
+                                  {/* Delete */}
+                                  <button
+                                    onClick={() => setDeleteMsgTarget({ consultantId: c.id, msg })}
+                                    disabled={msgDeleting[msg.id]}
+                                    className="shrink-0 p-1.5 rounded transition-colors disabled:opacity-50 text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                                    title="Elimina messaggio"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {msg.attachments?.length > 0 && <Paperclip className="w-3 h-3 text-muted-foreground" />}
-                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-                                </div>
-                              </button>
-                              {/* Delete — opens confirmation modal; absent from ConsultantInbox */}
-                              <button
-                                onClick={() => setDeleteMsgTarget({ consultantId: c.id, msg })}
-                                disabled={msgDeleting[msg.id]}
-                                className="shrink-0 p-1.5 rounded transition-colors disabled:opacity-50 text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
-                                title="Elimina messaggio"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
 
-                            {isExpanded && (
-                              <div className="px-3 pb-3 pt-2 border-t border-border space-y-2">
-                                <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
+                                {isExpanded && (
+                                  <div className="px-3 pb-3 pt-2 border-t border-border space-y-2">
+                                    <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
 
-                                {msg.attachments?.length > 0 && (
-                                  <div className="space-y-1">
-                                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Allegati</p>
-                                    {msg.attachments.map((att, i) => (
-                                      <button
-                                        key={i}
-                                        onClick={() => handleMsgDownload(c.id, msg, att)}
-                                        className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                                      >
-                                        <Paperclip className="w-3 h-3" />
-                                        {att.name}
-                                      </button>
-                                    ))}
+                                    {msg.attachments?.length > 0 && (
+                                      <div className="space-y-1">
+                                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Allegati</p>
+                                        {msg.attachments.map((att, i) => (
+                                          <button
+                                            key={i}
+                                            onClick={() => handleMsgDownload(c.id, msg, att)}
+                                            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                                          >
+                                            <Paperclip className="w-3 h-3" />
+                                            {att.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    <div className="space-y-0.5 pt-0.5">
+                                      {msg.read_at && msg.sent_by_manager && (
+                                        <p className="text-[10px] text-muted-foreground">Letto il: {fmtDate(msg.read_at)}</p>
+                                      )}
+                                      {msg.downloaded_at && msg.sent_by_manager && (
+                                        <p className="text-[10px] text-muted-foreground">Allegato scaricato il: {fmtDate(msg.downloaded_at)}</p>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
-
-                                {/* Receipts */}
-                                <div className="space-y-0.5 pt-0.5">
-                                  {msg.read_at && msg.sent_by_manager && (
-                                    <p className="text-[10px] text-muted-foreground">Letto il: {fmtDate(msg.read_at)}</p>
-                                  )}
-                                  {msg.downloaded_at && msg.sent_by_manager && (
-                                    <p className="text-[10px] text-muted-foreground">Allegato scaricato il: {fmtDate(msg.downloaded_at)}</p>
-                                  )}
-                                </div>
                               </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>

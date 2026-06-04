@@ -27,13 +27,16 @@ export default async function OdsPage() {
   const isCapo = profile?.role === 'capo_servizio'
   const restaurantFilter = isCapo ? profile?.restaurant_id : null
 
-  // Tasks: RLS handles scoping; page just orders
   let tasksQuery = supabase
     .from('ods_tasks')
     .select('*, assignee:profiles!assigned_to(id, full_name)')
     .order('created_at', { ascending: false })
 
-  // Completions since cutoff (for showing who completed what)
+  // Direttore / capo_servizio: hard-scope to their restaurant
+  if (restaurantFilter) {
+    tasksQuery = tasksQuery.eq('restaurant_id', restaurantFilter)
+  }
+
   let completionsQuery = supabase
     .from('ods_completions')
     .select('task_id, user_id, completed_at, profile:profiles!user_id(id, full_name)')
@@ -51,8 +54,8 @@ export default async function OdsPage() {
   }
 
   const [
-    { data: tasks },
-    { data: completions },
+    { data: rawTasks },
+    { data: rawCompletions },
     { data: staff },
     { data: restaurants },
   ] = await Promise.all([
@@ -64,10 +67,17 @@ export default async function OdsPage() {
       : Promise.resolve({ data: [] }),
   ])
 
+  // Scope completions to visible task IDs — prevents capo_servizio from
+  // receiving completion records that belong to other restaurants.
+  const taskIdSet = new Set((rawTasks ?? []).map(t => (t as { id: string }).id))
+  const completions = restaurantFilter
+    ? (rawCompletions ?? []).filter(c => taskIdSet.has((c as { task_id: string }).task_id))
+    : rawCompletions
+
   return (
     <div className="p-6 lg:p-8">
       <OdsManagerClient
-        initialTasks={(tasks as unknown as import('@/types').OdsTask[]) ?? []}
+        initialTasks={(rawTasks as unknown as import('@/types').OdsTask[]) ?? []}
         completions={(completions ?? []) as unknown as (import('@/types').OdsCompletion & { profile?: { id: string; full_name: string } | null })[]}
         staff={staff ?? []}
         restaurants={restaurants ?? []}

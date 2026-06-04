@@ -132,6 +132,7 @@ export interface ConsultantMessage {
   created_at: string
   read_at: string | null
   downloaded_at: string | null
+  reply_to_id: string | null
 }
 
 // ── ODS (Ordine di Servizio) ─────────────────────────────────────────
