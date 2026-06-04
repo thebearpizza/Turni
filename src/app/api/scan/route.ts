@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
   }
 
-  const { qr_secret, type, latitude, longitude } = await request.json()
+  const { qr_secret, type, latitude, longitude, frozenAt } = await request.json()
 
   if (!qr_secret || !['in', 'out'].includes(type)) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
@@ -78,7 +78,8 @@ export async function POST(request: Request) {
     }
   }
 
-  const nowUtc = new Date().toISOString()
+  // If the client sent a frozen timestamp (offline replay), honour it; otherwise use server clock.
+  const nowUtc = (typeof frozenAt === 'string' && frozenAt) ? frozenAt : new Date().toISOString()
 
   if (type === 'in') {
     // The open-shift guard must NOT be date-scoped: a shift started before

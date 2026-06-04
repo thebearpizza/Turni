@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import { ThemeProvider } from '@/components/shared/ThemeProvider'
+import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'] })
@@ -35,7 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="it" suppressHydrationWarning>
       <body className={`${geist.className} antialiased overflow-x-hidden w-full max-w-full`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+          <OfflineSyncProvider>
+            {children}
+          </OfflineSyncProvider>
         </ThemeProvider>
       </body>
     </html>

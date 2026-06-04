@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import { saveToOfflineQueue } from '@/lib/offlineSync'
 import { ClipboardList, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -26,8 +27,15 @@ interface Props {
 }
 
 export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: Props) {
-  const [completed, setCompleted] = useState<Set<string>>(new Set(completedTaskIds))
-  const [filter, setFilter]       = useState<'tutte' | OdsTaskType>('tutte')
+  const [completed, setCompleted]   = useState<Set<string>>(new Set(completedTaskIds))
+  const [filter, setFilter]         = useState<'tutte' | OdsTaskType>('tutte')
+  const [offlineMsg, setOfflineMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!offlineMsg) return
+    const t = setTimeout(() => setOfflineMsg(null), 5000)
+    return () => clearTimeout(t)
+  }, [offlineMsg])
 
   useEffect(() => {
     const supabase = createClient()
@@ -52,22 +60,59 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
     : departmentTasks.filter(t => t.type === filter)
 
   async function handleToggle(taskId: string) {
+    const frozenAt     = new Date().toISOString()
     const wasCompleted = completed.has(taskId)
+
+    // Optimistic update — UI stays responsive regardless of network
     setCompleted(prev => {
       const next = new Set(prev)
       wasCompleted ? next.delete(taskId) : next.add(taskId)
       return next
     })
-    const supabase = createClient()
-    if (wasCompleted) {
-      await supabase.from('ods_completions').delete().eq('task_id', taskId).eq('user_id', userId)
-    } else {
-      await supabase.from('ods_completions').insert({ task_id: taskId, user_id: userId })
+
+    try {
+      const supabase = createClient()
+      if (wasCompleted) {
+        await supabase.from('ods_completions').delete().eq('task_id', taskId).eq('user_id', userId)
+      } else {
+        await supabase.from('ods_completions').insert({ task_id: taskId, user_id: userId })
+      }
+    } catch (err) {
+      if (err instanceof TypeError) {
+        // Network down — save to IndexedDB queue with the frozen timestamp
+        await saveToOfflineQueue('ods-toggle', {
+          task_id:  taskId,
+          user_id:  userId,
+          action:   wasCompleted ? 'uncomplete' : 'complete',
+          frozenAt,
+        }).catch(() => {})
+        setOfflineMsg('Sei offline. Salvato sul dispositivo, si aggiornerà automaticamente.')
+      } else {
+        // Server/auth error — revert optimistic update
+        setCompleted(prev => {
+          const next = new Set(prev)
+          wasCompleted ? next.add(taskId) : next.delete(taskId)
+          return next
+        })
+      }
     }
   }
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
+      <AnimatePresence>
+        {offlineMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="mx-4 mt-3 px-3 py-2 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900"
+          >
+            {offlineMsg}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex items-center gap-3 px-4 pt-5 pb-3 border-b border-border">
         <ClipboardList className="w-5 h-5 text-muted-foreground shrink-0" />
         <div>

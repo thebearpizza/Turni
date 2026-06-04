@@ -15,6 +15,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import { compressImage } from '@/lib/compressImage'
+import { saveToOfflineQueue } from '@/lib/offlineSync'
 import type { Profile, Attendance } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -91,6 +92,9 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     setShowScanner(false)
     setLoading(true)
     setMessage(null)
+    // Freeze timestamp NOW — before any async work — so offline queued items
+    // carry the real scan time, not the later sync time.
+    const frozenAt = new Date().toISOString()
 
     try {
       const res = await fetch('/api/scan', {
@@ -98,9 +102,10 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           qr_secret: qrSecret,
-          type: attendance ? 'out' : 'in',
-          latitude: userCoordsRef.current?.latitude,
+          type:      attendance ? 'out' : 'in',
+          latitude:  userCoordsRef.current?.latitude,
           longitude: userCoordsRef.current?.longitude,
+          frozenAt,
         }),
       })
       const data = await res.json()
@@ -123,8 +128,23 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         })
       }
       router.refresh()
-    } catch {
-      setMessage({ text: 'Errore di rete, riprova', type: 'error' })
+    } catch (err) {
+      if (err instanceof TypeError) {
+        // Network unavailable — persist to IndexedDB queue with the frozen timestamp
+        await saveToOfflineQueue('clock-in', {
+          qr_secret: qrSecret,
+          type:      attendance ? 'out' : 'in',
+          latitude:  userCoordsRef.current?.latitude  ?? null,
+          longitude: userCoordsRef.current?.longitude ?? null,
+          frozenAt,
+        }).catch(() => {})
+        setMessage({
+          text: 'Sei offline. Timbratura salvata sul dispositivo, si aggiornerà automaticamente.',
+          type: 'success',
+        })
+      } else {
+        setMessage({ text: 'Errore di rete, riprova', type: 'error' })
+      }
     } finally {
       setLoading(false)
     }
