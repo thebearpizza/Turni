@@ -23,8 +23,12 @@ export async function GET(request: NextRequest) {
 
   const webhookUrl = `${request.nextUrl.origin}/api/telegram/webhook`
 
-  await setWebhook(webhookUrl, secret)
-  const me = await getMe()
-
-  return NextResponse.json({ ok: true, webhookUrl, bot: me })
+  try {
+    await setWebhook(webhookUrl, secret)
+    const me = await getMe()
+    return NextResponse.json({ ok: true, webhookUrl, bot: me })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ ok: false, error: message, webhookUrl }, { status: 500 })
+  }
 }
