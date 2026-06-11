@@ -10,7 +10,7 @@ type Bulletin = {
   id: string
   title: string
   body: string
-  target: 'all' | 'restaurant' | 'role' | 'users'
+  target: 'all' | 'restaurant' | 'role' | 'users' | 'department'
   target_user_ids: string[]
   created_at: string
   author?: { full_name: string } | null
@@ -25,6 +25,7 @@ function TargetChip({ target }: { target: Bulletin['target'] }) {
   const base = 'shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap'
   if (target === 'all')        return <span className={base}><Globe  className="w-3 h-3" /> Tutti</span>
   if (target === 'restaurant') return <span className={base}><Store  className="w-3 h-3" /> Ristorante</span>
+  if (target === 'department') return <span className={base}><Store  className="w-3 h-3" /> Reparto</span>
   return                              <span className={base}><Users  className="w-3 h-3" /> Per te</span>
 }
 

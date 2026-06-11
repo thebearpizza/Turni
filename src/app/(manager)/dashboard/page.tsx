@@ -1,11 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
-import { Users, Clock, CalendarX, CheckCircle } from 'lucide-react'
+import { Users, Clock, CalendarX, CheckCircle, MessageSquare } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import Link from 'next/link'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
 import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroManager'
 import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
+import { PresenzePreviewClient, type PresenzaPreviewRow } from '@/components/manager/PresenzePreviewClient'
+import { RestaurantQrCard } from '@/components/manager/RestaurantQrCard'
 
 const TZ = 'Europe/Rome'
 
@@ -15,7 +17,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore, restaurant:restaurants(latitude, longitude)')
+    .select('role, restaurant_id, is_direttore, restaurant:restaurants(name, latitude, longitude, qr_secret)')
     .eq('id', user!.id)
     .single()
 
@@ -34,6 +36,10 @@ export default async function DashboardPage() {
   const basePresenti = supabase.from('attendances').select('id', { count: 'exact' }).is('check_out', null).gte('check_in', todayStart)
   const baseAssenze  = supabase.from('absences').select('id', { count: 'exact' }).eq('status', 'approved').lte('start_date', todayRome).gte('end_date', todayRome)
   const basePending  = supabase.from('absences').select('id', { count: 'exact' }).eq('status', 'pending')
+  let baseBulletins  = supabase.from('bulletins').select('id', { count: 'exact', head: true })
+  if (restaurantFilter) {
+    baseBulletins = baseBulletins.or(`restaurant_id.eq.${restaurantFilter},restaurant_id.is.null`)
+  }
 
   // Fetch own open attendance for capo_servizio timbratura section
   const [
@@ -41,12 +47,14 @@ export default async function DashboardPage() {
     { count: presenti },
     { count: assenzeOggi },
     { count: richiestePending },
+    { count: bachecaCount },
     openAttendanceResult,
   ] = await Promise.all([
     restaurantFilter ? baseProfiles.eq('restaurant_id', restaurantFilter) : baseProfiles,
     restaurantFilter ? basePresenti.eq('restaurant_id', restaurantFilter) : basePresenti,
     restaurantFilter ? baseAssenze.eq('restaurant_id', restaurantFilter)  : baseAssenze,
     restaurantFilter ? basePending.eq('restaurant_id', restaurantFilter)  : basePending,
+    baseBulletins,
     isCapoServizio
       ? supabase
           .from('attendances')
@@ -59,12 +67,21 @@ export default async function DashboardPage() {
       : Promise.resolve({ data: null }),
   ])
 
-  const stats = [
-    { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-blue-600',    href: '/dipendenti' },
-    { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-emerald-600', href: '/presenze'   },
-    { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-red-600',     href: '/assenze'    },
-    { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/assenze'    },
-  ]
+  // Capo Servizio / Direttore: la 4ª card mostra i Messaggi in Bacheca al posto
+  // delle Richieste in Attesa (riservate ad Assenze/Approvazioni del manager)
+  const stats = isCapoServizio
+    ? [
+        { label: 'Dipendenti Totali',   value: totalDipendenti ?? 0, icon: Users,          color: 'text-blue-600',    href: '/dipendenti' },
+        { label: 'Presenti Oggi',       value: presenti        ?? 0, icon: CheckCircle,    color: 'text-emerald-600', href: '/dashboard'  },
+        { label: 'Assenti Oggi',        value: assenzeOggi     ?? 0, icon: CalendarX,      color: 'text-red-600',     href: '/dashboard'  },
+        { label: 'Messaggi in Bacheca', value: bachecaCount    ?? 0, icon: MessageSquare,  color: 'text-violet-600',  href: '/bacheca'    },
+      ]
+    : [
+        { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-blue-600',    href: '/dipendenti' },
+        { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-emerald-600', href: '/presenze'   },
+        { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-red-600',     href: '/assenze'    },
+        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/assenze'    },
+      ]
 
   return (
     <div className="p-6">
@@ -113,11 +130,62 @@ export default async function DashboardPage() {
         />
       )}
 
+      {/* QR Code timbratura — capo servizio e direttori */}
+      {isCapoServizio && profile?.restaurant && (
+        <RestaurantQrCard
+          restaurantName={(profile.restaurant as unknown as { name: string }).name}
+          qrSecret={(profile.restaurant as unknown as { qr_secret: string }).qr_secret}
+        />
+      )}
+
+      {/* Preview presenze di oggi — capo servizio e direttori. Niente ore
+          lavorate; cliccabile solo per il direttore (aggiunge/modifica). */}
+      {isCapoServizio && restaurantFilter && (
+        <PresenzePreviewSection restaurantId={restaurantFilter} isDirettore={isDirettore} />
+      )}
+
       {/* Consulenti del Lavoro — solo manager */}
       {isManager && (
         <ConsulenteLavoroManagerSection managerId={user!.id} />
       )}
     </div>
+  )
+}
+
+async function PresenzePreviewSection({
+  restaurantId,
+  isDirettore,
+}: {
+  restaurantId: string
+  isDirettore: boolean
+}) {
+  const supabase = await createClient()
+  const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+  const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
+
+  const [{ data: presenze }, { data: dipendenti }] = await Promise.all([
+    supabase
+      .from('attendances')
+      .select('id, user_id, check_in, check_out, profile:profiles(id, full_name)')
+      .eq('restaurant_id', restaurantId)
+      .gte('check_in', todayStart)
+      .order('check_in', { ascending: false }),
+    isDirettore
+      ? supabase
+          .from('profiles')
+          .select('id, full_name')
+          .eq('restaurant_id', restaurantId)
+          .in('role', ['dipendente', 'capo_servizio'])
+          .order('full_name')
+      : Promise.resolve({ data: [] }),
+  ])
+
+  return (
+    <PresenzePreviewClient
+      initialRows={(presenze as unknown as PresenzaPreviewRow[]) ?? []}
+      dipendenti={dipendenti ?? []}
+      isDirettore={isDirettore}
+    />
   )
 }
 

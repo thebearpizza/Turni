@@ -13,7 +13,7 @@ import { Plus, Trash2, Globe, Store, Users, Eye, ChevronDown } from 'lucide-reac
 import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
-import { ROLE_LABELS } from '@/types'
+import { ROLE_LABELS, DEPARTMENTS } from '@/types'
 
 const TZ = 'Europe/Rome'
 
@@ -32,6 +32,7 @@ interface Props {
   currentUserRole: string
   currentRestaurantId: string | null
   canPost: boolean
+  isDirettore?: boolean
 }
 
 const SELECTABLE_ROLES: { value: string; label: string }[] = [
@@ -41,7 +42,7 @@ const SELECTABLE_ROLES: { value: string; label: string }[] = [
 
 export function BachecaClient({
   initialBulletins, restaurants, dipendenti,
-  currentUserId, currentUserRole, currentRestaurantId, canPost,
+  currentUserId, currentUserRole, currentRestaurantId, canPost, isDirettore = false,
 }: Props) {
   const [bulletins, setBulletins] = useState<BulletinWithRelations[]>(initialBulletins)
 
@@ -52,6 +53,7 @@ export function BachecaClient({
   const [targetType, setTargetType] = useState<BulletinTarget>('all')
   const [restaurantId, setRestaurantId] = useState(currentRestaurantId ?? '')
   const [targetRole, setTargetRole] = useState('capo_servizio')
+  const [targetDepartment, setTargetDepartment] = useState(DEPARTMENTS[0])
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -104,6 +106,7 @@ export function BachecaClient({
     setTitle(''); setBody(''); setTargetType('all')
     setRestaurantId(currentRestaurantId ?? '')
     setTargetRole('capo_servizio'); setSelectedUserIds([])
+    setTargetDepartment(DEPARTMENTS[0])
   }
 
   async function handleSave() {
@@ -117,9 +120,12 @@ export function BachecaClient({
         title,
         body,
         target: targetType,
-        restaurant_id: targetType === 'restaurant' ? (restaurantId || null) : null,
+        restaurant_id: targetType === 'restaurant'
+          ? (restaurantId || null)
+          : (targetType === 'department' ? currentRestaurantId : null),
         target_roles: targetType === 'role' ? [targetRole] : [],
         target_user_ids: targetType === 'users' ? selectedUserIds : [],
+        target_department: targetType === 'department' ? targetDepartment : null,
         created_by: user!.id,
       })
       .select('*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name)')
@@ -181,6 +187,11 @@ export function BachecaClient({
       <Badge variant="outline" className="gap-1 text-xs">
         <Users className="w-3 h-3" />
         {b.target_roles.map(r => ROLE_LABELS[r as Role] ?? r).join(', ')}
+      </Badge>
+    )
+    if (b.target === 'department') return (
+      <Badge variant="outline" className="gap-1 text-xs">
+        <Store className="w-3 h-3" /> Reparto {b.target_department}
       </Badge>
     )
     return (
@@ -305,10 +316,20 @@ export function BachecaClient({
               <Select value={targetType} onValueChange={v => setTargetType(v as BulletinTarget)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tutti</SelectItem>
-                  <SelectItem value="role">Solo per ruolo</SelectItem>
-                  <SelectItem value="users">Dipendenti specifici</SelectItem>
-                  {restaurants.length > 0 && <SelectItem value="restaurant">Ristorante specifico</SelectItem>}
+                  {isDirettore ? (
+                    <>
+                      <SelectItem value="all">Tutto il Ristorante</SelectItem>
+                      <SelectItem value="department">Reparto Specifico</SelectItem>
+                      <SelectItem value="users">Singolo Dipendente</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="all">Tutti</SelectItem>
+                      <SelectItem value="role">Solo per ruolo</SelectItem>
+                      <SelectItem value="users">Dipendenti specifici</SelectItem>
+                      {restaurants.length > 0 && <SelectItem value="restaurant">Ristorante specifico</SelectItem>}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -320,6 +341,18 @@ export function BachecaClient({
                   <SelectTrigger><SelectValue placeholder="Seleziona ristorante" /></SelectTrigger>
                   <SelectContent>
                     {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {targetType === 'department' && (
+              <div className="space-y-2">
+                <Label>Reparto</Label>
+                <Select value={targetDepartment} onValueChange={v => setTargetDepartment(v as typeof targetDepartment)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

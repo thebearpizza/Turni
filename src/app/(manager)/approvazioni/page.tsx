@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { ApprovazioniClient } from '@/components/manager/ApprovazioniClient'
 import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
 
@@ -11,6 +12,9 @@ export default async function ApprovazioniPage() {
     .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
+
+  // Riservato a manager e direttori
+  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
 
   const isManager   = profile?.role === 'manager'
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true

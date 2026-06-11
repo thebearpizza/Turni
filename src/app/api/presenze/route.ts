@@ -70,3 +70,70 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ attendance: data })
 }
+
+// PATCH /api/presenze
+// Body: { id, date, checkIn, checkOut? }
+// Manager: globale. Direttore: solo presenze del proprio ristorante.
+export async function PATCH(request: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role, restaurant_id, is_direttore')
+    .eq('id', user.id)
+    .single()
+
+  const isManager   = callerProfile?.role === 'manager'
+  const isDirectore = callerProfile?.role === 'capo_servizio' && callerProfile?.is_direttore === true
+
+  if (!isManager && !isDirectore) {
+    return NextResponse.json(
+      { error: 'Non autorizzato. Solo i manager e i direttori possono modificare le presenze.' },
+      { status: 403 }
+    )
+  }
+
+  const body = await request.json()
+  const { id, date, checkIn, checkOut } = body as {
+    id: string
+    date: string
+    checkIn: string
+    checkOut?: string | null
+  }
+
+  if (!id || !date || !checkIn) {
+    return NextResponse.json({ error: 'Campi obbligatori mancanti' }, { status: 400 })
+  }
+
+  const checkInIso  = fromZonedTime(`${date}T${checkIn}:00`, TZ).toISOString()
+  const checkOutIso = checkOut ? fromZonedTime(`${date}T${checkOut}:00`, TZ).toISOString() : null
+
+  if (checkOutIso && checkOutIso <= checkInIso) {
+    return NextResponse.json(
+      { error: "L'ora di uscita deve essere successiva all'ora di ingresso" },
+      { status: 400 }
+    )
+  }
+
+  let query = supabase
+    .from('attendances')
+    .update({ check_in: checkInIso, check_out: checkOutIso })
+    .eq('id', id)
+
+  // Direttore is hard-locked to its own restaurant's attendance records
+  if (isDirectore && callerProfile?.restaurant_id) {
+    query = query.eq('restaurant_id', callerProfile.restaurant_id)
+  }
+
+  const { data, error } = await query
+    .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ attendance: data })
+}

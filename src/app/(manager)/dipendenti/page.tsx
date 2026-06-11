@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { DipendentiClient } from '@/components/manager/DipendentiClient'
 
 export default async function DipendentiPage({
@@ -16,6 +17,9 @@ export default async function DipendentiPage({
     .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
+
+  // Riservato a manager e direttori — il capo servizio non gestisce dipendenti
+  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
 
   const { data: restaurants } = await supabase
     .from('restaurants')
