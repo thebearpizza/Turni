@@ -38,7 +38,7 @@ interface Props {
 
 const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
 const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
-const RIPOSO_BADGE = 'bg-zinc-100 text-zinc-600 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-600'
+const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
 
 // Stile tabella "Turni Fissi" / "Preview Presenze-Ore" — riprende le stesse classi
 const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
@@ -330,6 +330,9 @@ export function TurniManagerClient({
       setStandardShifts(prev =>
         [...prev, ...created].sort((a, b) => a.day_of_week - b.day_of_week)
       )
+      // Genera subito i turni reali per la settimana visualizzata, così il
+      // turno fisso compare anche in tabella (il Realtime aggiorna `turns`)
+      await populateFromStandard(weekStartStr, weekEndStr)
       resetStandardForm()
     } catch (err) {
       setSError(err instanceof Error ? err.message : 'Errore sconosciuto')
