@@ -90,7 +90,7 @@ export function TurniManagerClient({
   const [standardShifts, setStandardShifts] = useState<StandardShift[]>(initialStandardShifts)
   const [showStandardModal, setShowStandardModal] = useState(false)
   const [sUserId, setSUserId] = useState('')
-  const [sDayOfWeek, setSDayOfWeek] = useState(1)
+  const [sDaysOfWeek, setSDaysOfWeek] = useState<number[]>([])
   const [sStart, setSStart] = useState('')
   const [sEnd, setSEnd] = useState('')
   const [sSaving, setSSaving] = useState(false)
@@ -273,27 +273,37 @@ export function TurniManagerClient({
   // ── Turni Standard (Pattern Master) ──────────────────────────────
   function resetStandardForm() {
     setSUserId('')
-    setSDayOfWeek(1)
+    setSDaysOfWeek([])
     setSStart('')
     setSEnd('')
     setSError(null)
   }
 
+  function toggleSDayOfWeek(day: number) {
+    setSDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  }
+
   async function handleAddStandardShift() {
-    if (!sUserId || !sStart || !sEnd) return
+    if (!sUserId || !sStart || !sEnd || sDaysOfWeek.length === 0) return
     setSSaving(true)
     setSError(null)
     try {
       const selected = staff.find(s => s.id === sUserId)
-      const created = await upsertStandardShift({
-        user_id:       sUserId,
-        restaurant_id: selected?.restaurant_id ?? currentRestaurantId ?? '',
-        department:    (selected?.department ?? currentDepartment) as Department | null,
-        day_of_week:   sDayOfWeek,
-        start_time:    sStart,
-        end_time:      sEnd,
-      })
-      setStandardShifts(prev => [...prev, created as unknown as StandardShift])
+      const created: StandardShift[] = []
+      for (const day of sDaysOfWeek) {
+        const shift = await upsertStandardShift({
+          user_id:       sUserId,
+          restaurant_id: selected?.restaurant_id ?? currentRestaurantId ?? '',
+          department:    (selected?.department ?? currentDepartment) as Department | null,
+          day_of_week:   day,
+          start_time:    sStart,
+          end_time:      sEnd,
+        })
+        created.push(shift as unknown as StandardShift)
+      }
+      setStandardShifts(prev =>
+        [...prev, ...created].sort((a, b) => a.day_of_week - b.day_of_week)
+      )
       resetStandardForm()
     } catch (err) {
       setSError(err instanceof Error ? err.message : 'Errore sconosciuto')
@@ -659,15 +669,30 @@ export function TurniManagerClient({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Giorno della settimana *</Label>
-                <Select value={String(sDayOfWeek)} onValueChange={v => setSDayOfWeek(Number(v))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {WEEK_DAY_OPTIONS.map(d => (
-                      <SelectItem key={d.value} value={String(d.value)}>{d.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>
+                  Giorni della settimana *
+                  {sDaysOfWeek.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {sDaysOfWeek.length} selezionati
+                    </span>
+                  )}
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEK_DAY_OPTIONS.map(d => (
+                    <button
+                      key={d.value}
+                      type="button"
+                      onClick={() => toggleSDayOfWeek(d.value)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        sDaysOfWeek.includes(d.value)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background border-border text-foreground hover:bg-accent'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -683,7 +708,7 @@ export function TurniManagerClient({
               <Button
                 size="sm"
                 onClick={handleAddStandardShift}
-                disabled={sSaving || !sUserId || !sStart || !sEnd}
+                disabled={sSaving || !sUserId || !sStart || !sEnd || sDaysOfWeek.length === 0}
               >
                 <Plus className="w-4 h-4" /> {sSaving ? 'Salvataggio...' : 'Aggiungi'}
               </Button>
