@@ -329,17 +329,18 @@ export function TurniManagerClient({
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
-        <h1 className="text-xl font-semibold tracking-tight">Gestione Turni</h1>
-        <div className="flex items-center gap-2">
+      {/* Header — i tasti vanno su una riga propria sotto il titolo su
+          mobile, senza mai sforare la larghezza dello schermo */}
+      <div className="mb-5">
+        <h1 className="text-xl font-semibold tracking-tight mb-3">Gestione Turni</h1>
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi
           </Button>
           <Button size="sm" variant="outline" onClick={() => { setPopolaResult(null); setShowPopolaModal(true) }}>
-            <Wand2 className="w-4 h-4" /> Popola da Turni Standard
+            <Wand2 className="w-4 h-4" /> Popola Standard
           </Button>
-          <Button size="sm" onClick={openCreate}>
+          <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1">
             <Plus className="w-4 h-4" /> Nuovo Turno
           </Button>
         </div>
@@ -362,23 +363,25 @@ export function TurniManagerClient({
         </div>
       )}
 
-      {/* Week navigation */}
-      <div className="flex items-center justify-between mb-5">
-        <Button variant="outline" size="sm" onClick={() => setWeekOffset(w => w - 1)}>
-          <ChevronLeft className="w-4 h-4" /> Settimana prec.
+      {/* Week navigation — frecce simmetriche ai lati, data centrata su una riga */}
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setWeekOffset(w => w - 1)} aria-label="Settimana precedente">
+          <ChevronLeft className="w-4 h-4" />
         </Button>
-        <div className="text-sm font-medium text-foreground">
+        <div className="text-sm font-medium text-foreground text-center whitespace-nowrap tabular-nums">
           {formatInTimeZone(weekStart, TZ, "d MMM", { locale: it })} – {formatInTimeZone(addDays(weekStart, 6), TZ, "d MMM yyyy", { locale: it })}
-          {weekOffset !== 0 && (
-            <button onClick={() => setWeekOffset(0)} className="ml-2 text-xs text-muted-foreground hover:text-foreground underline">
-              oggi
-            </button>
-          )}
         </div>
-        <Button variant="outline" size="sm" onClick={() => setWeekOffset(w => w + 1)}>
-          Settimana succ. <ChevronRight className="w-4 h-4" />
+        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setWeekOffset(w => w + 1)} aria-label="Settimana successiva">
+          <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
+      {weekOffset !== 0 && (
+        <div className="text-center -mt-3 mb-5">
+          <button onClick={() => setWeekOffset(0)} className="text-xs text-muted-foreground hover:text-foreground underline">
+            torna a oggi
+          </button>
+        </div>
+      )}
 
       {/* Days */}
       <div className="space-y-4">
