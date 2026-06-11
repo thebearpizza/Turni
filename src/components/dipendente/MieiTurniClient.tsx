@@ -11,6 +11,7 @@ const TZ = 'Europe/Rome'
 
 const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
 const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
+const RIPOSO_BADGE = 'bg-zinc-100 text-zinc-600 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-600'
 
 interface Props {
   initialTurns: Turn[]
@@ -123,7 +124,11 @@ function TurnRow({ turn }: { turn: Turn }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
           <span className="text-sm font-medium text-foreground capitalize">{dateLabel}</span>
-          {turn.is_extraordinary ? (
+          {turn.is_rest_day ? (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${RIPOSO_BADGE}`}>
+              Riposo
+            </span>
+          ) : turn.is_extraordinary ? (
             <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${EXTRAORDINARY_BADGE}`}>
               Straordinario
             </span>
@@ -133,10 +138,12 @@ function TurnRow({ turn }: { turn: Turn }) {
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {turn.start_time.slice(0, 5)} – {turn.end_time.slice(0, 5)}
-          {turn.department ? ` · ${turn.department}` : ''}
-        </p>
+        {!turn.is_rest_day && (
+          <p className="text-xs text-muted-foreground">
+            {turn.start_time.slice(0, 5)} – {turn.end_time.slice(0, 5)}
+            {turn.department ? ` · ${turn.department}` : ''}
+          </p>
+        )}
         {turn.notes && <p className="text-xs text-muted-foreground/80 mt-0.5">{turn.notes}</p>}
       </div>
     </motion.div>

@@ -195,6 +195,7 @@ export interface Turn {
   start_time:       string
   end_time:         string
   is_extraordinary: boolean
+  is_rest_day:      boolean
   notes:            string | null
   created_by:       string | null
   created_at:       string

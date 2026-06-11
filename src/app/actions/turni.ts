@@ -13,6 +13,7 @@ export interface TurnInput {
   start_time:       string
   end_time:         string
   is_extraordinary: boolean
+  is_rest_day?:     boolean
   notes?:           string | null
 }
 
@@ -26,6 +27,7 @@ export interface BulkTurnInput {
   start_time:       string
   end_time:         string
   is_extraordinary: boolean
+  is_rest_day?:     boolean
   notes?:           string | null
 }
 
@@ -111,6 +113,7 @@ export async function createTurn(input: TurnInput): Promise<Turn> {
       start_time:       input.start_time,
       end_time:         input.end_time,
       is_extraordinary: input.is_extraordinary,
+      is_rest_day:      input.is_rest_day ?? false,
       notes:            input.notes ?? null,
       created_by:       user.id,
     })
@@ -148,6 +151,7 @@ export async function updateTurn(id: string, input: TurnInput): Promise<Turn> {
       start_time:       input.start_time,
       end_time:         input.end_time,
       is_extraordinary: input.is_extraordinary,
+      is_rest_day:      input.is_rest_day ?? false,
       notes:            input.notes ?? null,
     })
     .eq('id', id)
@@ -212,6 +216,7 @@ export async function createTurnsBulk(input: BulkTurnInput): Promise<Turn[]> {
     start_time:       input.start_time,
     end_time:         input.end_time,
     is_extraordinary: input.is_extraordinary,
+    is_rest_day:      input.is_rest_day ?? false,
     notes:            input.notes ?? null,
     created_by:       user.id,
   }))
