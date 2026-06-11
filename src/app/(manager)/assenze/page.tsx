@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { AssenzeClient } from '@/components/manager/AssenzeClient'
 import { formatInTimeZone } from 'date-fns-tz'
 
@@ -13,6 +14,9 @@ export default async function AssenzePage() {
     .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
+
+  // Riservato a manager e direttori
+  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
 
   const { data: restaurants } = await supabase
     .from('restaurants')

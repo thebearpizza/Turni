@@ -103,6 +103,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   const isManager = currentUserRole === 'manager'
   // canEdit: manager always yes; capo_servizio only when is_direttore = true
   const canEdit = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
+  // canSeeHours: i capi servizio non direttori non devono vedere il dato "ore lavorate"
+  const canSeeHours = isManager || isDirectore
 
   const [unauthorizedMsg, setUnauthorizedMsg] = useState(false)
   function showUnauthorized() {
@@ -548,7 +550,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid gap-4 ${canSeeHours ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('presenze')}>
             <CardContent className="pt-6 pb-5 text-center">
               <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-emerald-500" />
@@ -560,16 +562,18 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
             </CardContent>
           </Card>
 
-          <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('ore')}>
-            <CardContent className="pt-6 pb-5 text-center">
-              <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-blue-500" />
-              <p className="font-medium text-sm">Report Ore</p>
-              <p className="text-xs text-muted-foreground mt-1">Ore · Totale · Delta</p>
-              <Button size="sm" className="mt-4 w-full" disabled={loading === 'ore'}>
-                {loading === 'ore' ? 'Generazione...' : <><Download className="w-4 h-4" /> Scarica</>}
-              </Button>
-            </CardContent>
-          </Card>
+          {canSeeHours && (
+            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('ore')}>
+              <CardContent className="pt-6 pb-5 text-center">
+                <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-blue-500" />
+                <p className="font-medium text-sm">Report Ore</p>
+                <p className="text-xs text-muted-foreground mt-1">Ore · Totale · Delta</p>
+                <Button size="sm" className="mt-4 w-full" disabled={loading === 'ore'}>
+                  {loading === 'ore' ? 'Generazione...' : <><Download className="w-4 h-4" /> Scarica</>}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -646,7 +650,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           )}
         </div>
 
-        {/* Riquadro 2 — Preview Ore Lavorate */}
+        {/* Riquadro 2 — Preview Ore Lavorate (nascosto al capo servizio non direttore) */}
+        {canSeeHours && (
         <div>
           <div className="flex items-center gap-2 mb-2">
             <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
@@ -722,6 +727,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
             </p>
           )}
         </div>
+        )}
       </div>
 
       {/* ── Cell editor dialog ───────────────────────────────────────────

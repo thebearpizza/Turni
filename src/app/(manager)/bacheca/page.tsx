@@ -5,18 +5,32 @@ export default async function BachecaPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [{ data: profile }, { data: restaurants }, { data: bulletins }, { data: dipendenti }] =
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, restaurant_id, can_post_bulletin, is_direttore')
+    .eq('id', user!.id)
+    .single()
+
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+
+  let dipendentiQuery = supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .in('role', ['capo_servizio', 'dipendente'])
+    .order('full_name')
+
+  if (isDirettore && profile?.restaurant_id) {
+    dipendentiQuery = dipendentiQuery.eq('restaurant_id', profile.restaurant_id)
+  }
+
+  const [{ data: restaurants }, { data: bulletins }, { data: dipendenti }] =
     await Promise.all([
-      supabase.from('profiles').select('role, restaurant_id, can_post_bulletin').eq('id', user!.id).single(),
       supabase.from('restaurants').select('id, name').order('name'),
       supabase.from('bulletins')
         .select('*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name)')
         .order('created_at', { ascending: false })
         .limit(50),
-      supabase.from('profiles')
-        .select('id, full_name, role')
-        .in('role', ['capo_servizio', 'dipendente'])
-        .order('full_name'),
+      dipendentiQuery,
     ])
 
   const canPost = profile?.role === 'manager' ||
@@ -32,6 +46,7 @@ export default async function BachecaPage() {
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
         canPost={canPost ?? false}
+        isDirettore={isDirettore}
       />
     </div>
   )

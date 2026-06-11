@@ -15,14 +15,16 @@ import { useBadging } from '@/hooks/useBadging'
 import type { Profile } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
+// `direttoreOnly: true` → visibile anche a capo_servizio con is_direttore === true,
+// oltre ai ruoli elencati in `roles`.
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['manager', 'capo_servizio'] },
   { href: '/turni', icon: CalendarClock, label: 'Turni', roles: ['manager', 'capo_servizio'] },
   { href: '/ristoranti', icon: Store, label: 'Ristoranti', roles: ['manager'] },
-  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager', 'capo_servizio'] },
-  { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager', 'capo_servizio'] },
-  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager', 'capo_servizio'] },
-  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager', 'capo_servizio'] },
+  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager'], direttoreOnly: true },
+  { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager'] },
+  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager'], direttoreOnly: true },
+  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'], direttoreOnly: true },
   { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
   { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
   { href: '/report',  icon: FileSpreadsheet, label: 'Report',  roles: ['manager', 'capo_servizio'] },
@@ -93,7 +95,10 @@ export function ManagerSidebar({ profile }: Props) {
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  const visibleItems = navItems.filter(item => item.roles.includes(profile.role))
+  const isDirettore = profile.role === 'capo_servizio' && profile.is_direttore === true
+  const visibleItems = navItems.filter(item =>
+    item.roles.includes(profile.role) || (item.direttoreOnly === true && isDirettore)
+  )
 
   async function handleLogout() {
     const supabase = createClient()

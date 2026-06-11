@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { PresenzeClient, type AbsenceItem } from '@/components/manager/PresenzeClient'
 import { FallbackApprovalSection } from '@/components/manager/FallbackApprovalSection'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -14,6 +15,10 @@ export default async function PresenzePage() {
     .select('role, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
+
+  // La tab "Presenze" è riservata al manager — capo servizio e direttori
+  // hanno la preview presenze nella Dashboard.
+  if (profile?.role === 'capo_servizio') redirect('/dashboard')
 
   const { data: restaurants } = await supabase
     .from('restaurants')
