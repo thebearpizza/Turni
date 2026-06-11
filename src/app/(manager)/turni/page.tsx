@@ -35,18 +35,27 @@ export default async function TurniPage() {
     .order('full_name')
   staffQuery = scopeStaffQuery(staffQuery, scopeProfile)
 
-  const [{ data: turns }, { data: staff }, { data: restaurants }] = await Promise.all([
+  // Turni standard (Pattern Master) — stesso scoping dei turni reali
+  let standardQuery = supabase
+    .from('standard_shifts')
+    .select('*, profile:profiles!user_id(id, full_name)')
+    .order('day_of_week')
+  standardQuery = scopeTurnsQuery(standardQuery, scopeProfile, user!.id)
+
+  const [{ data: turns }, { data: staff }, { data: restaurants }, { data: standardShifts }] = await Promise.all([
     turnsQuery,
     staffQuery,
     profile?.role === 'manager'
       ? supabase.from('restaurants').select('id, name').order('name')
       : Promise.resolve({ data: [] }),
+    standardQuery,
   ])
 
   return (
     <div className="p-6 lg:p-8">
       <TurniManagerClient
         initialTurns={(turns as unknown as import('@/types').Turn[]) ?? []}
+        initialStandardShifts={(standardShifts as unknown as import('@/types').StandardShift[]) ?? []}
         staff={staff ?? []}
         restaurants={restaurants ?? []}
         currentUserId={user!.id}
