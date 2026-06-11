@@ -202,3 +202,17 @@ export interface Turn {
   profile?:         { id: string; full_name: string } | null
   restaurant?:      { id: string; name: string } | null
 }
+
+export interface StandardShift {
+  id:            string
+  user_id:       string
+  restaurant_id: string
+  department:    Department | null
+  day_of_week:   number // 0=Dom .. 6=Sab
+  start_time:    string
+  end_time:      string
+  created_by:    string | null
+  created_at:    string
+  updated_at:    string
+  profile?:      { id: string; full_name: string } | null
+}

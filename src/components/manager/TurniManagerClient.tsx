@@ -2,7 +2,11 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { createTurn, updateTurn, deleteTurn, type TurnInput } from '@/app/actions/turni'
+import {
+  createTurn, updateTurn, deleteTurn, createTurnsBulk,
+  upsertStandardShift, deleteStandardShift, populateFromStandard,
+  type TurnInput, type BulkTurnInput,
+} from '@/app/actions/turni'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,11 +15,11 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Pencil, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { Plus, Trash2, Pencil, ChevronLeft, ChevronRight, Clock, Wand2, CalendarRange } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import type { Turn, Department } from '@/types'
+import type { Turn, Department, StandardShift } from '@/types'
 
 const TZ = 'Europe/Rome'
 
@@ -23,21 +27,38 @@ type StaffMember = { id: string; full_name: string; department: string | null; r
 type RestaurantItem = { id: string; name: string }
 
 interface Props {
-  initialTurns:        Turn[]
-  staff:               StaffMember[]
-  restaurants:         RestaurantItem[]
-  currentUserId:       string
-  currentUserRole:     string
-  currentDepartment:   string | null
-  currentRestaurantId: string | null
-  currentIsDirettore:  boolean
+  initialTurns:          Turn[]
+  initialStandardShifts: StandardShift[]
+  staff:                 StaffMember[]
+  restaurants:           RestaurantItem[]
+  currentUserId:         string
+  currentUserRole:       string
+  currentDepartment:     string | null
+  currentRestaurantId:   string | null
+  currentIsDirettore:    boolean
 }
 
 const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
 const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
 
+// Stile tabella "Turni Fissi" — riprende le classi della Preview Presenze/Ore
+const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
+const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
+const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap'
+
+// date-fns getDay(): 0=Dom .. 6=Sab
+const WEEK_DAY_OPTIONS = [
+  { value: 1, label: 'Lun' },
+  { value: 2, label: 'Mar' },
+  { value: 3, label: 'Mer' },
+  { value: 4, label: 'Gio' },
+  { value: 5, label: 'Ven' },
+  { value: 6, label: 'Sab' },
+  { value: 0, label: 'Dom' },
+]
+
 export function TurniManagerClient({
-  initialTurns, staff, restaurants,
+  initialTurns, initialStandardShifts, staff, restaurants,
   currentUserRole, currentDepartment, currentRestaurantId,
   currentIsDirettore,
 }: Props) {
@@ -57,10 +78,30 @@ export function TurniManagerClient({
   const [fUserId, setFUserId] = useState('')
   const [fRestaurantId, setFRestaurantId] = useState(currentRestaurantId ?? '')
   const [fDate, setFDate] = useState('')
+  const [fEndDate, setFEndDate] = useState('')
+  const [fDaysOfWeek, setFDaysOfWeek] = useState<number[]>([])
   const [fStart, setFStart] = useState('')
   const [fEnd, setFEnd] = useState('')
   const [fExtraordinary, setFExtraordinary] = useState(false)
   const [fNotes, setFNotes] = useState('')
+  const [bulkMode, setBulkMode] = useState(false)
+
+  // Turni Standard (Pattern Master)
+  const [standardShifts, setStandardShifts] = useState<StandardShift[]>(initialStandardShifts)
+  const [showStandardModal, setShowStandardModal] = useState(false)
+  const [sUserId, setSUserId] = useState('')
+  const [sDayOfWeek, setSDayOfWeek] = useState(1)
+  const [sStart, setSStart] = useState('')
+  const [sEnd, setSEnd] = useState('')
+  const [sSaving, setSSaving] = useState(false)
+  const [sError, setSError] = useState<string | null>(null)
+
+  // Popola da Turni Standard
+  const [showPopolaModal, setShowPopolaModal] = useState(false)
+  const [popolaStart, setPopolaStart] = useState('')
+  const [popolaEnd, setPopolaEnd] = useState('')
+  const [popolaSaving, setPopolaSaving] = useState(false)
+  const [popolaResult, setPopolaResult] = useState<string | null>(null)
 
   // ── Realtime — REGOLA D'ORO: aggiornamento istantaneo via supabase_realtime ──
   useEffect(() => {
@@ -141,10 +182,13 @@ export function TurniManagerClient({
     setFUserId('')
     setFRestaurantId(currentRestaurantId ?? '')
     setFDate('')
+    setFEndDate('')
+    setFDaysOfWeek([])
     setFStart('')
     setFEnd('')
     setFExtraordinary(false)
     setFNotes('')
+    setBulkMode(false)
     setError(null)
   }
 
@@ -162,33 +206,50 @@ export function TurniManagerClient({
     setFEnd(turn.end_time.slice(0, 5))
     setFExtraordinary(turn.is_extraordinary)
     setFNotes(turn.notes ?? '')
+    setBulkMode(false)
     setError(null)
     setShowForm(true)
   }
 
+  function toggleFDayOfWeek(day: number) {
+    setFDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  }
+
   async function handleSave() {
-    if (!fUserId || !fDate || !fStart || !fEnd) return
+    if (!fUserId || !fStart || !fEnd) return
+    if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
     setSaving(true)
     setError(null)
     try {
       const selected = staff.find(s => s.id === fUserId)
-      const payload: TurnInput = {
+      const baseFields = {
         user_id:          fUserId,
         restaurant_id:    selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? '',
         department:       (selected?.department ?? currentDepartment) as Department | null,
-        date:             fDate,
         start_time:       fStart,
         end_time:         fEnd,
         is_extraordinary: fExtraordinary,
         notes:            fNotes.trim() || null,
       }
 
-      if (editingTurn) {
-        const updated = await updateTurn(editingTurn.id, payload)
-        setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
+      if (bulkMode) {
+        const payload: BulkTurnInput = {
+          ...baseFields,
+          start_date:   fDate,
+          end_date:     fEndDate,
+          days_of_week: fDaysOfWeek,
+        }
+        const created = await createTurnsBulk(payload)
+        setTurns(prev => [...prev, ...created])
       } else {
-        const created = await createTurn(payload)
-        setTurns(prev => [...prev, created])
+        const payload: TurnInput = { ...baseFields, date: fDate }
+        if (editingTurn) {
+          const updated = await updateTurn(editingTurn.id, payload)
+          setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
+        } else {
+          const created = await createTurn(payload)
+          setTurns(prev => [...prev, created])
+        }
       }
       resetForm()
       setShowForm(false)
@@ -209,14 +270,79 @@ export function TurniManagerClient({
     }
   }
 
+  // ── Turni Standard (Pattern Master) ──────────────────────────────
+  function resetStandardForm() {
+    setSUserId('')
+    setSDayOfWeek(1)
+    setSStart('')
+    setSEnd('')
+    setSError(null)
+  }
+
+  async function handleAddStandardShift() {
+    if (!sUserId || !sStart || !sEnd) return
+    setSSaving(true)
+    setSError(null)
+    try {
+      const selected = staff.find(s => s.id === sUserId)
+      const created = await upsertStandardShift({
+        user_id:       sUserId,
+        restaurant_id: selected?.restaurant_id ?? currentRestaurantId ?? '',
+        department:    (selected?.department ?? currentDepartment) as Department | null,
+        day_of_week:   sDayOfWeek,
+        start_time:    sStart,
+        end_time:      sEnd,
+      })
+      setStandardShifts(prev => [...prev, created as unknown as StandardShift])
+      resetStandardForm()
+    } catch (err) {
+      setSError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setSSaving(false)
+    }
+  }
+
+  async function handleDeleteStandardShift(id: string) {
+    if (!confirm('Eliminare questo turno fisso?')) return
+    try {
+      await deleteStandardShift(id)
+      setStandardShifts(prev => prev.filter(s => s.id !== id))
+    } catch (err) {
+      console.error('Errore eliminazione turno fisso:', err)
+    }
+  }
+
+  // ── Popola da Turni Standard (Automazione) ───────────────────────
+  async function handlePopolaFromStandard() {
+    if (!popolaStart || !popolaEnd) return
+    setPopolaSaving(true)
+    setPopolaResult(null)
+    try {
+      const { created, skipped } = await populateFromStandard(popolaStart, popolaEnd)
+      setPopolaResult(`${created} turni creati, ${skipped} già presenti (saltati).`)
+    } catch (err) {
+      setPopolaResult(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setPopolaSaving(false)
+    }
+  }
+
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
         <h1 className="text-xl font-semibold tracking-tight">Gestione Turni</h1>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="w-4 h-4" /> Nuovo Turno
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)}>
+            <CalendarRange className="w-4 h-4" /> Turni Fissi
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setPopolaResult(null); setShowPopolaModal(true) }}>
+            <Wand2 className="w-4 h-4" /> Popola da Turni Standard
+          </Button>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="w-4 h-4" /> Nuovo Turno
+          </Button>
+        </div>
       </div>
 
       {/* Restaurant filter — manager only */}
@@ -337,7 +463,7 @@ export function TurniManagerClient({
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingTurn ? 'Modifica Turno' : 'Nuovo Turno'}</DialogTitle>
+            <DialogTitle>{editingTurn ? 'Modifica Turno' : bulkMode ? 'Inserimento Multiplo' : 'Nuovo Turno'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {/* Restaurant — manager only */}
@@ -368,11 +494,56 @@ export function TurniManagerClient({
               </Select>
             </div>
 
+            {/* Inserimento Multiplo toggle — solo in creazione */}
+            {!editingTurn && (
+              <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
+                <div>
+                  <Label className="text-sm">Inserimento Multiplo</Label>
+                  <p className="text-xs text-muted-foreground">Crea più turni in un range di date, sui giorni selezionati</p>
+                </div>
+                <Switch checked={bulkMode} onCheckedChange={setBulkMode} />
+              </div>
+            )}
+
             {/* Date */}
-            <div className="space-y-2">
-              <Label>Data *</Label>
-              <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
-            </div>
+            {bulkMode ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Data inizio *</Label>
+                    <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Data fine *</Label>
+                    <Input type="date" value={fEndDate} onChange={e => setFEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Giorni della settimana *</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {WEEK_DAY_OPTIONS.map(d => (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() => toggleFDayOfWeek(d.value)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                          fDaysOfWeek.includes(d.value)
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background border-border text-foreground hover:bg-accent'
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <Label>Data *</Label>
+                <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
+              </div>
+            )}
 
             {/* Times */}
             <div className="grid grid-cols-2 gap-3">
@@ -412,8 +583,144 @@ export function TurniManagerClient({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={saving || !fUserId || !fDate || !fStart || !fEnd}>
-              {saving ? 'Salvataggio...' : editingTurn ? 'Salva modifiche' : 'Crea turno'}
+            <Button
+              onClick={handleSave}
+              disabled={
+                saving || !fUserId || !fStart || !fEnd ||
+                (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate)
+              }
+            >
+              {saving ? 'Salvataggio...' : editingTurn ? 'Salva modifiche' : bulkMode ? 'Crea turni' : 'Crea turno'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Turni Fissi (Pattern Master) ────────────────────────────── */}
+      <Dialog open={showStandardModal} onOpenChange={setShowStandardModal}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gestisci Turni Fissi</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="w-full rounded-md border bg-muted/20 overflow-auto max-h-[280px]">
+              <table className="border-collapse text-xs w-full">
+                <thead>
+                  <tr>
+                    <th className={`${thCls} text-left`}>Dipendente</th>
+                    <th className={thCls}>Giorno</th>
+                    <th className={thCls}>Orario</th>
+                    <th className={thCls}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {standardShifts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-4 text-muted-foreground text-xs">
+                        Nessun turno fisso configurato
+                      </td>
+                    </tr>
+                  ) : standardShifts.map(s => (
+                    <tr key={s.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                      <td className={tdNameStaticCls}>{s.profile?.full_name ?? '—'}</td>
+                      <td className={tdCls}>{WEEK_DAY_OPTIONS.find(d => d.value === s.day_of_week)?.label}</td>
+                      <td className={tdCls}>{s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}</td>
+                      <td className={tdCls}>
+                        <Button
+                          variant="ghost" size="icon"
+                          onClick={() => handleDeleteStandardShift(s.id)}
+                          className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 h-6 w-6"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-3 border-t border-border pt-4">
+              <Label className="text-sm font-semibold">Aggiungi turno fisso</Label>
+              <div className="space-y-2">
+                <Label>Dipendente *</Label>
+                <Select value={sUserId} onValueChange={setSUserId}>
+                  <SelectTrigger><SelectValue placeholder="Seleziona dipendente" /></SelectTrigger>
+                  <SelectContent>
+                    {staff.map(s => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.full_name}{s.department ? ` · ${s.department}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Giorno della settimana *</Label>
+                <Select value={String(sDayOfWeek)} onValueChange={v => setSDayOfWeek(Number(v))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {WEEK_DAY_OPTIONS.map(d => (
+                      <SelectItem key={d.value} value={String(d.value)}>{d.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Ora inizio *</Label>
+                  <Input type="time" value={sStart} onChange={e => setSStart(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Ora fine *</Label>
+                  <Input type="time" value={sEnd} onChange={e => setSEnd(e.target.value)} />
+                </div>
+              </div>
+              {sError && <p className="text-xs text-destructive">{sError}</p>}
+              <Button
+                size="sm"
+                onClick={handleAddStandardShift}
+                disabled={sSaving || !sUserId || !sStart || !sEnd}
+              >
+                <Plus className="w-4 h-4" /> {sSaving ? 'Salvataggio...' : 'Aggiungi'}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowStandardModal(false)}>Chiudi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Popola da Turni Standard ────────────────────────────────── */}
+      <Dialog open={showPopolaModal} onOpenChange={setShowPopolaModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Popola da Turni Standard</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Seleziona il periodo da popolare. Verranno generati i turni a partire dai
+              Turni Fissi configurati, saltando le date in cui esiste già un turno per il dipendente.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Dal *</Label>
+                <Input type="date" value={popolaStart} onChange={e => setPopolaStart(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Al *</Label>
+                <Input type="date" value={popolaEnd} onChange={e => setPopolaEnd(e.target.value)} />
+              </div>
+            </div>
+            {popolaResult && (
+              <p className="text-sm font-medium text-foreground">{popolaResult}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPopolaModal(false)}>Chiudi</Button>
+            <Button onClick={handlePopolaFromStandard} disabled={popolaSaving || !popolaStart || !popolaEnd}>
+              {popolaSaving ? 'Generazione...' : 'Genera turni'}
             </Button>
           </DialogFooter>
         </DialogContent>
