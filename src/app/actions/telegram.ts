@@ -34,6 +34,7 @@ export interface TelegramLinkInfo {
   linked:            boolean
   username:          string | null
   deepLink:          string | null
+  pin:               string
 }
 
 export async function generateTelegramLink(): Promise<TelegramLinkInfo> {
@@ -52,7 +53,7 @@ export async function generateTelegramLink(): Promise<TelegramLinkInfo> {
   const me = await getMe()
   const deepLink = `https://t.me/${me.username}?start=${pin}`
 
-  return { linked: false, username: me.username ?? null, deepLink }
+  return { linked: false, username: me.username ?? null, deepLink, pin }
 }
 
 export async function getTelegramLinkStatus(): Promise<{ linked: boolean; telegramUsername: string | null }> {
