@@ -2,14 +2,15 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, ClipboardList } from 'lucide-react'
+import { Home, ClipboardList, CalendarClock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useBadging } from '@/hooks/useBadging'
 import { cn } from '@/lib/utils'
 
 const TABS = [
-  { href: '/home',     icon: Home,          label: 'Home' },
-  { href: '/home/ods', icon: ClipboardList, label: 'ODS'  },
+  { href: '/home',           icon: Home,          label: 'Home' },
+  { href: '/home/ods',       icon: ClipboardList, label: 'ODS'  },
+  { href: '/home/miei-turni', icon: CalendarClock, label: 'Turni' },
 ]
 
 export function BottomNav() {

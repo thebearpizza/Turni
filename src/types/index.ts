@@ -182,3 +182,22 @@ export interface AppNotification {
   read_at:    string | null
   created_at: string
 }
+
+// ── Gestione Turni (Shift Management) ────────────────────────────────
+
+export interface Turn {
+  id:               string
+  user_id:          string
+  restaurant_id:    string
+  department:       Department | null
+  date:             string
+  start_time:       string
+  end_time:         string
+  is_extraordinary: boolean
+  notes:            string | null
+  created_by:       string | null
+  created_at:       string
+  updated_at:       string
+  profile?:         { id: string; full_name: string } | null
+  restaurant?:      { id: string; name: string } | null
+}

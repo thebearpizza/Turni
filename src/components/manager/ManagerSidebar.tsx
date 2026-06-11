@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X, Bell, ClipboardList
+  Menu, X, Bell, ClipboardList, CalendarClock
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -17,6 +17,7 @@ import { ROLE_LABELS } from '@/types'
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['manager', 'capo_servizio'] },
+  { href: '/turni', icon: CalendarClock, label: 'Turni', roles: ['manager', 'capo_servizio'] },
   { href: '/ristoranti', icon: Store, label: 'Ristoranti', roles: ['manager'] },
   { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager', 'capo_servizio'] },
   { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager', 'capo_servizio'] },
