@@ -139,7 +139,7 @@ async function dispatchCallback(ctx: Ctx, state: string, data: Record<string, un
   if (state.startsWith('nt_') || state.startsWith('r_') || state.startsWith('dt_')) {
     return handleTurniCallback(ctx, state, data)
   }
-  if (state.startsWith('no_') || ctx.callbackData?.startsWith('co_done:')) {
+  if (state.startsWith('no_') || state.startsWith('co_')) {
     return handleOdsCallback(ctx, state, data)
   }
   if (state.startsWith('mp_') || state.startsWith('np_')) {

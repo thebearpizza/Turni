@@ -96,6 +96,7 @@ export async function cmdCompletaOds(ctx: Ctx) {
 
   const buttons = pending.map(t => [{ text: `✅ ${t.title} (${t.department})`, callback_data: `co_done:${t.id}` }])
   buttons.push([{ text: '❌ Annulla', callback_data: 'cancel' }])
+  await setSession(ctx.telegramId, 'co_select', {})
   return reply(ctx, '📋 Seleziona il compito da segnare come completato:', { reply_markup: { inline_keyboard: buttons } })
 }
 
@@ -156,6 +157,7 @@ export async function handleOdsCallback(ctx: Ctx, state: string, data: Record<st
 
   if (cb.startsWith('co_done:')) {
     const taskId = cb.split(':')[1]
+    await clearSession(ctx.telegramId)
     const { error } = await ctx.admin.from('ods_completions').insert({ task_id: taskId, user_id: ctx.profile.id })
     if (error) await reply(ctx, `Errore: ${error.message}`)
     else await reply(ctx, '✅ Compito segnato come completato!')
