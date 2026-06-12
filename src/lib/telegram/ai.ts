@@ -20,6 +20,13 @@ import { getAiHistory, appendAiHistory } from './aiHistory'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+// Modello di riserva, usato automaticamente se quello principale esaurisce la quota gratuita.
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite'
+
+function isRateLimitError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
+}
 
 function todayStr(): string {
   return formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
@@ -600,14 +607,29 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
   try {
     const history = await getAiHistory(ctx.admin, ctx.telegramId)
     const messages: ModelMessage[] = [...history, { role: 'user', content: userText }]
+    const system = buildSystemPrompt(ctx)
+    const tools = buildTools(ctx)
 
-    const result = await generateText({
-      model: google(GEMINI_MODEL),
-      system: buildSystemPrompt(ctx),
-      messages,
-      tools: buildTools(ctx),
-      stopWhen: stepCountIs(8),
-    })
+    let result
+    try {
+      result = await generateText({
+        model: google(GEMINI_MODEL),
+        system,
+        messages,
+        tools,
+        stopWhen: stepCountIs(8),
+      })
+    } catch (err) {
+      if (!isRateLimitError(err) || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) throw err
+      console.warn(`[AI] Quota esaurita per ${GEMINI_MODEL}, passo a ${GEMINI_FALLBACK_MODEL}`)
+      result = await generateText({
+        model: google(GEMINI_FALLBACK_MODEL),
+        system,
+        messages,
+        tools,
+        stopWhen: stepCountIs(8),
+      })
+    }
 
     const text = result.text?.trim()
     if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova oppure usa /help per i comandi disponibili.'
@@ -616,8 +638,7 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
     return text
   } catch (err) {
     console.error('Errore assistente AI Telegram:', err instanceof Error ? err.stack ?? err.message : err)
-    const message = err instanceof Error ? err.message : ''
-    if (/429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)) {
+    if (isRateLimitError(err)) {
       return '⏳ Troppe richieste all\'assistente AI in questo momento. Aspetta qualche secondo e riprova.'
     }
     return '⚠️ Si è verificato un errore con l\'assistente AI. Riprova più tardi oppure usa /help per i comandi disponibili.'
