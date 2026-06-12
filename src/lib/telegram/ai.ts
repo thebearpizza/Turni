@@ -92,6 +92,8 @@ ISTRUZIONI:
 - Sii conciso: messaggi brevi, vai dritto al punto.
 - Puoi usare la formattazione Markdown di Telegram (*grassetto*, _corsivo_) e qualche emoji con moderazione (📅 turni, 📋 ODS, 🕐 presenze, ✅ ❌).
 - Per qualsiasi azione che coinvolge un dipendente (turno, riposo, ODS, presenza), se non conosci il suo ID usa prima lo strumento cerca_dipendenti. Se ci sono più persone con nomi simili, chiedi all'utente di specificare a chi si riferisce: non scegliere a caso.
+- Gli ID (UUID) sono identificatori interni: NON chiederli MAI all'utente (non li conosce e non deve conoscerli) e non mostrarli nelle risposte. Quando ti serve l'ID di un dipendente o di un turno, ricavalo TU con cerca_dipendenti o lista_turni, oppure riusalo dai risultati degli strumenti nei messaggi precedenti.
+- Se l'utente indica una persona con un nome parziale o solo il cognome (es. "accolla", "vecchi"), NON chiedere subito il nome completo: prova prima cerca_dipendenti con quel testo. Chiedi chiarimenti solo se la ricerca restituisce più persone o nessuna.
 - Esegui un'azione (creare/eliminare/modificare) SOLO se la richiesta è chiara e contiene tutte le informazioni necessarie. Se manca qualcosa (data, orario, dipendente, reparto...), chiedi prima di procedere: non inventare dati.
 - Dopo aver eseguito un'azione, confermala riassumendo cosa hai fatto.
 - Per le domande sui dati (es. "chi lavora venerdì?", "quante presenze oggi?"), usa gli strumenti di lettura e rispondi in modo naturale, senza limitarti a riportare i dati grezzi.
@@ -600,6 +602,27 @@ function buildTools(ctx: Ctx): Record<string, Tool> {
   return tools
 }
 
+// Rete di sicurezza: riconosce le risposte finali "rotte" del modello, da
+// correggere con un secondo passaggio forzato. Due casi ricorrenti:
+//  1. chiede all'utente gli ID interni (UUID) invece di usare cerca_dipendenti;
+//  2. annuncia un'azione imminente ("ora recupero...", "ok, elimino...")
+//     senza aver chiamato lo strumento corrispondente.
+function looksUnfinished(text: string): boolean {
+  if (/\bid\b/i.test(text) && /fornir|ho bisogno di (sapere|conoscere)|puoi (dirmi|darmi|indicarmi)|mi (serve|servono|dai|dici)|qual è l/i.test(text)) {
+    return true
+  }
+  // Se contiene una domanda è probabilmente una richiesta di conferma
+  // legittima ("Vuoi che procedo?"): non va corretta automaticamente,
+  // altrimenti l'azione verrebbe eseguita senza la conferma dell'utente.
+  if (text.includes('?')) return false
+  if (/\b(un attimo|un momento|procedo|provvedo|riprovo|sto per|vado a|mi metto a)\b/i.test(text)) return true
+  // Verbo d'azione alla prima persona presente a inizio frase
+  // (es. "Ok, elimino il turno...", "Ora recupero i turni...")
+  return /(^|[.!]\s+|\b(?:ok|certo|perfetto|bene|va bene|d'accordo|allora)[,!]?\s+)(?:ora\s+|adesso\s+|subito\s+)?(recupero|cerco|controllo|verifico|elimino|cancello|creo|aggiungo|modifico|sostituisco|sposto|assegno|registro)\b/i.test(text)
+}
+
+const CORRECTION_NUDGE = '[Nota automatica del sistema, invisibile all\'utente] La tua ultima risposta non va bene: non devi mai chiedere ID all\'utente né annunciare azioni senza eseguirle. Usa SUBITO gli strumenti necessari (cerca_dipendenti per trovare le persone, lista_turni per i turni, ecc.), completa la richiesta dell\'utente e rispondi solo con il risultato finale o con una domanda che l\'utente può davvero capire (mai sugli ID).'
+
 export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string> {
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
     return '🤖 L\'assistente AI non è ancora configurato. Usa /help per l\'elenco dei comandi disponibili.'
@@ -611,31 +634,46 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
     const system = buildSystemPrompt(ctx)
     const tools = buildTools(ctx)
 
-    let result
-    try {
-      result = await generateText({
-        model: google(GEMINI_MODEL),
-        system,
-        messages,
-        tools,
-        stopWhen: stepCountIs(8),
-      })
-    } catch (err) {
-      if (!isRateLimitError(err) || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) throw err
-      console.warn(`[AI] Quota esaurita per ${GEMINI_MODEL}, passo a ${GEMINI_FALLBACK_MODEL}`)
-      result = await generateText({
-        model: google(GEMINI_FALLBACK_MODEL),
-        system,
-        messages,
-        tools,
-        stopWhen: stepCountIs(8),
-      })
+    const generate = async (msgs: ModelMessage[]) => {
+      try {
+        return await generateText({
+          model: google(GEMINI_MODEL),
+          system,
+          messages: msgs,
+          tools,
+          stopWhen: stepCountIs(8),
+        })
+      } catch (err) {
+        if (!isRateLimitError(err) || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) throw err
+        console.warn(`[AI] Quota esaurita per ${GEMINI_MODEL}, passo a ${GEMINI_FALLBACK_MODEL}`)
+        return await generateText({
+          model: google(GEMINI_FALLBACK_MODEL),
+          system,
+          messages: msgs,
+          tools,
+          stopWhen: stepCountIs(8),
+        })
+      }
     }
 
-    const text = result.text?.trim()
+    let result = await generate(messages)
+    let text = result.text?.trim()
+    let finalMessages: ModelMessage[] = [...messages, ...result.response.messages]
+
+    if (text && looksUnfinished(text)) {
+      console.warn(`[AI] Risposta incompleta ("${text.slice(0, 80)}..."), forzo un passaggio correttivo`)
+      const retryMessages: ModelMessage[] = [...finalMessages, { role: 'user', content: CORRECTION_NUDGE }]
+      result = await generate(retryMessages)
+      const retryText = result.text?.trim()
+      if (retryText) {
+        text = retryText
+        finalMessages = [...retryMessages, ...result.response.messages]
+      }
+    }
+
     if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova oppure usa /help per i comandi disponibili.'
 
-    await saveAiHistory(ctx.admin, ctx.telegramId, [...messages, ...result.response.messages])
+    await saveAiHistory(ctx.admin, ctx.telegramId, finalMessages)
     return text
   } catch (err) {
     console.error('Errore assistente AI Telegram:', err instanceof Error ? err.stack ?? err.message : err)
