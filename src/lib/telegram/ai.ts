@@ -1,5 +1,5 @@
 import { google } from '@ai-sdk/google'
-import { generateText, tool, stepCountIs, type Tool } from 'ai'
+import { generateText, tool, stepCountIs, type ModelMessage, type Tool } from 'ai'
 import { z } from 'zod'
 import { addDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
@@ -11,6 +11,7 @@ import {
 } from './scope'
 import { TZ, isValidTime, normalizeTime, formatDateLabel } from './format'
 import { DEPARTMENTS, ODS_DAYS_IT, ODS_TYPE_LABELS, type OdsTaskType, type Department } from '@/types'
+import { getAiHistory, appendAiHistory } from './aiHistory'
 
 // ── Assistente AI (Gemini) — comandi e domande in linguaggio naturale ──
 // Attivato per i messaggi liberi (non slash-command) quando non c'è una
@@ -88,7 +89,7 @@ ISTRUZIONI:
 - Dopo aver eseguito un'azione, confermala riassumendo cosa hai fatto.
 - Per le domande sui dati (es. "chi lavora venerdì?", "quante presenze oggi?"), usa gli strumenti di lettura e rispondi in modo naturale, senza limitarti a riportare i dati grezzi.
 - Se una richiesta non è di tua competenza, suggerisci i comandi /help, /turni, /ods, /presenze.
-- Non hai memoria dei messaggi precedenti: se un messaggio fa riferimento a una conversazione passata che non vedi, chiedi di ripetere i dettagli.`
+- Vedi gli ultimi messaggi della conversazione: usali per capire riferimenti a cose appena discusse (es. un dipendente già identificato, una data già menzionata, un'azione proposta poco prima). Se nei messaggi precedenti hai già trovato l'ID di un dipendente o di un turno, riusalo senza richiamare di nuovo lo strumento di ricerca, a meno che non sia passato troppo tempo o il contesto sia cambiato.`
 }
 
 // ── Tool: ricerca dipendenti ─────────────────────────────────────────
@@ -597,19 +598,28 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
   }
 
   try {
+    const history = await getAiHistory(ctx.admin, ctx.telegramId)
+    const messages: ModelMessage[] = [...history, { role: 'user', content: userText }]
+
     const result = await generateText({
       model: google(GEMINI_MODEL),
       system: buildSystemPrompt(ctx),
-      prompt: userText,
+      messages,
       tools: buildTools(ctx),
       stopWhen: stepCountIs(8),
     })
 
     const text = result.text?.trim()
     if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova oppure usa /help per i comandi disponibili.'
+
+    await appendAiHistory(ctx.admin, ctx.telegramId, userText, text)
     return text
   } catch (err) {
-    console.error('Errore assistente AI Telegram:', err)
+    console.error('Errore assistente AI Telegram:', err instanceof Error ? err.stack ?? err.message : err)
+    const message = err instanceof Error ? err.message : ''
+    if (/429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)) {
+      return '⏳ Troppe richieste all\'assistente AI in questo momento. Aspetta qualche secondo e riprova.'
+    }
     return '⚠️ Si è verificato un errore con l\'assistente AI. Riprova più tardi oppure usa /help per i comandi disponibili.'
   }
 }
