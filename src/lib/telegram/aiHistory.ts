@@ -25,7 +25,7 @@ export async function getAiHistory(admin: AdminClient, telegramId: number): Prom
 export async function saveAiHistory(admin: AdminClient, telegramId: number, messages: ModelMessage[]): Promise<void> {
   await admin
     .from('telegram_ai_messages')
-    .upsert({ telegram_id: telegramId, messages: trimToLastTurns(messages, HISTORY_TURNS), updated_at: new Date().toISOString() })
+    .upsert({ telegram_id: telegramId, messages: stripProviderData(trimToLastTurns(messages, HISTORY_TURNS)), updated_at: new Date().toISOString() })
 }
 
 export async function clearAiHistory(admin: AdminClient, telegramId: number): Promise<void> {
@@ -40,4 +40,26 @@ function trimToLastTurns(messages: ModelMessage[], maxTurns: number): ModelMessa
   messages.forEach((m, i) => { if (m.role === 'user') turnStarts.push(i) })
   if (turnStarts.length <= maxTurns) return messages
   return messages.slice(turnStarts[turnStarts.length - maxTurns])
+}
+
+// Rimuove i metadati specifici del provider (es. `thoughtSignature` di Gemini)
+// prima di salvare la cronologia: sono voluminosi e, se rigiocati in una
+// richiesta successiva eventualmente gestita da un modello diverso (es. dopo
+// un fallback per quota esaurita), possono causare errori di validazione.
+function stripProviderData(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((m) => {
+    const { providerOptions, ...rest } = m as ModelMessage & { providerOptions?: unknown }
+    void providerOptions
+    if (Array.isArray(rest.content)) {
+      return {
+        ...rest,
+        content: rest.content.map((part) => {
+          const { providerOptions, ...restPart } = part as typeof part & { providerOptions?: unknown }
+          void providerOptions
+          return restPart
+        }),
+      } as ModelMessage
+    }
+    return rest as ModelMessage
+  })
 }
