@@ -67,9 +67,11 @@ function buildSystemPrompt(ctx: Ctx): string {
     const d = addDays(now, i)
     const dateStr = formatInTimeZone(d, TZ, 'yyyy-MM-dd')
     const label = formatInTimeZone(d, TZ, 'EEEE d MMMM', { locale: it })
-    const tag = i === 0 ? ' (oggi)' : i === 1 ? ' (domani)' : ''
-    calendarLines.push(`${dateStr} → ${label}${tag}`)
+    const tag = i === 0 ? ' ← OGGI' : i === 1 ? ' ← DOMANI' : i === 2 ? ' ← DOPODOMANI' : ''
+    calendarLines.push(`${dateStr} = ${label}${tag}`)
   }
+  const oggiLine = calendarLines[0]
+  const domaniLine = calendarLines[1]
 
   let scopeLabel: string
   if (isManager(profile)) {
@@ -84,6 +86,8 @@ function buildSystemPrompt(ctx: Ctx): string {
 
 Stai parlando con ${profile.full_name}. ${scopeLabel}
 
+ATTENZIONE alle date relative: ${oggiLine}. ${domaniLine}. "Domani" è SEMPRE il giorno immediatamente dopo oggi, non quello dopo ancora: prima di usare una data negli strumenti, controlla la riga corrispondente nel calendario qui sotto e verifica che il nome del giorno coincida con quello che stai per scrivere all'utente.
+
 Calendario di riferimento (usa SEMPRE il formato yyyy-MM-dd negli strumenti):
 ${calendarLines.join('\n')}
 
@@ -95,6 +99,7 @@ ISTRUZIONI:
 - Gli ID (UUID) sono identificatori interni: NON chiederli MAI all'utente (non li conosce e non deve conoscerli) e non mostrarli nelle risposte. Quando ti serve l'ID di un dipendente o di un turno, ricavalo TU con cerca_dipendenti o lista_turni, oppure riusalo dai risultati degli strumenti nei messaggi precedenti.
 - Se l'utente indica una persona con un nome parziale o solo il cognome (es. "accolla", "vecchi"), NON chiedere subito il nome completo: prova prima cerca_dipendenti con quel testo. Chiedi chiarimenti solo se la ricerca restituisce più persone o nessuna.
 - Esegui un'azione (creare/eliminare/modificare) SOLO se la richiesta è chiara e contiene tutte le informazioni necessarie. Se manca qualcosa (data, orario, dipendente, reparto...), chiedi prima di procedere: non inventare dati.
+- Per "scambiare"/"sostituire"/"spostare" i turni (es. tra due dipendenti o tra due date), usa SEMPRE prima lista_turni per leggere i turni esistenti coinvolti, poi usa modifica_turno per aggiornare data/orari di quei turni già esistenti (scambiando i valori tra loro). NON usare crea_turno per uno scambio: creerebbe un turno duplicato lasciando quello vecchio invariato. Usa crea_turno solo quando il dipendente non ha ancora un turno in quella data.
 - Dopo aver eseguito un'azione, confermala riassumendo cosa hai fatto.
 - Per le domande sui dati (es. "chi lavora venerdì?", "quante presenze oggi?"), usa gli strumenti di lettura e rispondi in modo naturale, senza limitarti a riportare i dati grezzi.
 - Se una richiesta non è di tua competenza, suggerisci i comandi /help, /turni, /ods, /presenze.
@@ -211,6 +216,11 @@ function creaTurnoTool(ctx: Ctx) {
         return { error: 'Non sei autorizzato ad assegnare turni a questo dipendente.' }
       }
 
+      const { data: existing } = await ctx.admin.from('turns').select('id, start_time, end_time, is_rest_day').eq('user_id', employee.id).eq('date', data).maybeSingle()
+      if (existing) {
+        return { error: `${employee.full_name} ha già ${existing.is_rest_day ? 'un riposo' : `un turno (${(existing.start_time as string).slice(0, 5)}-${(existing.end_time as string).slice(0, 5)})`} il ${formatDateLabel(data)} (ID turno: ${existing.id}). Usa modifica_turno per cambiarlo oppure elimina_turno per rimuoverlo prima di crearne uno nuovo.` }
+      }
+
       const { error } = await ctx.admin.from('turns').insert({
         user_id: employee.id,
         restaurant_id: employee.restaurant_id,
@@ -228,6 +238,41 @@ function creaTurnoTool(ctx: Ctx) {
         ok: true,
         messaggio: `Turno creato per ${employee.full_name} il ${formatDateLabel(data)} dalle ${ora_inizio} alle ${ora_fine}${straordinario ? ' (straordinario)' : ''}.`,
       }
+    },
+  })
+}
+
+function modificaTurnoTool(ctx: Ctx) {
+  return tool({
+    description: 'Modifica data e/o orari di un turno di lavoro già esistente (NON un riposo), dato il suo ID (ottenuto con lista_turni). Usa questo strumento per spostare un turno o cambiarne l\'orario, ad esempio per scambiare i turni tra due dipendenti, invece di crearne uno nuovo.',
+    inputSchema: z.object({
+      turno_id: z.string().describe('ID del turno da modificare (ottenuto con lista_turni)'),
+      data: z.string().optional().describe('Nuova data, formato yyyy-MM-dd (omettere se non cambia)'),
+      ora_inizio: z.string().optional().describe('Nuovo orario di inizio, formato HH:MM (omettere se non cambia)'),
+      ora_fine: z.string().optional().describe('Nuovo orario di fine, formato HH:MM (omettere se non cambia)'),
+      straordinario: z.boolean().optional().describe('true/false se cambia lo stato di straordinario'),
+    }),
+    execute: async ({ turno_id, data, ora_inizio, ora_fine, straordinario }) => {
+      if (data !== undefined && !DATE_RE.test(data)) return { error: 'Formato data non valido, usa yyyy-MM-dd.' }
+      if (ora_inizio !== undefined && !isValidTime(ora_inizio)) return { error: 'Formato orario di inizio non valido, usa HH:MM.' }
+      if (ora_fine !== undefined && !isValidTime(ora_fine)) return { error: 'Formato orario di fine non valido, usa HH:MM.' }
+
+      const update: Record<string, unknown> = {}
+      if (data !== undefined) update.date = data
+      if (ora_inizio !== undefined) update.start_time = normalizeTime(ora_inizio)
+      if (ora_fine !== undefined) update.end_time = normalizeTime(ora_fine)
+      if (straordinario !== undefined) update.is_extraordinary = straordinario
+      if (Object.keys(update).length === 0) return { error: 'Nessuna modifica specificata: indica almeno data, ora_inizio, ora_fine o straordinario.' }
+
+      let query = ctx.admin.from('turns').update(update).eq('id', turno_id).eq('is_rest_day', false)
+      query = scopeTurnsQuery(query, toScopeProfile(ctx.profile), ctx.profile.id)
+
+      const { data: rows, error } = await query.select('id, date, start_time, end_time')
+      if (error) return { error: error.message }
+      if (!rows?.length) return { error: 'Turno non trovato, non modificabile (es. è un riposo) o non sei autorizzato a modificarlo.' }
+
+      const row = rows[0] as { date: string; start_time: string; end_time: string }
+      return { ok: true, messaggio: `Turno aggiornato: ${formatDateLabel(row.date)} dalle ${row.start_time.slice(0, 5)} alle ${row.end_time.slice(0, 5)}.` }
     },
   })
 }
@@ -586,6 +631,7 @@ function buildTools(ctx: Ctx): Record<string, Tool> {
     cerca_dipendenti: cercaDipendentiTool(ctx),
     lista_turni: listaTurniTool(ctx),
     crea_turno: creaTurnoTool(ctx),
+    modifica_turno: modificaTurnoTool(ctx),
     assegna_riposo: assegnaRiposoTool(ctx),
     elimina_turno: eliminaTurnoTool(ctx),
     lista_ods: listaOdsTool(ctx),
@@ -618,7 +664,7 @@ function looksUnfinished(text: string): boolean {
   if (/\b(un attimo|un momento|procedo|provvedo|riprovo|sto per|vado a|mi metto a)\b/i.test(text)) return true
   // Verbo d'azione alla prima persona presente a inizio frase
   // (es. "Ok, elimino il turno...", "Ora recupero i turni...")
-  return /(^|[.!]\s+|\b(?:ok|certo|perfetto|bene|va bene|d'accordo|allora)[,!]?\s+)(?:ora\s+|adesso\s+|subito\s+)?(recupero|cerco|controllo|verifico|elimino|cancello|creo|aggiungo|modifico|sostituisco|sposto|assegno|registro)\b/i.test(text)
+  return /(^|[.!]\s+|\b(?:ok|certo|perfetto|bene|va bene|d'accordo|allora)[,!]?\s+)(?:ora\s+|adesso\s+|subito\s+)?(recupero|cerco|controllo|verifico|elimino|cancello|creo|aggiungo|modifico|sostituisco|scambio|sposto|assegno|registro)\b/i.test(text)
 }
 
 const CORRECTION_NUDGE = '[Nota automatica del sistema, invisibile all\'utente] La tua ultima risposta non va bene: non devi mai chiedere ID all\'utente né annunciare azioni senza eseguirle. Usa SUBITO gli strumenti necessari (cerca_dipendenti per trovare le persone, lista_turni per i turni, ecc.), completa la richiesta dell\'utente e rispondi solo con il risultato finale o con una domanda che l\'utente può davvero capire (mai sugli ID).'
