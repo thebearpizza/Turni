@@ -31,6 +31,10 @@ export function helpText(profile: TelegramProfile): string {
   lines.push('/help — mostra questo messaggio')
   lines.push('/annulla — annulla l\'operazione in corso')
 
+  lines.push('')
+  lines.push('🤖 *Assistente AI*')
+  lines.push('Scrivimi anche in linguaggio naturale, senza comandi! Es. "Chi lavora venerdì in cucina?", "Segna un riposo a Mario per domani", "Crea un turno per Giulia lunedì 9-17".')
+
   let scopeLabel = ''
   if (isManager(profile)) scopeLabel = 'Manager — accesso globale a tutti i ristoranti'
   else if (isDirettore(profile)) scopeLabel = `Direttore — ${profile.restaurant?.name ?? 'ristorante'} (tutti i reparti)`
