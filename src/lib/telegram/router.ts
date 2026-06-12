@@ -103,48 +103,59 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   switch (command) {
     case 'help':
-      return void cmdHelp(ctx)
+      await cmdHelp(ctx)
+      return
 
     case 'turni':
-      if (!canManageTurni(profile)) return void unauthorized(ctx)
-      return void cmdTurni(ctx)
+      if (!canManageTurni(profile)) return unauthorized(ctx)
+      await cmdTurni(ctx)
+      return
     case 'nuovoturno':
-      if (!canManageTurni(profile)) return void unauthorized(ctx)
-      return void cmdNuovoTurno(ctx)
+      if (!canManageTurni(profile)) return unauthorized(ctx)
+      await cmdNuovoTurno(ctx)
+      return
     case 'riposo':
-      if (!canManageTurni(profile)) return void unauthorized(ctx)
-      return void cmdRiposo(ctx)
+      if (!canManageTurni(profile)) return unauthorized(ctx)
+      await cmdRiposo(ctx)
+      return
     case 'eliminaturno':
-      if (!canManageTurni(profile)) return void unauthorized(ctx)
-      return void cmdEliminaTurno(ctx)
+      if (!canManageTurni(profile)) return unauthorized(ctx)
+      await cmdEliminaTurno(ctx)
+      return
 
     case 'ods':
-      if (!canManageOds(profile)) return void unauthorized(ctx)
-      return void cmdOds(ctx)
+      if (!canManageOds(profile)) return unauthorized(ctx)
+      await cmdOds(ctx)
+      return
     case 'nuovoods':
-      if (!canManageOds(profile)) return void unauthorized(ctx)
-      return void cmdNuovoOds(ctx)
+      if (!canManageOds(profile)) return unauthorized(ctx)
+      await cmdNuovoOds(ctx)
+      return
     case 'completaods':
-      if (!canManageOds(profile)) return void unauthorized(ctx)
-      return void cmdCompletaOds(ctx)
+      if (!canManageOds(profile)) return unauthorized(ctx)
+      await cmdCompletaOds(ctx)
+      return
 
     case 'presenze':
-      if (!canManagePresenze(profile)) return void unauthorized(ctx)
-      return void cmdPresenze(ctx)
+      if (!canManagePresenze(profile)) return unauthorized(ctx)
+      await cmdPresenze(ctx)
+      return
     case 'modificapresenza':
-      if (!canManagePresenze(profile)) return void unauthorized(ctx)
-      return void cmdModificaPresenza(ctx)
+      if (!canManagePresenze(profile)) return unauthorized(ctx)
+      await cmdModificaPresenza(ctx)
+      return
     case 'nuovapresenza':
-      if (!canManagePresenze(profile)) return void unauthorized(ctx)
-      return void cmdNuovaPresenza(ctx)
+      if (!canManagePresenze(profile)) return unauthorized(ctx)
+      await cmdNuovaPresenza(ctx)
+      return
 
     default:
-      return void reply(ctx, "❓ Comando non riconosciuto. Usa /help per l'elenco dei comandi.")
+      await reply(ctx, "❓ Comando non riconosciuto. Usa /help per l'elenco dei comandi.")
   }
 }
 
-async function unauthorized(ctx: Ctx) {
-  return reply(ctx, '🚫 Non sei autorizzato a usare questo comando.')
+async function unauthorized(ctx: Ctx): Promise<void> {
+  await reply(ctx, '🚫 Non sei autorizzato a usare questo comando.')
 }
 
 async function dispatchCallback(ctx: Ctx, state: string, data: Record<string, unknown>): Promise<boolean> {
