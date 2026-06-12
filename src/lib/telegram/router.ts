@@ -7,6 +7,7 @@ import type { Ctx } from './context'
 import { reply } from './context'
 import type { TgUpdate } from './types'
 
+import { runAiAssistant } from './ai'
 import { cmdHelp, handleStart } from './commands/help'
 import { cmdTurni, cmdNuovoTurno, cmdRiposo, cmdEliminaTurno, handleTurniCallback, handleTurniText } from './commands/turni'
 import { cmdOds, cmdNuovoOds, cmdCompletaOds, handleOdsCallback, handleOdsText } from './commands/ods'
@@ -87,7 +88,18 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   const match = text.match(/^\/(\w+)/)
   const command = match?.[1]?.toLowerCase()
-  if (!command) return
+  if (!command) {
+    // ── Messaggio libero senza comando: passa all'assistente AI ─────────
+    if (text.trim()) {
+      const aiReply = await runAiAssistant(ctx, text.trim())
+      try {
+        await reply(ctx, aiReply, { parse_mode: 'Markdown' })
+      } catch {
+        await reply(ctx, aiReply)
+      }
+    }
+    return
+  }
 
   switch (command) {
     case 'help':
