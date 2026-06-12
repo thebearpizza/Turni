@@ -11,7 +11,7 @@ import {
 } from './scope'
 import { TZ, isValidTime, normalizeTime, formatDateLabel } from './format'
 import { DEPARTMENTS, ODS_DAYS_IT, ODS_TYPE_LABELS, type OdsTaskType, type Department } from '@/types'
-import { getAiHistory, appendAiHistory } from './aiHistory'
+import { getAiHistory, saveAiHistory } from './aiHistory'
 
 // ── Assistente AI (Gemini) — comandi e domande in linguaggio naturale ──
 // Attivato per i messaggi liberi (non slash-command) quando non c'è una
@@ -634,7 +634,7 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
     const text = result.text?.trim()
     if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova oppure usa /help per i comandi disponibili.'
 
-    await appendAiHistory(ctx.admin, ctx.telegramId, userText, text)
+    await saveAiHistory(ctx.admin, ctx.telegramId, [...messages, ...result.response.messages])
     return text
   } catch (err) {
     console.error('Errore assistente AI Telegram:', err instanceof Error ? err.stack ?? err.message : err)
