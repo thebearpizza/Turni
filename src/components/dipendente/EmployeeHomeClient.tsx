@@ -74,12 +74,15 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     const result = await checkGeo(profile.restaurant?.latitude, profile.restaurant?.longitude)
 
     if (result === 'outside') {
-      setMessage({ text: 'Sei troppo lontano dal ristorante per timbrare', type: 'error' })
+      // Parachute: GPS may read "too far" even when the employee is inside
+      // (weak indoor signal). Offer the photo proof, same as a missing fix.
+      setMessage({ text: 'Posizione troppo lontana. Se sei nel locale, timbra con la foto.', type: 'error' })
+      setGpsFailed(true)
       return
     }
     if (result === 'denied' || result === 'unsupported') {
       // Fail-closed: no GPS consent or position unavailable → block
-      setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      setMessage({ text: 'Impossibile verificare il GPS. Se sei nel locale, timbra con la foto.', type: 'error' })
       setGpsFailed(true)   // ← fallback only: show photo option
       return
     }
@@ -105,6 +108,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           type:      attendance ? 'out' : 'in',
           latitude:  userCoordsRef.current?.latitude,
           longitude: userCoordsRef.current?.longitude,
+          accuracy:  userCoordsRef.current?.accuracy,
           frozenAt,
         }),
       })
@@ -136,6 +140,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
           type:      attendance ? 'out' : 'in',
           latitude:  userCoordsRef.current?.latitude  ?? null,
           longitude: userCoordsRef.current?.longitude ?? null,
+          accuracy:  userCoordsRef.current?.accuracy  ?? null,
           frozenAt,
         }).catch(() => {})
         setMessage({

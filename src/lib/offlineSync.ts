@@ -27,6 +27,7 @@ export interface ClockInPayload {
   type:      'in' | 'out'
   latitude:  number | null
   longitude: number | null
+  accuracy:  number | null
   frozenAt:  string  // ISO — timestamp at the moment the button was pressed
 }
 
