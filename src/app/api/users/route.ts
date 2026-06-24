@@ -156,6 +156,13 @@ export async function PATCH(request: Request) {
   const consultant_restaurant_ids: string[] = patchBody.consultant_restaurant_ids ?? []
   const can_view_hours: boolean = patchBody.can_view_hours ?? false
 
+  // ── Campi AI scheduling ─────────────────────────────────────────────
+  const weekly_rest_days: number               = patchBody.weekly_rest_days ?? 1
+  const preferred_rest_day: number | null      = patchBody.preferred_rest_day ?? null
+  const secondary_departments                  = patchBody.secondary_departments ?? []
+  const weekly_hours_target: number | null     = patchBody.weekly_hours_target ?? null
+  const can_substitute_capo_servizio: boolean  = patchBody.can_substitute_capo_servizio ?? false
+
   if (!id || !full_name || !role) {
     return NextResponse.json({ error: 'Campi obbligatori mancanti' }, { status: 400 })
   }
@@ -177,6 +184,9 @@ export async function PATCH(request: Request) {
   }
   const isDirettore = role === 'capo_servizio' ? is_direttore === true : false
 
+  // secondary_departments è editabile solo dal manager (non dal direttore)
+  const isCallerManager = caller.role === 'manager'
+
   const { data: profile, error } = await admin
     .from('profiles')
     .update({
@@ -188,6 +198,12 @@ export async function PATCH(request: Request) {
       is_direttore: isDirettore,
       consultant_restaurant_ids: role === 'consulente_lavoro' ? consultant_restaurant_ids : [],
       can_view_hours: role === 'consulente_lavoro' ? can_view_hours : false,
+      // AI scheduling
+      weekly_rest_days,
+      preferred_rest_day,
+      secondary_departments: isCallerManager ? secondary_departments : undefined,
+      weekly_hours_target: weekly_hours_target || null,
+      can_substitute_capo_servizio,
     })
     .eq('id', id)
     .select('*, restaurant:restaurants(id, name)')

@@ -13,11 +13,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Plus, Trash2, ChevronLeft, ChevronRight, Wand2, CalendarRange, X } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, Wand2, CalendarRange, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import type { Turn, Department, StandardShift } from '@/types'
+import type { Turn, Department, StandardShift, AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
+import { AiScheduleDialog } from './AiScheduleDialog'
+import { AiScheduleDraftView } from './AiScheduleDraftView'
 
 const TZ = 'Europe/Rome'
 
@@ -101,6 +103,10 @@ export function TurniManagerClient({
   const [sEnd, setSEnd] = useState('')
   const [sSaving, setSSaving] = useState(false)
   const [sError, setSError] = useState<string | null>(null)
+
+  // AI Schedule
+  const [showAiDialog, setShowAiDialog] = useState(false)
+  const [aiDraft, setAiDraft] = useState<(AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) | null>(null)
 
   // Popola da Turni Standard
   const [showPopolaModal, setShowPopolaModal] = useState(false)
@@ -378,6 +384,9 @@ export function TurniManagerClient({
           </Button>
           <Button size="sm" variant="outline" onClick={() => { setPopolaResult(null); setShowPopolaModal(true) }}>
             <Wand2 className="w-4 h-4" /> Popola Standard
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowAiDialog(true)}>
+            <Sparkles className="w-4 h-4" /> Genera con IA
           </Button>
           <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1">
             <Plus className="w-4 h-4" /> Nuovo Turno
@@ -785,6 +794,31 @@ export function TurniManagerClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── AI Schedule ─────────────────────────────────────────────── */}
+      <AiScheduleDialog
+        open={showAiDialog}
+        onClose={() => setShowAiDialog(false)}
+        restaurantId={currentRestaurantId ?? ''}
+        currentDept={currentDepartment as Department | null}
+        currentUserRole={currentUserRole}
+        currentIsDirettore={currentIsDirettore}
+        onDraftCreated={draft => { setAiDraft(draft); setShowAiDialog(false) }}
+      />
+
+      {/* Vista bozza AI */}
+      {aiDraft && (
+        <Dialog open={!!aiDraft} onOpenChange={open => { if (!open) setAiDraft(null) }}>
+          <DialogContent className="max-h-[95vh] overflow-y-auto max-w-5xl w-full">
+            <AiScheduleDraftView
+              draft={aiDraft}
+              staff={staff}
+              onClose={() => setAiDraft(null)}
+              onConfirmed={() => { setAiDraft(null) }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ── Popola da Turni Standard ────────────────────────────────── */}
       <Dialog open={showPopolaModal} onOpenChange={setShowPopolaModal}>

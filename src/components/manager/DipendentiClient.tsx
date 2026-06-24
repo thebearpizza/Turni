@@ -13,8 +13,8 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2 } from 'lucide-react'
-import type { Profile, Restaurant, Role, Department } from '@/types'
-import { ROLE_LABELS, DEPARTMENTS } from '@/types'
+import type { Profile, Restaurant, Role, Department, SecondaryDepartment } from '@/types'
+import { ROLE_LABELS, DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
 
 const USERNAME_RE = /^[a-z0-9._-]+$/
 
@@ -70,6 +70,13 @@ export function DipendentiClient({
   const [canPostBulletin, setCanPostBulletin] = useState(false)
   const [isDirettore, setIsDirettore]     = useState(false)
 
+  // ── AI scheduling fields ──────────────────────────────────────────────
+  const [weeklyRestDays, setWeeklyRestDays]                     = useState(1)
+  const [preferredRestDay, setPreferredRestDay]                 = useState<string>('none')
+  const [secondaryDepartments, setSecondaryDepartments]         = useState<SecondaryDepartment[]>([])
+  const [weeklyHoursTarget, setWeeklyHoursTarget]               = useState<string>('')
+  const [canSubstituteCapoServizio, setCanSubstituteCapoServizio] = useState(false)
+
   // ── Password-reset dialog ─────────────────────────────────────────────
   const [pwTarget, setPwTarget]   = useState<DipWithRestaurant | null>(null)
   const [newPassword, setNewPassword] = useState('')
@@ -97,9 +104,11 @@ export function DipendentiClient({
     setEditing(null)
     setUsername(''); setUsernameError(null); setPassword('')
     setFullName(''); setRole('dipendente'); setDepartment('')
-    // A direttore is confined to its own restaurant; managers pick freely.
     setRestaurantId(currentUserRole === 'manager' ? 'none' : (currentRestaurantId ?? 'none'))
     setCanPostBulletin(false); setIsDirettore(false)
+    setWeeklyRestDays(1); setPreferredRestDay('none')
+    setSecondaryDepartments([]); setWeeklyHoursTarget('')
+    setCanSubstituteCapoServizio(false)
     setFormError(null); setShowForm(true)
   }
 
@@ -111,6 +120,11 @@ export function DipendentiClient({
     setRestaurantId(p.restaurant_id ?? 'none')
     setCanPostBulletin(p.can_post_bulletin)
     setIsDirettore(p.is_direttore ?? false)
+    setWeeklyRestDays(p.weekly_rest_days ?? 1)
+    setPreferredRestDay(p.preferred_rest_day != null ? String(p.preferred_rest_day) : 'none')
+    setSecondaryDepartments((p.secondary_departments ?? []) as SecondaryDepartment[])
+    setWeeklyHoursTarget(p.weekly_hours_target != null ? String(p.weekly_hours_target) : '')
+    setCanSubstituteCapoServizio(p.can_substitute_capo_servizio ?? false)
     setFormError(null); setShowForm(true)
   }
 
@@ -138,6 +152,11 @@ export function DipendentiClient({
             restaurant_id: restaurantId === 'none' ? null : restaurantId,
             can_post_bulletin: canPostBulletin,
             is_direttore: role === 'capo_servizio' ? isDirettore : false,
+            weekly_rest_days: weeklyRestDays,
+            preferred_rest_day: preferredRestDay === 'none' ? null : parseInt(preferredRestDay),
+            secondary_departments: secondaryDepartments,
+            weekly_hours_target: weeklyHoursTarget ? parseInt(weeklyHoursTarget) : null,
+            can_substitute_capo_servizio: canSubstituteCapoServizio,
           }),
         })
         const data = await res.json()
@@ -414,6 +433,106 @@ export function DipendentiClient({
                 </div>
               </>
             )}
+            {/* ── Campi AI scheduling — solo in modifica (non creazione) ── */}
+            {editing && (
+              <div className="border-t border-border pt-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Pianificazione turni
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Riposi/settimana</Label>
+                    <input
+                      type="number" min={0} max={7}
+                      value={weeklyRestDays}
+                      onChange={e => setWeeklyRestDays(parseInt(e.target.value) || 0)}
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Ore/settimana <span className="font-normal text-muted-foreground">(vuoto = full-time)</span></Label>
+                    <input
+                      type="number" min={1} max={60} placeholder="es. 20"
+                      value={weeklyHoursTarget}
+                      onChange={e => setWeeklyHoursTarget(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Giorno di riposo preferito</Label>
+                  <select
+                    value={preferredRestDay}
+                    onChange={e => setPreferredRestDay(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                  >
+                    <option value="none">Nessuna preferenza</option>
+                    {[1,2,3,4,5,6,0].map(d => (
+                      <option key={d} value={String(d)}>{WEEK_DAYS_SHORT[d]}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm">Può fare da senior / sostituire capo servizio</Label>
+                    <p className="text-xs text-muted-foreground">
+                      L'IA garantisce almeno un senior per slot. Chi non lo è non può stare da solo.
+                    </p>
+                  </div>
+                  <Switch checked={canSubstituteCapoServizio} onCheckedChange={setCanSubstituteCapoServizio} />
+                </div>
+
+                {/* Competenze extra (jolly) — solo manager */}
+                {isManager && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Reparti jolly <span className="font-normal text-muted-foreground">(se necessario lavora in altro reparto)</span></Label>
+                    <div className="space-y-1.5">
+                      {DEPARTMENTS
+                        .filter(d => d !== (department || editing.department))
+                        .map(d => {
+                          const existing = secondaryDepartments.find(sd => sd.department === d)
+                          return (
+                            <div key={d} className="flex items-center gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={!!existing}
+                                  onChange={e => {
+                                    if (e.target.checked) {
+                                      setSecondaryDepartments(prev => [...prev, { department: d, priority: 2 }])
+                                    } else {
+                                      setSecondaryDepartments(prev => prev.filter(sd => sd.department !== d))
+                                    }
+                                  }}
+                                  className="accent-primary"
+                                />
+                                <span className="text-sm">{d}</span>
+                              </label>
+                              {existing && (
+                                <select
+                                  value={existing.priority}
+                                  onChange={e => setSecondaryDepartments(prev =>
+                                    prev.map(sd => sd.department === d ? { ...sd, priority: parseInt(e.target.value) } : sd)
+                                  )}
+                                  className="h-7 rounded border border-input bg-background px-2 text-xs"
+                                >
+                                  <option value={1}>Priorità alta</option>
+                                  <option value={2}>Priorità media</option>
+                                  <option value={3}>Priorità bassa</option>
+                                </select>
+                              )}
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {formError && (
               <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{formError}</p>
             )}
