@@ -6,6 +6,7 @@ import {
   upsertStandardShift, deleteStandardShift, populateFromStandard,
   type TurnInput, type BulkTurnInput,
 } from '@/app/actions/turni'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Plus, Trash2, ChevronLeft, ChevronRight, Wand2, CalendarRange, X, Sparkles } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -108,12 +109,6 @@ export function TurniManagerClient({
   const [showAiDialog, setShowAiDialog] = useState(false)
   const [aiDraft, setAiDraft] = useState<(AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) | null>(null)
 
-  // Popola da Turni Standard
-  const [showPopolaModal, setShowPopolaModal] = useState(false)
-  const [popolaStart, setPopolaStart] = useState('')
-  const [popolaEnd, setPopolaEnd] = useState('')
-  const [popolaSaving, setPopolaSaving] = useState(false)
-  const [popolaResult, setPopolaResult] = useState<string | null>(null)
 
   // ── Realtime — REGOLA D'ORO: aggiornamento istantaneo via supabase_realtime ──
   useEffect(() => {
@@ -357,21 +352,6 @@ export function TurniManagerClient({
     }
   }
 
-  // ── Popola da Turni Standard (Automazione) ───────────────────────
-  async function handlePopolaFromStandard() {
-    if (!popolaStart || !popolaEnd) return
-    setPopolaSaving(true)
-    setPopolaResult(null)
-    try {
-      const { created, skipped } = await populateFromStandard(popolaStart, popolaEnd)
-      setPopolaResult(`${created} turni creati, ${skipped} già presenti (saltati).`)
-    } catch (err) {
-      setPopolaResult(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setPopolaSaving(false)
-    }
-  }
-
   return (
     <div>
       {/* Header — i tasti vanno su una riga propria sotto il titolo su
@@ -381,9 +361,6 @@ export function TurniManagerClient({
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => { setPopolaResult(null); setShowPopolaModal(true) }}>
-            <Wand2 className="w-4 h-4" /> Popola Standard
           </Button>
           <Button size="sm" variant="outline" onClick={() => setShowAiDialog(true)}>
             <Sparkles className="w-4 h-4" /> Genera con IA
@@ -820,39 +797,6 @@ export function TurniManagerClient({
         </Dialog>
       )}
 
-      {/* ── Popola da Turni Standard ────────────────────────────────── */}
-      <Dialog open={showPopolaModal} onOpenChange={setShowPopolaModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Popola da Turni Standard</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Seleziona il periodo da popolare. Verranno generati i turni a partire dai
-              Turni Fissi configurati, saltando le date in cui esiste già un turno per il dipendente.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Dal *</Label>
-                <Input type="date" value={popolaStart} onChange={e => setPopolaStart(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Al *</Label>
-                <Input type="date" value={popolaEnd} onChange={e => setPopolaEnd(e.target.value)} />
-              </div>
-            </div>
-            {popolaResult && (
-              <p className="text-sm font-medium text-foreground">{popolaResult}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPopolaModal(false)}>Chiudi</Button>
-            <Button onClick={handlePopolaFromStandard} disabled={popolaSaving || !popolaStart || !popolaEnd}>
-              {popolaSaving ? 'Generazione...' : 'Genera turni'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

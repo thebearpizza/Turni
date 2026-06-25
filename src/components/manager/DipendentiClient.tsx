@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,10 +14,15 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2 } from 'lucide-react'
-import type { Profile, Restaurant, Role, Department, SecondaryDepartment } from '@/types'
+import type { Profile, Restaurant, Role, Department, SecondaryDepartment, ShiftSlot } from '@/types'
 import { ROLE_LABELS, DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
 
 const USERNAME_RE = /^[a-z0-9._-]+$/
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
 
 const roleColors: Record<Role, string> = {
   manager:           'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
@@ -73,9 +79,11 @@ export function DipendentiClient({
   // ── AI scheduling fields ──────────────────────────────────────────────
   const [weeklyRestDays, setWeeklyRestDays]                     = useState(1)
   const [preferredRestDay, setPreferredRestDay]                 = useState<string>('none')
+  const [primarySlotIds, setPrimarySlotIds]                     = useState<string[]>([])
   const [secondaryDepartments, setSecondaryDepartments]         = useState<SecondaryDepartment[]>([])
   const [weeklyHoursTarget, setWeeklyHoursTarget]               = useState<string>('')
   const [canSubstituteCapoServizio, setCanSubstituteCapoServizio] = useState(false)
+  const [restaurantSlots, setRestaurantSlots]                   = useState<ShiftSlot[]>([])
 
   // ── Password-reset dialog ─────────────────────────────────────────────
   const [pwTarget, setPwTarget]   = useState<DipWithRestaurant | null>(null)
@@ -107,12 +115,13 @@ export function DipendentiClient({
     setRestaurantId(currentUserRole === 'manager' ? 'none' : (currentRestaurantId ?? 'none'))
     setCanPostBulletin(false); setIsDirettore(false)
     setWeeklyRestDays(1); setPreferredRestDay('none')
-    setSecondaryDepartments([]); setWeeklyHoursTarget('')
-    setCanSubstituteCapoServizio(false)
+    setPrimarySlotIds([]); setSecondaryDepartments([])
+    setWeeklyHoursTarget(''); setCanSubstituteCapoServizio(false)
+    setRestaurantSlots([])
     setFormError(null); setShowForm(true)
   }
 
-  function openEdit(p: DipWithRestaurant) {
+  async function openEdit(p: DipWithRestaurant) {
     setEditing(p)
     setUsername(''); setUsernameError(null); setPassword('')
     setFullName(p.full_name); setRole(p.role)
@@ -122,10 +131,25 @@ export function DipendentiClient({
     setIsDirettore(p.is_direttore ?? false)
     setWeeklyRestDays(p.weekly_rest_days ?? 1)
     setPreferredRestDay(p.preferred_rest_day != null ? String(p.preferred_rest_day) : 'none')
+    setPrimarySlotIds((p as Profile).primary_slot_ids ?? [])
     setSecondaryDepartments((p.secondary_departments ?? []) as SecondaryDepartment[])
     setWeeklyHoursTarget(p.weekly_hours_target != null ? String(p.weekly_hours_target) : '')
     setCanSubstituteCapoServizio(p.can_substitute_capo_servizio ?? false)
+    setRestaurantSlots([])
     setFormError(null); setShowForm(true)
+
+    // Carica fasce orarie del ristorante in background
+    const rid = p.restaurant_id
+    if (rid) {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('shift_slots')
+        .select('*')
+        .eq('restaurant_id', rid)
+        .order('department')
+        .order('start_time')
+      setRestaurantSlots((data ?? []) as ShiftSlot[])
+    }
   }
 
   function openPasswordReset(p: DipWithRestaurant) {
@@ -154,6 +178,7 @@ export function DipendentiClient({
             is_direttore: role === 'capo_servizio' ? isDirettore : false,
             weekly_rest_days: weeklyRestDays,
             preferred_rest_day: preferredRestDay === 'none' ? null : parseInt(preferredRestDay),
+            primary_slot_ids: primarySlotIds,
             secondary_departments: secondaryDepartments,
             weekly_hours_target: weeklyHoursTarget ? parseInt(weeklyHoursTarget) : null,
             can_substitute_capo_servizio: canSubstituteCapoServizio,
@@ -485,51 +510,117 @@ export function DipendentiClient({
                   <Switch checked={canSubstituteCapoServizio} onCheckedChange={setCanSubstituteCapoServizio} />
                 </div>
 
-                {/* Competenze extra (jolly) — solo manager */}
-                {isManager && (
-                  <div className="space-y-2">
-                    <Label className="text-sm">Reparti jolly <span className="font-normal text-muted-foreground">(se necessario lavora in altro reparto)</span></Label>
-                    <div className="space-y-1.5">
-                      {DEPARTMENTS
-                        .filter(d => d !== (department || editing.department))
-                        .map(d => {
-                          const existing = secondaryDepartments.find(sd => sd.department === d)
-                          return (
-                            <div key={d} className="flex items-center gap-3">
-                              <label className="flex items-center gap-2 cursor-pointer flex-1">
+                {/* Fasce principali (slot del reparto principale) */}
+                {(() => {
+                  const empDept = department || (editing as DipWithRestaurant).department
+                  const primarySlots = restaurantSlots.filter(s => s.department === empDept)
+                  if (!empDept || restaurantSlots.length === 0) return null
+                  return (
+                    <div className="space-y-2">
+                      <Label className="text-sm">
+                        Fasce principali <span className="font-normal text-muted-foreground">({empDept})</span>
+                      </Label>
+                      {primarySlots.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Nessuna fascia configurata per {empDept}.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {primarySlots.map(s => {
+                            const overnight = timeToMinutes(s.end_time) <= timeToMinutes(s.start_time)
+                            return (
+                              <label key={s.id} className="flex items-center gap-2 cursor-pointer">
                                 <input
                                   type="checkbox"
-                                  checked={!!existing}
+                                  checked={primarySlotIds.includes(s.id)}
                                   onChange={e => {
-                                    if (e.target.checked) {
-                                      setSecondaryDepartments(prev => [...prev, { department: d, priority: 2 }])
-                                    } else {
-                                      setSecondaryDepartments(prev => prev.filter(sd => sd.department !== d))
-                                    }
+                                    if (e.target.checked) setPrimarySlotIds(prev => [...prev, s.id])
+                                    else setPrimarySlotIds(prev => prev.filter(id => id !== s.id))
                                   }}
                                   className="accent-primary"
                                 />
-                                <span className="text-sm">{d}</span>
+                                <span className="text-sm">{s.name}</span>
+                                <span className="text-xs text-muted-foreground tabular-nums">
+                                  {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}
+                                  {overnight && <span className="text-amber-600 dark:text-amber-400 ml-0.5">(+1)</span>}
+                                </span>
                               </label>
-                              {existing && (
-                                <select
-                                  value={existing.priority}
-                                  onChange={e => setSecondaryDepartments(prev =>
-                                    prev.map(sd => sd.department === d ? { ...sd, priority: parseInt(e.target.value) } : sd)
-                                  )}
-                                  className="h-7 rounded border border-input bg-background px-2 text-xs"
-                                >
-                                  <option value={1}>Priorità alta</option>
-                                  <option value={2}>Priorità media</option>
-                                  <option value={3}>Priorità bassa</option>
-                                </select>
-                              )}
-                            </div>
-                          )
-                        })}
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
+
+                {/* Fasce jolly (slot di altri reparti) — solo manager */}
+                {isManager && (() => {
+                  const empDept = department || (editing as DipWithRestaurant).department
+                  const jollySlots = restaurantSlots.filter(s => s.department !== empDept)
+                  if (restaurantSlots.length === 0) return (
+                    <p className="text-xs text-muted-foreground">Caricamento fasce…</p>
+                  )
+                  if (jollySlots.length === 0) return null
+
+                  // Raggruppa per reparto
+                  const byDept = jollySlots.reduce<Record<string, ShiftSlot[]>>((acc, s) => {
+                    ;(acc[s.department] ??= []).push(s)
+                    return acc
+                  }, {})
+
+                  return (
+                    <div className="space-y-2">
+                      <Label className="text-sm">Fasce jolly <span className="font-normal text-muted-foreground">(se necessario lavora in altro reparto)</span></Label>
+                      <div className="space-y-3">
+                        {Object.entries(byDept).map(([dept, deptSlots]) => (
+                          <div key={dept}>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">{dept}</p>
+                            <div className="space-y-1 pl-2">
+                              {deptSlots.map(s => {
+                                const existing = secondaryDepartments.find(sd => sd.slot_id === s.id)
+                                const overnight = timeToMinutes(s.end_time) <= timeToMinutes(s.start_time)
+                                return (
+                                  <div key={s.id} className="flex items-center gap-2">
+                                    <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!existing}
+                                        onChange={e => {
+                                          if (e.target.checked) {
+                                            setSecondaryDepartments(prev => [...prev, { slot_id: s.id, priority: 2 }])
+                                          } else {
+                                            setSecondaryDepartments(prev => prev.filter(sd => sd.slot_id !== s.id))
+                                          }
+                                        }}
+                                        className="accent-primary"
+                                      />
+                                      <span className="text-sm">{s.name}</span>
+                                      <span className="text-xs text-muted-foreground tabular-nums">
+                                        {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}
+                                        {overnight && <span className="text-amber-600 dark:text-amber-400 ml-0.5">(+1)</span>}
+                                      </span>
+                                    </label>
+                                    {existing && (
+                                      <select
+                                        value={existing.priority}
+                                        onChange={e => setSecondaryDepartments(prev =>
+                                          prev.map(sd => sd.slot_id === s.id ? { ...sd, priority: parseInt(e.target.value) } : sd)
+                                        )}
+                                        className="h-7 rounded border border-input bg-background px-2 text-xs"
+                                      >
+                                        <option value={1}>Priorità alta</option>
+                                        <option value={2}>Priorità media</option>
+                                        <option value={3}>Priorità bassa</option>
+                                      </select>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
 

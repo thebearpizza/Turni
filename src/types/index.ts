@@ -23,8 +23,8 @@ export const WEEK_DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
 export const WEEK_DAYS_FULL  = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'] as const
 
 export interface SecondaryDepartment {
-  department: Department
-  priority: number  // 1=alta..3=bassa
+  slot_id: string    // ID della fascia oraria (shift_slot)
+  priority: number   // 1=alta..3=bassa
 }
 
 export interface Profile {
@@ -42,7 +42,8 @@ export interface Profile {
   // ── AI scheduling fields ─────────────────────────────────────────
   weekly_rest_days: number               // default 1
   preferred_rest_day: number | null      // 0=Dom..6=Sab, opzionale
-  secondary_departments: SecondaryDepartment[]  // reparti jolly (solo Manager edita)
+  primary_slot_ids: string[]             // fasce principali del dipendente
+  secondary_departments: SecondaryDepartment[]  // fasce jolly in altri reparti (solo Manager edita)
   weekly_hours_target: number | null     // null=full-time; es. 20=part-time
   can_substitute_capo_servizio: boolean  // può stare da solo / fare da senior
   created_at: string

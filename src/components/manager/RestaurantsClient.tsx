@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, QrCode, Pencil, Trash2, MapPin, Clock } from 'lucide-react'
+import { Plus, QrCode, Pencil, Trash2, MapPin, Clock, X } from 'lucide-react'
 import QRCode from 'qrcode'
 import type { Restaurant, ShiftSlot, Department } from '@/types'
 import { DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
@@ -47,6 +47,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
   const [slots, setSlots] = useState<ShiftSlot[]>([])
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [slotForm, setSlotForm] = useState(emptySlotForm())
+  const [editingSlot, setEditingSlot] = useState<ShiftSlot | null>(null)
   const [slotSaving, setSlotSaving] = useState(false)
   const [slotError, setSlotError] = useState<string | null>(null)
 
@@ -135,6 +136,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setSlotsRestaurant(r)
     setSlotsLoading(true)
     setSlotForm(emptySlotForm())
+    setEditingSlot(null)
     setSlotError(null)
     const supabase = createClient()
     const { data } = await supabase
@@ -147,27 +149,69 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setSlotsLoading(false)
   }
 
-  async function handleAddSlot() {
+  function startEditSlot(s: ShiftSlot) {
+    setEditingSlot(s)
+    setSlotForm({
+      department: s.department,
+      name:       s.name,
+      start_time: s.start_time.slice(0, 5),
+      end_time:   s.end_time.slice(0, 5),
+      required_count: s.required_count,
+      days_of_week:   s.days_of_week,
+    })
+    setSlotError(null)
+  }
+
+  function cancelEditSlot() {
+    setEditingSlot(null)
+    setSlotForm(emptySlotForm())
+    setSlotError(null)
+  }
+
+  async function handleSaveSlot() {
     if (!slotsRestaurant || !slotForm.department || !slotForm.name || !slotForm.start_time || !slotForm.end_time) return
     setSlotSaving(true); setSlotError(null)
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('shift_slots')
-      .insert({
-        restaurant_id:  slotsRestaurant.id,
-        department:     slotForm.department,
-        name:           slotForm.name,
-        start_time:     slotForm.start_time,
-        end_time:       slotForm.end_time,
-        required_count: slotForm.required_count,
-        days_of_week:   slotForm.days_of_week,  // vuoto = tutti
-      })
-      .select()
-      .single()
-    if (error) { setSlotError(error.message) }
-    else if (data) {
-      setSlots(prev => [...prev, data as ShiftSlot])
-      setSlotForm(emptySlotForm())
+
+    if (editingSlot) {
+      const { data, error } = await supabase
+        .from('shift_slots')
+        .update({
+          department:     slotForm.department,
+          name:           slotForm.name,
+          start_time:     slotForm.start_time,
+          end_time:       slotForm.end_time,
+          required_count: slotForm.required_count,
+          days_of_week:   slotForm.days_of_week,
+        })
+        .eq('id', editingSlot.id)
+        .select()
+        .single()
+      if (error) { setSlotError(error.message) }
+      else if (data) {
+        setSlots(prev => prev.map(s => s.id === editingSlot.id ? data as ShiftSlot : s))
+        setEditingSlot(null)
+        setSlotForm(emptySlotForm())
+      }
+    } else {
+      const { data, error } = await supabase
+        .from('shift_slots')
+        .insert({
+          restaurant_id:  slotsRestaurant.id,
+          department:     slotForm.department,
+          name:           slotForm.name,
+          start_time:     slotForm.start_time,
+          end_time:       slotForm.end_time,
+          required_count: slotForm.required_count,
+          days_of_week:   slotForm.days_of_week,
+        })
+        .select()
+        .single()
+      if (error) { setSlotError(error.message) }
+      else if (data) {
+        setSlots(prev => [...prev, data as ShiftSlot])
+        setSlotForm(emptySlotForm())
+      }
     }
     setSlotSaving(false)
   }
@@ -176,6 +220,13 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     const supabase = createClient()
     await supabase.from('shift_slots').delete().eq('id', id)
     setSlots(prev => prev.filter(s => s.id !== id))
+    if (editingSlot?.id === id) cancelEditSlot()
+  }
+
+  function isOvernight(start: string, end: string) {
+    const [sh, sm] = start.split(':').map(Number)
+    const [eh, em] = end.split(':').map(Number)
+    return eh * 60 + em <= sh * 60 + sm
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -336,11 +387,14 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                   </thead>
                   <tbody>
                     {slots.map(s => (
-                      <tr key={s.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                      <tr key={s.id} className={`even:bg-zinc-50 dark:even:bg-zinc-900/20 ${editingSlot?.id === s.id ? 'ring-2 ring-inset ring-primary/30' : ''}`}>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700">{s.department}</td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700">{s.name}</td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center whitespace-nowrap tabular-nums">
                           {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                          {isOvernight(s.start_time, s.end_time) && (
+                            <span className="ml-0.5 text-[10px] text-amber-600 dark:text-amber-400" title="Termina il giorno successivo">(+1)</span>
+                          )}
                         </td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center">{s.required_count}</td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-xs text-muted-foreground">
@@ -350,13 +404,22 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                           }
                         </td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center">
-                          <Button
-                            variant="ghost" size="icon"
-                            onClick={() => handleDeleteSlot(s.id)}
-                            className="text-destructive hover:text-destructive h-6 w-6"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          <div className="flex items-center justify-center gap-0.5">
+                            <Button
+                              variant="ghost" size="icon"
+                              onClick={() => startEditSlot(s)}
+                              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost" size="icon"
+                              onClick={() => handleDeleteSlot(s.id)}
+                              className="text-destructive hover:text-destructive h-6 w-6"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -365,9 +428,18 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
               </div>
             )}
 
-            {/* Form aggiunta slot */}
+            {/* Form aggiunta/modifica slot */}
             <div className="border-t border-border pt-4 space-y-3">
-              <Label className="text-sm font-semibold">Aggiungi fascia oraria</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">
+                  {editingSlot ? `Modifica: ${editingSlot.name}` : 'Aggiungi fascia oraria'}
+                </Label>
+                {editingSlot && (
+                  <Button variant="ghost" size="sm" onClick={cancelEditSlot} className="h-7 text-xs gap-1 text-muted-foreground">
+                    <X className="w-3 h-3" /> Annulla
+                  </Button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Reparto *</Label>
@@ -428,12 +500,20 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                   ))}
                 </div>
               </div>
+              {slotForm.start_time && slotForm.end_time && isOvernight(slotForm.start_time, slotForm.end_time) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  ⚠ Turno notturno: termina il giorno successivo (+1)
+                </p>
+              )}
               {slotError && <p className="text-xs text-destructive">{slotError}</p>}
               <Button
-                size="sm" onClick={handleAddSlot}
+                size="sm" onClick={handleSaveSlot}
                 disabled={slotSaving || !slotForm.department || !slotForm.name || !slotForm.start_time || !slotForm.end_time}
               >
-                <Plus className="w-4 h-4" /> {slotSaving ? 'Salvataggio…' : 'Aggiungi fascia'}
+                {editingSlot
+                  ? <><Pencil className="w-4 h-4" /> {slotSaving ? 'Salvataggio…' : 'Salva modifiche'}</>
+                  : <><Plus className="w-4 h-4" /> {slotSaving ? 'Salvataggio…' : 'Aggiungi fascia'}</>
+                }
               </Button>
             </div>
           </div>

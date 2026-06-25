@@ -319,7 +319,9 @@ function buildSchedule(params: {
       for (const slot of daySlots) {
         // Evita slot nelle dead zone (< 2 richiesti = può restare con 1 persona)
         const slotStart = timeToMinutes(slot.start_time)
-        const slotEnd   = timeToMinutes(slot.end_time)
+        // Per turni notturni (fine < inizio) aggiungiamo 24h così la durata è positiva
+        let slotEnd = timeToMinutes(slot.end_time)
+        if (slotEnd <= slotStart) slotEnd += 24 * 60
         const dzStart   = dz ? timeToMinutes(dz.startTime) : 0
         const dzEnd     = dz ? timeToMinutes(dz.endTime) : 0
         const inDeadZone = dz && slotStart >= dzStart && slotEnd <= dzEnd
@@ -379,16 +381,17 @@ function buildSchedule(params: {
         }
 
         // ── Step 2: jolly (secondary_departments) ──
+        // Un dipendente è jolly per questo slot se ha il suo slot_id nei secondary_departments
         if (needed > 0) {
           const jolly = employees.filter(e =>
             e.department !== dept &&
-            (e.secondary_departments ?? []).some((sd: SecondaryDepartment) => sd.department === dept) &&
+            (e.secondary_departments ?? []).some((sd: SecondaryDepartment) => sd.slot_id === slot.id) &&
             !absenceSet.has(`${e.id}|${dateStr}`) &&
             !assignedToday[dateStr].has(e.id) &&
             (existingTurnsMode === 'replace' || !existingKey.has(`${e.id}|${dateStr}`))
           ).sort((a, b) => {
-            const pa = (a.secondary_departments ?? []).find((sd: SecondaryDepartment) => sd.department === dept)?.priority ?? 99
-            const pb = (b.secondary_departments ?? []).find((sd: SecondaryDepartment) => sd.department === dept)?.priority ?? 99
+            const pa = (a.secondary_departments ?? []).find((sd: SecondaryDepartment) => sd.slot_id === slot.id)?.priority ?? 99
+            const pb = (b.secondary_departments ?? []).find((sd: SecondaryDepartment) => sd.slot_id === slot.id)?.priority ?? 99
             return pa - pb || (weeklyMinutes[a.id] ?? 0) - (weeklyMinutes[b.id] ?? 0)
           })
 

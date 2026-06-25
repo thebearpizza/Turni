@@ -159,6 +159,7 @@ export async function PATCH(request: Request) {
   // ── Campi AI scheduling ─────────────────────────────────────────────
   const weekly_rest_days: number               = patchBody.weekly_rest_days ?? 1
   const preferred_rest_day: number | null      = patchBody.preferred_rest_day ?? null
+  const primary_slot_ids: string[]             = patchBody.primary_slot_ids ?? []
   const secondary_departments                  = patchBody.secondary_departments ?? []
   const weekly_hours_target: number | null     = patchBody.weekly_hours_target ?? null
   const can_substitute_capo_servizio: boolean  = patchBody.can_substitute_capo_servizio ?? false
@@ -201,6 +202,7 @@ export async function PATCH(request: Request) {
       // AI scheduling
       weekly_rest_days,
       preferred_rest_day,
+      primary_slot_ids,
       secondary_departments: isCallerManager ? secondary_departments : undefined,
       weekly_hours_target: weekly_hours_target || null,
       can_substitute_capo_servizio,
