@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Plus, QrCode, Pencil, Trash2, MapPin, Clock, X } from 'lucide-react'
 import QRCode from 'qrcode'
@@ -443,14 +444,17 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Reparto *</Label>
-                  <select
+                  <Select
                     value={slotForm.department}
-                    onChange={e => setSlotForm(f => ({ ...f, department: e.target.value as Department }))}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    onValueChange={v => setSlotForm(f => ({ ...f, department: v as Department }))}
                   >
-                    <option value="">Seleziona reparto</option>
-                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Seleziona reparto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Nome fascia *</Label>
