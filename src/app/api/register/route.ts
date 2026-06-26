@@ -44,16 +44,18 @@ export async function POST(request: Request) {
   })
 
   if (authErr || !authData.user) {
-    if (authErr?.message?.includes('already been registered')) {
+    const msg = authErr?.message ?? ''
+    if (msg.includes('already been registered') || msg.includes('already registered') || msg.includes('already exists')) {
       return NextResponse.json({ error: 'Email già registrata' }, { status: 409 })
     }
-    return NextResponse.json({ error: 'Errore durante la registrazione' }, { status: 500 })
+    return NextResponse.json({ error: 'Errore durante la registrazione: ' + msg }, { status: 500 })
   }
 
   const userId = authData.user.id
 
   // Crea il profilo manager in stato pending
-  const { error: profileErr } = await admin.from('profiles').insert({
+  // Usa upsert perché Supabase potrebbe avere un trigger che crea la riga automaticamente
+  const { error: profileErr } = await admin.from('profiles').upsert({
     id:                        userId,
     full_name:                 full_name.trim(),
     username:                  email.trim().toLowerCase(),
@@ -69,11 +71,11 @@ export async function POST(request: Request) {
     weekly_rest_days:          1,
     primary_slot_ids:          [],
     secondary_departments:     [],
-  })
+  }, { onConflict: 'id' })
 
   if (profileErr) {
     await admin.auth.admin.deleteUser(userId)
-    return NextResponse.json({ error: 'Errore creazione profilo' }, { status: 500 })
+    return NextResponse.json({ error: 'Errore creazione profilo: ' + profileErr.message }, { status: 500 })
   }
 
   // Crea i dati demo in background (non blocca la risposta)
