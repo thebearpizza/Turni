@@ -79,11 +79,10 @@ export async function POST(request: Request) {
   }
 
   // Crea i dati demo e aggiorna managed_restaurant_ids per isolare il demo
-  let demoRestaurantId: string | null = null
   try {
-    demoRestaurantId = await createDemoData(userId)
+    const demoRestaurantIds = await createDemoData(userId)
     await admin.from('profiles').update({
-      managed_restaurant_ids: [demoRestaurantId],
+      managed_restaurant_ids: demoRestaurantIds,
     }).eq('id', userId)
   } catch (err) {
     console.error('[register] Errore creazione demo data:', err)
