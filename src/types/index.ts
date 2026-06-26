@@ -3,6 +3,8 @@ export type AbsenceType = 'ferie' | 'malattia' | 'riposo' | 'assenza_ingiustific
 export type AbsenceStatus = 'pending' | 'approved' | 'rejected'
 export type BulletinTarget = 'all' | 'restaurant' | 'role' | 'users' | 'department'
 
+export type AccountStatus = 'pending' | 'active'
+
 export interface Restaurant {
   id: string
   name: string
@@ -11,6 +13,8 @@ export interface Restaurant {
   longitude: number | null
   qr_secret: string
   closing_days: number[]  // 0=Dom..6=Sab
+  is_demo: boolean
+  owner_id: string | null
   created_at: string
 }
 
@@ -46,6 +50,9 @@ export interface Profile {
   secondary_departments: SecondaryDepartment[]  // fasce jolly in altri reparti (solo Manager edita)
   weekly_hours_target: number | null     // null=full-time; es. 20=part-time
   can_substitute_capo_servizio: boolean  // può stare da solo / fare da senior
+  // ── SaaS fields ──────────────────────────────────────────────────────────
+  account_status: AccountStatus           // pending = demo; active = pieno accesso
+  managed_restaurant_ids: string[] | null // null = platform owner (vede tutto)
   created_at: string
   updated_at: string
   restaurant?: Restaurant

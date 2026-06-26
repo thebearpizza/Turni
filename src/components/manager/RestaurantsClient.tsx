@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +31,7 @@ const emptySlotForm = () => ({
 })
 
 export function RestaurantsClient({ initialRestaurants }: Props) {
+  const { isPending } = useAccountStatus()
   const [restaurants, setRestaurants] = useState<Restaurant[]>(initialRestaurants)
 
   // ── Restaurant form ───────────────────────────────────────────────────
@@ -238,7 +240,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
           <h1 className="text-2xl font-bold">Ristoranti</h1>
           <p className="text-muted-foreground text-sm mt-1">{restaurants.length} ristoranti</p>
         </div>
-        <Button onClick={openCreate} size="sm">
+        <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
           <Plus className="w-4 h-4" /> Aggiungi
         </Button>
       </div>

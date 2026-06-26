@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -54,6 +55,7 @@ export function DipendentiClient({
   currentIsDirettore = false, currentRestaurantId = null,
   currentRestaurantFilter = null,
 }: Props) {
+  const { isPending } = useAccountStatus()
   const router   = useRouter()
   const pathname = usePathname()
 
@@ -268,7 +270,7 @@ export function DipendentiClient({
           <p className="text-muted-foreground text-sm mt-1">{dipendenti.length} utenti</p>
         </div>
         {canManageUsers && (
-          <Button onClick={openCreate} size="sm">
+          <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
             <Plus className="w-4 h-4" /> Nuovo
           </Button>
         )}

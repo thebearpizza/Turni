@@ -78,6 +78,12 @@ export function LoginForm() {
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? 'Accesso in corso...' : 'Accedi'}
       </Button>
+      <p className="text-center text-sm text-muted-foreground">
+        Non hai un account?{' '}
+        <a href="/register" className="underline hover:text-foreground">
+          Registrati
+        </a>
+      </p>
     </form>
   )
 }

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X, Bell, ClipboardList, CalendarClock
+  Menu, X, Bell, ClipboardList, CalendarClock, UserCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -27,7 +27,8 @@ const navItems = [
   { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'], direttoreOnly: true },
   { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
   { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
-  { href: '/report',  icon: FileSpreadsheet, label: 'Report',  roles: ['manager', 'capo_servizio'] },
+  { href: '/report',           icon: FileSpreadsheet, label: 'Report',           roles: ['manager', 'capo_servizio'] },
+  { href: '/account-pendenti', icon: UserCheck,       label: 'Account Pendenti', roles: ['manager'], platformOwnerOnly: true },
 ]
 
 interface Props {
@@ -38,6 +39,7 @@ export function ManagerSidebar({ profile }: Props) {
   const [open, setOpen] = useState(false)
   const [unreadBulletins, setUnreadBulletins] = useState(0)
   const [unreadOds, setUnreadOds]             = useState(0)
+  const [pendingCount, setPendingCount]       = useState(0)
   const pathname = usePathname()
   const router = useRouter()
   useBadging(unreadOds)
@@ -85,6 +87,18 @@ export function ManagerSidebar({ profile }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [profile.role])
 
+  // Conta account pendenti (solo platform owner)
+  useEffect(() => {
+    if (profile.role !== 'manager' || profile.managed_restaurant_ids !== null) return
+    const supabase = createClient()
+    supabase
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'manager')
+      .eq('account_status', 'pending')
+      .then(({ count }) => setPendingCount(count ?? 0))
+  }, [profile.role, profile.managed_restaurant_ids])
+
   // Lock body scroll while mobile drawer is open
   useEffect(() => {
     if (open) {
@@ -96,8 +110,10 @@ export function ManagerSidebar({ profile }: Props) {
   }, [open])
 
   const isDirettore = profile.role === 'capo_servizio' && profile.is_direttore === true
+  const isPlatformOwner = profile.role === 'manager' && profile.managed_restaurant_ids === null
   const visibleItems = navItems.filter(item =>
-    item.roles.includes(profile.role) || (item.direttoreOnly === true && isDirettore)
+    (item.roles.includes(profile.role) || (item.direttoreOnly === true && isDirettore)) &&
+    (!('platformOwnerOnly' in item) || (item.platformOwnerOnly === true && isPlatformOwner))
   )
 
   async function handleLogout() {
@@ -136,6 +152,11 @@ export function ManagerSidebar({ profile }: Props) {
             {href === '/ods' && profile.role === 'capo_servizio' && unreadOds > 0 && (
               <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
                 {unreadOds > 9 ? '9+' : unreadOds}
+              </span>
+            )}
+            {href === '/account-pendenti' && isPlatformOwner && pendingCount > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {pendingCount > 9 ? '9+' : pendingCount}
               </span>
             )}
           </Link>

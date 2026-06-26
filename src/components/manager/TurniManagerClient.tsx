@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import {
   createTurn, updateTurn, deleteTurn, createTurnsBulk,
   upsertStandardShift, deleteStandardShift, populateFromStandard,
@@ -70,6 +71,7 @@ export function TurniManagerClient({
   currentUserRole, currentDepartment, currentRestaurantId,
   currentIsDirettore,
 }: Props) {
+  const { isPending } = useAccountStatus()
   const isManager = currentUserRole === 'manager'
   const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
 
@@ -359,18 +361,18 @@ export function TurniManagerClient({
       <div className="mb-5">
         <h1 className="text-xl font-semibold tracking-tight mb-3">Gestione Turni</h1>
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)}>
+          <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi
           </Button>
           <Button
             size="sm" variant="outline"
             onClick={() => setShowAiDialog(true)}
-            disabled={isManager && restFilter === 'tutti'}
-            title={isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}
+            disabled={isPending || (isManager && restFilter === 'tutti')}
+            title={isPending ? 'Disponibile dopo l\'attivazione' : isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}
           >
             <Sparkles className="w-4 h-4" /> Genera con IA
           </Button>
-          <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1">
+          <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
             <Plus className="w-4 h-4" /> Nuovo Turno
           </Button>
         </div>
