@@ -78,10 +78,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Errore creazione profilo: ' + profileErr.message }, { status: 500 })
   }
 
-  // Crea i dati demo in background (non blocca la risposta)
-  createDemoData(userId).catch(err => {
+  // Crea i dati demo e aggiorna managed_restaurant_ids per isolare il demo
+  let demoRestaurantId: string | null = null
+  try {
+    demoRestaurantId = await createDemoData(userId)
+    await admin.from('profiles').update({
+      managed_restaurant_ids: [demoRestaurantId],
+    }).eq('id', userId)
+  } catch (err) {
     console.error('[register] Errore creazione demo data:', err)
-  })
+  }
 
   // Notifica via email + notifica in-app all'admin
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://turni.vercel.app'
