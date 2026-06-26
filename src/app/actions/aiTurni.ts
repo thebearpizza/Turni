@@ -93,7 +93,7 @@ async function learnFromAttendance(
   const eightWeeksAgo = format(addDays(parseISO(weekStart), -56), 'yyyy-MM-dd')
 
   const { data: records } = await supabase
-    .from('attendance')
+    .from('attendances')
     .select('user_id, check_in, check_out, restaurant_id')
     .eq('restaurant_id', restaurantId)
     .gte('check_in', eightWeeksAgo)

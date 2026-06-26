@@ -362,7 +362,12 @@ export function TurniManagerClient({
           <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowAiDialog(true)}>
+          <Button
+            size="sm" variant="outline"
+            onClick={() => setShowAiDialog(true)}
+            disabled={isManager && restFilter === 'tutti'}
+            title={isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}
+          >
             <Sparkles className="w-4 h-4" /> Genera con IA
           </Button>
           <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1">
@@ -776,7 +781,7 @@ export function TurniManagerClient({
       <AiScheduleDialog
         open={showAiDialog}
         onClose={() => setShowAiDialog(false)}
-        restaurantId={currentRestaurantId ?? ''}
+        restaurantId={isManager ? (restFilter !== 'tutti' ? restFilter : '') : (currentRestaurantId ?? '')}
         currentDept={currentDepartment as Department | null}
         currentUserRole={currentUserRole}
         currentIsDirettore={currentIsDirettore}
