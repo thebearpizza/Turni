@@ -54,13 +54,16 @@ async function getCaller() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, department, is_direttore')
+    .select('role, restaurant_id, department, is_direttore, account_status')
     .eq('id', user.id)
     .single()
   if (!profile) throw new Error('Profilo non trovato')
 
   if (!['manager', 'capo_servizio'].includes(profile.role)) {
     throw new Error('Non autorizzato')
+  }
+  if ((profile as { account_status?: string }).account_status === 'pending') {
+    throw new Error('Account in attesa di approvazione. La demo è in sola lettura.')
   }
 
   return { supabase, user, profile: profile as CallerProfile }

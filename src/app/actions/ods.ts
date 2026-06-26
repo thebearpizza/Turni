@@ -28,12 +28,15 @@ export async function createOdsTask(input: CreateOdsInput): Promise<OdsTask> {
 
   const { data: caller } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, department, is_direttore')
+    .select('role, restaurant_id, department, is_direttore, account_status')
     .eq('id', user.id)
     .single()
 
   if (!caller || !['manager', 'capo_servizio'].includes(caller.role)) {
     throw new Error('Non autorizzato')
+  }
+  if ((caller as { account_status?: string }).account_status === 'pending') {
+    throw new Error('Account in attesa di approvazione. La demo è in sola lettura.')
   }
 
   // ── 2. Capo servizio security: must own the restaurant + department ─

@@ -39,6 +39,7 @@ interface Caller {
   role: string
   restaurant_id: string | null
   is_direttore: boolean
+  account_status: string
 }
 
 // Authorises a user-management request. Managers have full access; a
@@ -50,7 +51,7 @@ async function getUserAdminContext(): Promise<Caller | null> {
   if (!user) return null
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore')
+    .select('role, restaurant_id, is_direttore, account_status')
     .eq('id', user.id)
     .single()
   if (!profile) return null
@@ -64,12 +65,19 @@ async function getUserAdminContext(): Promise<Caller | null> {
     role: profile.role,
     restaurant_id: profile.restaurant_id,
     is_direttore: profile.is_direttore === true,
+    account_status: (profile as { account_status?: string }).account_status ?? 'active',
   }
 }
+
+const DEMO_READONLY = NextResponse.json(
+  { error: 'Account in attesa di approvazione. La demo è in sola lettura.' },
+  { status: 403 }
+)
 
 export async function POST(request: Request) {
   const caller = await getUserAdminContext()
   if (!caller) return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  if (caller.account_status === 'pending') return DEMO_READONLY
 
   const body = await request.json()
   const { username, password, full_name, role, can_post_bulletin, department } = body
@@ -149,6 +157,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const caller = await getUserAdminContext()
   if (!caller) return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  if (caller.account_status === 'pending') return DEMO_READONLY
 
   const patchBody = await request.json()
   const { id, full_name, role, can_post_bulletin, department } = patchBody
@@ -219,6 +228,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const caller = await getUserAdminContext()
   if (!caller) return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  if (caller.account_status === 'pending') return DEMO_READONLY
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get('id')

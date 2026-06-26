@@ -4,6 +4,11 @@ import { fromZonedTime } from 'date-fns-tz'
 
 const TZ = 'Europe/Rome'
 
+const DEMO_READONLY = NextResponse.json(
+  { error: 'Account in attesa di approvazione. La demo è in sola lettura.' },
+  { status: 403 }
+)
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -11,9 +16,11 @@ export async function POST(request: NextRequest) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role, is_direttore')
+    .select('role, is_direttore, account_status')
     .eq('id', user.id)
     .single()
+
+  if ((callerProfile as { account_status?: string } | null)?.account_status === 'pending') return DEMO_READONLY
 
   const isManager    = callerProfile?.role === 'manager'
   const isDirectore  = callerProfile?.role === 'capo_servizio' && callerProfile?.is_direttore === true
@@ -81,9 +88,11 @@ export async function PATCH(request: NextRequest) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore')
+    .select('role, restaurant_id, is_direttore, account_status')
     .eq('id', user.id)
     .single()
+
+  if ((callerProfile as { account_status?: string } | null)?.account_status === 'pending') return DEMO_READONLY
 
   const isManager   = callerProfile?.role === 'manager'
   const isDirectore = callerProfile?.role === 'capo_servizio' && callerProfile?.is_direttore === true

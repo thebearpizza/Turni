@@ -12,9 +12,12 @@ export async function PATCH(request: Request) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore')
+    .select('role, restaurant_id, is_direttore, account_status')
     .eq('id', user.id)
     .single()
+
+  if ((callerProfile as { account_status?: string } | null)?.account_status === 'pending')
+    return NextResponse.json({ error: 'Account in attesa di approvazione. La demo è in sola lettura.' }, { status: 403 })
 
   const isManager   = callerProfile?.role === 'manager'
   const isDirettore = callerProfile?.role === 'capo_servizio' && callerProfile.is_direttore === true
