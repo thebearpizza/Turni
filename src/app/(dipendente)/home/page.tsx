@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { EmployeeHomeClient } from '@/components/dipendente/EmployeeHomeClient'
+import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 
 export default async function EmployeeHomePage() {
   const supabase = await createClient()
@@ -10,6 +11,10 @@ export default async function EmployeeHomePage() {
     .select('*, restaurant:restaurants(id, name, latitude, longitude)')
     .eq('id', user!.id)
     .single()
+
+  // Close a shift the employee forgot to timbrare l'uscita on (open >16h) before
+  // reading the open shift, so the UI doesn't show an endless running counter.
+  await autoCloseStaleShifts(supabase, user!.id)
 
   // Open shift = any record with check_out IS NULL, regardless of when it started.
   // Date-filtering here caused cross-midnight shifts to disappear from the UI.

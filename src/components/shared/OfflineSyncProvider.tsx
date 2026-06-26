@@ -38,6 +38,7 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
               type:      p.type,
               latitude:  p.latitude,
               longitude: p.longitude,
+              accuracy:  p.accuracy,
               frozenAt:  p.frozenAt,
             }),
           })

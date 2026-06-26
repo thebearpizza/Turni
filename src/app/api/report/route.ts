@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
@@ -52,6 +53,10 @@ export async function POST(request: Request) {
   const rangeEnd = fromZonedTime(`${endDate}T23:59:59`, TZ).toISOString()
 
   const admin = createAdminClient()
+
+  // Close forgotten check-outs (shifts open >16h) so reported hours don't show
+  // an open/zero session for an employee who simply forgot to timbrare l'uscita.
+  await autoCloseStaleShifts(admin)
 
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'Turni App'

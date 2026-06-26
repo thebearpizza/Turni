@@ -10,12 +10,22 @@ export interface Restaurant {
   latitude: number | null
   longitude: number | null
   qr_secret: string
+  closing_days: number[]  // 0=Dom..6=Sab
   created_at: string
 }
 
 export type Department = 'Sala' | 'Pizzeria' | 'Bar' | 'Cucina'
 
 export const DEPARTMENTS: Department[] = ['Sala', 'Pizzeria', 'Bar', 'Cucina']
+
+// 0=Dom..6=Sab (date-fns getDay convention)
+export const WEEK_DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'] as const
+export const WEEK_DAYS_FULL  = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'] as const
+
+export interface SecondaryDepartment {
+  slot_id: string    // ID della fascia oraria (shift_slot)
+  priority: number   // 1=alta..3=bassa
+}
 
 export interface Profile {
   id: string
@@ -29,6 +39,13 @@ export interface Profile {
   consultant_restaurant_ids: string[]
   can_view_hours: boolean
   last_active_at: string | null
+  // ── AI scheduling fields ─────────────────────────────────────────
+  weekly_rest_days: number               // default 1
+  preferred_rest_day: number | null      // 0=Dom..6=Sab, opzionale
+  primary_slot_ids: string[]             // fasce principali del dipendente
+  secondary_departments: SecondaryDepartment[]  // fasce jolly in altri reparti (solo Manager edita)
+  weekly_hours_target: number | null     // null=full-time; es. 20=part-time
+  can_substitute_capo_servizio: boolean  // può stare da solo / fare da senior
   created_at: string
   updated_at: string
   restaurant?: Restaurant
@@ -182,6 +199,71 @@ export interface AppNotification {
   link:       string | null
   read_at:    string | null
   created_at: string
+}
+
+// ── AI Scheduling ────────────────────────────────────────────────────
+
+export interface ShiftSlot {
+  id: string
+  restaurant_id: string
+  department: Department
+  name: string          // es. "Pranzo", "Cena", "Apertura"
+  start_time: string
+  end_time: string
+  required_count: number
+  days_of_week: number[]  // 0=Dom..6=Sab; se vuoto = tutti i giorni
+  created_at: string
+  updated_at: string
+}
+
+export type AiDraftStatus = 'draft' | 'confirmed' | 'cancelled'
+export type AiDraftTurnStatus = 'pending' | 'modified' | 'rejected'
+export type ExistingTurnsMode = 'integrate' | 'replace'
+
+export interface AiScheduleWarning {
+  day: string       // yyyy-MM-dd
+  department: Department
+  slot_name: string
+  message: string
+  missing_count?: number
+}
+
+export interface ExtraordinaryClosure {
+  date: string        // yyyy-MM-dd
+  department?: Department  // null = intero ristorante
+}
+
+export interface AiScheduleDraft {
+  id: string
+  restaurant_id: string
+  week_start: string     // yyyy-MM-dd (sempre lunedì)
+  status: AiDraftStatus
+  department_scope: Department[] | null  // null = tutti
+  generated_by: string | null
+  generation_params: Record<string, unknown>
+  extraordinary_closures: ExtraordinaryClosure[]
+  existing_turns_mode: ExistingTurnsMode
+  warnings: AiScheduleWarning[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AiScheduleDraftTurn {
+  id: string
+  draft_id: string
+  user_id: string
+  department: Department | null
+  date: string
+  start_time: string
+  end_time: string
+  is_rest_day: boolean
+  is_extraordinary: boolean
+  is_cross_dept: boolean
+  original_department: Department | null  // reparto di appartenenza se jolly
+  warning: string | null
+  status: AiDraftTurnStatus
+  created_at: string
+  profile?: { id: string; full_name: string }
 }
 
 // ── Gestione Turni (Shift Management) ────────────────────────────────

@@ -1,9 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 
 const TZ = 'Europe/Rome'
 const RAGGIO_MAX = 100 // metres
+// Mirror the client geofence: credit (capped) GPS uncertainty so a weak indoor
+// fix doesn't reject an employee who is actually inside the restaurant.
+const ACCURACY_BUFFER_MAX = 250 // metres
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R  = 6_371_000
@@ -30,7 +34,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
   }
 
-  const { qr_secret, type, latitude, longitude, frozenAt } = await request.json()
+  const { qr_secret, type, latitude, longitude, accuracy, frozenAt } = await request.json()
 
   if (!qr_secret || !['in', 'out'].includes(type)) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
@@ -73,7 +77,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Devi attivare il GPS per timbrare' }, { status: 400 })
     }
     const dist = haversine(latitude, longitude, restaurant.latitude, restaurant.longitude)
-    if (dist > RAGGIO_MAX) {
+    const buffer = Math.min(typeof accuracy === 'number' && accuracy > 0 ? accuracy : 0, ACCURACY_BUFFER_MAX)
+    if (dist > RAGGIO_MAX + buffer) {
       return NextResponse.json({ error: 'Sei troppo lontano dal ristorante per timbrare.' }, { status: 403 })
     }
   }
@@ -82,6 +87,11 @@ export async function POST(request: Request) {
   const nowUtc = (typeof frozenAt === 'string' && frozenAt) ? frozenAt : new Date().toISOString()
 
   if (type === 'in') {
+    // Close any shift the employee forgot to timbrare l'uscita on (open >16h)
+    // before the guard below, so a stale shift from yesterday doesn't block a
+    // fresh check-in today.
+    await autoCloseStaleShifts(supabase, user.id)
+
     // The open-shift guard must NOT be date-scoped: a shift started before
     // midnight Rome is still open if check_out is null.  Only split-shift
     // detection (completed turni within today's Rome window) needs a date range.

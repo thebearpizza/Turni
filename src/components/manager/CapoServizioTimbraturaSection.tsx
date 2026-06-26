@@ -45,11 +45,13 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
     setMessage(null)
     const result = await checkGeo(restaurantLat, restaurantLng)
     if (result === 'outside') {
-      setMessage({ text: 'Sei troppo lontano dal ristorante per timbrare', type: 'error' })
+      // Parachute: a weak indoor GPS fix can read "too far" even when inside.
+      setMessage({ text: 'Posizione troppo lontana. Se sei nel locale, timbra con la foto.', type: 'error' })
+      setGpsFailed(true)
       return
     }
     if (result === 'denied' || result === 'unsupported') {
-      setMessage({ text: 'Devi attivare il GPS per timbrare', type: 'error' })
+      setMessage({ text: 'Impossibile verificare il GPS. Se sei nel locale, timbra con la foto.', type: 'error' })
       setGpsFailed(true)   // ← fallback only: show photo option
       return
     }
@@ -70,6 +72,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
           type: attendance ? 'out' : 'in',
           latitude: userCoordsRef.current?.latitude,
           longitude: userCoordsRef.current?.longitude,
+          accuracy: userCoordsRef.current?.accuracy,
         }),
       })
       const data = await res.json()
