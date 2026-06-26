@@ -17,12 +17,25 @@ export async function GET(request: Request) {
   const role = searchParams.get('role')
   if (!role) return NextResponse.json({ error: 'role mancante' }, { status: 400 })
 
+  // Scope consulenti to the caller's managed restaurants.
+  // managed_restaurant_ids = null → platform owner, no filter needed.
+  // managed_restaurant_ids = [] → new/empty account, no shared restaurants yet → return empty.
+  if (role === 'consulente_lavoro' && caller.managed_restaurant_ids !== null) {
+    if (caller.managed_restaurant_ids.length === 0) return NextResponse.json([])
+  }
+
   const admin = createAdminClient()
-  const { data, error } = await admin
+  let query = admin
     .from('profiles')
     .select('id, full_name, username, last_active_at, consultant_restaurant_ids, can_view_hours')
     .eq('role', role)
     .order('full_name')
+
+  if (role === 'consulente_lavoro' && caller.managed_restaurant_ids !== null) {
+    query = query.overlaps('consultant_restaurant_ids', caller.managed_restaurant_ids)
+  }
+
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data ?? [])
@@ -40,6 +53,7 @@ interface Caller {
   restaurant_id: string | null
   is_direttore: boolean
   account_status: string
+  managed_restaurant_ids: string[] | null
 }
 
 // Authorises a user-management request. Managers have full access; a
@@ -51,7 +65,7 @@ async function getUserAdminContext(): Promise<Caller | null> {
   if (!user) return null
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore, account_status')
+    .select('role, restaurant_id, is_direttore, account_status, managed_restaurant_ids')
     .eq('id', user.id)
     .single()
   if (!profile) return null
@@ -60,12 +74,14 @@ async function getUserAdminContext(): Promise<Caller | null> {
   const isDirettore = profile.role === 'capo_servizio' && profile.is_direttore === true
   if (!isManager && !isDirettore) return null
 
+  const p = profile as { account_status?: string; managed_restaurant_ids?: string[] | null }
   return {
     id: user.id,
     role: profile.role,
     restaurant_id: profile.restaurant_id,
     is_direttore: profile.is_direttore === true,
-    account_status: (profile as { account_status?: string }).account_status ?? 'active',
+    account_status: p.account_status ?? 'active',
+    managed_restaurant_ids: p.managed_restaurant_ids ?? null,
   }
 }
 
