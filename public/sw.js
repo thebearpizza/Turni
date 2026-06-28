@@ -1,7 +1,7 @@
 // ── inTurno Service Worker ────────────────────────────────────────
 // Handles: push notifications, offline caching, App Badging
 
-const STATIC_CACHE = 'inturno-static-v1'
+const STATIC_CACHE = 'inturno-static-v2'
 const PAGES_CACHE  = 'inturno-pages-v2'
 
 // Assets to pre-cache on install (offline shell)
@@ -41,6 +41,31 @@ self.addEventListener('fetch', event => {
 
   // Skip API and Next.js data routes — always network
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_next/data/')) return
+
+  // App Router client-side navigations & prefetches request RSC payloads
+  // (accept: text/x-component / RSC header), NOT text/html. These carry
+  // user-specific, time-sensitive data (the shift list, open timbratura),
+  // so they must never be served cache-first — otherwise a newly added
+  // split shift stays hidden until a hard reload. NetworkFirst, with the
+  // cache used only as an offline fallback.
+  const isRSC =
+    request.headers.get('RSC') === '1' ||
+    url.searchParams.has('_rsc') ||
+    request.headers.get('accept')?.includes('text/x-component')
+  if (isRSC) {
+    event.respondWith(
+      fetch(request)
+        .then(res => {
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(PAGES_CACHE).then(cache => cache.put(request, copy))
+          }
+          return res
+        })
+        .catch(() => caches.open(PAGES_CACHE).then(cache => cache.match(request))),
+    )
+    return
+  }
 
   // CacheFirst for immutable hashed bundles
   if (url.pathname.startsWith('/_next/static/')) {
