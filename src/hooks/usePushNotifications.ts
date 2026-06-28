@@ -21,6 +21,21 @@ export function usePushNotifications() {
       .register('/sw.js', { updateViaCache: 'none' })
       .then(reg => reg.update())
       .catch(() => {})
+
+    // Quando un nuovo service worker prende il controllo (dopo un deploy),
+    // ricarica la pagina UNA volta così i bundle/dati nuovi vengono caricati
+    // subito, senza dover chiudere e riaprire l'app più volte. Ricarichiamo
+    // solo se una versione precedente era già al controllo (utente che torna):
+    // così evitiamo un reload inutile al primissimo install.
+    const hadController = !!navigator.serviceWorker.controller
+    let refreshing = false
+    const onControllerChange = () => {
+      if (refreshing || !hadController) return
+      refreshing = true
+      window.location.reload()
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+    return () => navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
   }, [])
 
   // Se il permesso è già concesso (utente che ritorna), assicura che la subscription esista
