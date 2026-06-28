@@ -330,10 +330,14 @@ export async function populateFromStandard(startDate: string, endDate: string): 
   if (standardError) throw new Error(standardError.message)
   if (!standardShifts?.length) return { created: 0, skipped: 0 }
 
-  // Turni già esistenti nel periodo, per evitare duplicati (stesso utente + data)
+  // Turni già esistenti nel periodo, per evitare duplicati.
+  // La chiave include l'ora di inizio: un turno spezzato (es. mattina +
+  // sera nello stesso giorno) è composto da due turni fissi distinti che
+  // devono materializzarsi entrambi. Deduplichiamo per utente+data+ora,
+  // non per utente+data, altrimenti il secondo segmento verrebbe scartato.
   let existingQuery = supabase
     .from('turns')
-    .select('user_id, date')
+    .select('user_id, date, start_time')
     .gte('date', startDate)
     .lte('date', endDate)
   if (profile.role === 'capo_servizio') {
@@ -345,7 +349,7 @@ export async function populateFromStandard(startDate: string, endDate: string): 
   const { data: existingTurns, error: existingError } = await existingQuery
   if (existingError) throw new Error(existingError.message)
 
-  const existingKeys = new Set((existingTurns ?? []).map(t => `${t.user_id}|${t.date}`))
+  const existingKeys = new Set((existingTurns ?? []).map(t => `${t.user_id}|${t.date}|${t.start_time.slice(0, 5)}`))
 
   const dates = eachDayOfInterval({ start, end })
 
@@ -365,12 +369,12 @@ export async function populateFromStandard(startDate: string, endDate: string): 
     for (const d of dates) {
       if (getDay(d) !== shift.day_of_week) continue
       const dateStr = format(d, 'yyyy-MM-dd')
-      const key = `${shift.user_id}|${dateStr}`
+      const key = `${shift.user_id}|${dateStr}|${shift.start_time.slice(0, 5)}`
       if (existingKeys.has(key)) {
         skipped++
         continue
       }
-      existingKeys.add(key) // evita doppioni se più standard_shifts coincidono sullo stesso giorno
+      existingKeys.add(key) // evita doppioni solo a parità di utente+data+ora inizio
       rows.push({
         user_id:          shift.user_id,
         restaurant_id:    shift.restaurant_id,
