@@ -88,7 +88,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
       <div className="px-4 py-2 text-[10px] leading-snug text-red-700 bg-yellow-100 border-b border-red-300 break-all">
         DEBUG ssr={initialTurns.length} now={turns.length} oggi={todayStr}
         <br />
-        {turns.map(t => `${t.date.slice(5)} ${t.start_time.slice(0, 5)}-${t.end_time.slice(0, 5)}`).join('  |  ')}
+        {turns.map(t => `${t.date.slice(5)} ${t.start_time.slice(0, 5)} id=${String(t.id).slice(0, 8)}`).join('  |  ')}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 space-y-6">
@@ -100,7 +100,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno programmato" />
           ) : (
             <div className="space-y-1.5">
-              {upcoming.map(t => <TurnRow key={t.id} turn={t} />)}
+              {upcoming.map((t, i) => <TurnRow key={`${t.id}-${t.start_time}-${i}`} turn={t} />)}
             </div>
           )}
         </section>
@@ -113,7 +113,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno passato" />
           ) : (
             <div className="space-y-1.5">
-              {past.map(t => <TurnRow key={t.id} turn={t} />)}
+              {past.map((t, i) => <TurnRow key={`${t.id}-${t.start_time}-${i}`} turn={t} />)}
             </div>
           )}
         </section>
