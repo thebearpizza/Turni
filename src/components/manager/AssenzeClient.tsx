@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,8 +69,8 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  const loadAbsences = useCallback(async (month: string, restaurantId: string) => {
-    setLoading(true)
+  const loadAbsences = useCallback(async (month: string, restaurantId: string, silent = false) => {
+    if (!silent) setLoading(true)
     const [year, m] = month.split('-').map(Number)
     const start = new Date(Date.UTC(year, m - 1, 1)).toISOString().split('T')[0]
     const end = new Date(Date.UTC(year, m, 0)).toISOString().split('T')[0]
@@ -88,8 +88,25 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
     const { data, error } = await query
     if (error) console.error('[assenze] loadAbsences error:', error.message)
     setAbsences(data ?? [])
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
+
+  // ── Realtime — una richiesta di assenza inviata da un dipendente, o una
+  // modifica fatta da un altro responsabile, ricarica la lista (filtrata
+  // sul mese/ristorante correnti) senza ricaricare la pagina. Refetch
+  // silenzioso per non far lampeggiare lo skeleton. ───────────────────
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('rt-assenze')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'absences' },
+        () => { loadAbsences(selectedMonth, selectedRestaurant, true) }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [selectedMonth, selectedRestaurant, loadAbsences])
 
   function openCreate() {
     setEditing(null)

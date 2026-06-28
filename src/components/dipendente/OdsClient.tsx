@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { saveToOfflineQueue } from '@/lib/offlineSync'
@@ -27,6 +27,7 @@ interface Props {
 }
 
 export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: Props) {
+  const [taskList, setTaskList]     = useState<OdsTask[]>(tasks)
   const [completed, setCompleted]   = useState<Set<string>>(new Set(completedTaskIds))
   const [filter, setFilter]         = useState<'tutte' | OdsTaskType>('tutte')
   const [offlineMsg, setOfflineMsg] = useState<string | null>(null)
@@ -36,6 +37,22 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
     const t = setTimeout(() => setOfflineMsg(null), 5000)
     return () => clearTimeout(t)
   }, [offlineMsg])
+
+  // ── Refetch al mount — la pagina è renderizzata lato server e può
+  // arrivare da un layer di cache (Service Worker / Router Cache di Next)
+  // con una lista vecchia, in cui mancano gli ordini di servizio appena
+  // creati dal manager. Rileggiamo i task dal client all'avvio così la
+  // lista è sempre autorevole. La RLS limita ai task di competenza. ────
+  const reloadTasks = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('ods_tasks')
+      .select('*, assignee:profiles!assigned_to(id, full_name)')
+      .order('created_at', { ascending: false })
+    if (data) setTaskList(data as unknown as OdsTask[])
+  }, [])
+
+  useEffect(() => { reloadTasks() }, [reloadTasks])
 
   useEffect(() => {
     const supabase = createClient()
@@ -48,7 +65,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
 
   const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
 
-  const visible = tasks.filter(t => {
+  const visible = taskList.filter(t => {
     if (t.type === 'quotidiana' || t.type === 'straordinaria') return true
     return t.recurrence_days.some(d => d.toLowerCase() === todayName)
   })
