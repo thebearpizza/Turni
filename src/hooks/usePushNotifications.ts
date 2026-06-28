@@ -14,7 +14,13 @@ export function usePushNotifications() {
       return
     }
     setPermission(Notification.permission as PushPermission)
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
+    // updateViaCache: 'none' → il browser non usa la cache HTTP per sw.js,
+    // così una nuova versione del service worker viene scaricata subito;
+    // reg.update() forza il controllo aggiornamenti ad ogni apertura.
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then(reg => reg.update())
+      .catch(() => {})
   }, [])
 
   // Se il permesso è già concesso (utente che ritorna), assicura che la subscription esista

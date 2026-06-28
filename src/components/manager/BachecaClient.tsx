@@ -85,6 +85,45 @@ export function BachecaClient({
       })
   }, [bulletins])
 
+  // ── Realtime — un comunicato pubblicato o rimosso da un altro utente
+  // (manager o capo servizio) compare/sparisce qui all'istante, senza
+  // ricaricare la pagina. Stesso pattern di Turni/Presenze. La RLS fa sì
+  // che si ricevano solo i comunicati a noi destinati. ────────────────
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('rt-bacheca')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bulletins' },
+        async (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id: string }).id
+            setBulletins(bs => bs.filter(b => b.id !== deletedId))
+            return
+          }
+          // INSERT/UPDATE: il payload non include le relazioni (autore/
+          // ristorante), quindi rileggiamo la riga completa.
+          const rec = payload.new as { id: string }
+          const { data } = await supabase
+            .from('bulletins')
+            .select('*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name)')
+            .eq('id', rec.id)
+            .single()
+          if (!data) return
+          setBulletins(bs => {
+            const exists = bs.some(b => b.id === data.id)
+            return exists
+              ? bs.map(b => b.id === data.id ? data as BulletinWithRelations : b)
+              : [data as BulletinWithRelations, ...bs]
+          })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   function handleToggle(b: BulletinWithRelations) {
     const opening = expandedId !== b.id
     setExpandedId(opening ? b.id : null)

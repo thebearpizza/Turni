@@ -21,6 +21,24 @@ interface Props {
 export function MieiTurniClient({ initialTurns, userId }: Props) {
   const [turns, setTurns] = useState<Turn[]>(initialTurns)
 
+  // ── Refetch al mount — la pagina è renderizzata lato server e può
+  // arrivare da un layer di cache (Service Worker / Router Cache di Next)
+  // con una versione vecchia della lista, in cui manca p.es. il secondo
+  // segmento di un turno spezzato. Rileggiamo i turni dal client all'avvio
+  // così la lista è sempre autorevole, indipendentemente dalla cache. ──
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('turns')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: true })
+      .order('start_time', { ascending: true })
+      .then(({ data }) => {
+        if (data) setTurns(data as unknown as Turn[])
+      })
+  }, [userId])
+
   // ── Realtime — i turni assegnati dal manager/capo servizio si
   // aggiornano qui istantaneamente, senza ricaricare la pagina ────────
   useEffect(() => {
