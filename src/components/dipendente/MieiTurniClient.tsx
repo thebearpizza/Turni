@@ -87,6 +87,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
       {/* DEBUG TEMPORANEO — da rimuovere dopo la diagnosi */}
       <div className="px-4 py-2 text-[10px] leading-snug text-red-700 bg-yellow-100 border-b border-red-300 break-all">
         DEBUG ssr={initialTurns.length} now={turns.length} oggi={todayStr}
+        {' '}DUP-ID={turns.length - new Set(turns.map(t => t.id)).size}
         <br />
         {turns.map(t => `${t.date.slice(5)} ${t.start_time.slice(0, 5)} id=${String(t.id).slice(0, 8)}`).join('  |  ')}
       </div>
