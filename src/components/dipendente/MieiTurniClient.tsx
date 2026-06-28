@@ -84,6 +84,13 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
         </div>
       </div>
 
+      {/* DEBUG TEMPORANEO — da rimuovere dopo la diagnosi */}
+      <div className="px-4 py-2 text-[10px] leading-snug text-red-700 bg-yellow-100 border-b border-red-300 break-all">
+        DEBUG ssr={initialTurns.length} now={turns.length} oggi={todayStr}
+        <br />
+        {turns.map(t => `${t.date.slice(5)} ${t.start_time.slice(0, 5)}-${t.end_time.slice(0, 5)}`).join('  |  ')}
+      </div>
+
       <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 space-y-6">
         <section>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
