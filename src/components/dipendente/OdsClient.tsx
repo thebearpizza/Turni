@@ -183,7 +183,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
             </motion.div>
           ) : (
             <div className="space-y-1.5">
-              <AnimatePresence initial={false} mode="popLayout">
+              <AnimatePresence initial={false}>
                 {filtered.map((t, i) => (
                   <TaskRow key={t.id} index={i} task={t} completed={completed.has(t.id)} onToggle={() => handleToggle(t.id)} />
                 ))}
@@ -201,7 +201,6 @@ function TaskRow({ task, completed, onToggle, index }: {
 }) {
   return (
     <motion.button
-      layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}

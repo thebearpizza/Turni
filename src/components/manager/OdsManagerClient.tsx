@@ -216,7 +216,7 @@ export function OdsManagerClient({
         </motion.div>
       ) : (
         <div className="space-y-2">
-          <AnimatePresence initial={false} mode="popLayout">
+          <AnimatePresence initial={false}>
           {filteredTasks.map((task, i) => {
             const taskCompletions = completionMap[task.id] ?? []
             const isVisibleToday =
@@ -226,7 +226,6 @@ export function OdsManagerClient({
             return (
               <motion.div
                 key={task.id}
-                layout
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}
