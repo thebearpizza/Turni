@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { CalendarClock, Clock } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -93,9 +93,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno programmato" />
           ) : (
             <div className="space-y-1.5">
-              <AnimatePresence initial={false} mode="popLayout">
-                {upcoming.map(t => <TurnRow key={t.id} turn={t} />)}
-              </AnimatePresence>
+              {upcoming.map(t => <TurnRow key={t.id} turn={t} />)}
             </div>
           )}
         </section>
@@ -108,9 +106,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno passato" />
           ) : (
             <div className="space-y-1.5">
-              <AnimatePresence initial={false} mode="popLayout">
-                {past.map(t => <TurnRow key={t.id} turn={t} />)}
-              </AnimatePresence>
+              {past.map(t => <TurnRow key={t.id} turn={t} />)}
             </div>
           )}
         </section>
@@ -131,13 +127,7 @@ function EmptyState({ text }: { text: string }) {
 function TurnRow({ turn }: { turn: Turn }) {
   const dateLabel = formatInTimeZone(`${turn.date}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it })
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}
-      className="bg-card border border-border rounded-sm px-3 py-2.5 flex items-center gap-3"
-    >
+    <div className="bg-card border border-border rounded-sm px-3 py-2.5 flex items-center gap-3">
       <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
@@ -164,6 +154,6 @@ function TurnRow({ turn }: { turn: Turn }) {
         )}
         {turn.notes && <p className="text-xs text-muted-foreground/80 mt-0.5">{turn.notes}</p>}
       </div>
-    </motion.div>
+    </div>
   )
 }
