@@ -1,7 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { PresenzeClient, type AbsenceItem } from '@/components/manager/PresenzeClient'
 import { FallbackApprovalSection } from '@/components/manager/FallbackApprovalSection'
+import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { formatInTimeZone } from 'date-fns-tz'
 
 const TZ = 'Europe/Rome'
@@ -19,6 +21,10 @@ export default async function PresenzePage() {
   // La tab "Presenze" è riservata al manager — capo servizio e direttori
   // hanno la preview presenze nella Dashboard.
   if (profile?.role === 'capo_servizio') redirect('/dashboard')
+
+  // Chiudi i turni lasciati aperti (uscita dimenticata) prima di caricare la
+  // lista, così il manager non vede mai una timbratura bloccata da ore/giorni.
+  await autoCloseStaleShifts(createAdminClient())
 
   const { data: restaurants } = await supabase
     .from('restaurants')

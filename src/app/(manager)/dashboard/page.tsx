@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { Users, Clock, CalendarX, CheckCircle, MessageSquare } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -25,6 +27,10 @@ export default async function DashboardPage() {
   const isManager   = profile?.role === 'manager'
   const isDirettore = profile?.role === 'capo_servizio' && (profile as { is_direttore?: boolean }).is_direttore === true
   const canSeeFallback = isManager || isDirettore
+
+  // Chiudi le timbrature con uscita dimenticata prima di calcolare i KPI,
+  // così "presenti oggi" e l'anteprima presenze non restano gonfiati.
+  await autoCloseStaleShifts(createAdminClient())
 
   const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
