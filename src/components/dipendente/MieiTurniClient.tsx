@@ -12,6 +12,7 @@ const TZ = 'Europe/Rome'
 const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
 const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
 const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
+const SPLIT_BADGE = 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700'
 
 interface Props {
   initialTurns: Turn[]
@@ -71,8 +72,18 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
   const sorted = [...turns].sort((a, b) =>
     a.date === b.date ? a.start_time.localeCompare(b.start_time) : a.date.localeCompare(b.date)
   )
-  const upcoming = sorted.filter(t => t.date >= todayStr)
-  const past = sorted.filter(t => t.date < todayStr).reverse()
+
+  // Raggruppa i turni per giornata: un turno spezzato (più fasce nello
+  // stesso giorno) diventa un'unica riga con tutti gli orari insieme.
+  const byDate = new Map<string, Turn[]>()
+  for (const t of sorted) {
+    const list = byDate.get(t.date) ?? []
+    list.push(t)
+    byDate.set(t.date, list)
+  }
+  const groups = Array.from(byDate, ([date, dayTurns]) => ({ date, turns: dayTurns }))
+  const upcoming = groups.filter(g => g.date >= todayStr)
+  const past = groups.filter(g => g.date < todayStr).reverse()
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
@@ -93,7 +104,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno programmato" />
           ) : (
             <div className="space-y-1.5">
-              {upcoming.map(t => <TurnRow key={t.id} turn={t} />)}
+              {upcoming.map(g => <TurnRow key={g.date} group={g} />)}
             </div>
           )}
         </section>
@@ -106,7 +117,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
             <EmptyState text="Nessun turno passato" />
           ) : (
             <div className="space-y-1.5">
-              {past.map(t => <TurnRow key={t.id} turn={t} />)}
+              {past.map(g => <TurnRow key={g.date} group={g} />)}
             </div>
           )}
         </section>
@@ -124,35 +135,42 @@ function EmptyState({ text }: { text: string }) {
   )
 }
 
-function TurnRow({ turn }: { turn: Turn }) {
-  const dateLabel = formatInTimeZone(`${turn.date}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it })
+function TurnRow({ group }: { group: { date: string; turns: Turn[] } }) {
+  const dateLabel = formatInTimeZone(`${group.date}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it })
+
+  const isRest = group.turns.some(t => t.is_rest_day)
+  const work = group.turns.filter(t => !t.is_rest_day)
+  const isExtra = !isRest && work.some(t => t.is_extraordinary)
+  const isSplit = work.length > 1
+  const dept = work.find(t => t.department)?.department ?? null
+  // Tutte le fasce della giornata su un'unica stringa (turno spezzato incluso)
+  const ranges = work.map(t => `${t.start_time.slice(0, 5)} – ${t.end_time.slice(0, 5)}`).join('  /  ')
+  const notes = Array.from(new Set(group.turns.map(t => t.notes).filter(Boolean))).join(' · ')
+
+  const badgeBase = 'text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap'
+
   return (
     <div className="bg-card border border-border rounded-sm px-3 py-2.5 flex items-center gap-3">
       <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
           <span className="text-sm font-medium text-foreground capitalize">{dateLabel}</span>
-          {turn.is_rest_day ? (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${RIPOSO_BADGE}`}>
-              Riposo
-            </span>
-          ) : turn.is_extraordinary ? (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${EXTRAORDINARY_BADGE}`}>
-              Straordinario
-            </span>
+          {isRest ? (
+            <span className={`${badgeBase} ${RIPOSO_BADGE}`}>Riposo</span>
+          ) : isExtra ? (
+            <span className={`${badgeBase} ${EXTRAORDINARY_BADGE}`}>Straordinario</span>
           ) : (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${STANDARD_BADGE}`}>
-              Standard
-            </span>
+            <span className={`${badgeBase} ${STANDARD_BADGE}`}>Standard</span>
           )}
+          {isSplit && <span className={`${badgeBase} ${SPLIT_BADGE}`}>Spezzato</span>}
         </div>
-        {!turn.is_rest_day && (
+        {!isRest && (
           <p className="text-xs text-muted-foreground">
-            {turn.start_time.slice(0, 5)} – {turn.end_time.slice(0, 5)}
-            {turn.department ? ` · ${turn.department}` : ''}
+            {ranges}
+            {dept ? ` · ${dept}` : ''}
           </p>
         )}
-        {turn.notes && <p className="text-xs text-muted-foreground/80 mt-0.5">{turn.notes}</p>}
+        {notes && <p className="text-xs text-muted-foreground/80 mt-0.5">{notes}</p>}
       </div>
     </div>
   )
