@@ -45,6 +45,26 @@ const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg
 const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
 const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
 
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+// Durata di una fascia oraria in minuti; gestisce il turno notturno
+// (fine ≤ inizio → si estende al giorno dopo).
+function segmentMinutes(start: string, end: string): number {
+  const s = timeToMinutes(start)
+  let e = timeToMinutes(end)
+  if (e <= s) e += 24 * 60
+  return e - s
+}
+
+function formatMinutes(total: number): string {
+  const h = Math.floor(total / 60)
+  const m = total % 60
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
 // Stile tabella "Turni Fissi" / "Preview Presenze-Ore" — riprende le stesse classi
 const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
 const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
@@ -79,6 +99,7 @@ export function TurniManagerClient({
   const [turns, setTurns] = useState<Turn[]>(initialTurns)
   const [weekOffset, setWeekOffset] = useState(0)
   const [restFilter, setRestFilter] = useState<string>('tutti')
+  const [deptFilter, setDeptFilter] = useState<string>('tutti')
 
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -97,6 +118,9 @@ export function TurniManagerClient({
   const [fIsRestDay, setFIsRestDay] = useState(false)
   const [fNotes, setFNotes] = useState('')
   const [bulkMode, setBulkMode] = useState(false)
+  // Fasce aggiuntive dello stesso giorno (turno spezzato) — create insieme
+  // alla fascia principale con un solo Salva, senza riaprire il form.
+  const [fSplitSegments, setFSplitSegments] = useState<{ start: string; end: string }[]>([])
 
   // Turni Standard (Pattern Master)
   const [standardShifts, setStandardShifts] = useState<StandardShift[]>(initialStandardShifts)
@@ -181,9 +205,19 @@ export function TurniManagerClient({
   })
   Object.values(turnsByUserDate).forEach(list => list.sort((a, b) => a.start_time.localeCompare(b.start_time)))
 
-  const gridStaff = (isManager && restFilter !== 'tutti')
+  const staffByRestaurant = (isManager && restFilter !== 'tutti')
     ? staff.filter(s => s.restaurant_id === restFilter)
     : staff
+
+  // Reparti disponibili nel ristorante selezionato (o in tutti, se nessun
+  // filtro ristorante è attivo) — pannello nascosto se c'è un solo reparto.
+  const allDepts = Array.from(
+    new Set(staffByRestaurant.map(s => s.department).filter((d): d is string => !!d))
+  ).sort()
+
+  const gridStaff = deptFilter === 'tutti'
+    ? staffByRestaurant
+    : staffByRestaurant.filter(s => s.department === deptFilter)
 
   // ── Employee dropdown scoping ────────────────────────────────────
   // Direttore/Capo Servizio: `staff` arriva già filtrato dal server
@@ -206,7 +240,18 @@ export function TurniManagerClient({
     setFIsRestDay(false)
     setFNotes('')
     setBulkMode(false)
+    setFSplitSegments([])
     setError(null)
+  }
+
+  function addSplitSegment() {
+    setFSplitSegments(prev => [...prev, { start: '', end: '' }])
+  }
+  function updateSplitSegment(idx: number, patch: Partial<{ start: string; end: string }>) {
+    setFSplitSegments(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
+  }
+  function removeSplitSegment(idx: number) {
+    setFSplitSegments(prev => prev.filter((_, i) => i !== idx))
   }
 
   function openCreate() {
@@ -235,6 +280,7 @@ export function TurniManagerClient({
     setFIsRestDay(turn.is_rest_day)
     setFNotes(turn.notes ?? '')
     setBulkMode(false)
+    setFSplitSegments([])
     setError(null)
     setShowForm(true)
   }
@@ -247,6 +293,14 @@ export function TurniManagerClient({
     if (!fUserId) return
     if (!fIsRestDay && (!fStart || !fEnd)) return
     if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
+
+    // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
+    const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
+    if (canHaveSplit && fSplitSegments.some(s => (s.start && !s.end) || (!s.start && s.end))) {
+      setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
+      return
+    }
+
     setSaving(true)
     setError(null)
     try {
@@ -277,8 +331,14 @@ export function TurniManagerClient({
           const updated = await updateTurn(editingTurn.id, payload)
           setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
         } else {
-          const created = await createTurn(payload)
-          setTurns(prev => [...prev, created])
+          // Fascia principale + eventuali fasce spezzate, create insieme
+          // in un solo Salva (stesso dipendente/data/ristorante/reparto).
+          const validSegments = fSplitSegments.filter(s => s.start && s.end)
+          const created = await Promise.all([
+            createTurn(payload),
+            ...validSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
+          ])
+          setTurns(prev => [...prev, ...created])
         }
       }
       resetForm()
@@ -355,6 +415,14 @@ export function TurniManagerClient({
     }
   }
 
+  // Turno spezzato disponibile solo in creazione singola (non bulk, non modifica)
+  const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
+  const validSplitSegments = fSplitSegments.filter(s => s.start && s.end)
+  const totalShiftMinutes = fStart && fEnd
+    ? segmentMinutes(fStart, fEnd) + validSplitSegments.reduce((sum, s) => sum + segmentMinutes(s.start, s.end), 0)
+    : 0
+  const hasIncompleteSplitSegment = canHaveSplit && fSplitSegments.some(s => (s.start && !s.end) || (!s.start && s.end))
+
   return (
     <div>
       {/* Header — i tasti vanno su una riga propria sotto il titolo su
@@ -382,7 +450,7 @@ export function TurniManagerClient({
       {/* Restaurant filter — manager only */}
       {isManager && restaurants.length > 0 && (
         <div className="mb-4">
-          <Select value={restFilter} onValueChange={setRestFilter}>
+          <Select value={restFilter} onValueChange={v => { setRestFilter(v); setDeptFilter('tutti') }}>
             <SelectTrigger className="h-8 w-56 text-xs rounded-sm">
               <SelectValue placeholder="Tutti i ristoranti" />
             </SelectTrigger>
@@ -393,6 +461,25 @@ export function TurniManagerClient({
               ))}
             </SelectContent>
           </Select>
+        </div>
+      )}
+
+      {/* Department filter — mostrato solo se c'è più di un reparto tra cui scegliere */}
+      {allDepts.length > 1 && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {['tutti', ...allDepts].map(dept => (
+            <button
+              key={dept}
+              onClick={() => setDeptFilter(dept)}
+              className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
+                deptFilter === dept
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
+              }`}
+            >
+              {dept === 'tutti' ? 'Tutti i reparti' : dept}
+            </button>
+          ))}
         </div>
       )}
 
@@ -550,7 +637,7 @@ export function TurniManagerClient({
                   <button
                     key={String(o.value)}
                     type="button"
-                    onClick={() => setFIsRestDay(o.value)}
+                    onClick={() => { setFIsRestDay(o.value); if (o.value) setFSplitSegments([]) }}
                     className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                       fIsRestDay === o.value
                         ? 'bg-primary text-primary-foreground border-primary'
@@ -570,7 +657,7 @@ export function TurniManagerClient({
                   <Label className="text-sm">Inserimento Multiplo</Label>
                   <p className="text-xs text-muted-foreground">Crea più turni in un range di date, sui giorni selezionati</p>
                 </div>
-                <Switch checked={bulkMode} onCheckedChange={setBulkMode} />
+                <Switch checked={bulkMode} onCheckedChange={v => { setBulkMode(v); if (v) setFSplitSegments([]) }} />
               </div>
             )}
 
@@ -628,6 +715,55 @@ export function TurniManagerClient({
                   </div>
                 </div>
 
+                {/* Durata — somma anche le eventuali fasce spezzate qui sotto */}
+                {fStart && fEnd && (
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    {validSplitSegments.length > 0 ? 'Durata totale (turno spezzato): ' : 'Durata turno: '}
+                    <span className="font-medium text-foreground">{formatMinutes(totalShiftMinutes)}</span>
+                  </p>
+                )}
+
+                {/* Turno spezzato — solo in creazione singola (non bulk, non modifica) */}
+                {canHaveSplit && (
+                  <div className="space-y-3">
+                    {fSplitSegments.map((seg, idx) => (
+                      <div key={idx} className="rounded-sm border border-border bg-muted/20 p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-semibold text-muted-foreground">
+                            Turno spezzato — fascia aggiuntiva {idx + 2}
+                          </Label>
+                          <button
+                            type="button"
+                            onClick={() => removeSplitSegment(idx)}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label="Rimuovi fascia"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Label>Ora inizio *</Label>
+                            <TimeInput value={seg.start} onChange={v => updateSplitSegment(idx, { start: v })} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Ora fine *</Label>
+                            <TimeInput value={seg.end} onChange={v => updateSplitSegment(idx, { end: v })} />
+                          </div>
+                        </div>
+                        {seg.start && seg.end && (
+                          <p className="text-xs text-muted-foreground">
+                            Durata fascia: <span className="font-medium text-foreground">{formatMinutes(segmentMinutes(seg.start, seg.end))}</span>
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={addSplitSegment} className="w-full">
+                      <Plus className="w-3.5 h-3.5" /> Aggiungi turno spezzato
+                    </Button>
+                  </div>
+                )}
+
                 {/* Extraordinary toggle */}
                 <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
                   <div>
@@ -660,7 +796,8 @@ export function TurniManagerClient({
               onClick={handleSave}
               disabled={
                 saving || !fUserId || (!fIsRestDay && (!fStart || !fEnd)) ||
-                (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate)
+                (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) ||
+                hasIncompleteSplitSegment
               }
             >
               {saving ? 'Salvataggio...' : editingTurn ? 'Salva modifiche' : bulkMode ? 'Crea turni' : 'Crea turno'}
