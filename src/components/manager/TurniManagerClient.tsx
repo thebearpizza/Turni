@@ -23,6 +23,8 @@ import { it } from 'date-fns/locale'
 import type { Turn, Department, StandardShift, AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
 import { AiScheduleDialog } from './AiScheduleDialog'
 import { AiScheduleDraftView } from './AiScheduleDraftView'
+import { TurniTimeline } from './TurniTimeline'
+import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
 
 const TZ = 'Europe/Rome'
 
@@ -49,10 +51,6 @@ interface Props {
   currentRestaurantId:   string | null
   currentIsDirettore:    boolean
 }
-
-const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
-const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
-const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -113,7 +111,8 @@ export function TurniManagerClient({
   const [turns, setTurns] = useState<Turn[]>(initialTurns)
   const [weekOffset, setWeekOffset] = useState(0)
   const [restFilter, setRestFilter] = useState<string>('tutti')
-  const [deptFilter, setDeptFilter] = useState<string>('tutti')
+  // Multi-selezione: array vuoto = tutti i reparti
+  const [deptFilter, setDeptFilter] = useState<string[]>([])
 
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -234,9 +233,13 @@ export function TurniManagerClient({
     new Set(staffByRestaurant.map(s => s.department).filter((d): d is string => !!d))
   ).sort()
 
-  const gridStaff = deptFilter === 'tutti'
+  const gridStaff = deptFilter.length === 0
     ? staffByRestaurant
-    : staffByRestaurant.filter(s => s.department === deptFilter)
+    : staffByRestaurant.filter(s => s.department && deptFilter.includes(s.department))
+
+  function toggleDeptFilter(dept: string) {
+    setDeptFilter(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
+  }
 
   // ── Employee dropdown scoping ────────────────────────────────────
   // Direttore/Capo Servizio: `staff` arriva già filtrato dal server
@@ -601,7 +604,7 @@ export function TurniManagerClient({
       {/* Restaurant filter — manager only */}
       {isManager && restaurants.length > 0 && (
         <div className="mb-4">
-          <Select value={restFilter} onValueChange={v => { setRestFilter(v); setDeptFilter('tutti') }}>
+          <Select value={restFilter} onValueChange={v => { setRestFilter(v); setDeptFilter([]) }}>
             <SelectTrigger className="h-8 w-56 text-xs rounded-sm">
               <SelectValue placeholder="Tutti i ristoranti" />
             </SelectTrigger>
@@ -615,20 +618,30 @@ export function TurniManagerClient({
         </div>
       )}
 
-      {/* Department filter — mostrato solo se c'è più di un reparto tra cui scegliere */}
+      {/* Department filter — multi-selezione, mostrato solo se c'è più di un reparto */}
       {allDepts.length > 1 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {['tutti', ...allDepts].map(dept => (
+          <button
+            onClick={() => setDeptFilter([])}
+            className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
+              deptFilter.length === 0
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
+            }`}
+          >
+            Tutti i reparti
+          </button>
+          {allDepts.map(dept => (
             <button
               key={dept}
-              onClick={() => setDeptFilter(dept)}
+              onClick={() => toggleDeptFilter(dept)}
               className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
-                deptFilter === dept
+                deptFilter.includes(dept)
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
               }`}
             >
-              {dept === 'tutti' ? 'Tutti i reparti' : dept}
+              {dept}
             </button>
           ))}
         </div>
@@ -744,6 +757,10 @@ export function TurniManagerClient({
           <span className={`inline-block w-3 h-3 rounded-sm border ${RIPOSO_BADGE}`} /> Riposo
         </span>
       </div>
+
+      {/* Timeline giornaliera — stessa lista dipendenti della griglia (rispetta
+          i filtri ristorante/reparto), navigazione giorno per giorno */}
+      <TurniTimeline staff={gridStaff} turns={turnsByRestaurant} onEditTurn={openEdit} />
 
       {/* ── Create / edit modal ─────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
