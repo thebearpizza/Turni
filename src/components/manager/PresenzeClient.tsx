@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
@@ -690,19 +691,17 @@ export function PresenzeClient({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Ora Ingresso</Label>
-                <Input
-                  type="time"
+                <TimeInput
                   value={newCheckIn}
-                  onChange={e => setNewCheckIn(e.target.value)}
+                  onChange={setNewCheckIn}
                   className="h-10 rounded-sm"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Ora Uscita</Label>
-                <Input
-                  type="time"
+                <TimeInput
                   value={newCheckOut}
-                  onChange={e => setNewCheckOut(e.target.value)}
+                  onChange={setNewCheckOut}
                   className="h-10 rounded-sm"
                 />
               </div>

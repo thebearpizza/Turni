@@ -5,7 +5,7 @@ import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { X, CheckCircle2, AlertTriangle, ArrowRightLeft, Zap, Coffee } from 'lucide-react'
@@ -285,11 +285,11 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Ora inizio</Label>
-                  <Input type="time" value={editStart} onChange={e => setEditStart(e.target.value)} />
+                  <TimeInput value={editStart} onChange={setEditStart} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Ora fine</Label>
-                  <Input type="time" value={editEnd} onChange={e => setEditEnd(e.target.value)} />
+                  <TimeInput value={editEnd} onChange={setEditEnd} />
                 </div>
               </div>
             )}

@@ -10,6 +10,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
@@ -619,11 +620,11 @@ export function TurniManagerClient({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Ora inizio *</Label>
-                    <Input type="time" value={fStart} onChange={e => setFStart(e.target.value)} />
+                    <TimeInput value={fStart} onChange={setFStart} />
                   </div>
                   <div className="space-y-2">
                     <Label>Ora fine *</Label>
-                    <Input type="time" value={fEnd} onChange={e => setFEnd(e.target.value)} />
+                    <TimeInput value={fEnd} onChange={setFEnd} />
                   </div>
                 </div>
 
@@ -756,11 +757,11 @@ export function TurniManagerClient({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Ora inizio *</Label>
-                  <Input type="time" value={sStart} onChange={e => setSStart(e.target.value)} />
+                  <TimeInput value={sStart} onChange={setSStart} />
                 </div>
                 <div className="space-y-2">
                   <Label>Ora fine *</Label>
-                  <Input type="time" value={sEnd} onChange={e => setSEnd(e.target.value)} />
+                  <TimeInput value={sEnd} onChange={setSEnd} />
                 </div>
               </div>
               {sError && <p className="text-xs text-destructive">{sError}</p>}

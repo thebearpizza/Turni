@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -471,14 +472,14 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Ora inizio *</Label>
-                  <Input type="time" value={slotForm.start_time}
-                    onChange={e => setSlotForm(f => ({ ...f, start_time: e.target.value }))}
+                  <TimeInput value={slotForm.start_time}
+                    onChange={v => setSlotForm(f => ({ ...f, start_time: v }))}
                     className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Ora fine *</Label>
-                  <Input type="time" value={slotForm.end_time}
-                    onChange={e => setSlotForm(f => ({ ...f, end_time: e.target.value }))}
+                  <TimeInput value={slotForm.end_time}
+                    onChange={v => setSlotForm(f => ({ ...f, end_time: v }))}
                     className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">

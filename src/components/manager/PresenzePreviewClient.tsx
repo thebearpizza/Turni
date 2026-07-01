@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -163,11 +164,11 @@ export function PresenzePreviewClient({ initialRows, dipendenti, isDirettore }: 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Ora ingresso *</Label>
-                  <Input type="time" value={fCheckIn} onChange={e => setFCheckIn(e.target.value)} />
+                  <TimeInput value={fCheckIn} onChange={setFCheckIn} />
                 </div>
                 <div className="space-y-2">
                   <Label>Ora uscita</Label>
-                  <Input type="time" value={fCheckOut} onChange={e => setFCheckOut(e.target.value)} />
+                  <TimeInput value={fCheckOut} onChange={setFCheckOut} />
                 </div>
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -775,19 +776,17 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                 <div key={idx} className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs">Ingresso</Label>
-                    <Input
-                      type="time"
+                    <TimeInput
                       value={s.checkIn}
-                      onChange={e => updateShift(idx, { checkIn: e.target.value })}
+                      onChange={v => updateShift(idx, { checkIn: v })}
                       className="h-9 rounded-sm"
                     />
                   </div>
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs">Uscita</Label>
-                    <Input
-                      type="time"
+                    <TimeInput
                       value={s.checkOut}
-                      onChange={e => updateShift(idx, { checkOut: e.target.value })}
+                      onChange={v => updateShift(idx, { checkOut: v })}
                       className="h-9 rounded-sm"
                     />
                   </div>
