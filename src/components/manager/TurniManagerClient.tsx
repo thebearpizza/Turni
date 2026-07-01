@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
+import { startOfWeek, addDays, addWeeks, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import type { Turn, Department, StandardShift, AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
 import { AiScheduleDialog } from './AiScheduleDialog'
@@ -28,6 +28,15 @@ const TZ = 'Europe/Rome'
 
 type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null }
 type RestaurantItem = { id: string; name: string }
+type MultiDayEntry = {
+  date: string
+  is_rest_day: boolean
+  start_time: string
+  end_time: string
+  is_extraordinary: boolean
+  notes: string
+  splitSegments: { start: string; end: string }[]
+}
 
 interface Props {
   initialTurns:          Turn[]
@@ -63,6 +72,11 @@ function formatMinutes(total: number): string {
   const h = Math.floor(total / 60)
   const m = total % 60
   return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+// Una fascia spezzata è incompleta se ha un solo orario compilato tra i due.
+function hasIncompleteSplit(segments: { start: string; end: string }[]): boolean {
+  return segments.some(s => (s.start && !s.end) || (!s.start && s.end))
 }
 
 // Stile tabella "Turni Fissi" / "Preview Presenze-Ore" — riprende le stesse classi
@@ -121,6 +135,11 @@ export function TurniManagerClient({
   // Fasce aggiuntive dello stesso giorno (turno spezzato) — create insieme
   // alla fascia principale con un solo Salva, senza riaprire il form.
   const [fSplitSegments, setFSplitSegments] = useState<{ start: string; end: string }[]>([])
+  // Multi-giorno: fDate è il giorno attualmente "in composizione"; le frecce
+  // spostano avanti/indietro salvando il giorno corrente in questa coda,
+  // finché non si preme Salva che inserisce tutto in blocco.
+  const [multiDayMode, setMultiDayMode] = useState(false)
+  const [multiDayQueue, setMultiDayQueue] = useState<MultiDayEntry[]>([])
 
   // Turni Standard (Pattern Master)
   const [standardShifts, setStandardShifts] = useState<StandardShift[]>(initialStandardShifts)
@@ -241,6 +260,8 @@ export function TurniManagerClient({
     setFNotes('')
     setBulkMode(false)
     setFSplitSegments([])
+    setMultiDayMode(false)
+    setMultiDayQueue([])
     setError(null)
   }
 
@@ -252,6 +273,82 @@ export function TurniManagerClient({
   }
   function removeSplitSegment(idx: number) {
     setFSplitSegments(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // ── Turni Multi-giorno ────────────────────────────────────────────
+  // fDate rappresenta il giorno "in composizione"; le frecce salvano il
+  // giorno corrente nella coda e caricano il giorno successivo/precedente
+  // (già presente in coda, se già compilato).
+  function toggleMultiDayMode(v: boolean) {
+    setMultiDayMode(v)
+    setMultiDayQueue([])
+    if (v) {
+      setBulkMode(false)
+      setFDate(prev => prev || formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+      setFIsRestDay(false)
+      setFStart('')
+      setFEnd('')
+      setFExtraordinary(false)
+      setFNotes('')
+      setFSplitSegments([])
+    }
+  }
+
+  function loadDayIntoComposer(dateStr: string, queue: MultiDayEntry[]) {
+    const existing = queue.find(e => e.date === dateStr)
+    setFDate(dateStr)
+    if (existing) {
+      setFIsRestDay(existing.is_rest_day)
+      setFStart(existing.is_rest_day ? '' : existing.start_time.slice(0, 5))
+      setFEnd(existing.is_rest_day ? '' : existing.end_time.slice(0, 5))
+      setFExtraordinary(existing.is_extraordinary)
+      setFNotes(existing.notes)
+      setFSplitSegments(existing.splitSegments)
+    } else {
+      setFIsRestDay(false)
+      setFStart('')
+      setFEnd('')
+      setFExtraordinary(false)
+      setFNotes('')
+      setFSplitSegments([])
+    }
+  }
+
+  function goToDay(deltaDays: number) {
+    if (!fDate) return
+    if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
+      setError('Completa tutte le fasce del turno spezzato di questo giorno prima di continuare, oppure rimuovile.')
+      return
+    }
+    setError(null)
+    const nextQueue = commitCurrentDayIfValid(multiDayQueue)
+    setMultiDayQueue(nextQueue)
+    const newDate = format(addDays(parseISO(`${fDate}T00:00:00`), deltaDays), 'yyyy-MM-dd')
+    loadDayIntoComposer(newDate, nextQueue)
+  }
+
+  // Ritorna la coda aggiornata includendo il giorno attualmente in
+  // composizione, se compilato (riposo, oppure orario completo).
+  function commitCurrentDayIfValid(queue: MultiDayEntry[]): MultiDayEntry[] {
+    if (!fDate || (!fIsRestDay && (!fStart || !fEnd))) return queue
+    const entry: MultiDayEntry = {
+      date:             fDate,
+      is_rest_day:      fIsRestDay,
+      start_time:       fIsRestDay ? '00:00' : fStart,
+      end_time:         fIsRestDay ? '00:00' : fEnd,
+      is_extraordinary: fIsRestDay ? false : fExtraordinary,
+      notes:            fNotes.trim(),
+      splitSegments:    fIsRestDay ? [] : fSplitSegments.filter(s => s.start && s.end),
+    }
+    const idx = queue.findIndex(e => e.date === fDate)
+    const next = idx >= 0
+      ? queue.map((e, i) => i === idx ? entry : e)
+      : [...queue, entry]
+    return next.sort((a, b) => a.date.localeCompare(b.date))
+  }
+
+  function removeMultiDayEntry(dateStr: string) {
+    setMultiDayQueue(prev => prev.filter(e => e.date !== dateStr))
   }
 
   function openCreate() {
@@ -281,6 +378,8 @@ export function TurniManagerClient({
     setFNotes(turn.notes ?? '')
     setBulkMode(false)
     setFSplitSegments([])
+    setMultiDayMode(false)
+    setMultiDayQueue([])
     setError(null)
     setShowForm(true)
   }
@@ -291,12 +390,56 @@ export function TurniManagerClient({
 
   async function handleSave() {
     if (!fUserId) return
+
+    if (multiDayMode) {
+      if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
+        setError('Completa tutte le fasce del turno spezzato di questo giorno prima di salvare, oppure rimuovile.')
+        return
+      }
+      const finalQueue = commitCurrentDayIfValid(multiDayQueue)
+      if (finalQueue.length === 0) {
+        setError('Compila almeno un giorno prima di salvare.')
+        return
+      }
+      setSaving(true)
+      setError(null)
+      try {
+        const selected = staff.find(s => s.id === fUserId)
+        const restaurant_id = selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? ''
+        const department = (selected?.department ?? currentDepartment) as Department | null
+        const creates: Promise<Turn>[] = []
+        for (const e of finalQueue) {
+          const shared = {
+            user_id:       fUserId,
+            restaurant_id,
+            department,
+            date:          e.date,
+            is_rest_day:   e.is_rest_day,
+            notes:         e.notes || null,
+          }
+          creates.push(createTurn({ ...shared, start_time: e.start_time, end_time: e.end_time, is_extraordinary: e.is_extraordinary }))
+          for (const seg of e.splitSegments) {
+            creates.push(createTurn({ ...shared, start_time: seg.start, end_time: seg.end, is_extraordinary: e.is_extraordinary }))
+          }
+        }
+        const created = await Promise.all(creates)
+        setTurns(prev => [...prev, ...created])
+        resetForm()
+        setShowForm(false)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Errore sconosciuto')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
     if (!fIsRestDay && (!fStart || !fEnd)) return
     if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
 
     // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
     const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
-    if (canHaveSplit && fSplitSegments.some(s => (s.start && !s.end) || (!s.start && s.end))) {
+    if (canHaveSplit && hasIncompleteSplit(fSplitSegments)) {
       setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
       return
     }
@@ -415,13 +558,21 @@ export function TurniManagerClient({
     }
   }
 
-  // Turno spezzato disponibile solo in creazione singola (non bulk, non modifica)
+  // Turno spezzato disponibile in creazione (singola o multi-giorno), non in bulk/modifica
   const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
   const validSplitSegments = fSplitSegments.filter(s => s.start && s.end)
   const totalShiftMinutes = fStart && fEnd
     ? segmentMinutes(fStart, fEnd) + validSplitSegments.reduce((sum, s) => sum + segmentMinutes(s.start, s.end), 0)
     : 0
-  const hasIncompleteSplitSegment = canHaveSplit && fSplitSegments.some(s => (s.start && !s.end) || (!s.start && s.end))
+  const hasIncompleteSplitSegment = canHaveSplit && hasIncompleteSplit(fSplitSegments)
+
+  // Multi-giorno: quanti giorni verrebbero salvati se si premesse Salva ora
+  // (coda + giorno corrente, se compilato e non già in coda).
+  const multiDayCurrentIsQueued = multiDayMode && fDate && multiDayQueue.some(e => e.date === fDate)
+  const multiDayCurrentIsValid = multiDayMode && !!fDate && (fIsRestDay || (!!fStart && !!fEnd))
+  const multiDayCount = multiDayMode
+    ? multiDayQueue.length + (multiDayCurrentIsValid && !multiDayCurrentIsQueued ? 1 : 0)
+    : 0
 
   return (
     <div>
@@ -598,7 +749,9 @@ export function TurniManagerClient({
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingTurn ? 'Modifica Turno' : bulkMode ? 'Inserimento Multiplo' : 'Nuovo Turno'}</DialogTitle>
+            <DialogTitle>
+              {editingTurn ? 'Modifica Turno' : bulkMode ? 'Inserimento Multiplo' : multiDayMode ? 'Turni su Più Giorni' : 'Nuovo Turno'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {/* Restaurant — manager only */}
@@ -650,19 +803,48 @@ export function TurniManagerClient({
               </div>
             </div>
 
-            {/* Inserimento Multiplo toggle — solo in creazione */}
-            {!editingTurn && (
+            {/* Inserimento Multiplo toggle — solo in creazione, esclude Multi-giorno */}
+            {!editingTurn && !multiDayMode && (
               <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
                 <div>
                   <Label className="text-sm">Inserimento Multiplo</Label>
-                  <p className="text-xs text-muted-foreground">Crea più turni in un range di date, sui giorni selezionati</p>
+                  <p className="text-xs text-muted-foreground">Stesso orario ripetuto su un range di date, sui giorni selezionati</p>
                 </div>
                 <Switch checked={bulkMode} onCheckedChange={v => { setBulkMode(v); if (v) setFSplitSegments([]) }} />
               </div>
             )}
 
+            {/* Multi-giorno toggle — solo in creazione, esclude Inserimento Multiplo */}
+            {!editingTurn && !bulkMode && (
+              <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
+                <div>
+                  <Label className="text-sm">Più Giorni (orari diversi)</Label>
+                  <p className="text-xs text-muted-foreground">Compila un turno diverso per ogni giorno, poi salva tutto insieme</p>
+                </div>
+                <Switch checked={multiDayMode} onCheckedChange={toggleMultiDayMode} />
+              </div>
+            )}
+
             {/* Date */}
-            {bulkMode ? (
+            {multiDayMode ? (
+              <div className="space-y-2">
+                <Label>Giorno *</Label>
+                <div className="flex items-center justify-between gap-2 rounded-sm border border-border px-2 py-1.5">
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => goToDay(-1)} aria-label="Giorno precedente">
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm font-medium capitalize text-center flex-1">
+                    {fDate ? formatInTimeZone(`${fDate}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it }) : '—'}
+                  </span>
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => goToDay(1)} aria-label="Giorno successivo">
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Compila il turno di questo giorno, poi usa le frecce per passare al successivo.
+                </p>
+              </div>
+            ) : bulkMode ? (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
@@ -698,6 +880,45 @@ export function TurniManagerClient({
               <div className="space-y-2">
                 <Label>Data *</Label>
                 <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
+              </div>
+            )}
+
+            {/* Giorni già compilati nel piano multi-giorno */}
+            {multiDayMode && multiDayQueue.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Giorni in programma ({multiDayQueue.length})
+                </Label>
+                {multiDayQueue.map(e => (
+                  <div
+                    key={e.date}
+                    className={`flex items-center justify-between rounded-sm border px-2.5 py-1.5 text-xs ${
+                      e.date === fDate ? 'border-primary bg-primary/5' : 'border-border'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => loadDayIntoComposer(e.date, multiDayQueue)}
+                      className="flex-1 text-left"
+                    >
+                      <span className="font-medium capitalize">
+                        {formatInTimeZone(`${e.date}T12:00:00Z`, TZ, 'EEE d MMM', { locale: it })}
+                      </span>
+                      {' — '}
+                      {e.is_rest_day
+                        ? 'Riposo'
+                        : `${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}${e.splitSegments.length > 0 ? ` + ${e.splitSegments.length} fascia/e` : ''}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeMultiDayEntry(e.date)}
+                      className="text-muted-foreground hover:text-destructive ml-2"
+                      aria-label="Rimuovi giorno"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -795,12 +1016,26 @@ export function TurniManagerClient({
             <Button
               onClick={handleSave}
               disabled={
-                saving || !fUserId || (!fIsRestDay && (!fStart || !fEnd)) ||
-                (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) ||
-                hasIncompleteSplitSegment
+                saving || !fUserId ||
+                (multiDayMode
+                  ? (multiDayCount === 0 || hasIncompleteSplitSegment)
+                  : (
+                      (!fIsRestDay && (!fStart || !fEnd)) ||
+                      (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) ||
+                      hasIncompleteSplitSegment
+                    )
+                )
               }
             >
-              {saving ? 'Salvataggio...' : editingTurn ? 'Salva modifiche' : bulkMode ? 'Crea turni' : 'Crea turno'}
+              {saving
+                ? 'Salvataggio...'
+                : editingTurn
+                ? 'Salva modifiche'
+                : multiDayMode
+                ? `Crea turni (${multiDayCount} giorni)`
+                : bulkMode
+                ? 'Crea turni'
+                : 'Crea turno'}
             </Button>
           </DialogFooter>
         </DialogContent>
