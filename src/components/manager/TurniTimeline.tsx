@@ -207,13 +207,23 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   }
 
   // Mentre un trascinamento è attivo, disabilita la selezione testo su tutta
-  // la pagina: senza questo, muovendo il puntatore sopra le fasce/etichette
-  // vicine il browser selezionava il testo invece di limitarsi a trascinare.
+  // la pagina (anche con prefisso WebKit per Safari/iOS): la selezione parte
+  // nell'istante del pointerdown, quindi la timeline stessa è già select-none
+  // in modo permanente — questo copre il resto della pagina se il puntatore
+  // esce dal riquadro durante il gesto.
   useEffect(() => {
     if (!drag) return
-    const prevUserSelect = document.body.style.userSelect
-    document.body.style.userSelect = 'none'
-    return () => { document.body.style.userSelect = prevUserSelect }
+    const body = document.body as HTMLElement & { style: CSSStyleDeclaration & { webkitUserSelect?: string } }
+    const prevUserSelect = body.style.userSelect
+    const prevWebkit = body.style.webkitUserSelect
+    body.style.userSelect = 'none'
+    body.style.webkitUserSelect = 'none'
+    const sel = window.getSelection?.()
+    sel?.removeAllRanges?.()
+    return () => {
+      body.style.userSelect = prevUserSelect
+      body.style.webkitUserSelect = prevWebkit
+    }
   }, [drag !== null])
 
   useEffect(() => {
@@ -346,7 +356,14 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
       )}
 
       {/* Scroll confinato al proprio contenitore, stesso pattern del Report Ore */}
-      <div className="w-full rounded-md border bg-card overflow-auto max-h-[420px]">
+      {/* select-none permanente (+ varianti WebKit/iOS): la selezione parte al
+          pointerdown, prima che lo stato di drag esista — disattivarla solo
+          durante il drag arriva sempre troppo tardi. Qui non c'è testo che
+          abbia senso copiare, quindi la disattiviamo del tutto. */}
+      <div
+        className="w-full rounded-md border bg-card overflow-auto max-h-[420px] select-none [-webkit-user-select:none] [-webkit-touch-callout:none]"
+        onDragStart={e => e.preventDefault()}
+      >
         <div style={{ minWidth: totalWidth + NAME_COL_WIDTH }}>
           {/* Header ore — sticky in alto mentre si scorre verticalmente */}
           <div className="flex border-b border-border sticky top-0 bg-card z-20">
