@@ -77,13 +77,13 @@ function hasIncompleteSplit(segments: { start: string; end: string }[]): boolean
   return segments.some(s => (s.start && !s.end) || (!s.start && s.end))
 }
 
-// Stile tabella "Turni Fissi" / "Preview Presenze-Ore" — riprende le stesse classi
-// Tono intermedio condiviso da intestazione e colonna dipendente, così le
-// due non stonano (prima: intestazione nera, celle sotto bianche/grigie).
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50 whitespace-nowrap'
+// Intestazione e colonna dipendente condividono lo stesso trattamento
+// neutro (bg-card + bordo) della Timeline Giornaliera sotto, invece di un
+// blocco colorato a sé stante — stesso linguaggio visivo in tutta la pagina.
+const thCls = 'px-2 py-1.5 text-center font-semibold bg-card text-foreground border-b border-border whitespace-nowrap'
 const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
-const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-zinc-200 dark:bg-zinc-700'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-zinc-200 dark:bg-zinc-700 z-10'
+const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-card'
+const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-card z-10'
 
 const TURN_TYPE_OPTIONS = [
   { value: false, label: 'Turno di Lavoro' },
@@ -627,7 +627,7 @@ export function TurniManagerClient({
             onClick={() => setDeptFilter([])}
             className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
               deptFilter.length === 0
-                ? 'bg-primary text-primary-foreground border-primary'
+                ? 'bg-foreground text-background border-foreground'
                 : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
             }`}
           >
@@ -639,7 +639,7 @@ export function TurniManagerClient({
               onClick={() => toggleDeptFilter(dept)}
               className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
                 deptFilter.includes(dept)
-                  ? 'bg-primary text-primary-foreground border-primary'
+                  ? 'bg-foreground text-background border-foreground'
                   : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
               }`}
             >

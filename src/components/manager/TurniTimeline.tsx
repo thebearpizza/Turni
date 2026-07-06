@@ -17,6 +17,7 @@ const DEFAULT_END_HOUR = 24
 const SNAP_MIN = 15            // arrotondamento del trascinamento, in minuti
 const MIN_SHIFT_MIN = 15       // durata minima consentita di un turno
 const MIN_DRAG_CREATE_MIN = 30 // sotto questa soglia un drag "a vuoto" non crea nulla
+const CLICK_THRESHOLD_PX = 5   // sotto questa soglia un trascinamento dal centro è un click (apre la modifica)
 
 type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null }
 
@@ -34,6 +35,17 @@ type DragState =
       trackEl: HTMLElement
       origStart: number
       origEnd: number
+      previewStart: number
+      previewEnd: number
+    }
+  | {
+      mode: 'move'
+      turn: Turn
+      trackEl: HTMLElement
+      origStart: number
+      origEnd: number
+      startClientX: number
+      moved: boolean // false finché il puntatore non supera la soglia di click
       previewStart: number
       previewEnd: number
     }
@@ -169,6 +181,20 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
     setDrag(initial)
   }
 
+  function startMove(e: React.PointerEvent, turn: Turn) {
+    e.stopPropagation()
+    e.preventDefault()
+    const trackEl = (e.currentTarget as HTMLElement).closest('[data-track]') as HTMLElement | null
+    if (!trackEl) return
+    const { start, end } = turnRange(turn)
+    const initial: DragState = {
+      mode: 'move', turn, trackEl, origStart: start, origEnd: end,
+      startClientX: e.clientX, moved: false, previewStart: start, previewEnd: end,
+    }
+    dragRef.current = initial
+    setDrag(initial)
+  }
+
   function startCreate(e: React.PointerEvent<HTMLDivElement>, member: StaffMember) {
     if (e.target !== e.currentTarget) return // click su una fascia/etichetta esistente, non sull'area vuota
     if (e.button !== 0) return
@@ -179,6 +205,16 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
     dragRef.current = initial
     setDrag(initial)
   }
+
+  // Mentre un trascinamento è attivo, disabilita la selezione testo su tutta
+  // la pagina: senza questo, muovendo il puntatore sopra le fasce/etichette
+  // vicine il browser selezionava il testo invece di limitarsi a trascinare.
+  useEffect(() => {
+    if (!drag) return
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    return () => { document.body.style.userSelect = prevUserSelect }
+  }, [drag !== null])
 
   useEffect(() => {
     if (!drag) return
@@ -191,6 +227,18 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
             return { ...prev, previewStart: clamp(snap(min), prev.origEnd - 24 * 60, prev.origEnd - MIN_SHIFT_MIN) }
           }
           return { ...prev, previewEnd: clamp(snap(min), prev.origStart + MIN_SHIFT_MIN, prev.origStart + 24 * 60) }
+        }
+        if (prev.mode === 'move') {
+          const dxPx = Math.abs(e.clientX - prev.startClientX)
+          const duration = prev.origEnd - prev.origStart
+          const deltaMin = snap((e.clientX - prev.startClientX) / pxPerMin)
+          const newStart = clamp(prev.origStart + deltaMin, 0, 2 * 1440 - duration)
+          return {
+            ...prev,
+            previewStart: newStart,
+            previewEnd: newStart + duration,
+            moved: prev.moved || dxPx > CLICK_THRESHOLD_PX,
+          }
         }
         const anchor = prev.anchorMin
         const cur = clamp(snap(min), axisStartMin, axisEndMin)
@@ -207,16 +255,23 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
       if (finalDrag.mode === 'resize') {
         const orig = turnRange(finalDrag.turn)
         if (finalDrag.previewStart === orig.start && finalDrag.previewEnd === orig.end) return
+      } else if (finalDrag.mode === 'move') {
+        if (!finalDrag.moved) {
+          // Nessuno spostamento reale: era un click, apri la modifica.
+          onEditTurn(finalDrag.turn)
+          return
+        }
+        if (finalDrag.previewStart === finalDrag.origStart) return
       } else if (finalDrag.previewEnd - finalDrag.previewStart < MIN_DRAG_CREATE_MIN) {
         return
       }
 
       // Congela la fascia nella posizione rilasciata finché il server non risponde
       setFrozenPreview(finalDrag)
-      setSavingKey(finalDrag.mode === 'resize' ? finalDrag.turn.id : 'new')
+      setSavingKey(finalDrag.mode === 'create' ? 'new' : finalDrag.turn.id)
 
       try {
-        if (finalDrag.mode === 'resize') {
+        if (finalDrag.mode === 'resize' || finalDrag.mode === 'move') {
           const { turn, previewStart, previewEnd } = finalDrag
           await updateTurn(turn.id, {
             user_id: turn.user_id,
@@ -345,7 +400,8 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                   )}
 
                   {memberTurns.map(t => {
-                    const isPreviewing = activePreview?.mode === 'resize' && activePreview.turn.id === t.id
+                    const isPreviewing = (activePreview?.mode === 'resize' || activePreview?.mode === 'move')
+                      && activePreview.turn.id === t.id
                     const { start, end } = isPreviewing
                       ? { start: activePreview.previewStart, end: activePreview.previewEnd }
                       : turnRange(t)
@@ -367,13 +423,15 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                           className="absolute left-0 inset-y-0 w-2 cursor-ew-resize"
                           style={{ touchAction: 'none' }}
                         />
-                        <button
-                          type="button"
-                          onClick={() => onEditTurn(t)}
-                          className="flex-1 h-full truncate text-left px-2 hover:opacity-80"
+                        {/* Corpo centrale — un click apre la modifica, un trascinamento
+                            sposta l'intero turno avanti/indietro */}
+                        <div
+                          onPointerDown={e => startMove(e, t)}
+                          style={{ touchAction: 'none' }}
+                          className="flex-1 h-full truncate text-left px-2 flex items-center cursor-grab active:cursor-grabbing hover:opacity-80"
                         >
                           {minutesToHHMM(start)}–{minutesToHHMM(end)}
-                        </button>
+                        </div>
                         {/* Maniglia destra — trascina per allungare/accorciare l'uscita */}
                         <div
                           onPointerDown={e => startResize(e, t, 'end')}
@@ -423,7 +481,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
           <span className="inline-block w-3 h-0.5 bg-red-500" /> Adesso
         </span>
         <span className="text-muted-foreground/70">
-          Trascina i bordi di un turno per allungarlo/accorciarlo · trascina su un&apos;area vuota per crearne uno nuovo
+          Trascina i bordi per allungare/accorciare · trascina dal centro per spostare · trascina un&apos;area vuota per crearne uno nuovo
         </span>
       </div>
     </div>
