@@ -527,7 +527,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                         {canDrag && (
                           <div
                             onPointerDown={e => startResize(e, t, 'start')}
-                            className="absolute left-0 inset-y-0 w-2 cursor-ew-resize"
+                            className="absolute left-0 inset-y-0 w-4 cursor-ew-resize"
                             style={{ touchAction: 'none' }}
                           />
                         )}
@@ -543,7 +543,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                         {canDrag && (
                           <div
                             onPointerDown={e => startResize(e, t, 'end')}
-                            className="absolute right-0 inset-y-0 w-2 cursor-ew-resize"
+                            className="absolute right-0 inset-y-0 w-4 cursor-ew-resize"
                             style={{ touchAction: 'none' }}
                           />
                         )}
