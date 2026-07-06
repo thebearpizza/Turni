@@ -104,6 +104,29 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   const [dragError, setDragError] = useState<string | null>(null)
   const dragRef = useRef<DragState | null>(null)
 
+  // Override ottimistici: dopo un salvataggio riuscito, il prop `turns` del
+  // padre resta indietro finché non arriva l'evento realtime (~mezzo secondo).
+  // Senza questi, la fascia tornerebbe per un attimo alla posizione vecchia
+  // (flash). L'override tiene la fascia dove l'utente l'ha lasciata e viene
+  // rimosso quando i dati veri arrivano; i turni creati col drag vivono in
+  // `extraTurns` finché non compaiono nel prop.
+  const [overrides, setOverrides] = useState<Record<string, { start_time: string; end_time: string }>>({})
+  const [extraTurns, setExtraTurns] = useState<Turn[]>([])
+
+  useEffect(() => {
+    setOverrides(prev => {
+      const stale = Object.keys(prev).filter(id => {
+        const t = turns.find(x => x.id === id)
+        return t && t.start_time.slice(0, 5) === prev[id].start_time && t.end_time.slice(0, 5) === prev[id].end_time
+      })
+      if (stale.length === 0) return prev
+      const next = { ...prev }
+      stale.forEach(id => delete next[id])
+      return next
+    })
+    setExtraTurns(prev => prev.length ? prev.filter(e => !turns.some(t => t.id === e.id)) : prev)
+  }, [turns])
+
   // La linea "adesso" avanza ogni minuto, senza bisogno di refresh manuale.
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 60_000)
@@ -120,7 +143,11 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
     setDate(prev => format(addDays(parseISO(`${prev}T00:00:00`), delta), 'yyyy-MM-dd'))
   }
 
-  const dayTurns = turns.filter(t => t.date === date)
+  const effectiveTurns = [
+    ...turns.map(t => overrides[t.id] ? { ...t, ...overrides[t.id] } : t),
+    ...extraTurns.filter(e => !turns.some(t => t.id === e.id)),
+  ]
+  const dayTurns = effectiveTurns.filter(t => t.date === date)
   const workTurns = dayTurns.filter(t => !t.is_rest_day)
 
   // Asse orario: parte da min(8:00, primo turno) e arriva a max(24:00, ultimo turno)
@@ -283,20 +310,26 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
       try {
         if (finalDrag.mode === 'resize' || finalDrag.mode === 'move') {
           const { turn, previewStart, previewEnd } = finalDrag
+          const newStart = minutesToHHMM(previewStart)
+          const newEnd = minutesToHHMM(previewEnd)
           await updateTurn(turn.id, {
             user_id: turn.user_id,
             restaurant_id: turn.restaurant_id,
             department: turn.department,
             date: turn.date,
-            start_time: minutesToHHMM(previewStart),
-            end_time: minutesToHHMM(previewEnd),
+            start_time: newStart,
+            end_time: newEnd,
             is_extraordinary: turn.is_extraordinary,
             is_rest_day: false,
             notes: turn.notes,
           } satisfies TurnInput)
+          // Override ottimistico PRIMA di sganciare l'anteprima congelata:
+          // React applica i due set nello stesso render, quindi la fascia
+          // non torna mai alla posizione vecchia in attesa del realtime.
+          setOverrides(prev => ({ ...prev, [turn.id]: { start_time: newStart, end_time: newEnd } }))
         } else {
           const { member, date: dayDate, previewStart, previewEnd } = finalDrag
-          await createTurn({
+          const created = await createTurn({
             user_id: member.id,
             restaurant_id: member.restaurant_id ?? '',
             department: member.department as Department | null,
@@ -307,6 +340,8 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
             is_rest_day: false,
             notes: null,
           } satisfies TurnInput)
+          // Il turno appena creato resta visibile subito, senza aspettare il realtime
+          setExtraTurns(prev => [...prev, created])
         }
       } catch (err) {
         setDragError(err instanceof Error ? err.message : 'Errore durante il salvataggio del turno')
