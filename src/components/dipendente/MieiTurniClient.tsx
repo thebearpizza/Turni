@@ -5,13 +5,11 @@ import { createClient } from '@/lib/supabase/client'
 import { CalendarClock, Clock } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
+import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
 import type { Turn } from '@/types'
 
 const TZ = 'Europe/Rome'
 
-const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
-const STANDARD_BADGE = 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800'
-const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
 const SPLIT_BADGE = 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-300 dark:border-zinc-700'
 
 interface Props {

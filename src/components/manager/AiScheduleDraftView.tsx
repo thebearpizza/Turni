@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { X, CheckCircle2, AlertTriangle, ArrowRightLeft, Zap, Coffee } from 'lucide-react'
 import { confirmAiDraft, discardAiDraft, updateDraftTurn, rejectDraftTurn } from '@/app/actions/aiTurni'
+import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
 import type { AiScheduleDraft, AiScheduleDraftTurn, AiScheduleWarning } from '@/types'
 
 interface Props {
@@ -22,9 +23,9 @@ interface Props {
 type TurnStatus = AiScheduleDraftTurn['status']
 
 const TURN_BADGE: Record<string, string> = {
-  standard:    'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800',
-  extraordinary: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800',
-  rest:        'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800',
+  standard:    STANDARD_BADGE,
+  extraordinary: EXTRAORDINARY_BADGE,
+  rest:        RIPOSO_BADGE,
   cross:       'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800',
   rejected:    'opacity-30 line-through bg-zinc-100 text-zinc-400 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-500',
 }

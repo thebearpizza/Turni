@@ -78,10 +78,12 @@ function hasIncompleteSplit(segments: { start: string; end: string }[]): boolean
 }
 
 // Stile tabella "Turni Fissi" / "Preview Presenze-Ore" — riprende le stesse classi
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
+// Tono intermedio condiviso da intestazione e colonna dipendente, così le
+// due non stonano (prima: intestazione nera, celle sotto bianche/grigie).
+const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50 whitespace-nowrap'
 const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
-const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-white dark:bg-zinc-950 z-10'
+const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-zinc-200 dark:bg-zinc-700'
+const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-zinc-200 dark:bg-zinc-700 z-10'
 
 const TURN_TYPE_OPTIONS = [
   { value: false, label: 'Turno di Lavoro' },
