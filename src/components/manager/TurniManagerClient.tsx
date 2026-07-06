@@ -683,17 +683,31 @@ export function TurniManagerClient({
                   <div className="font-normal opacity-80">{formatInTimeZone(day, TZ, 'd/MM', { locale: it })}</div>
                 </th>
               ))}
+              <th className={`${thCls} min-w-[90px]`}>Monte Ore</th>
             </tr>
           </thead>
           <tbody>
             {gridStaff.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-6 text-muted-foreground text-xs">
+                <td colSpan={9} className="text-center py-6 text-muted-foreground text-xs">
                   Nessun dipendente
                 </td>
               </tr>
-            ) : gridStaff.map(member => (
-              <tr key={member.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+            ) : gridStaff.map(member => {
+              // Monte ore settimanale stimato: somma di tutte le fasce non-riposo
+              // della settimana visualizzata, turni spezzati inclusi (ogni fascia
+              // dello stesso giorno è una voce a parte in cellTurns), gestendo
+              // anche i turni notturni (fine ≤ inizio → si estendono a mezzanotte).
+              const weeklyMinutes = weekDays.reduce((sum, day) => {
+                const dateStr = format(day, 'yyyy-MM-dd')
+                const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
+                return sum + cellTurns
+                  .filter(t => !t.is_rest_day)
+                  .reduce((s, t) => s + segmentMinutes(t.start_time.slice(0, 5), t.end_time.slice(0, 5)), 0)
+              }, 0)
+
+              return (
+                <tr key={member.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
                 <td className={tdNameCls}>
                   {member.full_name}
                   {isManager && restFilter === 'tutti' && member.restaurant_id && (
@@ -741,8 +755,12 @@ export function TurniManagerClient({
                     </td>
                   )
                 })}
+                <td className={`${tdCls} font-semibold`}>
+                  {weeklyMinutes > 0 ? formatMinutes(weeklyMinutes) : '–'}
+                </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
