@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { fromZonedTime } from 'date-fns-tz'
+import { computeAttendanceIso } from '@/lib/attendanceTime'
 
 const TZ = 'Europe/Rome'
 
@@ -50,15 +50,7 @@ export async function POST(request: NextRequest) {
     .eq('id', userId)
     .single()
 
-  const checkInIso = fromZonedTime(`${date}T${checkIn}:00`, TZ).toISOString()
-  const checkOutIso = checkOut ? fromZonedTime(`${date}T${checkOut}:00`, TZ).toISOString() : null
-
-  if (checkOutIso && checkOutIso <= checkInIso) {
-    return NextResponse.json(
-      { error: "L'ora di uscita deve essere successiva all'ora di ingresso" },
-      { status: 400 }
-    )
-  }
+  const { checkInIso, checkOutIso } = computeAttendanceIso(TZ, date, checkIn, checkOut)
 
   const { data, error } = await supabase
     .from('attendances')
@@ -116,15 +108,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Campi obbligatori mancanti' }, { status: 400 })
   }
 
-  const checkInIso  = fromZonedTime(`${date}T${checkIn}:00`, TZ).toISOString()
-  const checkOutIso = checkOut ? fromZonedTime(`${date}T${checkOut}:00`, TZ).toISOString() : null
-
-  if (checkOutIso && checkOutIso <= checkInIso) {
-    return NextResponse.json(
-      { error: "L'ora di uscita deve essere successiva all'ora di ingresso" },
-      { status: 400 }
-    )
-  }
+  const { checkInIso, checkOutIso } = computeAttendanceIso(TZ, date, checkIn, checkOut)
 
   let query = supabase
     .from('attendances')

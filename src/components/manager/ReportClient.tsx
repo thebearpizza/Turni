@@ -420,14 +420,23 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
         for (const s of shifts) {
           if (!s.checkIn) continue
           if (s.id) {
-            const { error } = await supabase
-              .from('attendances')
-              .update({
-                check_in:  fromZonedTime(new Date(`${editorDate}T${s.checkIn}`), TZ).toISOString(),
-                check_out: s.checkOut ? fromZonedTime(new Date(`${editorDate}T${s.checkOut}`), TZ).toISOString() : null,
-              })
-              .eq('id', s.id)
-            if (error) throw new Error(error.message)
+            // Passa dall'API (non un update diretto) così l'uscita che
+            // scavalca la mezzanotte (es. 15:00 → 01:00) viene gestita
+            // correttamente come turno notturno, non come dato invertito.
+            const res = await fetch('/api/presenze', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: s.id,
+                date: editorDate,
+                checkIn: s.checkIn,
+                checkOut: s.checkOut || null,
+              }),
+            })
+            if (!res.ok) {
+              const d = await res.json()
+              throw new Error(d.error || 'Errore modifica presenza')
+            }
           } else {
             const res = await fetch('/api/presenze', {
               method: 'POST',

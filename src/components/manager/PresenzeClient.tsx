@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Badge } from '@/components/ui/badge'
 import { Clock, Trash2, AlertTriangle, Plus } from 'lucide-react'
 import { LoadingDots } from '@/components/shared/LoadingDots'
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { LiveShiftCounter } from './LiveShiftCounter'
@@ -68,20 +68,21 @@ export function PresenzeClient({
   const [selectedMonth, setSelectedMonth]     = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
   const [loading, setLoading]     = useState(false)
-  const [editing, setEditing]     = useState<AttendanceRow | null>(null)
-  const [editCheckIn, setEditCheckIn]   = useState('')
-  const [editCheckOut, setEditCheckOut] = useState('')
-  const [saving, setSaving]       = useState(false)
-  const [deleting, setDeleting]   = useState(false)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [isLive, setIsLive]       = useState(false)
-  const [showAdd, setShowAdd]     = useState(false)
-  const [newUserId, setNewUserId] = useState('')
-  const [newDate, setNewDate]     = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-  const [newCheckIn, setNewCheckIn]   = useState('')
-  const [newCheckOut, setNewCheckOut] = useState('')
-  const [addError, setAddError]   = useState<string | null>(null)
-  const [addSaving, setAddSaving] = useState(false)
+
+  // Form unico Aggiungi/Modifica — stessi campi in entrambi i casi; in
+  // modifica il dipendente arriva preselezionato (e bloccato), in
+  // aggiunta va scelto. Stesso pattern di PresenzePreviewClient.
+  const [showForm, setShowForm]   = useState(false)
+  const [editing, setEditing]     = useState<AttendanceRow | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting]   = useState(false)
+  const [fUserId, setFUserId]     = useState('')
+  const [fDate, setFDate]         = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [fCheckIn, setFCheckIn]   = useState('')
+  const [fCheckOut, setFCheckOut] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const [formSaving, setFormSaving] = useState(false)
 
   // Refs so the realtime handler always reads current filter values without re-subscribing
   const monthRef      = useRef(selectedMonth)
@@ -184,39 +185,88 @@ export function PresenzeClient({
     loadData(selectedMonth, restaurantId)
   }
 
+  function resetForm() {
+    setEditing(null)
+    setConfirmingDelete(false)
+    setFUserId('')
+    setFDate(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+    setFCheckIn('')
+    setFCheckOut('')
+    setFormError(null)
+  }
+
+  function openCreate() {
+    resetForm()
+    setShowForm(true)
+  }
+
   function openEdit(p: AttendanceRow) {
     setEditing(p)
     setConfirmingDelete(false)
-    setEditCheckIn(formatInTimeZone(new Date(p.check_in), TZ, "yyyy-MM-dd'T'HH:mm"))
-    setEditCheckOut(p.check_out ? formatInTimeZone(new Date(p.check_out), TZ, "yyyy-MM-dd'T'HH:mm") : '')
+    setFUserId(p.user_id)
+    setFDate(formatInTimeZone(new Date(p.check_in), TZ, 'yyyy-MM-dd'))
+    setFCheckIn(formatInTimeZone(new Date(p.check_in), TZ, 'HH:mm'))
+    setFCheckOut(p.check_out ? formatInTimeZone(new Date(p.check_out), TZ, 'HH:mm') : '')
+    setFormError(null)
+    setShowForm(true)
   }
 
-  function closeEdit() {
-    setEditing(null)
-    setConfirmingDelete(false)
+  function closeForm() {
+    setShowForm(false)
+    resetForm()
   }
 
+  // Un solo salvataggio per aggiunta e modifica: POST se sto creando,
+  // PATCH se sto modificando. L'API gestisce da sola il turno notturno
+  // (uscita il giorno dopo se l'orario è numericamente prima dell'ingresso).
   async function handleSave() {
     if (!canEdit) { showUnauthorized(); return }
-    if (!editing) return
-    setSaving(true)
+    if (!fUserId || !fDate || !fCheckIn) return
+    setFormSaving(true)
+    setFormError(null)
 
-    const supabase = createClient()
-    const updates: Record<string, string | null> = {
-      check_in:  fromZonedTime(new Date(editCheckIn), TZ).toISOString(),
-      check_out: editCheckOut ? fromZonedTime(new Date(editCheckOut), TZ).toISOString() : null,
+    try {
+      const res = await fetch('/api/presenze', {
+        method: editing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          editing
+            ? { id: editing.id, date: fDate, checkIn: fCheckIn, checkOut: fCheckOut || null }
+            : { userId: fUserId, date: fDate, checkIn: fCheckIn, checkOut: fCheckOut || undefined }
+        ),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setFormError(data.error || 'Errore durante il salvataggio')
+        setFormSaving(false)
+        return
+      }
+
+      const saved = data.attendance as AttendanceRow
+      const [y, m] = selectedMonth.split('-').map(Number)
+      const monthStart = new Date(Date.UTC(y, m - 1, 1))
+      const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+      const checkInDate = new Date(saved.check_in)
+      const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
+      const matchesRest  = selectedRestaurant === 'all' || saved.restaurant_id === selectedRestaurant
+
+      if (editing) {
+        // Se la modifica sposta la presenza fuori dal mese/ristorante
+        // filtrato, la rimuoviamo dalla lista invece di mostrarla stonata.
+        setPresenze(ps => matchesMonth && matchesRest
+          ? ps.map(p => p.id === saved.id ? saved : p)
+          : ps.filter(p => p.id !== saved.id))
+      } else if (matchesMonth && matchesRest) {
+        setPresenze(ps => [saved, ...ps])
+      }
+
+      closeForm()
+    } catch {
+      setFormError('Errore di rete, riprova')
+    } finally {
+      setFormSaving(false)
     }
-
-    const { data } = await supabase
-      .from('attendances')
-      .update(updates)
-      .eq('id', editing.id)
-      .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
-      .single()
-
-    if (data) setPresenze(ps => ps.map(p => p.id === data.id ? data : p))
-    closeEdit()
-    setSaving(false)
   }
 
   async function handleDelete() {
@@ -227,56 +277,9 @@ export function PresenzeClient({
     const { error } = await supabase.from('attendances').delete().eq('id', editing.id)
     if (!error) {
       setPresenze(ps => ps.filter(p => p.id !== editing.id))
-      closeEdit()
+      closeForm()
     }
     setDeleting(false)
-  }
-
-  function resetAddForm() {
-    setNewUserId('')
-    setNewDate(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-    setNewCheckIn('')
-    setNewCheckOut('')
-    setAddError(null)
-  }
-
-  async function handleAddPresenza() {
-    if (!canEdit) { showUnauthorized(); return }
-    if (!newUserId || !newDate || !newCheckIn) return
-    setAddSaving(true)
-    setAddError(null)
-
-    const res = await fetch('/api/presenze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: newUserId,
-        date: newDate,
-        checkIn: newCheckIn,
-        checkOut: newCheckOut || undefined,
-      }),
-    })
-    const data = await res.json()
-
-    if (!res.ok) {
-      setAddError(data.error || 'Errore durante il salvataggio')
-      setAddSaving(false)
-      return
-    }
-
-    const [y, m] = selectedMonth.split('-').map(Number)
-    const monthStart = new Date(Date.UTC(y, m - 1, 1))
-    const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
-    const checkInDate = new Date(data.attendance.check_in)
-    const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
-    const matchesRest  = selectedRestaurant === 'all' || data.attendance.restaurant_id === selectedRestaurant
-    if (matchesMonth && matchesRest) {
-      setPresenze(ps => [data.attendance, ...ps])
-    }
-
-    setShowAdd(false)
-    resetAddForm()
-    setAddSaving(false)
   }
 
   // ── Grouped presenze + absent employees ────────────────────────────────
@@ -404,7 +407,7 @@ export function PresenzeClient({
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
-            <Button onClick={() => setShowAdd(true)} size="sm" className="h-8 rounded-sm px-3 text-xs gap-1.5">
+            <Button onClick={openCreate} size="sm" className="h-8 rounded-sm px-3 text-xs gap-1.5">
               <Plus className="w-3.5 h-3.5" />
               Aggiungi Presenza
             </Button>
@@ -582,11 +585,15 @@ export function PresenzeClient({
         </div>
       )}
 
-      {/* Dialog modifica */}
-      <Dialog open={!!editing} onOpenChange={open => !open && closeEdit()}>
+      {/* Dialog Aggiungi/Modifica — stesso form in entrambi i casi: in
+          modifica il dipendente è preselezionato e bloccato, in aggiunta
+          va scelto. */}
+      <Dialog open={showForm} onOpenChange={open => !open && closeForm()}>
         <DialogContent onInteractOutside={e => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>{confirmingDelete ? 'Elimina Timbratura' : 'Modifica Timbratura'}</DialogTitle>
+            <DialogTitle>
+              {confirmingDelete ? 'Elimina Timbratura' : editing ? 'Modifica Presenza' : 'Aggiungi Presenza'}
+            </DialogTitle>
           </DialogHeader>
 
           {confirmingDelete ? (
@@ -619,114 +626,79 @@ export function PresenzeClient({
             <>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Entrata (ora locale)</Label>
-                  <Input
-                    type="datetime-local"
-                    value={editCheckIn}
-                    onChange={e => setEditCheckIn(e.target.value)}
-                  />
+                  <Label>Dipendente</Label>
+                  <Select value={fUserId} onValueChange={setFUserId} disabled={!!editing}>
+                    <SelectTrigger className="h-10 rounded-sm">
+                      <SelectValue placeholder="Seleziona dipendente..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dipendenti.map(d => (
+                        <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Uscita (ora locale)</Label>
+                  <Label>Data</Label>
                   <Input
-                    type="datetime-local"
-                    value={editCheckOut}
-                    onChange={e => setEditCheckOut(e.target.value)}
+                    type="date"
+                    value={fDate}
+                    onChange={e => setFDate(e.target.value)}
+                    className="h-10 rounded-sm"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Ora Ingresso</Label>
+                    <TimeInput
+                      value={fCheckIn}
+                      onChange={setFCheckIn}
+                      className="h-10 rounded-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ora Uscita</Label>
+                    <TimeInput
+                      value={fCheckOut}
+                      onChange={setFCheckOut}
+                      className="h-10 rounded-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Se l&apos;uscita è prima dell&apos;ingresso viene registrata il giorno successivo (turno notturno).
+                </p>
+                {formError && (
+                  <p className="text-sm text-destructive">{formError}</p>
+                )}
               </div>
-              <DialogFooter className="sm:justify-between gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={() => setConfirmingDelete(true)}
-                  disabled={saving}
-                  className="h-10 rounded-sm"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Elimina
-                </Button>
+              <DialogFooter className={editing ? 'sm:justify-between gap-2' : undefined}>
+                {editing && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => setConfirmingDelete(true)}
+                    disabled={formSaving}
+                    className="h-10 rounded-sm"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Elimina
+                  </Button>
+                )}
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={closeEdit} disabled={saving} className="h-10 rounded-sm">
+                  <Button variant="outline" onClick={closeForm} disabled={formSaving} className="h-10 rounded-sm">
                     Annulla
                   </Button>
-                  <Button onClick={handleSave} disabled={saving || !editCheckIn} className="h-10 rounded-sm">
-                    {saving ? <>Salvataggio<LoadingDots /></> : 'Salva'}
+                  <Button
+                    onClick={handleSave}
+                    disabled={formSaving || !fUserId || !fDate || !fCheckIn}
+                    className="h-10 rounded-sm"
+                  >
+                    {formSaving ? <>Salvataggio<LoadingDots /></> : editing ? 'Salva' : 'Aggiungi'}
                   </Button>
                 </div>
               </DialogFooter>
             </>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog aggiunta manuale */}
-      <Dialog open={showAdd} onOpenChange={open => { if (!open) { setShowAdd(false); resetAddForm() } }}>
-        <DialogContent onInteractOutside={e => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>Aggiungi Presenza</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Dipendente</Label>
-              <Select value={newUserId} onValueChange={setNewUserId}>
-                <SelectTrigger className="h-10 rounded-sm">
-                  <SelectValue placeholder="Seleziona dipendente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {dipendenti.map(d => (
-                    <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Data</Label>
-              <Input
-                type="date"
-                value={newDate}
-                onChange={e => setNewDate(e.target.value)}
-                className="h-10 rounded-sm"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Ora Ingresso</Label>
-                <TimeInput
-                  value={newCheckIn}
-                  onChange={setNewCheckIn}
-                  className="h-10 rounded-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Ora Uscita</Label>
-                <TimeInput
-                  value={newCheckOut}
-                  onChange={setNewCheckOut}
-                  className="h-10 rounded-sm"
-                />
-              </div>
-            </div>
-            {addError && (
-              <p className="text-sm text-destructive">{addError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => { setShowAdd(false); resetAddForm() }}
-              disabled={addSaving}
-              className="h-10 rounded-sm"
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleAddPresenza}
-              disabled={addSaving || !newUserId || !newDate || !newCheckIn}
-              className="h-10 rounded-sm"
-            >
-              {addSaving ? <>Salvataggio<LoadingDots /></> : 'Aggiungi'}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
