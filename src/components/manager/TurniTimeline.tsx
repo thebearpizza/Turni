@@ -143,6 +143,17 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
     setDate(prev => format(addDays(parseISO(`${prev}T00:00:00`), delta), 'yyyy-MM-dd'))
   }
 
+  const nativeDateRef = useRef<HTMLInputElement>(null)
+  function openDatePicker() {
+    const el = nativeDateRef.current
+    if (!el) return
+    if (typeof el.showPicker === 'function') {
+      try { el.showPicker(); return } catch { /* fallback sotto */ }
+    }
+    el.focus()
+    el.click()
+  }
+
   const effectiveTurns = [
     ...turns.map(t => overrides[t.id] ? { ...t, ...overrides[t.id] } : t),
     ...extraTurns.filter(e => !turns.some(t => t.id === e.id)),
@@ -368,9 +379,28 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
           <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => shiftDay(-1)} aria-label="Giorno precedente">
             <ChevronLeft className="w-3.5 h-3.5" />
           </Button>
-          <span className="text-xs font-medium text-foreground capitalize whitespace-nowrap tabular-nums min-w-[100px] text-center">
-            {formatInTimeZone(`${date}T12:00:00Z`, TZ, 'EEE d MMM', { locale: it })}
-          </span>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={openDatePicker}
+              title="Apri calendario"
+              className="text-xs font-medium text-foreground capitalize whitespace-nowrap tabular-nums min-w-[100px] text-center hover:underline decoration-dotted underline-offset-2"
+            >
+              {formatInTimeZone(`${date}T12:00:00Z`, TZ, 'EEE d MMM', { locale: it })}
+            </button>
+            {/* Input nativo invisibile: al click sulla data apre il calendario
+                del sistema per saltare a un giorno lontano senza cliccare
+                troppe volte sulle frecce. */}
+            <input
+              ref={nativeDateRef}
+              type="date"
+              value={date}
+              onChange={e => e.target.value && setDate(e.target.value)}
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
+          </div>
           <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => shiftDay(1)} aria-label="Giorno successivo">
             <ChevronRight className="w-3.5 h-3.5" />
           </Button>
