@@ -18,6 +18,24 @@ const SNAP_MIN = 15            // arrotondamento del trascinamento, in minuti
 const MIN_SHIFT_MIN = 15       // durata minima consentita di un turno
 const MIN_DRAG_CREATE_MIN = 30 // sotto questa soglia un drag "a vuoto" non crea nulla
 const CLICK_THRESHOLD_PX = 5   // sotto questa soglia un trascinamento dal centro è un click (apre la modifica)
+const DESKTOP_QUERY = '(min-width: 768px)' // tablet/PC — su smartphone niente drag, solo visualizzazione
+
+// Su schermi piccoli il rischio di spostare un turno per sbaglio scorrendo
+// col dito è troppo alto: il drag (ridimensiona/sposta/crea) è abilitato
+// solo da tablet in su. Parte "false" (nessuna interazione) finché il
+// primo effect non conferma la larghezza reale, per restare prudenti anche
+// nel primissimo render lato client.
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia(DESKTOP_QUERY)
+    setIsDesktop(mql.matches)
+    const onChange = () => setIsDesktop(mql.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+  return isDesktop
+}
 
 type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null }
 
@@ -91,6 +109,7 @@ function turnRange(t: Turn): { start: number; end: number } {
 export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   const [date, setDate] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const canDrag = useIsDesktop()
 
   // `drag` esiste SOLO tra pointerdown e pointerup (i listener globali sono
   // agganciati mentre è non-null). `frozenPreview` è uno scatto congelato
@@ -209,6 +228,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   }
 
   function startResize(e: React.PointerEvent, turn: Turn, edge: 'start' | 'end') {
+    if (!canDrag) return
     e.stopPropagation()
     e.preventDefault()
     const trackEl = (e.currentTarget as HTMLElement).closest('[data-track]') as HTMLElement | null
@@ -220,6 +240,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   }
 
   function startMove(e: React.PointerEvent, turn: Turn) {
+    if (!canDrag) return
     e.stopPropagation()
     e.preventDefault()
     const trackEl = (e.currentTarget as HTMLElement).closest('[data-track]') as HTMLElement | null
@@ -234,6 +255,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   }
 
   function startCreate(e: React.PointerEvent<HTMLDivElement>, member: StaffMember) {
+    if (!canDrag) return
     if (e.target !== e.currentTarget) return // click su una fascia/etichetta esistente, non sull'area vuota
     if (e.button !== 0) return
     e.preventDefault()
@@ -464,9 +486,9 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                 </div>
                 <div
                   data-track
-                  onPointerDown={e => startCreate(e, member)}
-                  style={{ width: totalWidth, minHeight: 44, touchAction: drag ? 'none' : 'pan-x' }}
-                  className="relative cursor-crosshair"
+                  onPointerDown={canDrag ? e => startCreate(e, member) : undefined}
+                  style={{ width: totalWidth, minHeight: 44, touchAction: canDrag && drag ? 'none' : 'pan-x' }}
+                  className={`relative ${canDrag ? 'cursor-crosshair' : ''}`}
                 >
                   {/* Griglia ore verticale, solo decorativa */}
                   <div className="absolute inset-0 flex pointer-events-none">
@@ -499,27 +521,32 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                         } ${t.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE}`}
                         title={`${member.full_name} · ${minutesToHHMM(start)}–${minutesToHHMM(end)}`}
                       >
-                        {/* Maniglia sinistra — trascina per anticipare/posticipare l'inizio */}
+                        {/* Maniglie e spostamento — solo tablet/PC (canDrag).
+                            Su smartphone la timeline è pura visualizzazione:
+                            niente maniglie, niente drag, scroll sempre naturale. */}
+                        {canDrag && (
+                          <div
+                            onPointerDown={e => startResize(e, t, 'start')}
+                            className="absolute left-0 inset-y-0 w-2 cursor-ew-resize"
+                            style={{ touchAction: 'none' }}
+                          />
+                        )}
                         <div
-                          onPointerDown={e => startResize(e, t, 'start')}
-                          className="absolute left-0 inset-y-0 w-2 cursor-ew-resize"
-                          style={{ touchAction: 'none' }}
-                        />
-                        {/* Corpo centrale — un click apre la modifica, un trascinamento
-                            sposta l'intero turno avanti/indietro */}
-                        <div
-                          onPointerDown={e => startMove(e, t)}
-                          style={{ touchAction: 'none' }}
-                          className="flex-1 h-full truncate text-left px-2 flex items-center cursor-grab active:cursor-grabbing hover:opacity-80"
+                          onPointerDown={canDrag ? e => startMove(e, t) : undefined}
+                          style={canDrag ? { touchAction: 'none' } : undefined}
+                          className={`flex-1 h-full truncate text-left px-2 flex items-center ${
+                            canDrag ? 'cursor-grab active:cursor-grabbing hover:opacity-80' : ''
+                          }`}
                         >
                           {minutesToHHMM(start)}–{minutesToHHMM(end)}
                         </div>
-                        {/* Maniglia destra — trascina per allungare/accorciare l'uscita */}
-                        <div
-                          onPointerDown={e => startResize(e, t, 'end')}
-                          className="absolute right-0 inset-y-0 w-2 cursor-ew-resize"
-                          style={{ touchAction: 'none' }}
-                        />
+                        {canDrag && (
+                          <div
+                            onPointerDown={e => startResize(e, t, 'end')}
+                            className="absolute right-0 inset-y-0 w-2 cursor-ew-resize"
+                            style={{ touchAction: 'none' }}
+                          />
+                        )}
                       </div>
                     )
                   })}
@@ -562,8 +589,11 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-0.5 bg-red-500" /> Adesso
         </span>
-        <span className="text-muted-foreground/70">
+        <span className="text-muted-foreground/70 hidden md:inline">
           Trascina i bordi per allungare/accorciare · trascina dal centro per spostare · trascina un&apos;area vuota per crearne uno nuovo
+        </span>
+        <span className="text-muted-foreground/70 md:hidden">
+          Sola visualizzazione su smartphone — usa la tabella qui sopra per modificare i turni
         </span>
       </div>
     </div>
