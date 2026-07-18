@@ -11,6 +11,17 @@ import type { OdsTask, OdsTaskType } from '@/types'
 
 const TZ = 'Europe/Rome'
 
+// Un TypeError generico può derivare da un bug tanto quanto da una richiesta
+// fallita per assenza di rete. Solo il secondo caso deve attivare la coda
+// offline: i browser usano un messaggio riconoscibile per gli errori di rete
+// veri ("Failed to fetch" su Chrome/Edge, "NetworkError..." su Firefox,
+// "Load failed" su Safari).
+function isNetworkError(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')
+}
+
 const FILTERS: { key: 'tutte' | OdsTaskType; label: string }[] = [
   { key: 'tutte',         label: 'Tutte' },
   { key: 'quotidiana',    label: 'Quotidiane' },
@@ -95,7 +106,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
         await supabase.from('ods_completions').insert({ task_id: taskId, user_id: userId })
       }
     } catch (err) {
-      if (err instanceof TypeError) {
+      if (isNetworkError(err)) {
         // Network down — save to IndexedDB queue with the frozen timestamp
         await saveToOfflineQueue('ods-toggle', {
           task_id:  taskId,

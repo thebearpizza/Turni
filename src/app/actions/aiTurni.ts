@@ -3,13 +3,28 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
-import { startOfWeek, addDays, format, getDay, differenceInMinutes, parseISO } from 'date-fns'
+import { startOfWeek, addDays, format, getDay, differenceInMinutes } from 'date-fns'
+import { fromZonedTime } from 'date-fns-tz'
 import type {
   Department, Profile, Turn, ShiftSlot,
   AiScheduleDraft, AiScheduleDraftTurn,
   AiScheduleWarning, ExtraordinaryClosure, ExistingTurnsMode,
   SecondaryDepartment,
 } from '@/types'
+
+const TZ = 'Europe/Rome'
+
+// Interpreta una stringa data (yyyy-MM-dd) come mezzogiorno a Roma tramite
+// fromZonedTime, invece di affidarsi al fuso orario locale del runtime
+// (come faceva `parseISO(dateStr + 'T00:00:00')`). L'ancoraggio a
+// mezzogiorno — anziché mezzanotte — mantiene l'istante risultante nello
+// stesso giorno di calendario indipendentemente dal fuso del server anche
+// quando viene poi letto con le funzioni "locali" di date-fns (format,
+// getDay, addDays) usate nel resto del modulo, eliminando ogni ambiguità
+// nei cambi d'ora.
+function parseRomeDate(dateStr: string): Date {
+  return fromZonedTime(`${dateStr}T12:00:00`, TZ)
+}
 
 // ── Tipi interni ──────────────────────────────────────────────────────────
 
@@ -93,7 +108,7 @@ async function learnFromAttendance(
   restaurantId: string,
   weekStart: string,
 ): Promise<{ patterns: Map<string, AttendancePattern>; deadZones: DeadZone[] }> {
-  const eightWeeksAgo = format(addDays(parseISO(weekStart), -56), 'yyyy-MM-dd')
+  const eightWeeksAgo = format(addDays(parseRomeDate(weekStart), -56), 'yyyy-MM-dd')
 
   const { data: records } = await supabase
     .from('attendances')
@@ -261,8 +276,8 @@ function buildSchedule(params: {
     absences.map(a => {
       const start = a.start_date; const end = a.end_date
       const dates: string[] = []
-      let cur = new Date(start + 'T00:00:00')
-      const endD = new Date(end + 'T00:00:00')
+      let cur = parseRomeDate(start)
+      const endD = parseRomeDate(end)
       while (cur <= endD) {
         dates.push(format(cur, 'yyyy-MM-dd'))
         cur = addDays(cur, 1)
@@ -527,7 +542,7 @@ export async function generateAiSchedule(params: GenerateParams): Promise<AiSche
   }
 
   const weekStart = params.weekStart
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(parseISO(weekStart + 'T00:00:00'), i))
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(parseRomeDate(weekStart), i))
   const weekEnd = format(weekDays[6], 'yyyy-MM-dd')
 
   // Fetch parallelo di tutto il necessario
@@ -653,7 +668,7 @@ export async function confirmAiDraft(draftId: string): Promise<{ created: number
       .delete()
       .eq('restaurant_id', draft.restaurant_id)
       .gte('date', draft.week_start)
-      .lte('date', format(addDays(parseISO(draft.week_start + 'T00:00:00'), 6), 'yyyy-MM-dd'))
+      .lte('date', format(addDays(parseRomeDate(draft.week_start), 6), 'yyyy-MM-dd'))
 
     if (draft.department_scope?.length) {
       delQuery = delQuery.in('department', draft.department_scope)
@@ -702,8 +717,8 @@ export async function confirmAiDraft(draftId: string): Promise<{ created: number
     .in('user_id', userIds)
 
   if (subs?.length) {
-    const weekLabel = format(parseISO(draft.week_start + 'T00:00:00'), "d MMM")
-    const endLabel  = format(addDays(parseISO(draft.week_start + 'T00:00:00'), 6), "d MMM yyyy")
+    const weekLabel = format(parseRomeDate(draft.week_start), "d MMM")
+    const endLabel  = format(addDays(parseRomeDate(draft.week_start), 6), "d MMM yyyy")
 
     // Fire-and-forget tramite API push interna
     await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/push/send`, {
@@ -715,7 +730,7 @@ export async function confirmAiDraft(draftId: string): Promise<{ created: number
         body:  `I turni della settimana ${weekLabel}–${endLabel} sono stati pubblicati.`,
         url:   '/home/miei-turni',
       }),
-    }).catch(() => { /* non bloccante */ })
+    }).catch(err => console.error('[confirmAiDraft] invio notifica push fallito:', err))
   }
 
   revalidatePath('/turni')
@@ -738,7 +753,7 @@ export async function discardAiDraft(draftId: string): Promise<void> {
 
 export async function checkExistingTurns(restaurantId: string, weekStart: string, departmentScope: Department[] | null): Promise<number> {
   const { supabase } = await getCallerAndScope()
-  const weekEnd = format(addDays(parseISO(weekStart + 'T00:00:00'), 6), 'yyyy-MM-dd')
+  const weekEnd = format(addDays(parseRomeDate(weekStart), 6), 'yyyy-MM-dd')
 
   let q = supabase
     .from('turns')

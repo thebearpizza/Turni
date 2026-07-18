@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { PresenzeClient, type AbsenceItem } from '@/components/manager/PresenzeClient'
-import { FallbackApprovalSection } from '@/components/manager/FallbackApprovalSection'
+import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { formatInTimeZone } from 'date-fns-tz'
 
@@ -65,7 +65,7 @@ export default async function PresenzePage() {
   const canSeeFallback = isManager || isDirettore
 
   // Fetch pending fallback attendances only for authorised roles
-  let pendingFallback: unknown[] = []
+  let pendingFallback: PendingItem[] = []
   if (canSeeFallback) {
     let pendingQuery = supabase
       .from('attendances')
@@ -79,7 +79,7 @@ export default async function PresenzePage() {
     }
 
     const { data } = await pendingQuery
-    pendingFallback = data ?? []
+    pendingFallback = (data ?? []) as unknown as PendingItem[]
   }
 
   const [
@@ -101,10 +101,7 @@ export default async function PresenzePage() {
   return (
     <div className="p-6 lg:p-8">
       {canSeeFallback && (
-        <FallbackApprovalSection
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          initialPending={pendingFallback as any}
-        />
+        <FallbackApprovalSection initialPending={pendingFallback} />
       )}
       <PresenzeClient
         initialPresenze={presenze ?? []}

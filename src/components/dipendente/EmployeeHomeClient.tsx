@@ -26,6 +26,17 @@ interface Props {
   userId: string
 }
 
+// Un TypeError generico può derivare da un bug (es. accesso a proprietà di
+// null) tanto quanto da una fetch fallita per assenza di rete. Solo il
+// secondo caso deve attivare la coda offline: i browser usano un messaggio
+// riconoscibile per gli errori di rete veri ("Failed to fetch" su Chrome/
+// Edge, "NetworkError..." su Firefox, "Load failed" su Safari).
+function isNetworkError(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')
+}
+
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -133,7 +144,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
       }
       router.refresh()
     } catch (err) {
-      if (err instanceof TypeError) {
+      if (isNetworkError(err)) {
         // Network unavailable — persist to IndexedDB queue with the frozen timestamp
         await saveToOfflineQueue('clock-in', {
           qr_secret: qrSecret,

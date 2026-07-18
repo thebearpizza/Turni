@@ -305,17 +305,14 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   }, [])
 
   // Re-fetch preview whenever month or restaurant selection changes.
-  // This is a legitimate "synchronize with external system" effect (the DB):
-  // loadPreview owns its own loading/data state, so the set-state-in-effect
-  // warning is expected here.
+  // currentTargets/loadPreview are both useCallback-stabilized, so they only
+  // change identity when their own real inputs change — safe to depend on
+  // directly instead of hand-flattening selectedRestaurants into a string.
   useEffect(() => {
     const targets = currentTargets()
     if (targets.length === 0) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadPreview(selectedMonth, targets)
-  // selectedRestaurants.join is a stable primitive derived from the array
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMonth, selectedRestaurants.join(','), isManager, loadPreview])
+    ;(async () => { await loadPreview(selectedMonth, targets) })()
+  }, [selectedMonth, currentTargets, loadPreview])
 
   // Compute preview column structure from selectedMonth
   const { days, monthLabel } = useMemo(() => {
