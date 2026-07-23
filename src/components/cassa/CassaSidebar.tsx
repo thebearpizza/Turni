@@ -1,20 +1,22 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { Wallet, FileText, ArrowLeft, Menu, X } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { Home, Wallet, FileText, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
 // nessuna logica di business (niente badge, niente realtime).
 const navItems = [
+  { href: '/hub',              icon: Home,     label: 'Home' },
   { href: '/cassa/chiusura',   icon: Wallet,   label: 'Chiusura Cassa' },
   { href: '/cassa/prima-nota', icon: FileText, label: 'Prima Nota' },
 ]
 
 // Componente a livello di modulo (non ricreato ad ogni render) condiviso
 // tra la sidebar desktop e il drawer mobile.
-function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate: () => void }) {
+function SidebarContent({ pathname, onNavigate, onLogout }: { pathname: string; onNavigate: () => void; onLogout: () => void }) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border">
@@ -42,14 +44,13 @@ function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate
       </nav>
 
       <div className="p-4 border-t border-border">
-        <Link
-          href="/hub"
-          onClick={onNavigate}
+        <button
+          onClick={onLogout}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Torna alla Home
-        </Link>
+          <LogOut className="w-4 h-4" />
+          Esci
+        </button>
       </div>
     </div>
   )
@@ -58,13 +59,20 @@ function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate
 export function CassaSidebar() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
   const closeDrawer = () => setOpen(false)
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent pathname={pathname} onNavigate={closeDrawer} />
+        <SidebarContent pathname={pathname} onNavigate={closeDrawer} onLogout={handleLogout} />
       </aside>
 
       {/* Mobile header + drawer */}
@@ -93,7 +101,7 @@ export function CassaSidebar() {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent pathname={pathname} onNavigate={closeDrawer} />
+            <SidebarContent pathname={pathname} onNavigate={closeDrawer} onLogout={handleLogout} />
           </aside>
         </div>
       )}
