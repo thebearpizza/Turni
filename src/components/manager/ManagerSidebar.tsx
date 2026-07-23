@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X, Bell, ClipboardList, CalendarClock, UserCheck
+  Menu, X, Bell, ClipboardList, CalendarClock, UserCheck, Home
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -18,6 +18,7 @@ import { ROLE_LABELS } from '@/types'
 // `direttoreOnly: true` → visibile anche a capo_servizio con is_direttore === true,
 // oltre ai ruoli elencati in `roles`.
 const navItems = [
+  { href: '/hub', icon: Home, label: 'Home', roles: ['manager'] },
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['manager', 'capo_servizio'] },
   { href: '/turni', icon: CalendarClock, label: 'Turni', roles: ['manager', 'capo_servizio'] },
   { href: '/ristoranti', icon: Store, label: 'Ristoranti', roles: ['manager'] },
