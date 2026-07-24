@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, FileText, ShieldCheck, LogOut, Menu, X } from 'lucide-react'
+import { Home, Wallet, FileText, ShieldCheck, BarChart3, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/cassa/chiusura',   icon: Wallet,       label: 'Chiusura Cassa', roles: ['manager', 'cassiere'] },
   { href: '/cassa/prima-nota', icon: FileText,     label: 'Prima Nota',   roles: ['manager', 'cassiere'] },
   { href: '/cassa/approvazioni', icon: ShieldCheck, label: 'Approvazioni', roles: ['manager'] },
+  { href: '/cassa/analisi',    icon: BarChart3,    label: 'Analisi',      roles: ['manager'] },
 ]
 
 interface SidebarContentProps {
