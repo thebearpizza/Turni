@@ -17,8 +17,12 @@ function roundTo2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
 
-function formatDisplay(v: number | null): string {
+// blankZero: negli input editabili uno zero si mostra vuoto invece di "0",
+// cosi' si digita subito l'importo senza dover prima cancellare il valore
+// predefinito. I campi di sola lettura mostrano sempre il valore reale.
+function formatDisplay(v: number | null, blankZero: boolean): string {
   if (v === null || !Number.isFinite(v)) return ''
+  if (blankZero && v === 0) return ''
   return v % 1 === 0 ? String(v) : v.toFixed(2).replace('.', ',')
 }
 
@@ -33,11 +37,10 @@ function parseText(t: string): number | null {
 // +/- per micro-aggiustamenti, sul modello di time-input.tsx (testo libero
 // affiancato a un controllo dedicato).
 export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = false, disabled = false, className }: CurrencyInputProps) {
-  const [text, setText] = useState(formatDisplay(value))
-
-  useEffect(() => { setText(formatDisplay(value)) }, [value])
-
   const isReadOnly = readOnly || !onChange
+  const [text, setText] = useState(formatDisplay(value, !isReadOnly))
+
+  useEffect(() => { setText(formatDisplay(value, !isReadOnly)) }, [value, isReadOnly])
 
   function handleTextChange(e: React.ChangeEvent<HTMLInputElement>) {
     setText(e.target.value)
@@ -47,12 +50,12 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
     if (isReadOnly) return
     const parsed = parseText(text)
     if (parsed === null) {
-      setText(formatDisplay(value))
+      setText(formatDisplay(value, true))
       return
     }
     const clamped = min != null ? Math.max(min, roundTo2(parsed)) : roundTo2(parsed)
     onChange!(clamped)
-    setText(formatDisplay(clamped))
+    setText(formatDisplay(clamped, true))
   }
 
   function bump(delta: number) {
@@ -80,6 +83,7 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
         type="text"
         inputMode="decimal"
         autoComplete="off"
+        placeholder={isReadOnly ? undefined : '0,00'}
         value={text}
         onChange={handleTextChange}
         onBlur={handleBlur}

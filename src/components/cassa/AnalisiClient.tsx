@@ -5,10 +5,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
+import { TrendChart } from '@/components/cassa/TrendChart'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, format } from 'date-fns'
-import { it } from 'date-fns/locale'
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
 
 const TZ = 'Europe/Rome'
 
@@ -61,14 +61,45 @@ function rangeForPreset(preset: Preset, customStart: string, customEnd: string):
   }
 }
 
+type RigaJoined = Riga & { restaurant: { name: string } | null }
+
+async function fetchRighe(
+  supabase: ReturnType<typeof createClient>,
+  targets: string[],
+  start: string,
+  end: string
+): Promise<Riga[]> {
+  if (targets.length === 0) return []
+  const { data } = await supabase
+    .from('cassa_chiusure')
+    .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, stato, restaurant:restaurants(name)')
+    .in('restaurant_id', targets)
+    .eq('stato', 'confermata')
+    .gte('data', start)
+    .lte('data', end)
+    .order('data', { ascending: false })
+
+  return ((data ?? []) as unknown as RigaJoined[]).map(r => ({
+    id: r.id,
+    data: r.data,
+    restaurant_id: r.restaurant_id,
+    restaurant_name: r.restaurant?.name ?? '—',
+    totale_entrate: r.totale_entrate,
+    totale_spese_giornaliere: r.totale_spese_giornaliere,
+    differenza: r.differenza,
+  }))
+}
+
 export function AnalisiClient({ restaurants }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [preset, setPreset] = useState<Preset>('mese')
   const today = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd, setCustomEnd] = useState(today)
+  const [compareYoY, setCompareYoY] = useState(false)
 
   const [righe, setRighe] = useState<Riga[]>([])
+  const [righePrecedenti, setRighePrecedenti] = useState<Riga[]>([])
   const [loading, setLoading] = useState(true)
 
   function toggleRestaurant(id: string) {
@@ -86,35 +117,25 @@ export function AnalisiClient({ restaurants }: Props) {
     const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
 
     async function load() {
-      if (targets.length === 0) {
-        if (!cancelled) { setRighe([]); setLoading(false) }
-        return
-      }
-      const { data } = await supabase
-        .from('cassa_chiusure')
-        .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, stato, restaurant:restaurants(name)')
-        .in('restaurant_id', targets)
-        .eq('stato', 'confermata')
-        .gte('data', start)
-        .lte('data', end)
-        .order('data', { ascending: false })
-
+      const current = await fetchRighe(supabase, targets, start, end)
       if (cancelled) return
-      setRighe(((data ?? []) as unknown as Array<Riga & { restaurant: { name: string } | null }>).map(r => ({
-        id: r.id,
-        data: r.data,
-        restaurant_id: r.restaurant_id,
-        restaurant_name: r.restaurant?.name ?? '—',
-        totale_entrate: r.totale_entrate,
-        totale_spese_giornaliere: r.totale_spese_giornaliere,
-        differenza: r.differenza,
-      })))
-      setLoading(false)
+      setRighe(current)
+
+      if (compareYoY) {
+        const prevStart = fmtDate(subYears(new Date(`${start}T12:00:00Z`), 1))
+        const prevEnd = fmtDate(subYears(new Date(`${end}T12:00:00Z`), 1))
+        const previous = await fetchRighe(supabase, targets, prevStart, prevEnd)
+        if (!cancelled) setRighePrecedenti(previous)
+      } else {
+        setRighePrecedenti([])
+      }
+
+      if (!cancelled) setLoading(false)
     }
 
     load()
     return () => { cancelled = true }
-  }, [start, end, selectedRestaurants, restaurants])
+  }, [start, end, selectedRestaurants, restaurants, compareYoY])
 
   return (
     <div className="space-y-4">
@@ -171,6 +192,16 @@ export function AnalisiClient({ restaurants }: Props) {
               </div>
             )}
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={compareYoY}
+              onChange={e => setCompareYoY(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            Confronta con l&apos;anno precedente
+          </label>
         </CardContent>
       </Card>
 
@@ -190,39 +221,7 @@ export function AnalisiClient({ restaurants }: Props) {
           ) : righe.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessuna chiusura confermata nel periodo selezionato.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Data</th>
-                    <th className="py-2 pr-4 font-medium">Locale</th>
-                    <th className="py-2 pr-4 font-medium text-right">Totale Entrate</th>
-                    <th className="py-2 pr-4 font-medium text-right">Totale Spese</th>
-                    <th className="py-2 font-medium text-right">Differenza</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {righe.map(r => {
-                    const isBalanced = Math.abs(r.differenza) < 0.005
-                    const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
-                    return (
-                      <tr key={r.id} className="border-b border-border last:border-0">
-                        <td className="py-2 pr-4 whitespace-nowrap">{dataLabel}</td>
-                        <td className="py-2 pr-4">{r.restaurant_name}</td>
-                        <td className="py-2 pr-4 text-right tabular-nums">€ {r.totale_entrate.toFixed(2)}</td>
-                        <td className="py-2 pr-4 text-right tabular-nums">€ {r.totale_spese_giornaliere.toFixed(2)}</td>
-                        <td className={cn(
-                          'py-2 text-right tabular-nums font-medium',
-                          isBalanced ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
-                        )}>
-                          {isBalanced ? '0,00 €' : `${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2)} €`}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <TrendChart righe={righe} righePrecedenti={compareYoY ? righePrecedenti : undefined} />
           )}
         </CardContent>
       </Card>
