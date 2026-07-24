@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Badge } from '@/components/ui/badge'
+import { SpeseFase } from '@/components/cassa/SpeseFase'
 import type { CassaChiusura } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -46,6 +47,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [saving, setSaving] = useState(false)
   const [existing, setExisting] = useState<CassaChiusura | null>(null)
   const [fields, setFields] = useState(emptyFields())
+  const [ownerId, setOwnerId] = useState<string | null>(null)
 
   const loadChiusura = useCallback(async () => {
     if (!restaurantId || !date) return
@@ -93,6 +95,29 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   }, [restaurantId, date])
 
   useEffect(() => { loadChiusura() }, [loadChiusura])
+
+  useEffect(() => {
+    if (!restaurantId) { setOwnerId(null); return }
+    const supabase = createClient()
+    supabase.from('restaurants').select('owner_id').eq('id', restaurantId).single()
+      .then(({ data }) => setOwnerId(data?.owner_id ?? null))
+  }, [restaurantId])
+
+  // Aggiorna in tempo reale i campi calcolati dal trigger (totale spese,
+  // banca teorica, differenza) quando cambiano le spese collegate.
+  useEffect(() => {
+    if (!existing?.id) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`cassa_chiusura_${existing.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'cassa_chiusure', filter: `id=eq.${existing.id}` },
+        (payload) => setExisting(payload.new as CassaChiusura)
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [existing?.id])
 
   const totaleEntrate = fields.entrateContanti + fields.entratePos + fields.entrateBonifico
   const mediaScontrino = fields.coperti === 0
@@ -288,18 +313,14 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         </Card>
       )}
 
-      {restaurantId && !loading && fase === 2 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Spese e categorie</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">Fase 2 — in arrivo.</p>
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setFase(1)}>Indietro</Button>
-            </div>
-          </CardContent>
-        </Card>
+      {restaurantId && !loading && fase === 2 && existing && ownerId && (
+        <SpeseFase
+          chiusura={existing}
+          ownerId={ownerId}
+          role={role}
+          userId={userId}
+          onBack={() => setFase(1)}
+        />
       )}
     </div>
   )
