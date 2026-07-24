@@ -17,7 +17,7 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
-      <CassaSidebar />
+      <CassaSidebar role={profile.role} />
       <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
         {children}
       </main>

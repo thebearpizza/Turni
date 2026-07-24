@@ -3,20 +3,28 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, FileText, LogOut, Menu, X } from 'lucide-react'
+import { Home, Wallet, FileText, ShieldCheck, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
 // nessuna logica di business (niente badge, niente realtime).
 const navItems = [
-  { href: '/hub',              icon: Home,     label: 'Home' },
-  { href: '/cassa/chiusura',   icon: Wallet,   label: 'Chiusura Cassa' },
-  { href: '/cassa/prima-nota', icon: FileText, label: 'Prima Nota' },
+  { href: '/hub',              icon: Home,        label: 'Home',         roles: ['manager', 'cassiere'] },
+  { href: '/cassa/chiusura',   icon: Wallet,       label: 'Chiusura Cassa', roles: ['manager', 'cassiere'] },
+  { href: '/cassa/prima-nota', icon: FileText,     label: 'Prima Nota',   roles: ['manager', 'cassiere'] },
+  { href: '/cassa/approvazioni', icon: ShieldCheck, label: 'Approvazioni', roles: ['manager'] },
 ]
+
+interface SidebarContentProps {
+  pathname: string
+  items: typeof navItems
+  onNavigate: () => void
+  onLogout: () => void
+}
 
 // Componente a livello di modulo (non ricreato ad ogni render) condiviso
 // tra la sidebar desktop e il drawer mobile.
-function SidebarContent({ pathname, onNavigate, onLogout }: { pathname: string; onNavigate: () => void; onLogout: () => void }) {
+function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border">
@@ -25,7 +33,7 @@ function SidebarContent({ pathname, onNavigate, onLogout }: { pathname: string; 
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {navItems.map(({ href, icon: Icon, label }) => (
+        {items.map(({ href, icon: Icon, label }) => (
           <Link
             key={href}
             href={href}
@@ -56,11 +64,16 @@ function SidebarContent({ pathname, onNavigate, onLogout }: { pathname: string; 
   )
 }
 
-export function CassaSidebar() {
+interface Props {
+  role: 'manager' | 'cassiere'
+}
+
+export function CassaSidebar({ role }: Props) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
+  const items = navItems.filter(item => item.roles.includes(role))
 
   async function handleLogout() {
     const supabase = createClient()
@@ -72,7 +85,7 @@ export function CassaSidebar() {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent pathname={pathname} onNavigate={closeDrawer} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
       </aside>
 
       {/* Mobile header + drawer */}
@@ -84,7 +97,7 @@ export function CassaSidebar() {
           <Menu className="w-5 h-5" />
         </button>
         <span className="ml-3 font-semibold flex-1">
-          {navItems.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Cassa'}
+          {items.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Cassa'}
         </span>
       </div>
 
@@ -101,7 +114,7 @@ export function CassaSidebar() {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent pathname={pathname} onNavigate={closeDrawer} onLogout={handleLogout} />
+            <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
           </aside>
         </div>
       )}

@@ -24,12 +24,13 @@ interface Props {
   role: 'manager' | 'cassiere'
   userId: string
   onBack: () => void
+  onNext: () => void
 }
 
 // Fase 2 del wizard Chiusura Cassa: registrazione spese giornaliere con
 // autocomplete sulle voci storiche e controllo duplicati semantici via AI
 // prima di salvare una voce mai vista.
-export function SpeseFase({ chiusura, ownerId, role, userId, onBack }: Props) {
+export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: Props) {
   const locked = chiusura.stato === 'confermata'
 
   const [categorie, setCategorie] = useState<CassaCategoria[]>([])
@@ -270,6 +271,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack }: Props) {
 
         <div className="flex justify-between pt-2">
           <Button type="button" variant="outline" onClick={onBack}>Indietro</Button>
+          <Button type="button" onClick={onNext}>Avanti</Button>
         </div>
       </CardContent>
 

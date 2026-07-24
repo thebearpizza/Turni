@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Badge } from '@/components/ui/badge'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
+import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import type { CassaChiusura } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -34,6 +35,7 @@ const emptyFields = () => ({
   coperti: 0,
   incassoAsporto: 0,
   fondoCassaFinale: 0,
+  contantiPerBanca: 0,
 })
 
 export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
@@ -71,6 +73,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         coperti: row.coperti,
         incassoAsporto: row.incasso_asporto,
         fondoCassaFinale: row.fondo_cassa_finale,
+        contantiPerBanca: row.contanti_per_banca,
       })
       setLoading(false)
       return
@@ -126,9 +129,19 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   const fondoIniziale_editabile = fields.fondoCassaIniziale === 0
   const isConfermata = existing?.stato === 'confermata'
+  // Bozza (nuova o non ancora confermata): Fase 1 salva incrementalmente.
+  // Chiusura già confermata: Fase 1 è solo navigazione, il salvataggio
+  // (diretto o via richiesta di approvazione) avviene in Fase 3.
+  const isDraftFlow = !isConfermata
 
   async function handleAvanti() {
     if (!restaurantId || !date) return
+
+    if (!isDraftFlow) {
+      setFase(2)
+      return
+    }
+
     setSaving(true)
     const supabase = createClient()
 
@@ -142,6 +155,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       coperti: fields.coperti,
       incasso_asporto: fields.incassoAsporto,
       fondo_cassa_finale: fields.fondoCassaFinale,
+      contanti_per_banca: fields.contantiPerBanca,
       updated_by: userId,
     }
     const payload = existing
@@ -223,7 +237,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           <CardContent className="space-y-4">
             {isConfermata && (
               <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
-                Questa chiusura è già stata confermata. La modifica sarà disponibile a breve.
+                Questa chiusura è già stata confermata. Il salvataggio delle modifiche avviene in Fase 3.
               </p>
             )}
 
@@ -232,7 +246,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               <CurrencyInput
                 value={fields.fondoCassaIniziale}
                 onChange={v => setFields(f => ({ ...f, fondoCassaIniziale: v }))}
-                readOnly={!fondoIniziale_editabile || isConfermata}
+                readOnly={!fondoIniziale_editabile}
               />
             </div>
 
@@ -242,7 +256,6 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entrateContanti}
                   onChange={v => setFields(f => ({ ...f, entrateContanti: v }))}
-                  readOnly={isConfermata}
                 />
               </div>
               <div className="space-y-1.5">
@@ -250,7 +263,6 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entratePos}
                   onChange={v => setFields(f => ({ ...f, entratePos: v }))}
-                  readOnly={isConfermata}
                 />
               </div>
               <div className="space-y-1.5">
@@ -258,7 +270,6 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entrateBonifico}
                   onChange={v => setFields(f => ({ ...f, entrateBonifico: v }))}
-                  readOnly={isConfermata}
                 />
               </div>
             </div>
@@ -277,7 +288,6 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                   step={1}
                   value={fields.coperti}
                   onChange={e => setFields(f => ({ ...f, coperti: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
-                  disabled={isConfermata}
                 />
               </div>
               <div className="space-y-1.5">
@@ -285,7 +295,6 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.incassoAsporto}
                   onChange={v => setFields(f => ({ ...f, incassoAsporto: v }))}
-                  readOnly={isConfermata}
                 />
               </div>
             </div>
@@ -300,12 +309,11 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               <CurrencyInput
                 value={fields.fondoCassaFinale}
                 onChange={v => setFields(f => ({ ...f, fondoCassaFinale: v }))}
-                readOnly={isConfermata}
               />
             </div>
 
             <div className="pt-2 flex justify-end">
-              <Button onClick={handleAvanti} disabled={saving || isConfermata}>
+              <Button onClick={handleAvanti} disabled={saving}>
                 {saving ? 'Salvataggio…' : 'Avanti'}
               </Button>
             </div>
@@ -320,6 +328,20 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           role={role}
           userId={userId}
           onBack={() => setFase(1)}
+          onNext={() => setFase(3)}
+        />
+      )}
+
+      {restaurantId && !loading && fase === 3 && existing && (
+        <QuadraturaFase
+          chiusura={existing}
+          fields={fields}
+          onFieldsChange={setFields}
+          role={role}
+          userId={userId}
+          onBack={() => setFase(2)}
+          onSaved={row => setExisting(row)}
+          onRequestSent={() => loadChiusura()}
         />
       )}
     </div>
