@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
@@ -11,6 +12,7 @@ import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSectio
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
+import { FileText, FileSpreadsheet } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -122,12 +124,42 @@ export function AnalisiClient({ restaurants }: Props) {
   const [righePrecedenti, setRighePrecedenti] = useState<Riga[]>([])
   const [spese, setSpese] = useState<SpesaRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
 
   function toggleRestaurant(id: string) {
     setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
   }
 
   const { start, end } = useMemo(() => rangeForPreset(preset, customStart, customEnd), [preset, customStart, customEnd])
+  const targets = useMemo(
+    () => selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id),
+    [selectedRestaurants, restaurants]
+  )
+
+  async function handleExport(exportFormat: 'pdf' | 'xlsx') {
+    setExporting(exportFormat)
+    try {
+      const res = await fetch('/api/cassa/analisi-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_ids: targets, start, end, format: exportFormat }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        alert(err?.error ?? 'Errore nel download.')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `analisi-cassa-${start}_${end}.${exportFormat}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(null)
+    }
+  }
 
   useEffect(() => {
     if (!start || !end) return
@@ -135,7 +167,6 @@ export function AnalisiClient({ restaurants }: Props) {
     setLoading(true)
 
     const supabase = createClient()
-    const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
 
     async function load() {
       const current = await fetchRighe(supabase, targets, start, end)
@@ -159,10 +190,27 @@ export function AnalisiClient({ restaurants }: Props) {
 
     load()
     return () => { cancelled = true }
-  }, [start, end, selectedRestaurants, restaurants, compareYoY])
+  }, [start, end, targets, compareYoY])
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button" variant="outline" size="sm"
+          disabled={!!exporting || righe.length === 0}
+          onClick={() => handleExport('pdf')}
+        >
+          <FileText className="w-4 h-4" /> {exporting === 'pdf' ? 'Esportazione…' : 'Esporta PDF'}
+        </Button>
+        <Button
+          type="button" variant="outline" size="sm"
+          disabled={!!exporting || righe.length === 0}
+          onClick={() => handleExport('xlsx')}
+        >
+          <FileSpreadsheet className="w-4 h-4" /> {exporting === 'xlsx' ? 'Esportazione…' : 'Esporta Excel'}
+        </Button>
+      </div>
+
       <Card>
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
