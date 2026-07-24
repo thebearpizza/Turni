@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, format } from 'date-fns'
@@ -172,6 +173,15 @@ export function AnalisiClient({ restaurants }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {!loading && righe.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 space-y-2">
+            <Label>Confronto per ristorante nel periodo</Label>
+            <ConfrontoSediTable righe={righe} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6">
