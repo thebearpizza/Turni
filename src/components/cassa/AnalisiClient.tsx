@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
+import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
@@ -227,6 +228,8 @@ export function AnalisiClient({ restaurants }: Props) {
           </label>
         </CardContent>
       </Card>
+
+      {!loading && righe.length > 0 && <RecurringAlertsSection righe={righe} />}
 
       {!loading && righe.length > 0 && (
         <Card>
