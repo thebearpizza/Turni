@@ -307,3 +307,61 @@ export interface StandardShift {
   updated_at:    string
   profile?:      { id: string; full_name: string } | null
 }
+
+// ── Cassa ──────────────────────────────────────────────────────────────
+
+export type CassaChiusuraStato = 'confermata' | 'in_verifica'
+
+export interface CassaChiusura {
+  id:                        string
+  restaurant_id:             string
+  data:                      string // yyyy-MM-dd
+  fondo_cassa_iniziale:      number
+  entrate_contanti:          number
+  entrate_pos:               number
+  entrate_bonifico:          number
+  totale_entrate:            number
+  coperti:                   number
+  incasso_asporto:           number
+  media_scontrino:           number
+  fondo_cassa_finale:        number
+  contanti_per_banca:        number
+  banca_teorica:             number
+  differenza:                number
+  totale_spese_giornaliere:  number
+  stato:                     CassaChiusuraStato
+  created_by:                string | null
+  updated_by:                string | null
+  created_at:                string
+  updated_at:                string
+}
+
+export interface CassaCategoria {
+  id:         string
+  owner_id:   string
+  nome:       string
+  created_at: string
+}
+
+export interface CassaSpesa {
+  id:           string
+  chiusura_id:  string
+  nome_spesa:   string
+  categoria_id: string | null
+  importo:      number
+  created_by:   string | null
+  created_at:   string
+}
+
+export type CassaModificaStato = 'in_attesa' | 'approvata' | 'rifiutata'
+
+export interface CassaChiusuraModifica {
+  id:            string
+  chiusura_id:   string
+  payload:       Record<string, unknown>
+  richiesto_da:  string | null
+  stato:         CassaModificaStato
+  rivisto_da:    string | null
+  rivisto_at:    string | null
+  created_at:    string
+}
