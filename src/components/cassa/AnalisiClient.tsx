@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
+import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
@@ -90,6 +91,24 @@ async function fetchRighe(
   }))
 }
 
+interface SpesaRow {
+  importo: number
+  categoria_nome: string | null
+}
+
+async function fetchSpese(supabase: ReturnType<typeof createClient>, chiusuraIds: string[]): Promise<SpesaRow[]> {
+  if (chiusuraIds.length === 0) return []
+  const { data } = await supabase
+    .from('cassa_spese')
+    .select('importo, categoria:cassa_categorie(nome)')
+    .in('chiusura_id', chiusuraIds)
+
+  return ((data ?? []) as unknown as Array<{ importo: number; categoria: { nome: string } | null }>).map(s => ({
+    importo: s.importo,
+    categoria_nome: s.categoria?.nome ?? null,
+  }))
+}
+
 export function AnalisiClient({ restaurants }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [preset, setPreset] = useState<Preset>('mese')
@@ -100,6 +119,7 @@ export function AnalisiClient({ restaurants }: Props) {
 
   const [righe, setRighe] = useState<Riga[]>([])
   const [righePrecedenti, setRighePrecedenti] = useState<Riga[]>([])
+  const [spese, setSpese] = useState<SpesaRow[]>([])
   const [loading, setLoading] = useState(true)
 
   function toggleRestaurant(id: string) {
@@ -120,6 +140,9 @@ export function AnalisiClient({ restaurants }: Props) {
       const current = await fetchRighe(supabase, targets, start, end)
       if (cancelled) return
       setRighe(current)
+
+      const speseData = await fetchSpese(supabase, current.map(r => r.id))
+      if (!cancelled) setSpese(speseData)
 
       if (compareYoY) {
         const prevStart = fmtDate(subYears(new Date(`${start}T12:00:00Z`), 1))
@@ -225,6 +248,15 @@ export function AnalisiClient({ restaurants }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {!loading && righe.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <Label>Ripartizione spese per categoria</Label>
+            <CategorieBreakdownChart spese={spese} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
