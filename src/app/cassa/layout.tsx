@@ -13,9 +13,7 @@ export default async function CassaLayout({ children }: { children: React.ReactN
     .eq('id', user.id)
     .single()
 
-  // Il ruolo "cassiere" non esiste ancora: il modulo Cassa è per ora
-  // riservato al solo manager.
-  if (!profile || profile.role !== 'manager') redirect('/dashboard')
+  if (!profile || !['manager', 'cassiere'].includes(profile.role)) redirect('/dashboard')
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">

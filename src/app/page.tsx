@@ -19,6 +19,8 @@ export default async function HomePage() {
     redirect('/home')
   } else if (profile.role === 'manager') {
     redirect('/hub')
+  } else if (profile.role === 'cassiere') {
+    redirect('/cassa')
   } else {
     redirect('/dashboard')
   }

@@ -103,9 +103,10 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
         .single()
       if (data) setRestaurants(rs => rs.map(r => r.id === data.id ? data : r))
     } else {
+      const { data: { user } } = await supabase.auth.getUser()
       const { data } = await supabase
         .from('restaurants')
-        .insert({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays })
+        .insert({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays, owner_id: user?.id ?? null })
         .select()
         .single()
       if (data) setRestaurants(rs => [...rs, data])
