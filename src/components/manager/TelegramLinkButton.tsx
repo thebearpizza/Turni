@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { Send, CheckCircle2, Unlink } from 'lucide-react'
+import { Send, CheckCircle2, Unlink, Loader2 } from 'lucide-react'
 import { generateTelegramLink, getTelegramLinkStatus, unlinkTelegram } from '@/app/actions/telegram'
 
 export function TelegramLinkButton() {
@@ -74,11 +74,11 @@ export function TelegramLinkButton() {
         </div>
         {linked ? (
           <Button size="sm" variant="outline" onClick={handleUnlink} disabled={busy}>
-            <Unlink className="w-4 h-4" /> Scollega
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlink className="w-4 h-4" />} Scollega
           </Button>
         ) : (
           <Button size="sm" onClick={handleConnect} disabled={busy}>
-            <Send className="w-4 h-4" /> Collega Telegram
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Collega Telegram
           </Button>
         )}
       </div>

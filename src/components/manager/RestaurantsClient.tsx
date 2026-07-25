@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Plus, QrCode, Pencil, Trash2, MapPin, Clock, X } from 'lucide-react'
 import QRCode from 'qrcode'
 import type { Restaurant, ShiftSlot, Department } from '@/types'
@@ -374,7 +375,18 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
 
             {/* Elenco slot esistenti */}
             {slotsLoading ? (
-              <p className="text-sm text-muted-foreground">Caricamento…</p>
+              <div className="w-full rounded-md border overflow-hidden">
+                <div className="h-8 bg-zinc-900 dark:bg-zinc-800" />
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-2 py-2 border-t border-zinc-200 dark:border-zinc-700">
+                    <Skeleton className="h-3.5 w-16" />
+                    <Skeleton className="h-3.5 w-20" />
+                    <Skeleton className="h-3.5 w-16" />
+                    <Skeleton className="h-3.5 w-6" />
+                    <Skeleton className="h-3.5 w-24" />
+                  </div>
+                ))}
+              </div>
             ) : slots.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">Nessuna fascia configurata.</p>
             ) : (

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import type { CassaChiusura } from '@/types'
@@ -226,7 +227,62 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       )}
 
       {restaurantId && loading && (
-        <p className="text-sm text-muted-foreground">Caricamento…</p>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-20" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-20" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-16" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <Skeleton className="h-9 w-20" />
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {restaurantId && !loading && fase === 1 && (

@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Pencil, Trash2, Plus, Tags } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Pencil, Trash2, Plus, Tags, Loader2 } from 'lucide-react'
 import type { CassaCategoria } from '@/types'
 
 interface Props {
@@ -101,7 +102,9 @@ export function CategorieManagerDialog({ ownerId, onChange }: Props) {
                 onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
               />
               <Button type="button" onClick={handleSave} disabled={saving || !nome.trim()}>
-                {editing ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {saving
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : (editing ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />)}
               </Button>
               {editing && (
                 <Button type="button" variant="ghost" onClick={resetForm}>Annulla</Button>
@@ -110,7 +113,19 @@ export function CategorieManagerDialog({ ownerId, onChange }: Props) {
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <div className="max-h-64 overflow-y-auto divide-y divide-border rounded-md border border-border">
-              {loading && <p className="text-sm text-muted-foreground p-3">Caricamento…</p>}
+              {loading && (
+                <div className="p-3 space-y-3">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <Skeleton className="h-4 w-28" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-7 w-7" />
+                        <Skeleton className="h-7 w-7" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!loading && categorie.length === 0 && (
                 <p className="text-sm text-muted-foreground p-3">Nessuna categoria. Aggiungine una.</p>
               )}

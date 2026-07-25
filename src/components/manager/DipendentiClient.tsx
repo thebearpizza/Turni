@@ -14,7 +14,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2 } from 'lucide-react'
+import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2, Loader2 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { Profile, Restaurant, Role, Department, SecondaryDepartment, ShiftSlot } from '@/types'
 import { ROLE_LABELS, DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
 
@@ -559,7 +560,13 @@ export function DipendentiClient({
                   const empDept = department || (editing as DipWithRestaurant).department
                   const jollySlots = restaurantSlots.filter(s => s.department !== empDept)
                   if (restaurantSlots.length === 0) return (
-                    <p className="text-xs text-muted-foreground">Caricamento fasce…</p>
+                    <div className="space-y-2">
+                      <Skeleton className="h-3.5 w-24" />
+                      <div className="space-y-1.5 pl-2">
+                        <Skeleton className="h-3.5 w-40" />
+                        <Skeleton className="h-3.5 w-36" />
+                      </div>
+                    </div>
                   )
                   if (jollySlots.length === 0) return null
 
@@ -634,6 +641,7 @@ export function DipendentiClient({
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button onClick={handleSave} disabled={formLoading || !canSave}>
+              {formLoading && <Loader2 className="w-4 h-4 animate-spin" />}
               {formLoading ? 'Salvataggio...' : 'Salva'}
             </Button>
           </DialogFooter>
@@ -682,6 +690,7 @@ export function DipendentiClient({
                   onClick={handleResetPassword}
                   disabled={pwLoading || newPassword.trim().length < 6}
                 >
+                  {pwLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                   {pwLoading ? 'Salvataggio...' : 'Salva'}
                 </Button>
               </DialogFooter>

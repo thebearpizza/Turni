@@ -6,6 +6,7 @@ import { it } from 'date-fns/locale'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { ConsultantMessage } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 
@@ -185,7 +186,22 @@ export function ConsultantInbox({ userId }: Props) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Caricamento messaggi...</p>
+    return (
+      <div className="max-w-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-8 w-36 rounded-md" />
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="border border-border rounded-md px-4 py-3 space-y-1.5">
+              <Skeleton className={`h-4 ${i % 2 === 0 ? 'w-48' : 'w-32'}`} />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (

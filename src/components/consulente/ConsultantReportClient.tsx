@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { FileSpreadsheet, Download } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { getDaysInMonth, differenceInMinutes } from 'date-fns'
@@ -307,7 +308,15 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
               </thead>
               <tbody>
                 {previewLoading && previewPresenze.length === 0 ? (
-                  <tr><td colSpan={days.length + 2} className="text-center py-6 text-muted-foreground text-xs">Caricamento...</td></tr>
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}>
+                      <td className={tdNameCls}><Skeleton className="h-3 w-24" /></td>
+                      {days.map(d => (
+                        <td key={d} className={tdCls}><Skeleton className="h-3 w-5 mx-auto" /></td>
+                      ))}
+                      <td className={tdCls} />
+                    </tr>
+                  ))
                 ) : previewPresenze.length === 0 ? (
                   <tr><td colSpan={days.length + 2} className="text-center py-6 text-muted-foreground text-xs">Nessun dipendente trovato</td></tr>
                 ) : previewPresenze.map(row => (
@@ -359,7 +368,17 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
                 </thead>
                 <tbody>
                   {previewLoading && previewOre.length === 0 ? (
-                    <tr><td colSpan={days.length + 4} className="text-center py-6 text-muted-foreground text-xs">Caricamento...</td></tr>
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i}>
+                        <td className={tdNameCls}><Skeleton className="h-3 w-24" /></td>
+                        {days.map(d => (
+                          <td key={d} className={tdCls}><Skeleton className="h-3 w-8 mx-auto" /></td>
+                        ))}
+                        <td className={tdCls}><Skeleton className="h-3 w-10 mx-auto" /></td>
+                        <td className={tdCls}><Skeleton className="h-3 w-10 mx-auto" /></td>
+                        <td className={tdCls} />
+                      </tr>
+                    ))
                   ) : previewOre.length === 0 ? (
                     <tr><td colSpan={days.length + 4} className="text-center py-6 text-muted-foreground text-xs">Nessun dipendente trovato</td></tr>
                   ) : previewOre.map(row => (

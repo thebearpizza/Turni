@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -161,7 +162,21 @@ export function ListaChiusureClient({ restaurants }: Props) {
       <Card>
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Caricamento…</p>
+            <div className="divide-y divide-border">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div className="space-y-1.5 min-w-0">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : righe.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessuna chiusura confermata nel mese selezionato.</p>
           ) : (

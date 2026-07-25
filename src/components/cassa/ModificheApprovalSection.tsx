@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { ShieldAlert, Check, X } from 'lucide-react'
+import { ShieldAlert, Check, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -34,18 +34,21 @@ interface Props {
 export function ModificheApprovalSection({ initialPending }: Props) {
   const [pending, setPending] = useState(initialPending)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [action, setAction] = useState<'approve' | 'reject' | null>(null)
 
-  async function handleAction(modificaId: string, action: 'approve' | 'reject') {
+  async function handleAction(modificaId: string, act: 'approve' | 'reject') {
     setLoadingId(modificaId)
+    setAction(act)
     const res = await fetch('/api/cassa/modifica-approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modificaId, action }),
+      body: JSON.stringify({ modificaId, action: act }),
     })
     if (res.ok) {
       setPending(prev => prev.filter(p => p.id !== modificaId))
     }
     setLoadingId(null)
+    setAction(null)
   }
 
   if (pending.length === 0) {
@@ -84,7 +87,9 @@ export function ModificheApprovalSection({ initialPending }: Props) {
                     onClick={() => handleAction(item.id, 'approve')}
                     disabled={isWorking}
                   >
-                    <Check className="w-3.5 h-3.5 mr-1" />
+                    {isWorking && action === 'approve'
+                      ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      : <Check className="w-3.5 h-3.5 mr-1" />}
                     Approva
                   </Button>
                   <Button
@@ -94,7 +99,9 @@ export function ModificheApprovalSection({ initialPending }: Props) {
                     onClick={() => handleAction(item.id, 'reject')}
                     disabled={isWorking}
                   >
-                    <X className="w-3.5 h-3.5 mr-1" />
+                    {isWorking && action === 'reject'
+                      ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      : <X className="w-3.5 h-3.5 mr-1" />}
                     Rifiuta
                   </Button>
                 </div>

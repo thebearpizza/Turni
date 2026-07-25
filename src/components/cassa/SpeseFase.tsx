@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CategorieManagerDialog } from '@/components/cassa/CategorieManagerDialog'
 import { Trash2 } from 'lucide-react'
 import type { CassaChiusura, CassaCategoria, CassaSpesa } from '@/types'
@@ -239,7 +240,15 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
         )}
 
         <div className="space-y-2">
-          {loadingSpese && <p className="text-sm text-muted-foreground">Caricamento…</p>}
+          {loadingSpese && Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <Skeleton className="h-4 w-40" />
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-14" />
+                <Skeleton className="h-7 w-7 rounded-md" />
+              </div>
+            </div>
+          ))}
           {!loadingSpese && spese.length === 0 && (
             <p className="text-sm text-muted-foreground">Nessuna spesa registrata per questa giornata.</p>
           )}

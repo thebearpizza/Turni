@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
@@ -291,7 +292,18 @@ export function AnalisiClient({ restaurants }: Props) {
       <Card>
         <CardContent className="pt-6">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Caricamento…</p>
+            <div className="space-y-3">
+              <div className="flex items-end gap-2 h-48">
+                {[45, 65, 40, 80, 55, 70, 35, 60, 50, 75, 45, 65].map((h, i) => (
+                  <Skeleton key={i} className="flex-1" style={{ height: `${h}%` }} />
+                ))}
+              </div>
+              <div className="flex justify-between">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+            </div>
           ) : righe.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessuna chiusura confermata nel periodo selezionato.</p>
           ) : (

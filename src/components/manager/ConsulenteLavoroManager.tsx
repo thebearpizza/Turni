@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
 import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
 import { createClient } from '@/lib/supabase/client'
@@ -398,7 +399,21 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       </div>
 
       {loadingList && (
-        <p className="text-sm text-muted-foreground">Caricamento...</p>
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="border border-border rounded-md px-4 py-3 flex items-center justify-between gap-3">
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Skeleton className="h-7 w-7 rounded" />
+                <Skeleton className="h-7 w-7 rounded" />
+                <Skeleton className="h-7 w-7 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
       {!loadingList && consultants.length === 0 && (
         <p className="text-sm text-muted-foreground">Nessun consulente creato.</p>

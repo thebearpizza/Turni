@@ -1,5 +1,5 @@
 'use client'
-import { BellRing, X } from 'lucide-react'
+import { BellRing, X, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import type { PushPermission } from '@/hooks/usePushNotifications'
 
@@ -29,9 +29,10 @@ export function PushNotificationBanner({ permission, onSubscribe }: Props) {
       <button
         onClick={handleSubscribe}
         disabled={loading}
-        className="shrink-0 text-xs font-semibold text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+        className="shrink-0 flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
       >
-        {loading ? '...' : 'Attiva'}
+        {loading && <Loader2 className="w-3 h-3 animate-spin" />}
+        {loading ? 'Attivazione' : 'Attiva'}
       </button>
       <button
         onClick={() => setDismissed(true)}

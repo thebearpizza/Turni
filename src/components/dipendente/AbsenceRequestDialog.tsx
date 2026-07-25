@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { LoadingDots } from '@/components/shared/LoadingDots'
 import { X, CheckCircle2 } from 'lucide-react'
 import type { AbsenceType } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
@@ -165,7 +166,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
                 disabled={loading || !startDate || !endDate}
                 className="w-full h-14 rounded-md bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground font-semibold text-base transition-colors active:scale-[0.98]"
               >
-                {loading ? 'Invio in corso...' : 'Invia Richiesta'}
+                {loading ? <>Invio in corso<LoadingDots /></> : 'Invia Richiesta'}
               </button>
             </form>
           )}

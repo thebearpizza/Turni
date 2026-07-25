@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Plus, Trash2, Globe, Store, Users, Eye, ChevronDown } from 'lucide-react'
 import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -461,7 +462,7 @@ export function BachecaClient({
           </DialogHeader>
           {loadingReads ? (
             <div className="space-y-2 py-2">
-              {[...Array(3)].map((_, i) => <div key={i} className="h-9 bg-muted animate-pulse rounded" />)}
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-9" />)}
             </div>
           ) : reads.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
