@@ -1,7 +1,9 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { CassaPill } from '@/components/cassa/CassaPill'
+import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
+import { cn } from '@/lib/utils'
 import { format, startOfWeek, startOfMonth } from 'date-fns'
 import { it } from 'date-fns/locale'
 
@@ -31,6 +33,7 @@ interface Bucket {
   entrate: number
   spese: number
   differenza: number
+  entratePrecedente?: number | null
 }
 
 function bucketKey(dateStr: string, granularity: Granularity): { key: string; label: string } {
@@ -59,9 +62,15 @@ function toBuckets(righe: Riga[], granularity: Granularity): Bucket[] {
   return Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key))
 }
 
+function euro(n: number): string {
+  return `${n < 0 ? '−' : ''}€ ${Math.abs(n).toFixed(2)}`
+}
+
 export function TrendChart({ righe, righePrecedenti }: Props) {
   const [granularity, setGranularity] = useState<Granularity>('giorno')
+  const [activeKey, setActiveKey] = useState<string | null>(null)
   const hasCompare = !!righePrecedenti?.length
+  const reducedMotion = usePrefersReducedMotion()
 
   const data = useMemo(() => {
     const current = toBuckets(righe, granularity)
@@ -76,7 +85,16 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
     return current.map((b, i) => ({ ...b, entratePrecedente: previous[i]?.entrate ?? null }))
   }, [righe, righePrecedenti, granularity, hasCompare])
 
+  // Punto attivo (hover o tap): di default l'ultimo della serie, cosi' il
+  // fumetto mostra sempre un valore invece di restare vuoto a riposo.
+  const active = useMemo(
+    () => data.find(b => b.key === activeKey) ?? data[data.length - 1] ?? null,
+    [data, activeKey]
+  )
+
   if (righe.length === 0) return null
+
+  const chartMinWidth = Math.max(data.length * 44, 480)
 
   return (
     <div className="space-y-3">
@@ -88,31 +106,75 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
         ))}
       </div>
 
-      <div className="h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} width={60} />
-            <Tooltip formatter={(value) => `€ ${Number(value).toFixed(2)}`} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} />
-            {hasCompare && (
-              <Line
-                type="monotone"
-                dataKey="entratePrecedente"
-                name="Entrate (anno precedente)"
-                stroke="hsl(var(--muted-foreground))"
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                dot={false}
-                connectNulls
-              />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Fumetto: sempre sopra il grafico, mai sovrapposto ai dati. Data,
+          Entrate, Spese e Differenza condividono lo stesso peso tipografico. */}
+      {active && (
+        <div className="cassa-numeric grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
+          <div>
+            <div className="font-sans text-xs text-muted-foreground">Data</div>
+            <div className="font-semibold">{active.label}</div>
+          </div>
+          <div>
+            <div className="font-sans text-xs text-muted-foreground">Entrate</div>
+            <div className="font-semibold" style={{ color: 'hsl(var(--primary))' }}>{euro(active.entrate)}</div>
+          </div>
+          <div>
+            <div className="font-sans text-xs text-muted-foreground">Spese</div>
+            <div className="font-semibold" style={{ color: 'hsl(var(--cassa-copper))' }}>{euro(active.spese)}</div>
+          </div>
+          <div>
+            <div className="font-sans text-xs text-muted-foreground">Differenza</div>
+            <div className={cn('font-semibold', active.differenza >= 0 ? 'text-cassa-positive' : 'text-cassa-negative')}>
+              {euro(active.differenza)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scroll orizzontale isolato: pan-x sul contenitore evita che uno
+          swipe pensato per il grafico scateni anche lo scroll verticale
+          della pagina. Il grafico si allarga oltre il 100% solo quando i
+          punti sono troppi per stare comodamente in vista. */}
+      <div className="overflow-x-auto overscroll-x-contain" style={{ touchAction: 'pan-x' }}>
+        <div className="h-72" style={{ minWidth: `${chartMinWidth}px` }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={data}
+              margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+              onMouseMove={state => {
+                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
+                const key = idx !== undefined ? data[idx]?.key : undefined
+                if (key) setActiveKey(key)
+              }}
+              onClick={state => {
+                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
+                const key = idx !== undefined ? data[idx]?.key : undefined
+                if (key) setActiveKey(prev => (prev === key ? null : key))
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} width={60} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+              <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+              <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+              {hasCompare && (
+                <Line
+                  type="monotone"
+                  dataKey="entratePrecedente"
+                  name="Entrate (anno precedente)"
+                  stroke="hsl(var(--muted-foreground))"
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={!reducedMotion}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   )

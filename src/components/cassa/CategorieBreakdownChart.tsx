@@ -1,6 +1,7 @@
 'use client'
-import { useMemo } from 'react'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
+import { useMemo, useState } from 'react'
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
+import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
 
 interface SpesaRow {
@@ -32,10 +33,13 @@ const COLORS = [
   '#9C4B3D',
 ]
 
-// Fase D: ripartizione delle spese per categoria nel periodo selezionato —
-// base per il futuro calcolo del margine per locale (entrate - costi per
-// categoria).
+const BASE_RADIUS = 88
+const ACTIVE_RADIUS = 99
+
 export function CategorieBreakdownChart({ spese }: Props) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const reducedMotion = usePrefersReducedMotion()
+
   const fette = useMemo<Fetta[]>(() => {
     const byCategoria = new Map<string, number>()
     let totaleGenerale = 0
@@ -55,34 +59,91 @@ export function CategorieBreakdownChart({ spese }: Props) {
     return <p className="text-sm text-muted-foreground">Nessuna spesa registrata nel periodo selezionato.</p>
   }
 
+  const boundedActive = Math.min(activeIndex, fette.length - 1)
+  const selected = fette[boundedActive]
+  const selectedColor = COLORS[boundedActive % COLORS.length]
+
+  function toggle(i: number) {
+    setActiveIndex(i)
+  }
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-      <div className="h-64 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie data={fette} dataKey="totale" nameKey="nome" innerRadius={50} outerRadius={90} paddingAngle={2}>
-              {fette.map((f, i) => (
-                <Cell key={f.nome} fill={COLORS[i % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip formatter={(value, name) => [`€ ${Number(value).toFixed(2)}`, name]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-          </PieChart>
-        </ResponsiveContainer>
+    <div className="space-y-3">
+      {/* Dettaglio della fetta selezionata: area dedicata sopra il grafico,
+          mai sovrapposta alle fette o alla legenda. */}
+      <div className="cassa-numeric flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
+        <span className="font-sans font-semibold text-foreground truncate" style={{ color: selectedColor }}>
+          {selected.nome}
+        </span>
+        <span className="font-semibold whitespace-nowrap">€ {selected.totale.toFixed(2)} · {selected.percentuale.toFixed(0)}%</span>
       </div>
 
-      <div className="space-y-1.5">
-        {fette.map((f, i) => (
-          <div key={f.nome} className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className={cn('h-2.5 w-2.5 rounded-full shrink-0')} style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-              <span className="truncate">{f.nome}</span>
-            </div>
-            <div className="cassa-numeric flex items-center gap-2 shrink-0 whitespace-nowrap text-muted-foreground">
-              <span>€ {f.totale.toFixed(2)}</span>
-              <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
-            </div>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <defs>
+                {fette.map((f, i) => (
+                  <linearGradient key={f.nome} id={`cassa-pie-grad-${i}`} x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={1} />
+                    <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.7} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <Pie
+                data={fette}
+                dataKey="totale"
+                nameKey="nome"
+                innerRadius={50}
+                // outerRadius per-fetta: la fetta selezionata cresce e si
+                // "solleva" (drop-shadow sul Cell sotto), invece del solito
+                // tilt 3D — evidenzia la selezione al click, non al passaggio.
+                outerRadius={(entry: Fetta) => (fette.indexOf(entry) === boundedActive ? ACTIVE_RADIUS : BASE_RADIUS)}
+                paddingAngle={2}
+                isAnimationActive={!reducedMotion}
+                onClick={(_, i) => toggle(i)}
+                style={{ cursor: 'pointer' }}
+              >
+                {fette.map((f, i) => (
+                  <Cell
+                    key={f.nome}
+                    fill={`url(#cassa-pie-grad-${i})`}
+                    stroke="hsl(var(--card))"
+                    strokeWidth={1.5}
+                    style={{
+                      filter: i === boundedActive ? 'drop-shadow(0 4px 8px hsl(var(--foreground) / 0.3))' : undefined,
+                      transition: reducedMotion ? undefined : 'filter 150ms ease',
+                    }}
+                  />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="space-y-1.5">
+          {fette.map((f, i) => (
+            <button
+              type="button"
+              key={f.nome}
+              onClick={() => toggle(i)}
+              className={cn(
+                'flex w-full items-center justify-between text-sm rounded-md px-1.5 py-1 -mx-1.5 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                boundedActive === i ? 'bg-accent' : 'hover:bg-accent/60'
+              )}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                <span className="truncate">{f.nome}</span>
+              </div>
+              <div className="cassa-numeric flex items-center gap-2 shrink-0 whitespace-nowrap text-muted-foreground">
+                <span>€ {f.totale.toFixed(2)}</span>
+                <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
