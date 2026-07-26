@@ -1,6 +1,7 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
+import type { MouseHandlerDataParam } from 'recharts/types/synchronisation/types'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
@@ -74,10 +75,26 @@ function toBuckets(spese: SpesaRow[], granularity: Granularity): { data: Bucket[
   return { data, categorie }
 }
 
+// Blocca lo scroll verticale della pagina per l'intera durata di un
+// trascinamento che parte sul grafico — stesso meccanismo di TrendChart
+// (Task 4): touch-action: none toglie i gesti nativi, il listener nativo
+// non-passive garantisce che preventDefault() abbia davvero effetto.
+function useBlockScrollDuringTouch(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const prevent = (e: TouchEvent) => { e.preventDefault() }
+    el.addEventListener('touchmove', prevent, { passive: false })
+    return () => el.removeEventListener('touchmove', prevent)
+  }, [ref])
+}
+
 export function CategorieTrendChart({ spese }: Props) {
   const [granularity, setGranularity] = useState<Granularity>('settimana')
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
+  const chartAreaRef = useRef<HTMLDivElement>(null)
+  useBlockScrollDuringTouch(chartAreaRef)
 
   const { data, categorie } = useMemo(() => toBuckets(spese, granularity), [spese, granularity])
   const chartData = useMemo(() => data.map(b => ({ key: b.key, label: b.label, ...b.values })), [data])
@@ -91,7 +108,17 @@ export function CategorieTrendChart({ spese }: Props) {
     return <p className="text-sm text-muted-foreground">Nessuna spesa registrata nel periodo selezionato.</p>
   }
 
-  const chartMinWidth = Math.max(data.length * 56, 480)
+  // Segue il mouse o il dito in tempo reale — stessa funzione per hover
+  // desktop e scrub touch. recharts espone activeIndex come TooltipIndex
+  // (stringa numerica a runtime, es. "2"), non number: Number() lo
+  // normalizza per entrambi i casi (bug reale scoperto qui e in TrendChart,
+  // vedi Task 4 — prima il controllo `typeof === 'number'` falliva sempre
+  // silenziosamente, quindi click/hover non aggiornavano mai il riquadro).
+  function handleActive(state: MouseHandlerDataParam) {
+    const idx = state?.activeIndex != null ? Number(state.activeIndex) : NaN
+    const key = !Number.isNaN(idx) ? data[idx]?.key : undefined
+    if (key) setActiveKey(key)
+  }
 
   return (
     <div className="space-y-3">
@@ -122,33 +149,28 @@ export function CategorieTrendChart({ spese }: Props) {
         </div>
       )}
 
-      <div className="overflow-x-auto overscroll-x-contain" style={{ touchAction: 'pan-x' }}>
-        <div className="h-72" style={{ minWidth: `${chartMinWidth}px` }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={chartData}
-              margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-              onMouseMove={state => {
-                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
-                const key = idx !== undefined ? data[idx]?.key : undefined
-                if (key) setActiveKey(key)
-              }}
-              onClick={state => {
-                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
-                const key = idx !== undefined ? data[idx]?.key : undefined
-                if (key) setActiveKey(prev => (prev === key ? null : key))
-              }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} width={60} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {categorie.map((cat, i) => (
-                <Bar key={cat} dataKey={cat} name={cat} stackId="categorie" fill={cassaChartColor(i)} isAnimationActive={!reducedMotion} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Come TrendChart (Task 4): il grafico mostra sempre l'intero
+          periodo, mai panoramica — niente scroll orizzontale, altrimenti
+          trascinare per scrollare e trascinare per ispezionare i dati
+          sarebbero due gesti in conflitto sullo stesso movimento. */}
+      <div ref={chartAreaRef} className="h-72 w-full" style={{ touchAction: 'none' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+            onMouseMove={handleActive}
+            onTouchStart={handleActive}
+            onTouchMove={handleActive}
+          >
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <XAxis dataKey="label" type="category" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} width={60} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            {categorie.map((cat, i) => (
+              <Bar key={cat} dataKey={cat} name={cat} stackId="categorie" fill={cassaChartColor(i)} isAnimationActive={!reducedMotion} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
