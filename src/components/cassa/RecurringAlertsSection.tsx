@@ -102,8 +102,10 @@ export function RecurringAlertsSection({ righe }: Props) {
                   <p className="text-sm font-medium text-cassa-negative">
                     {a.restaurant_name} — {a.count} giorni oltre soglia
                   </p>
-                  <p className="cassa-numeric text-xs text-cassa-negative/80">
-                    Media {a.media > 0 ? '+' : ''}{a.media.toFixed(2)} € · Totale {a.totale > 0 ? '+' : ''}{a.totale.toFixed(2)} €
+                  <p className="cassa-numeric text-xs text-cassa-negative/80 flex flex-wrap gap-x-1.5">
+                    <span className="whitespace-nowrap">Media {a.media > 0 ? '+' : ''}{a.media.toFixed(2)} €</span>
+                    <span>·</span>
+                    <span className="whitespace-nowrap">Totale {a.totale > 0 ? '+' : ''}{a.totale.toFixed(2)} €</span>
                   </p>
                 </div>
                 <p className="text-xs text-cassa-negative/70 mt-1">

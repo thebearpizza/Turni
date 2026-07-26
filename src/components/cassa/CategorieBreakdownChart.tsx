@@ -77,7 +77,7 @@ export function CategorieBreakdownChart({ spese }: Props) {
               <span className={cn('h-2.5 w-2.5 rounded-full shrink-0')} style={{ backgroundColor: COLORS[i % COLORS.length] }} />
               <span className="truncate">{f.nome}</span>
             </div>
-            <div className="cassa-numeric flex items-center gap-2 shrink-0 text-muted-foreground">
+            <div className="cassa-numeric flex items-center gap-2 shrink-0 whitespace-nowrap text-muted-foreground">
               <span>€ {f.totale.toFixed(2)}</span>
               <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
             </div>

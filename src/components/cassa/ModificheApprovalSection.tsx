@@ -111,7 +111,7 @@ export function ModificheApprovalSection({ initialPending }: Props) {
                 {Object.entries(item.payload).map(([key, value]) => (
                   <div key={key} className="rounded-md border border-border px-2 py-1.5">
                     <p className="text-muted-foreground">{FIELD_LABELS[key] ?? key}</p>
-                    <p className="font-medium tabular-nums">
+                    <p className="cassa-numeric whitespace-nowrap font-medium">
                       {key === 'coperti' ? value : `€ ${Number(value).toFixed(2)}`}
                     </p>
                   </div>

@@ -8,6 +8,8 @@ interface Riga {
   totale_entrate: number
   totale_spese_giornaliere: number
   differenza: number
+  coperti: number
+  incasso_asporto: number
 }
 
 interface Props {
@@ -21,13 +23,22 @@ interface Confronto {
   totaleEntrate: number
   totaleSpese: number
   totaleDifferenza: number
+  totaleCoperti: number
+  totaleIncassoAsporto: number
   mediaEntrate: number
   mediaSpese: number
+  mediaScontrino: number | null
+  margineOperativo: number
 }
 
 // Fase B: totali e medie del periodo selezionato, affiancati per
 // ristorante — usa le stesse righe già caricate per la Fase A (nessuna
 // query aggiuntiva).
+//
+// Media Scontrino e Margine Operativo sono calcolati sui TOTALI del
+// periodo, non come media delle medie giornaliere (che pesa ogni giorno
+// allo stesso modo indipendentemente dai coperti/incassi reali e
+// distorcerebbe il risultato su periodi con giornate molto diverse tra loro).
 export function ConfrontoSediTable({ righe }: Props) {
   const confronti = useMemo<Confronto[]>(() => {
     const byRestaurant = new Map<string, Confronto>()
@@ -42,8 +53,12 @@ export function ConfrontoSediTable({ righe }: Props) {
           totaleEntrate: 0,
           totaleSpese: 0,
           totaleDifferenza: 0,
+          totaleCoperti: 0,
+          totaleIncassoAsporto: 0,
           mediaEntrate: 0,
           mediaSpese: 0,
+          mediaScontrino: null,
+          margineOperativo: 0,
         }
         byRestaurant.set(r.restaurant_id, c)
       }
@@ -51,6 +66,8 @@ export function ConfrontoSediTable({ righe }: Props) {
       c.totaleEntrate += r.totale_entrate
       c.totaleSpese += r.totale_spese_giornaliere
       c.totaleDifferenza += r.differenza
+      c.totaleCoperti += r.coperti
+      c.totaleIncassoAsporto += r.incasso_asporto
     }
 
     return Array.from(byRestaurant.values())
@@ -58,6 +75,8 @@ export function ConfrontoSediTable({ righe }: Props) {
         ...c,
         mediaEntrate: c.giorni > 0 ? c.totaleEntrate / c.giorni : 0,
         mediaSpese: c.giorni > 0 ? c.totaleSpese / c.giorni : 0,
+        mediaScontrino: c.totaleCoperti > 0 ? (c.totaleEntrate - c.totaleIncassoAsporto) / c.totaleCoperti : null,
+        margineOperativo: c.totaleEntrate - c.totaleSpese,
       }))
       .sort((a, b) => b.totaleEntrate - a.totaleEntrate)
   }, [righe])
@@ -75,6 +94,8 @@ export function ConfrontoSediTable({ righe }: Props) {
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Entrate/Giorno</th>
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Spese</th>
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Spese/Giorno</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Scontrino</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Margine Operativo</th>
             <th className="py-2 font-medium text-right whitespace-nowrap">Differenza Totale</th>
           </tr>
         </thead>
@@ -89,6 +110,15 @@ export function ConfrontoSediTable({ righe }: Props) {
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaEntrate.toFixed(2)}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleSpese.toFixed(2)}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaSpese.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">
+                  {c.mediaScontrino === null ? '—' : `€ ${c.mediaScontrino.toFixed(2)}`}
+                </td>
+                <td className={cn(
+                  'cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium',
+                  c.margineOperativo >= 0 ? 'text-cassa-positive' : 'text-cassa-negative'
+                )}>
+                  {c.margineOperativo >= 0 ? '' : '−'}€ {Math.abs(c.margineOperativo).toFixed(2)}
+                </td>
                 <td className={cn(
                   'cassa-numeric py-2 text-right font-medium whitespace-nowrap',
                   isBalanced ? 'text-cassa-positive' : 'text-cassa-negative'

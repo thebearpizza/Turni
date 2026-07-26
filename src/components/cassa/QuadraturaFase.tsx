@@ -154,7 +154,7 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
             <div className="space-y-1.5">
               <Label>Differenza</Label>
               <div className={cn(
-                'cassa-numeric flex h-9 w-full items-center rounded-md border px-3 text-base font-medium',
+                'cassa-numeric flex h-9 w-full items-center whitespace-nowrap rounded-md border px-3 text-base font-medium',
                 isBalanced
                   ? 'border-cassa-positive/30 bg-cassa-positive-bg text-cassa-positive'
                   : 'border-cassa-negative/30 bg-cassa-negative-bg text-cassa-negative'

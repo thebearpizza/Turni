@@ -180,9 +180,12 @@ export function ListaChiusureClient({ restaurants }: Props) {
                   <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{r.restaurant_name} · {dataLabel}</p>
-                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5">
-                        Entrate € {r.totale_entrate.toFixed(2)} · Spese € {r.totale_spese_giornaliere.toFixed(2)} ·{' '}
-                        <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium')}>
+                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
+                        <span className="whitespace-nowrap">Entrate € {r.totale_entrate.toFixed(2)}</span>
+                        <span>·</span>
+                        <span className="whitespace-nowrap">Spese € {r.totale_spese_giornaliere.toFixed(2)}</span>
+                        <span>·</span>
+                        <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium whitespace-nowrap')}>
                           {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2)} €`}
                         </span>
                       </p>

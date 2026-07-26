@@ -261,7 +261,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
                   {cat && <span className="text-muted-foreground ml-2">({cat.nome})</span>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="cassa-numeric">€ {s.importo.toFixed(2)}</span>
+                  <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
                   {!locked && (
                     <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteSpesa(s.id)}>
                       <Trash2 className="w-3.5 h-3.5" />

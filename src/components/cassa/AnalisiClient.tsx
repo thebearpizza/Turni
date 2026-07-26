@@ -45,6 +45,8 @@ interface Riga {
   totale_entrate: number
   totale_spese_giornaliere: number
   differenza: number
+  coperti: number
+  incasso_asporto: number
 }
 
 function fmtDate(d: Date): string {
@@ -78,7 +80,7 @@ async function fetchRighe(
   if (targets.length === 0) return []
   const { data } = await supabase
     .from('cassa_chiusure')
-    .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, stato, restaurant:restaurants(name)')
+    .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, coperti, incasso_asporto, stato, restaurant:restaurants(name)')
     .in('restaurant_id', targets)
     .eq('stato', 'confermata')
     .gte('data', start)
@@ -93,6 +95,8 @@ async function fetchRighe(
     totale_entrate: r.totale_entrate,
     totale_spese_giornaliere: r.totale_spese_giornaliere,
     differenza: r.differenza,
+    coperti: r.coperti,
+    incasso_asporto: r.incasso_asporto,
   }))
 }
 
