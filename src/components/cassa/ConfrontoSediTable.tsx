@@ -88,7 +88,7 @@ export function ConfrontoSediTable({ righe }: Props) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground">
-            <th className="py-2 pr-4 font-medium">Ristorante</th>
+            <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium">Ristorante</th>
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Giorni</th>
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Entrate</th>
             <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Entrate/Giorno</th>
@@ -104,7 +104,7 @@ export function ConfrontoSediTable({ righe }: Props) {
             const isBalanced = Math.abs(c.totaleDifferenza) < 0.005
             return (
               <tr key={c.restaurant_id} className="border-b border-border last:border-0">
-                <td className="py-2 pr-4 font-medium whitespace-nowrap">{c.restaurant_name}</td>
+                <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium whitespace-nowrap">{c.restaurant_name}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">{c.giorni}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleEntrate.toFixed(2)}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaEntrate.toFixed(2)}</td>
