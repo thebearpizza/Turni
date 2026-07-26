@@ -15,28 +15,36 @@ interface SheetPreview {
   rows: SheetCell[][]
 }
 
+interface ExportRequest {
+  url: string
+  body: Record<string, unknown>
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  chiusuraId: string | null
+  request: ExportRequest | null
   format: 'pdf' | 'xlsx' | null
   title: string
   fileNameBase: string
 }
 
-// Anteprima in-app del PDF/Excel di una chiusura: stesso endpoint di export
-// usato prima per il download diretto, ma ora mostrato in un dialog con
-// chiusura (X, già inclusa da DialogContent) e un pulsante Scarica dedicato
-// che riusa il blob già scaricato per la preview.
-export function ChiusuraFileViewer({ open, onOpenChange, chiusuraId, format, title, fileNameBase }: Props) {
+// Anteprima in-app di un export PDF/Excel — riusata sia per la singola
+// chiusura (Lista Chiusure) sia per l'export dell'intero periodo (Analisi):
+// non è più legata a un endpoint fisso, ma a una richiesta {url, body}
+// qualunque che risponda con lo stesso blob PDF/XLSX. Chiusura (X, già
+// inclusa da DialogContent) e Scarica riusano il blob già scaricato.
+export function CassaFileViewer({ open, onOpenChange, request, format, title, fileNameBase }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [sheet, setSheet] = useState<SheetPreview | null>(null)
   const blobRef = useRef<Blob | null>(null)
 
+  const requestKey = request ? JSON.stringify(request) : null
+
   useEffect(() => {
-    if (!open || !chiusuraId || !format) return
+    if (!open || !request || !format) return
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -46,10 +54,10 @@ export function ChiusuraFileViewer({ open, onOpenChange, chiusuraId, format, tit
 
     async function run() {
       try {
-        const res = await fetch('/api/cassa/chiusura-export', {
+        const res = await fetch(request!.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chiusura_id: chiusuraId, format }),
+          body: JSON.stringify(request!.body),
         })
         if (!res.ok) {
           const err = await res.json().catch(() => null)
@@ -85,7 +93,8 @@ export function ChiusuraFileViewer({ open, onOpenChange, chiusuraId, format, tit
     }
     run()
     return () => { cancelled = true }
-  }, [open, chiusuraId, format])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, requestKey, format])
 
   // Revoca l'URL del blob PDF ad ogni cambio (nuovo file o chiusura del
   // dialog), evitando di accumulare object URL orfani.

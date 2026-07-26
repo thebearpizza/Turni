@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CassaPill } from '@/components/cassa/CassaPill'
-import { ChiusuraFileViewer } from '@/components/cassa/ChiusuraFileViewer'
+import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -234,10 +234,10 @@ export function ListaChiusureClient({ restaurants }: Props) {
         </CardContent>
       </Card>
 
-      <ChiusuraFileViewer
+      <CassaFileViewer
         open={!!viewer}
         onOpenChange={open => { if (!open) setViewer(null) }}
-        chiusuraId={viewer?.riga.id ?? null}
+        request={viewer ? { url: '/api/cassa/chiusura-export', body: { chiusura_id: viewer.riga.id, format: viewer.format } } : null}
         format={viewer?.format ?? null}
         title={viewer ? `${viewer.riga.restaurant_name} · ${formatInTimeZone(`${viewer.riga.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
         fileNameBase={viewer ? `chiusura-${viewer.riga.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.riga.data}` : 'chiusura'}

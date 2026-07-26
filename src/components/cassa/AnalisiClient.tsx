@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
@@ -14,10 +15,11 @@ import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSectio
 import { AnalisiKpiRow } from '@/components/cassa/AnalisiKpiRow'
 import { BestWorstDayHighlight } from '@/components/cassa/BestWorstDayHighlight'
 import { CassaPill } from '@/components/cassa/CassaPill'
+import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { FileText, FileSpreadsheet } from 'lucide-react'
+import { FileText, FileSpreadsheet, ChevronDown } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -28,16 +30,6 @@ interface RestaurantOption {
 
 interface Props {
   restaurants: RestaurantOption[]
-}
-
-type Preset = 'oggi' | 'settimana' | 'mese' | 'anno' | 'custom'
-
-const PRESET_LABELS: Record<Preset, string> = {
-  oggi: 'Oggi',
-  settimana: 'Settimana',
-  mese: 'Mese',
-  anno: 'Anno',
-  custom: 'Personalizzato',
 }
 
 interface Riga {
@@ -56,20 +48,26 @@ function fmtDate(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
-function rangeForPreset(preset: Preset, customStart: string, customEnd: string): { start: string; end: string } {
+interface QuickRange {
+  key: string
+  label: string
+  start: string
+  end: string
+}
+
+// Pillole rapide Oggi/Settimana/Mese/Anno: non esiste più un "preset"
+// separato dal range effettivo — ogni pillola imposta direttamente
+// customStart/customEnd (unica fonte di verità, sempre visibile ed
+// editabile nei due campi data) e risulta "attiva" quando il range
+// corrente coincide esattamente con il proprio.
+function quickPeriodRanges(): QuickRange[] {
   const today = new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00"))
-  switch (preset) {
-    case 'oggi':
-      return { start: fmtDate(today), end: fmtDate(today) }
-    case 'settimana':
-      return { start: fmtDate(startOfWeek(today, { weekStartsOn: 1 })), end: fmtDate(endOfWeek(today, { weekStartsOn: 1 })) }
-    case 'mese':
-      return { start: fmtDate(startOfMonth(today)), end: fmtDate(endOfMonth(today)) }
-    case 'anno':
-      return { start: fmtDate(startOfYear(today)), end: fmtDate(endOfYear(today)) }
-    case 'custom':
-      return { start: customStart, end: customEnd }
-  }
+  return [
+    { key: 'oggi', label: 'Oggi', start: fmtDate(today), end: fmtDate(today) },
+    { key: 'settimana', label: 'Settimana', start: fmtDate(startOfWeek(today, { weekStartsOn: 1 })), end: fmtDate(endOfWeek(today, { weekStartsOn: 1 })) },
+    { key: 'mese', label: 'Mese', start: fmtDate(startOfMonth(today)), end: fmtDate(endOfMonth(today)) },
+    { key: 'anno', label: 'Anno', start: fmtDate(startOfYear(today)), end: fmtDate(endOfYear(today)) },
+  ]
 }
 
 type RigaJoined = Riga & { restaurant: { name: string } | null }
@@ -131,10 +129,16 @@ async function fetchSpese(
 
 export function AnalisiClient({ restaurants }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
-  const [preset, setPreset] = useState<Preset>('mese')
-  const today = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
-  const [customStart, setCustomStart] = useState(today)
-  const [customEnd, setCustomEnd] = useState(today)
+  // Default: mese corrente, stesso comportamento di prima senza bisogno di
+  // un "preset" separato — vedi quickPeriodRanges più sotto.
+  const [customStart, setCustomStart] = useState(() => {
+    const today = new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00"))
+    return fmtDate(startOfMonth(today))
+  })
+  const [customEnd, setCustomEnd] = useState(() => {
+    const today = new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00"))
+    return fmtDate(endOfMonth(today))
+  })
   const [compareYoY, setCompareYoY] = useState(false)
 
   const [righe, setRighe] = useState<Riga[]>([])
@@ -148,10 +152,12 @@ export function AnalisiClient({ restaurants }: Props) {
     setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
   }
 
+  const quickPeriods = useMemo(() => quickPeriodRanges(), [])
+
   // Mese corrente + 3 precedenti, calcolati dalla data odierna — ogni
   // pillola imposta il range esatto 1°-ultimo giorno di quel mese
-  // (endOfMonth gestisce da sé 28/29/30/31) passando per il preset
-  // "custom", che è già il meccanismo esistente per un range libero.
+  // (endOfMonth gestisce da sé 28/29/30/31) direttamente su
+  // customStart/customEnd.
   const quickMonths = useMemo(() => {
     const now = new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00"))
     return Array.from({ length: 4 }, (_, i) => {
@@ -166,36 +172,16 @@ export function AnalisiClient({ restaurants }: Props) {
     })
   }, [])
 
-  const { start, end } = useMemo(() => rangeForPreset(preset, customStart, customEnd), [preset, customStart, customEnd])
+  const start = customStart
+  const end = customEnd
   const targets = useMemo(
     () => selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id),
     [selectedRestaurants, restaurants]
   )
   const targetsKey = useMemo(() => JSON.stringify(targets), [targets])
 
-  async function handleExport(exportFormat: 'pdf' | 'xlsx') {
+  function handleExport(exportFormat: 'pdf' | 'xlsx') {
     setExporting(exportFormat)
-    try {
-      const res = await fetch('/api/cassa/analisi-export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_ids: targets, start, end, format: exportFormat }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        alert(err?.error ?? 'Errore nel download.')
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `analisi-cassa-${start}_${end}.${exportFormat}`
-      a.click()
-      URL.revokeObjectURL(url)
-    } finally {
-      setExporting(null)
-    }
   }
 
   // requestId: scarta le risposte di un fetch superato da uno più recente
@@ -253,43 +239,40 @@ export function AnalisiClient({ restaurants }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [load])
 
+  const restaurantsLabel = selectedRestaurants.length === 0
+    ? 'Tutti i ristoranti'
+    : selectedRestaurants.length === 1
+      ? (restaurants.find(r => r.id === selectedRestaurants[0])?.name ?? '1 selezionato')
+      : `${selectedRestaurants.length} ristoranti selezionati`
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end gap-2">
-        <Button
-          type="button" variant="outline" size="sm"
-          disabled={!!exporting || righe.length === 0}
-          onClick={() => handleExport('pdf')}
-        >
-          <FileText className="w-4 h-4" /> {exporting === 'pdf' ? 'Esportazione…' : 'Esporta PDF'}
-        </Button>
-        <Button
-          type="button" variant="outline" size="sm"
-          disabled={!!exporting || righe.length === 0}
-          onClick={() => handleExport('xlsx')}
-        >
-          <FileSpreadsheet className="w-4 h-4" /> {exporting === 'xlsx' ? 'Esportazione…' : 'Esporta Excel'}
-        </Button>
-      </div>
-
-      {!loading && righe.length > 0 && (
-        <>
-          <AnalisiKpiRow righe={righe} righePeriodoPrecedente={righePeriodoPrecedente} />
-          <BestWorstDayHighlight righe={righe} />
-        </>
-      )}
-
+      {/* Filtri: prima cosa selezionabile in pagina, tutto il resto (KPI,
+          giorno migliore/peggiore, grafici, export) dipende da questi. */}
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
             <Label>Ristoranti</Label>
-            <div className="flex flex-wrap gap-2">
-              {restaurants.map(r => (
-                <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
-                  {r.name}
-                </CassaPill>
-              ))}
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="w-full sm:w-72 justify-between font-normal">
+                  <span className="truncate">{restaurantsLabel}</span>
+                  <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-72">
+                {restaurants.map(r => (
+                  <DropdownMenuCheckboxItem
+                    key={r.id}
+                    checked={selectedRestaurants.includes(r.id)}
+                    onSelect={e => e.preventDefault()}
+                    onCheckedChange={() => toggleRestaurant(r.id)}
+                  >
+                    {r.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {selectedRestaurants.length === 0 && (
               <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
             )}
@@ -298,19 +281,21 @@ export function AnalisiClient({ restaurants }: Props) {
           <div className="space-y-2">
             <Label>Periodo</Label>
             <div className="flex flex-wrap gap-2">
-              {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
-                <CassaPill key={p} active={preset === p} onClick={() => setPreset(p)}>
-                  {PRESET_LABELS[p]}
+              {quickPeriods.map(p => (
+                <CassaPill
+                  key={p.key}
+                  active={customStart === p.start && customEnd === p.end}
+                  onClick={() => { setCustomStart(p.start); setCustomEnd(p.end) }}
+                >
+                  {p.label}
                 </CassaPill>
               ))}
             </div>
-            {preset === 'custom' && (
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-auto cassa-numeric" />
-                <span className="text-muted-foreground text-sm">→</span>
-                <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-auto cassa-numeric" />
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-auto cassa-numeric" />
+              <span className="text-muted-foreground text-sm">→</span>
+              <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-auto cassa-numeric" />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -319,8 +304,8 @@ export function AnalisiClient({ restaurants }: Props) {
               {quickMonths.map(m => (
                 <CassaPill
                   key={m.key}
-                  active={preset === 'custom' && customStart === m.start && customEnd === m.end}
-                  onClick={() => { setPreset('custom'); setCustomStart(m.start); setCustomEnd(m.end) }}
+                  active={customStart === m.start && customEnd === m.end}
+                  onClick={() => { setCustomStart(m.start); setCustomEnd(m.end) }}
                 >
                   {m.label}
                 </CassaPill>
@@ -339,6 +324,39 @@ export function AnalisiClient({ restaurants }: Props) {
           </label>
         </CardContent>
       </Card>
+
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button" variant="outline" size="sm"
+          disabled={righe.length === 0}
+          onClick={() => handleExport('pdf')}
+        >
+          <FileText className="w-4 h-4" /> Esporta PDF
+        </Button>
+        <Button
+          type="button" variant="outline" size="sm"
+          disabled={righe.length === 0}
+          onClick={() => handleExport('xlsx')}
+        >
+          <FileSpreadsheet className="w-4 h-4" /> Esporta Excel
+        </Button>
+      </div>
+
+      <CassaFileViewer
+        open={!!exporting}
+        onOpenChange={open => { if (!open) setExporting(null) }}
+        request={exporting ? { url: '/api/cassa/analisi-export', body: { restaurant_ids: targets, start, end, format: exporting } } : null}
+        format={exporting}
+        title={`Analisi · ${start} → ${end}`}
+        fileNameBase={`analisi-cassa-${start}_${end}`}
+      />
+
+      {!loading && righe.length > 0 && (
+        <>
+          <AnalisiKpiRow righe={righe} righePeriodoPrecedente={righePeriodoPrecedente} />
+          <BestWorstDayHighlight righe={righe} />
+        </>
+      )}
 
       {!loading && righe.length > 0 && <RecurringAlertsSection righe={righe} />}
 

@@ -1,13 +1,16 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import { AlertTriangle } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 
 const TZ = 'Europe/Rome'
+
+// Soglia fissa per l'evidenza delle differenze ricorrenti — non più
+// regolabile dall'interfaccia, valori di default già in uso.
+const SOGLIA_DIFFERENZA = 5
+const MIN_GIORNI = 3
 
 interface Riga {
   data: string
@@ -29,19 +32,15 @@ interface Alert {
   date: string[]
 }
 
-// Fase E: evidenzia i locali dove la Differenza esce dalla soglia
-// configurata in almeno N giorni del periodo selezionato — soglia e
-// numero minimo di giorni sono regolabili, non persistiti (si applicano
-// solo alla sessione corrente sul periodo/ristoranti già filtrati sopra).
+// Fase E: evidenzia i locali dove la Differenza esce dalla soglia fissa in
+// almeno MIN_GIORNI del periodo selezionato (si applica sul periodo/
+// ristoranti già filtrati sopra, in AnalisiClient).
 export function RecurringAlertsSection({ righe }: Props) {
-  const [soglia, setSoglia] = useState(5)
-  const [minGiorni, setMinGiorni] = useState(3)
-
   const alerts = useMemo<Alert[]>(() => {
     const byRestaurant = new Map<string, { restaurant_id: string; restaurant_name: string; date: string[]; totale: number }>()
 
     for (const r of righe) {
-      if (Math.abs(r.differenza) < soglia) continue
+      if (Math.abs(r.differenza) < SOGLIA_DIFFERENZA) continue
       let g = byRestaurant.get(r.restaurant_id)
       if (!g) {
         g = { restaurant_id: r.restaurant_id, restaurant_name: r.restaurant_name, date: [], totale: 0 }
@@ -52,7 +51,7 @@ export function RecurringAlertsSection({ righe }: Props) {
     }
 
     return Array.from(byRestaurant.values())
-      .filter(g => g.date.length >= minGiorni)
+      .filter(g => g.date.length >= MIN_GIORNI)
       .map(g => ({
         restaurant_id: g.restaurant_id,
         restaurant_name: g.restaurant_name,
@@ -62,34 +61,14 @@ export function RecurringAlertsSection({ righe }: Props) {
         date: [...g.date].sort(),
       }))
       .sort((a, b) => b.count - a.count)
-  }, [righe, soglia, minGiorni])
+  }, [righe])
 
   return (
     <Card className="cassa-perforated-top">
       <CardContent className="pt-6 space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="w-4 h-4 text-cassa-copper shrink-0" />
-            Alert differenze ricorrenti
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <div className="flex items-center gap-1.5">
-              <Label className="text-xs text-muted-foreground font-normal">Soglia €</Label>
-              <Input
-                type="number" min={0} step={0.5} value={soglia}
-                onChange={e => setSoglia(Math.max(0, parseFloat(e.target.value) || 0))}
-                className="cassa-numeric w-20 h-8"
-              />
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Label className="text-xs text-muted-foreground font-normal">Giorni min.</Label>
-              <Input
-                type="number" min={2} step={1} value={minGiorni}
-                onChange={e => setMinGiorni(Math.max(2, parseInt(e.target.value, 10) || 2))}
-                className="cassa-numeric w-16 h-8"
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <AlertTriangle className="w-4 h-4 text-cassa-copper shrink-0" />
+          Alert differenze ricorrenti
         </div>
 
         {alerts.length === 0 ? (
