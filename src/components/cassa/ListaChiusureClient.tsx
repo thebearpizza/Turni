@@ -33,6 +33,9 @@ interface Riga {
   totale_entrate: number
   totale_spese_giornaliere: number
   differenza: number
+  entrate_contanti: number
+  entrate_pos: number
+  entrate_bonifico: number
 }
 
 function monthRange(month: string): { start: string; end: string } {
@@ -65,7 +68,7 @@ export function ListaChiusureClient({ restaurants }: Props) {
     const supabase = createClient()
     const { data } = await supabase
       .from('cassa_chiusure')
-      .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, restaurant:restaurants(name)')
+      .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, entrate_contanti, entrate_pos, entrate_bonifico, restaurant:restaurants(name)')
       .in('restaurant_id', targets)
       .eq('stato', 'confermata')
       .gte('data', start)
@@ -80,6 +83,9 @@ export function ListaChiusureClient({ restaurants }: Props) {
       totale_entrate: r.totale_entrate,
       totale_spese_giornaliere: r.totale_spese_giornaliere,
       differenza: r.differenza,
+      entrate_contanti: r.entrate_contanti,
+      entrate_pos: r.entrate_pos,
+      entrate_bonifico: r.entrate_bonifico,
     })))
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,6 +183,18 @@ export function ListaChiusureClient({ restaurants }: Props) {
                         <span>·</span>
                         <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium whitespace-nowrap')}>
                           {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2)} €`}
+                        </span>
+                      </p>
+                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
+                        <span className="whitespace-nowrap">Contanti € {r.entrate_contanti.toFixed(2)}</span>
+                        <span>·</span>
+                        <span className="whitespace-nowrap">POS € {r.entrate_pos.toFixed(2)}</span>
+                        <span>·</span>
+                        <span className="whitespace-nowrap">Bonifico € {r.entrate_bonifico.toFixed(2)}</span>
+                        <span>·</span>
+                        <span className="whitespace-nowrap">
+                          Margine Operativo{' '}
+                          {(r.totale_entrate - r.totale_spese_giornaliere) < 0 ? '−' : ''}€ {Math.abs(r.totale_entrate - r.totale_spese_giornaliere).toFixed(2)}
                         </span>
                       </p>
                     </div>
