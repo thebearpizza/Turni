@@ -16,7 +16,7 @@ export default async function CassaLayout({ children }: { children: React.ReactN
   if (!profile || !['manager', 'cassiere'].includes(profile.role)) redirect('/dashboard')
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
+    <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">
       <CassaSidebar role={profile.role} />
       <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
         {children}

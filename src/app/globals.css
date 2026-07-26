@@ -71,6 +71,118 @@
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
+
+  /* Cassa-only tokens — only ever set inside .cassa, see below */
+  --color-cassa-copper: hsl(var(--cassa-copper));
+  --color-cassa-copper-foreground: hsl(var(--cassa-copper-foreground));
+  --color-cassa-positive: hsl(var(--cassa-positive));
+  --color-cassa-positive-bg: hsl(var(--cassa-positive-bg));
+  --color-cassa-negative: hsl(var(--cassa-negative));
+  --color-cassa-negative-bg: hsl(var(--cassa-negative-bg));
+}
+
+/* ── Cassa app theme — "Ledger" ───────────────────────────────
+   Scoped under .cassa (mirrors the .dark pattern above) so every
+   shared shadcn primitive (Button/Card/Badge/Input/Select…) picks
+   up this palette automatically inside /cassa, with zero changes
+   to the primitive files and zero effect on the rest of Turni,
+   which never renders inside a .cassa subtree.
+   Warm ledger paper + pine green ("in the black") + copper wax-seal
+   accent for confirmed/stamped states + brick red for out-of-threshold
+   differences — deliberately not another blue corporate dashboard. */
+.cassa {
+  --background: 42 32% 95%;
+  --foreground: 150 18% 14%;
+  --card: 42 28% 97%;
+  --card-foreground: 150 18% 14%;
+  --popover: 42 28% 97%;
+  --popover-foreground: 150 18% 14%;
+  --primary: 152 45% 26%;
+  --primary-foreground: 42 32% 97%;
+  --secondary: 42 20% 90%;
+  --secondary-foreground: 150 18% 14%;
+  --muted: 42 20% 91%;
+  --muted-foreground: 150 8% 38%;
+  --accent: 42 24% 88%;
+  --accent-foreground: 150 18% 14%;
+  --destructive: 8 58% 42%;
+  --destructive-foreground: 42 32% 97%;
+  --border: 42 18% 82%;
+  --input: 42 18% 82%;
+  --ring: 152 45% 26%;
+  --radius: 0.5rem;
+
+  --cassa-copper: 18 55% 42%;
+  --cassa-copper-foreground: 42 32% 97%;
+  --cassa-positive: 152 45% 30%;
+  --cassa-positive-bg: 152 40% 92%;
+  --cassa-negative: 8 58% 42%;
+  --cassa-negative-bg: 8 55% 94%;
+}
+
+.cassa.dark, :is(.dark) .cassa {
+  --background: 150 14% 8%;
+  --foreground: 42 24% 92%;
+  --card: 150 12% 11%;
+  --card-foreground: 42 24% 92%;
+  --popover: 150 12% 11%;
+  --popover-foreground: 42 24% 92%;
+  --primary: 152 40% 46%;
+  --primary-foreground: 150 14% 8%;
+  --secondary: 150 10% 16%;
+  --secondary-foreground: 42 24% 92%;
+  --muted: 150 10% 15%;
+  --muted-foreground: 42 10% 62%;
+  --accent: 150 10% 18%;
+  --accent-foreground: 42 24% 92%;
+  --destructive: 8 55% 52%;
+  --destructive-foreground: 150 14% 8%;
+  --border: 150 10% 20%;
+  --input: 150 10% 20%;
+  --ring: 152 40% 46%;
+
+  --cassa-copper: 20 60% 55%;
+  --cassa-copper-foreground: 150 14% 8%;
+  --cassa-positive: 152 40% 50%;
+  --cassa-positive-bg: 152 30% 14%;
+  --cassa-negative: 8 55% 55%;
+  --cassa-negative-bg: 8 40% 16%;
+}
+
+.cassa-display {
+  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
+  font-feature-settings: "ss01";
+}
+
+.cassa-numeric {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signature element: a torn-receipt / ledger-stub edge, used as a
+   card-header top border across the Cassa app instead of a plain line. */
+.cassa-perforated-top {
+  border-top: none;
+  background-image: repeating-linear-gradient(
+    90deg,
+    hsl(var(--cassa-copper) / 0.55) 0,
+    hsl(var(--cassa-copper) / 0.55) 6px,
+    transparent 6px,
+    transparent 13px
+  );
+  background-size: 13px 2px;
+  background-repeat: repeat-x;
+  background-position: top left;
+  padding-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cassa *, .cassa *::before, .cassa *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 * {
