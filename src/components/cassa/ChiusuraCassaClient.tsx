@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CurrencyInput } from '@/components/ui/currency-input'
+import { CountInput } from '@/components/ui/count-input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
@@ -40,6 +41,17 @@ const emptyFields = () => ({
   contantiPerBanca: 0,
 })
 
+// Campi "obbligatori": zero è un valore legittimo per molti di questi (es.
+// Entrate Bonifico, Incasso Asporto), quindi "obbligatorio" non vuol dire
+// "diverso da zero" — vuol dire che l'operatore deve averlo digitato
+// esplicitamente (anche uno 0), non lasciato al default mai toccato. Gli
+// onChange di CurrencyInput/CountInput scattano solo dopo un parsing
+// riuscito in blur (mai su un blur senza digitazione), quindi sono già il
+// segnale giusto per marcare un campo come compilato.
+const FASE1_FIELDS = ['entrateContanti', 'entratePos', 'entrateBonifico', 'coperti', 'incassoAsporto', 'fondoCassaFinale'] as const
+const FASE3_FIELDS = ['contantiPerBanca'] as const
+const ALL_FIELDS = [...FASE1_FIELDS, 'fondoCassaIniziale', ...FASE3_FIELDS] as const
+
 export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
   // "Modifica" da Lista Chiusure arriva qui con ?restaurant_id=&data= per
   // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
@@ -64,6 +76,11 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [existing, setExisting] = useState<CassaChiusura | null>(null)
   const [fields, setFields] = useState(emptyFields())
   const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+
+  function markTouched(name: string) {
+    setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
+  }
 
   const loadChiusura = useCallback(async () => {
     if (!restaurantId || !date) return
@@ -89,11 +106,17 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         fondoCassaFinale: row.fondo_cassa_finale,
         contantiPerBanca: row.contanti_per_banca,
       })
+      // Chiusura già esistente: i valori arrivano dal database, non da
+      // digitazione dell'operatore in questa sessione — contano già come
+      // compilati (altrimenti riaprire una chiusura per modificarla
+      // bloccherebbe "Avanti" finché non si ritoccano tutti i campi).
+      setTouched(new Set(ALL_FIELDS))
       setLoading(false)
       return
     }
 
     setExisting(null)
+    setTouched(new Set())
 
     // Nessuna chiusura per questa data: replica lato client la stessa
     // logica del trigger precompila_fondo, cosi' il valore corretto e'
@@ -142,6 +165,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     : (totaleEntrate - fields.incassoAsporto) / fields.coperti
 
   const fondoIniziale_editabile = fields.fondoCassaIniziale === 0
+  const fase1RequiredFields = fondoIniziale_editabile ? [...FASE1_FIELDS, 'fondoCassaIniziale'] : FASE1_FIELDS
+  const fase1Complete = fase1RequiredFields.every(f => touched.has(f))
   const isConfermata = existing?.stato === 'confermata'
   // Bozza (nuova o non ancora confermata): Fase 1 salva incrementalmente.
   // Chiusura già confermata: Fase 1 è solo navigazione, il salvataggio
@@ -149,7 +174,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const isDraftFlow = !isConfermata
 
   async function handleAvanti() {
-    if (!restaurantId || !date) return
+    if (!restaurantId || !date || !fase1Complete) return
 
     if (!isDraftFlow) {
       setFase(2)
@@ -314,10 +339,10 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             )}
 
             <div className="space-y-1.5">
-              <Label>Fondo Cassa Iniziale</Label>
+              <Label>Fondo Cassa Iniziale{fondoIniziale_editabile && <span className="text-cassa-copper"> *</span>}</Label>
               <CurrencyInput
                 value={fields.fondoCassaIniziale}
-                onChange={v => setFields(f => ({ ...f, fondoCassaIniziale: v }))}
+                onChange={v => { setFields(f => ({ ...f, fondoCassaIniziale: v })); markTouched('fondoCassaIniziale') }}
                 readOnly={!fondoIniziale_editabile}
                 className="cassa-numeric"
               />
@@ -325,26 +350,26 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label>Entrate Contanti</Label>
+                <Label>Entrate Contanti <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entrateContanti}
-                  onChange={v => setFields(f => ({ ...f, entrateContanti: v }))}
+                  onChange={v => { setFields(f => ({ ...f, entrateContanti: v })); markTouched('entrateContanti') }}
                   className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Entrate POS</Label>
+                <Label>Entrate POS <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entratePos}
-                  onChange={v => setFields(f => ({ ...f, entratePos: v }))}
+                  onChange={v => { setFields(f => ({ ...f, entratePos: v })); markTouched('entratePos') }}
                   className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Entrate Bonifico</Label>
+                <Label>Entrate Bonifico <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entrateBonifico}
-                  onChange={v => setFields(f => ({ ...f, entrateBonifico: v }))}
+                  onChange={v => { setFields(f => ({ ...f, entrateBonifico: v })); markTouched('entrateBonifico') }}
                   className="cassa-numeric"
                 />
               </div>
@@ -357,21 +382,18 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Coperti</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
+                <Label>Coperti <span className="text-cassa-copper">*</span></Label>
+                <CountInput
                   value={fields.coperti}
-                  onChange={e => setFields(f => ({ ...f, coperti: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                  onChange={v => { setFields(f => ({ ...f, coperti: v })); markTouched('coperti') }}
                   className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Incasso Asporto</Label>
+                <Label>Incasso Asporto <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.incassoAsporto}
-                  onChange={v => setFields(f => ({ ...f, incassoAsporto: v }))}
+                  onChange={v => { setFields(f => ({ ...f, incassoAsporto: v })); markTouched('incassoAsporto') }}
                   className="cassa-numeric"
                 />
               </div>
@@ -383,16 +405,22 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             </div>
 
             <div className="space-y-1.5">
-              <Label>Fondo Cassa Finale</Label>
+              <Label>Fondo Cassa Finale <span className="text-cassa-copper">*</span></Label>
               <CurrencyInput
                 value={fields.fondoCassaFinale}
-                onChange={v => setFields(f => ({ ...f, fondoCassaFinale: v }))}
+                onChange={v => { setFields(f => ({ ...f, fondoCassaFinale: v })); markTouched('fondoCassaFinale') }}
                 className="cassa-numeric"
               />
             </div>
 
+            {!fase1Complete && (
+              <p className="text-xs text-muted-foreground">
+                Compila tutti i campi contrassegnati con <span className="text-cassa-copper">*</span> per continuare (anche con valore 0, se corretto).
+              </p>
+            )}
+
             <div className="pt-2 flex justify-end">
-              <Button onClick={handleAvanti} disabled={saving}>
+              <Button onClick={handleAvanti} disabled={saving || !fase1Complete}>
                 {saving ? 'Salvataggio…' : 'Avanti'}
               </Button>
             </div>
@@ -421,6 +449,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           onBack={() => setFase(2)}
           onSaved={row => setExisting(row)}
           onRequestSent={() => loadChiusura()}
+          contantiPerBancaTouched={touched.has('contantiPerBanca')}
+          onContantiPerBancaTouched={() => markTouched('contantiPerBanca')}
         />
       )}
     </div>

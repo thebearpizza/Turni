@@ -28,6 +28,8 @@ interface Props {
   onBack: () => void
   onSaved: (row: CassaChiusura) => void
   onRequestSent: () => void
+  contantiPerBancaTouched: boolean
+  onContantiPerBancaTouched: () => void
 }
 
 function formatEuro(n: number): string {
@@ -40,7 +42,10 @@ function formatEuro(n: number): string {
 // - Modifica di una chiusura già confermata, da manager: applicata direttamente.
 // - Modifica di una chiusura già confermata, da cassiere: richiesta inviata al manager
 //   (cassa_chiusure_modifiche), la riga originale resta invariata finché non approvata.
-export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId, onBack, onSaved, onRequestSent }: Props) {
+export function QuadraturaFase({
+  chiusura, fields, onFieldsChange, role, userId, onBack, onSaved, onRequestSent,
+  contantiPerBancaTouched, onContantiPerBancaTouched,
+}: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestSent, setRequestSent] = useState(false)
@@ -65,6 +70,7 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
   }
 
   async function handleSubmit() {
+    if (!contantiPerBancaTouched) return
     setSaving(true)
     setError(null)
 
@@ -143,10 +149,10 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
             </div>
 
             <div className="space-y-1.5">
-              <Label>Contanti per Banca</Label>
+              <Label>Contanti per Banca <span className="text-cassa-copper">*</span></Label>
               <CurrencyInput
                 value={fields.contantiPerBanca}
-                onChange={v => onFieldsChange(f => ({ ...f, contantiPerBanca: v }))}
+                onChange={v => { onFieldsChange(f => ({ ...f, contantiPerBanca: v })); onContantiPerBancaTouched() }}
                 className="cassa-numeric"
               />
             </div>
@@ -163,6 +169,12 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
               </div>
             </div>
 
+            {!contantiPerBancaTouched && (
+              <p className="text-xs text-muted-foreground">
+                Compila i campi contrassegnati con <span className="text-cassa-copper">*</span> per continuare (anche con valore 0, se corretto).
+              </p>
+            )}
+
             {error && <p className="text-sm text-destructive">{error}</p>}
           </>
         )}
@@ -170,7 +182,7 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
         <div className="flex justify-between pt-2">
           <Button type="button" variant="outline" onClick={onBack} disabled={saving}>Indietro</Button>
           {!requestSent && (
-            <Button type="button" onClick={handleSubmit} disabled={saving}>
+            <Button type="button" onClick={handleSubmit} disabled={saving || !contantiPerBancaTouched}>
               {saving ? 'Salvataggio…' : submitLabel}
             </Button>
           )}
