@@ -9,10 +9,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
+import { CategorieTrendChart } from '@/components/cassa/CategorieTrendChart'
 import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
+import { AnalisiKpiRow } from '@/components/cassa/AnalisiKpiRow'
+import { BestWorstDayHighlight } from '@/components/cassa/BestWorstDayHighlight'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, format } from 'date-fns'
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { FileText, FileSpreadsheet } from 'lucide-react'
 
@@ -103,18 +106,26 @@ async function fetchRighe(
 interface SpesaRow {
   importo: number
   categoria_nome: string | null
+  data: string
 }
 
-async function fetchSpese(supabase: ReturnType<typeof createClient>, chiusuraIds: string[]): Promise<SpesaRow[]> {
-  if (chiusuraIds.length === 0) return []
+// dataById: data della chiusura per ogni id, dalle righe già caricate —
+// evita una join aggiuntiva solo per popolare il trend nel tempo.
+async function fetchSpese(
+  supabase: ReturnType<typeof createClient>,
+  chiusure: Riga[]
+): Promise<SpesaRow[]> {
+  if (chiusure.length === 0) return []
+  const dataById = new Map(chiusure.map(r => [r.id, r.data]))
   const { data } = await supabase
     .from('cassa_spese')
-    .select('importo, categoria:cassa_categorie(nome)')
-    .in('chiusura_id', chiusuraIds)
+    .select('importo, chiusura_id, categoria:cassa_categorie(nome)')
+    .in('chiusura_id', chiusure.map(r => r.id))
 
-  return ((data ?? []) as unknown as Array<{ importo: number; categoria: { nome: string } | null }>).map(s => ({
+  return ((data ?? []) as unknown as Array<{ importo: number; chiusura_id: string; categoria: { nome: string } | null }>).map(s => ({
     importo: s.importo,
     categoria_nome: s.categoria?.nome ?? null,
+    data: dataById.get(s.chiusura_id) ?? '',
   }))
 }
 
@@ -128,6 +139,7 @@ export function AnalisiClient({ restaurants }: Props) {
 
   const [righe, setRighe] = useState<Riga[]>([])
   const [righePrecedenti, setRighePrecedenti] = useState<Riga[]>([])
+  const [righePeriodoPrecedente, setRighePeriodoPrecedente] = useState<Riga[] | null>(null)
   const [spese, setSpese] = useState<SpesaRow[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
@@ -201,8 +213,17 @@ export function AnalisiClient({ restaurants }: Props) {
     if (requestId.current !== myRequest) return
     setRighe(current)
 
-    const speseData = await fetchSpese(supabase, current.map(r => r.id))
+    const speseData = await fetchSpese(supabase, current)
     if (requestId.current === myRequest) setSpese(speseData)
+
+    // Periodo precedente equivalente (stessa durata, immediatamente prima)
+    // per la variazione % nella riga KPI — indipendente dal confronto
+    // anno-su-anno qui sotto, che riguarda invece il grafico andamento.
+    const durationDays = differenceInCalendarDays(new Date(`${end}T12:00:00Z`), new Date(`${start}T12:00:00Z`)) + 1
+    const kpiPrevEnd = fmtDate(subDays(new Date(`${start}T12:00:00Z`), 1))
+    const kpiPrevStart = fmtDate(subDays(new Date(`${start}T12:00:00Z`), durationDays))
+    const kpiPrevious = await fetchRighe(supabase, targets, kpiPrevStart, kpiPrevEnd)
+    if (requestId.current === myRequest) setRighePeriodoPrecedente(kpiPrevious)
 
     if (compareYoY) {
       const prevStart = fmtDate(subYears(new Date(`${start}T12:00:00Z`), 1))
@@ -250,6 +271,13 @@ export function AnalisiClient({ restaurants }: Props) {
           <FileSpreadsheet className="w-4 h-4" /> {exporting === 'xlsx' ? 'Esportazione…' : 'Esporta Excel'}
         </Button>
       </div>
+
+      {!loading && righe.length > 0 && (
+        <>
+          <AnalisiKpiRow righe={righe} righePeriodoPrecedente={righePeriodoPrecedente} />
+          <BestWorstDayHighlight righe={righe} />
+        </>
+      )}
 
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6 space-y-4">
@@ -351,6 +379,15 @@ export function AnalisiClient({ restaurants }: Props) {
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
             <CategorieBreakdownChart spese={spese} />
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && righe.length > 0 && (
+        <Card className="cassa-perforated-top">
+          <CardContent className="pt-6 space-y-3">
+            <Label className="cassa-display text-base">Spese per categoria nel tempo</Label>
+            <CategorieTrendChart spese={spese} />
           </CardContent>
         </Card>
       )}

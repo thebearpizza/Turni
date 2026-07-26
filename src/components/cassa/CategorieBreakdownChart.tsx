@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
+import { CASSA_CHART_COLORS as COLORS } from '@/components/cassa/chartPalette'
 import { cn } from '@/lib/utils'
 
 interface SpesaRow {
@@ -18,20 +19,6 @@ interface Fetta {
   totale: number
   percentuale: number
 }
-
-// Palette qualitativa "Ledger": verde e rame del design system Cassa più
-// toni terrosi coerenti (niente arcobaleno neon da dashboard generica),
-// ciclica per categorie oltre la lunghezza.
-const COLORS = [
-  'hsl(var(--primary))',
-  'hsl(var(--cassa-copper))',
-  '#8A6D3B',
-  '#4A6670',
-  '#7C5C4B',
-  '#A8763E',
-  '#5E7A5A',
-  '#9C4B3D',
-]
 
 const BASE_RADIUS = 88
 const ACTIVE_RADIUS = 99
