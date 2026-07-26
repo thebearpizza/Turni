@@ -339,7 +339,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             )}
 
             <div className="space-y-1.5">
-              <Label>Fondo Cassa Iniziale{fondoIniziale_editabile && <span className="text-cassa-copper"> *</span>}</Label>
+              <Label>Fondo Cassa Iniziale</Label>
               <CurrencyInput
                 value={fields.fondoCassaIniziale}
                 onChange={v => { setFields(f => ({ ...f, fondoCassaIniziale: v })); markTouched('fondoCassaIniziale') }}
