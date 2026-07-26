@@ -12,7 +12,8 @@ import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownCh
 import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, format } from 'date-fns'
+import { it } from 'date-fns/locale'
 import { FileText, FileSpreadsheet } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
@@ -131,6 +132,24 @@ export function AnalisiClient({ restaurants }: Props) {
     setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
   }
 
+  // Mese corrente + 3 precedenti, calcolati dalla data odierna — ogni
+  // pillola imposta il range esatto 1°-ultimo giorno di quel mese
+  // (endOfMonth gestisce da sé 28/29/30/31) passando per il preset
+  // "custom", che è già il meccanismo esistente per un range libero.
+  const quickMonths = useMemo(() => {
+    const now = new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00"))
+    return Array.from({ length: 4 }, (_, i) => {
+      const d = subMonths(now, i)
+      const label = format(d, 'MMMM', { locale: it })
+      return {
+        key: format(d, 'yyyy-MM'),
+        label: label.charAt(0).toUpperCase() + label.slice(1),
+        start: fmtDate(startOfMonth(d)),
+        end: fmtDate(endOfMonth(d)),
+      }
+    })
+  }, [])
+
   const { start, end } = useMemo(() => rangeForPreset(preset, customStart, customEnd), [preset, customStart, customEnd])
   const targets = useMemo(
     () => selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id),
@@ -239,11 +258,26 @@ export function AnalisiClient({ restaurants }: Props) {
             </div>
             {preset === 'custom' && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
-                <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-auto" />
+                <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-auto cassa-numeric" />
                 <span className="text-muted-foreground text-sm">→</span>
-                <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-auto" />
+                <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-auto cassa-numeric" />
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground font-normal">Mese rapido</Label>
+            <div className="flex flex-wrap gap-2">
+              {quickMonths.map(m => (
+                <CassaPill
+                  key={m.key}
+                  active={preset === 'custom' && customStart === m.start && customEnd === m.end}
+                  onClick={() => { setPreset('custom'); setCustomStart(m.start); setCustomEnd(m.end) }}
+                >
+                  {m.label}
+                </CassaPill>
+              ))}
+            </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
