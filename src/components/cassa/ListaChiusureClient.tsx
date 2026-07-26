@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CassaPill } from '@/components/cassa/CassaPill'
+import { ChiusuraFileViewer } from '@/components/cassa/ChiusuraFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -108,29 +109,10 @@ export function ListaChiusureClient({ restaurants }: Props) {
     setRighe(prev => prev.filter(r => r.id !== id))
   }
 
-  async function handleExport(id: string, format: 'pdf' | 'xlsx') {
-    setWorkingId(`${id}-${format}`)
-    try {
-      const res = await fetch('/api/cassa/chiusura-export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chiusura_id: id, format }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        alert(err?.error ?? 'Errore nel download.')
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `chiusura.${format}`
-      a.click()
-      URL.revokeObjectURL(url)
-    } finally {
-      setWorkingId(null)
-    }
+  const [viewer, setViewer] = useState<{ riga: Riga; format: 'pdf' | 'xlsx' } | null>(null)
+
+  function handleView(riga: Riga, format: 'pdf' | 'xlsx') {
+    setViewer({ riga, format })
   }
 
   return (
@@ -183,7 +165,7 @@ export function ListaChiusureClient({ restaurants }: Props) {
               {righe.map(r => {
                 const isBalanced = Math.abs(r.differenza) < 0.005
                 const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
-                const busy = workingId === r.id || workingId === `${r.id}-pdf` || workingId === `${r.id}-xlsx`
+                const busy = workingId === r.id
                 return (
                   <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div className="min-w-0">
@@ -215,9 +197,9 @@ export function ListaChiusureClient({ restaurants }: Props) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        title="Scarica PDF"
+                        title="Visualizza PDF"
                         disabled={busy}
-                        onClick={() => handleExport(r.id, 'pdf')}
+                        onClick={() => handleView(r, 'pdf')}
                       >
                         <FileText className="w-4 h-4" />
                       </Button>
@@ -226,9 +208,9 @@ export function ListaChiusureClient({ restaurants }: Props) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        title="Scarica Excel"
+                        title="Visualizza Excel"
                         disabled={busy}
-                        onClick={() => handleExport(r.id, 'xlsx')}
+                        onClick={() => handleView(r, 'xlsx')}
                       >
                         <FileSpreadsheet className="w-4 h-4" />
                       </Button>
@@ -251,6 +233,15 @@ export function ListaChiusureClient({ restaurants }: Props) {
           )}
         </CardContent>
       </Card>
+
+      <ChiusuraFileViewer
+        open={!!viewer}
+        onOpenChange={open => { if (!open) setViewer(null) }}
+        chiusuraId={viewer?.riga.id ?? null}
+        format={viewer?.format ?? null}
+        title={viewer ? `${viewer.riga.restaurant_name} · ${formatInTimeZone(`${viewer.riga.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
+        fileNameBase={viewer ? `chiusura-${viewer.riga.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.riga.data}` : 'chiusura'}
+      />
     </div>
   )
 }
