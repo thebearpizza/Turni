@@ -120,9 +120,9 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
       : 'Invia richiesta di modifica'
 
   return (
-    <Card>
+    <Card className="cassa-perforated-top">
       <CardHeader>
-        <CardTitle className="text-base">Quadratura</CardTitle>
+        <CardTitle className="cassa-display text-lg">Quadratura</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {requestSent ? (
@@ -139,7 +139,7 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
 
             <div className="space-y-1.5">
               <Label>Banca Teorica</Label>
-              <CurrencyInput value={bancaTeorica} readOnly />
+              <CurrencyInput value={bancaTeorica} readOnly className="cassa-numeric" />
             </div>
 
             <div className="space-y-1.5">
@@ -147,16 +147,17 @@ export function QuadraturaFase({ chiusura, fields, onFieldsChange, role, userId,
               <CurrencyInput
                 value={fields.contantiPerBanca}
                 onChange={v => onFieldsChange(f => ({ ...f, contantiPerBanca: v }))}
+                className="cassa-numeric"
               />
             </div>
 
             <div className="space-y-1.5">
               <Label>Differenza</Label>
               <div className={cn(
-                'flex h-9 w-full items-center rounded-md border px-3 text-base font-medium tabular-nums',
+                'cassa-numeric flex h-9 w-full items-center rounded-md border px-3 text-base font-medium',
                 isBalanced
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400'
-                  : 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400'
+                  ? 'border-cassa-positive/30 bg-cassa-positive-bg text-cassa-positive'
+                  : 'border-cassa-negative/30 bg-cassa-negative-bg text-cassa-negative'
               )}>
                 {isBalanced ? '0,00 €' : formatEuro(differenza)}
               </div>

@@ -65,11 +65,11 @@ export function RecurringAlertsSection({ righe }: Props) {
   }, [righe, soglia, minGiorni])
 
   return (
-    <Card>
+    <Card className="cassa-perforated-top">
       <CardContent className="pt-6 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-cassa-copper shrink-0" />
             Alert differenze ricorrenti
           </div>
           <div className="flex items-center gap-3 text-sm">
@@ -78,7 +78,7 @@ export function RecurringAlertsSection({ righe }: Props) {
               <Input
                 type="number" min={0} step={0.5} value={soglia}
                 onChange={e => setSoglia(Math.max(0, parseFloat(e.target.value) || 0))}
-                className="w-20 h-8"
+                className="cassa-numeric w-20 h-8"
               />
             </div>
             <div className="flex items-center gap-1.5">
@@ -86,7 +86,7 @@ export function RecurringAlertsSection({ righe }: Props) {
               <Input
                 type="number" min={2} step={1} value={minGiorni}
                 onChange={e => setMinGiorni(Math.max(2, parseInt(e.target.value, 10) || 2))}
-                className="w-16 h-8"
+                className="cassa-numeric w-16 h-8"
               />
             </div>
           </div>
@@ -97,16 +97,16 @@ export function RecurringAlertsSection({ righe }: Props) {
         ) : (
           <div className="space-y-2">
             {alerts.map(a => (
-              <div key={a.restaurant_id} className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5">
+              <div key={a.restaurant_id} className="rounded-md border border-cassa-negative/30 bg-cassa-negative-bg px-3 py-2.5">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  <p className="text-sm font-medium text-cassa-negative">
                     {a.restaurant_name} — {a.count} giorni oltre soglia
                   </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-400 tabular-nums">
+                  <p className="cassa-numeric text-xs text-cassa-negative/80">
                     Media {a.media > 0 ? '+' : ''}{a.media.toFixed(2)} € · Totale {a.totale > 0 ? '+' : ''}{a.totale.toFixed(2)} €
                   </p>
                 </div>
-                <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-1">
+                <p className="text-xs text-cassa-negative/70 mt-1">
                   {a.date.map(d => formatInTimeZone(`${d}T12:00:00Z`, TZ, 'dd/MM', { locale: it })).join(', ')}
                 </p>
               </div>

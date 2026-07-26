@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { cn } from '@/lib/utils'
+import { CassaPill } from '@/components/cassa/CassaPill'
 import { format, startOfWeek, startOfMonth } from 'date-fns'
 import { it } from 'date-fns/locale'
 
@@ -82,19 +82,9 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
         {(Object.keys(GRANULARITY_LABELS) as Granularity[]).map(g => (
-          <button
-            key={g}
-            type="button"
-            onClick={() => setGranularity(g)}
-            className={cn(
-              'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
-              granularity === g
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background border-border text-foreground hover:bg-accent'
-            )}
-          >
+          <CassaPill key={g} active={granularity === g} onClick={() => setGranularity(g)}>
             {GRANULARITY_LABELS[g]}
-          </button>
+          </CassaPill>
         ))}
       </div>
 
@@ -106,15 +96,15 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
             <YAxis tick={{ fontSize: 12 }} width={60} />
             <Tooltip formatter={(value) => `€ ${Number(value).toFixed(2)}`} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="#3b82f6" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="spese" name="Spese" stroke="#f59e0b" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="#ef4444" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} />
             {hasCompare && (
               <Line
                 type="monotone"
                 dataKey="entratePrecedente"
                 name="Entrate (anno precedente)"
-                stroke="#94a3b8"
+                stroke="hsl(var(--muted-foreground))"
                 strokeWidth={2}
                 strokeDasharray="5 4"
                 dot={false}

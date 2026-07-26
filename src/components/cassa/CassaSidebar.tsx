@@ -29,8 +29,8 @@ interface SidebarContentProps {
 function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border">
-        <h1 className="text-xl font-bold">Cassa</h1>
+      <div className="cassa-perforated-top p-6 border-b border-border">
+        <h1 className="cassa-display text-2xl">Cassa</h1>
         <p className="text-xs text-muted-foreground mt-0.5">Chiusura e prima nota</p>
       </div>
 

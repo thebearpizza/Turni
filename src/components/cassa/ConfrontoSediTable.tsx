@@ -70,12 +70,12 @@ export function ConfrontoSediTable({ righe }: Props) {
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground">
             <th className="py-2 pr-4 font-medium">Ristorante</th>
-            <th className="py-2 pr-4 font-medium text-right">Giorni</th>
-            <th className="py-2 pr-4 font-medium text-right">Totale Entrate</th>
-            <th className="py-2 pr-4 font-medium text-right">Media Entrate/Giorno</th>
-            <th className="py-2 pr-4 font-medium text-right">Totale Spese</th>
-            <th className="py-2 pr-4 font-medium text-right">Media Spese/Giorno</th>
-            <th className="py-2 font-medium text-right">Differenza Totale</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Giorni</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Entrate</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Entrate/Giorno</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Spese</th>
+            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Spese/Giorno</th>
+            <th className="py-2 font-medium text-right whitespace-nowrap">Differenza Totale</th>
           </tr>
         </thead>
         <tbody>
@@ -84,14 +84,14 @@ export function ConfrontoSediTable({ righe }: Props) {
             return (
               <tr key={c.restaurant_id} className="border-b border-border last:border-0">
                 <td className="py-2 pr-4 font-medium whitespace-nowrap">{c.restaurant_name}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">{c.giorni}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">€ {c.totaleEntrate.toFixed(2)}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">€ {c.mediaEntrate.toFixed(2)}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">€ {c.totaleSpese.toFixed(2)}</td>
-                <td className="py-2 pr-4 text-right tabular-nums">€ {c.mediaSpese.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">{c.giorni}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleEntrate.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaEntrate.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleSpese.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaSpese.toFixed(2)}</td>
                 <td className={cn(
-                  'py-2 text-right tabular-nums font-medium',
-                  isBalanced ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                  'cassa-numeric py-2 text-right font-medium whitespace-nowrap',
+                  isBalanced ? 'text-cassa-positive' : 'text-cassa-negative'
                 )}>
                   {isBalanced ? '0,00 €' : `${c.totaleDifferenza > 0 ? '+' : ''}${c.totaleDifferenza.toFixed(2)} €`}
                 </td>

@@ -17,7 +17,7 @@ export default async function ListaChiusurePage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="text-xl font-semibold tracking-tight">Lista Chiusure</h1>
+      <h1 className="cassa-display text-2xl">Lista Chiusure</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Chiusure cassa confermate, per mese e ristorante.</p>
       <ListaChiusureClient restaurants={restaurants ?? []} />
     </div>

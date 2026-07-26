@@ -184,17 +184,20 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     <div className="p-6 lg:p-8 max-w-2xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Chiusura Cassa</h1>
+          <h1 className="cassa-display text-2xl">Chiusura Cassa</h1>
           <p className="text-muted-foreground text-sm mt-1">Fase {fase} di 3</p>
         </div>
         {existing && (
-          <Badge variant={isConfermata ? 'default' : 'secondary'}>
-            {isConfermata ? 'Confermata' : 'Bozza'}
+          <Badge
+            variant={isConfermata ? undefined : 'secondary'}
+            className={isConfermata ? 'border-transparent bg-cassa-copper text-cassa-copper-foreground hover:bg-cassa-copper/90' : undefined}
+          >
+            {isConfermata ? '✓ Confermata' : 'Bozza'}
           </Badge>
         )}
       </div>
 
-      <Card className="mb-4">
+      <Card className="cassa-perforated-top mb-4">
         <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Ristorante</Label>
@@ -286,9 +289,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       )}
 
       {restaurantId && !loading && fase === 1 && (
-        <Card>
+        <Card className="cassa-perforated-top">
           <CardHeader>
-            <CardTitle className="text-base">Entrate</CardTitle>
+            <CardTitle className="cassa-display text-lg">Entrate</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {isConfermata && (
@@ -303,6 +306,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 value={fields.fondoCassaIniziale}
                 onChange={v => setFields(f => ({ ...f, fondoCassaIniziale: v }))}
                 readOnly={!fondoIniziale_editabile}
+                className="cassa-numeric"
               />
             </div>
 
@@ -312,6 +316,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entrateContanti}
                   onChange={v => setFields(f => ({ ...f, entrateContanti: v }))}
+                  className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
@@ -319,6 +324,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entratePos}
                   onChange={v => setFields(f => ({ ...f, entratePos: v }))}
+                  className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
@@ -326,13 +332,14 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.entrateBonifico}
                   onChange={v => setFields(f => ({ ...f, entrateBonifico: v }))}
+                  className="cassa-numeric"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label>Totale Entrate</Label>
-              <CurrencyInput value={totaleEntrate} readOnly />
+              <CurrencyInput value={totaleEntrate} readOnly className="cassa-numeric" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -344,6 +351,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                   step={1}
                   value={fields.coperti}
                   onChange={e => setFields(f => ({ ...f, coperti: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                  className="cassa-numeric"
                 />
               </div>
               <div className="space-y-1.5">
@@ -351,13 +359,14 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 <CurrencyInput
                   value={fields.incassoAsporto}
                   onChange={v => setFields(f => ({ ...f, incassoAsporto: v }))}
+                  className="cassa-numeric"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label>Media Scontrino</Label>
-              <CurrencyInput value={mediaScontrino} readOnly />
+              <CurrencyInput value={mediaScontrino} readOnly className="cassa-numeric" />
             </div>
 
             <div className="space-y-1.5">
@@ -365,6 +374,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               <CurrencyInput
                 value={fields.fondoCassaFinale}
                 onChange={v => setFields(f => ({ ...f, fondoCassaFinale: v }))}
+                className="cassa-numeric"
               />
             </div>
 

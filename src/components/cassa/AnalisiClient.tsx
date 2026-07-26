@@ -10,7 +10,7 @@ import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
 import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
-import { cn } from '@/lib/utils'
+import { CassaPill } from '@/components/cassa/CassaPill'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, format } from 'date-fns'
 import { FileText, FileSpreadsheet } from 'lucide-react'
@@ -212,25 +212,15 @@ export function AnalisiClient({ restaurants }: Props) {
         </Button>
       </div>
 
-      <Card>
+      <Card className="cassa-perforated-top">
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
             <Label>Ristoranti</Label>
             <div className="flex flex-wrap gap-2">
               {restaurants.map(r => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => toggleRestaurant(r.id)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
-                    selectedRestaurants.includes(r.id)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border text-foreground hover:bg-accent'
-                  )}
-                >
+                <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
                   {r.name}
-                </button>
+                </CassaPill>
               ))}
             </div>
             {selectedRestaurants.length === 0 && (
@@ -242,19 +232,9 @@ export function AnalisiClient({ restaurants }: Props) {
             <Label>Periodo</Label>
             <div className="flex flex-wrap gap-2">
               {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPreset(p)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
-                    preset === p
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border text-foreground hover:bg-accent'
-                  )}
-                >
+                <CassaPill key={p} active={preset === p} onClick={() => setPreset(p)}>
                   {PRESET_LABELS[p]}
-                </button>
+                </CassaPill>
               ))}
             </div>
             {preset === 'custom' && (
@@ -281,15 +261,15 @@ export function AnalisiClient({ restaurants }: Props) {
       {!loading && righe.length > 0 && <RecurringAlertsSection righe={righe} />}
 
       {!loading && righe.length > 0 && (
-        <Card>
+        <Card className="cassa-perforated-top">
           <CardContent className="pt-6 space-y-2">
-            <Label>Confronto per ristorante nel periodo</Label>
+            <Label className="cassa-display text-base">Confronto per ristorante nel periodo</Label>
             <ConfrontoSediTable righe={righe} />
           </CardContent>
         </Card>
       )}
 
-      <Card>
+      <Card className="cassa-perforated-top">
         <CardContent className="pt-6">
           {loading ? (
             <div className="space-y-3">
@@ -313,9 +293,9 @@ export function AnalisiClient({ restaurants }: Props) {
       </Card>
 
       {!loading && righe.length > 0 && (
-        <Card>
+        <Card className="cassa-perforated-top">
           <CardContent className="pt-6 space-y-3">
-            <Label>Ripartizione spese per categoria</Label>
+            <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
             <CategorieBreakdownChart spese={spese} />
           </CardContent>
         </Card>

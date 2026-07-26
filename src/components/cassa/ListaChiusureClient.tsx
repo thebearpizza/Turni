@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CassaPill } from '@/components/cassa/CassaPill'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -126,25 +127,15 @@ export function ListaChiusureClient({ restaurants }: Props) {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="cassa-perforated-top">
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
             <Label>Ristoranti</Label>
             <div className="flex flex-wrap gap-2">
               {restaurants.map(r => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => toggleRestaurant(r.id)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-full text-sm font-medium border transition-colors',
-                    selectedRestaurants.includes(r.id)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border text-foreground hover:bg-accent'
-                  )}
-                >
+                <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
                   {r.name}
-                </button>
+                </CassaPill>
               ))}
             </div>
             {selectedRestaurants.length === 0 && (
@@ -154,12 +145,12 @@ export function ListaChiusureClient({ restaurants }: Props) {
 
           <div className="space-y-2">
             <Label>Mese</Label>
-            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto" />
+            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto cassa-numeric" />
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="cassa-perforated-top">
         <CardContent className="pt-6">
           {loading ? (
             <div className="divide-y divide-border">
@@ -189,9 +180,9 @@ export function ListaChiusureClient({ restaurants }: Props) {
                   <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{r.restaurant_name} · {dataLabel}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5">
                         Entrate € {r.totale_entrate.toFixed(2)} · Spese € {r.totale_spese_giornaliere.toFixed(2)} ·{' '}
-                        <span className={cn(isBalanced ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400', 'font-medium')}>
+                        <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium')}>
                           {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2)} €`}
                         </span>
                       </p>

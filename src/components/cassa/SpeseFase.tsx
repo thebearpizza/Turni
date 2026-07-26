@@ -169,9 +169,9 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
   }
 
   return (
-    <Card>
+    <Card className="cassa-perforated-top">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-base">Spese e categorie</CardTitle>
+        <CardTitle className="cassa-display text-lg">Spese e categorie</CardTitle>
         {role === 'manager' && <CategorieManagerDialog ownerId={ownerId} onChange={loadCategorie} />}
       </CardHeader>
       <CardContent className="space-y-4">
@@ -211,7 +211,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
               </div>
               <div className="space-y-1.5 sm:w-48">
                 <Label>Importo</Label>
-                <CurrencyInput value={importo} onChange={setImporto} />
+                <CurrencyInput value={importo} onChange={setImporto} className="cassa-numeric" />
               </div>
             </div>
 
@@ -261,7 +261,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
                   {cat && <span className="text-muted-foreground ml-2">({cat.nome})</span>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="tabular-nums">€ {s.importo.toFixed(2)}</span>
+                  <span className="cassa-numeric">€ {s.importo.toFixed(2)}</span>
                   {!locked && (
                     <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteSpesa(s.id)}>
                       <Trash2 className="w-3.5 h-3.5" />
@@ -275,7 +275,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
 
         <div className="space-y-1.5">
           <Label>Totale Spese Giornaliere</Label>
-          <CurrencyInput value={chiusura.totale_spese_giornaliere} readOnly />
+          <CurrencyInput value={chiusura.totale_spese_giornaliere} readOnly className="cassa-numeric" />
         </div>
 
         <div className="flex justify-between pt-2">

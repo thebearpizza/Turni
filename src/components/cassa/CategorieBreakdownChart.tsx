@@ -18,9 +18,19 @@ interface Fetta {
   percentuale: number
 }
 
-// Palette qualitativa fissa, ciclica per categorie oltre la lunghezza —
-// stessi toni pastello già usati altrove nell'app (es. ReportClient).
-const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16']
+// Palette qualitativa "Ledger": verde e rame del design system Cassa più
+// toni terrosi coerenti (niente arcobaleno neon da dashboard generica),
+// ciclica per categorie oltre la lunghezza.
+const COLORS = [
+  'hsl(var(--primary))',
+  'hsl(var(--cassa-copper))',
+  '#8A6D3B',
+  '#4A6670',
+  '#7C5C4B',
+  '#A8763E',
+  '#5E7A5A',
+  '#9C4B3D',
+]
 
 // Fase D: ripartizione delle spese per categoria nel periodo selezionato —
 // base per il futuro calcolo del margine per locale (entrate - costi per
@@ -67,7 +77,7 @@ export function CategorieBreakdownChart({ spese }: Props) {
               <span className={cn('h-2.5 w-2.5 rounded-full shrink-0')} style={{ backgroundColor: COLORS[i % COLORS.length] }} />
               <span className="truncate">{f.nome}</span>
             </div>
-            <div className="flex items-center gap-2 shrink-0 tabular-nums text-muted-foreground">
+            <div className="cassa-numeric flex items-center gap-2 shrink-0 text-muted-foreground">
               <span>€ {f.totale.toFixed(2)}</span>
               <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
             </div>
