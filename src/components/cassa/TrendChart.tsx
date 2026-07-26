@@ -1,6 +1,7 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
+import type { MouseHandlerDataParam } from 'recharts/types/synchronisation/types'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
@@ -22,11 +23,6 @@ const GRANULARITY_LABELS: Record<Granularity, string> = {
   mese: 'Mese',
 }
 
-interface Props {
-  righe: Riga[]
-  righePrecedenti?: Riga[] // stesso periodo, anno precedente — opzionale
-}
-
 interface Bucket {
   key: string
   label: string
@@ -34,6 +30,11 @@ interface Bucket {
   spese: number
   differenza: number
   entratePrecedente?: number | null
+}
+
+interface Props {
+  righe: Riga[]
+  righePrecedenti?: Riga[] // stesso periodo, anno precedente — opzionale
 }
 
 function bucketKey(dateStr: string, granularity: Granularity): { key: string; label: string } {
@@ -66,11 +67,28 @@ function euro(n: number): string {
   return `${n < 0 ? '−' : ''}€ ${Math.abs(n).toFixed(2)}`
 }
 
+// Blocca lo scroll verticale della pagina per l'intera durata di un
+// trascinamento che parte sul grafico. touch-action: none (sotto) è la
+// prima difesa, ma i gesti touch React sono attaccati come passive di
+// default: senza un listener nativo { passive: false } preventDefault()
+// verrebbe ignorato dal browser durante lo swipe.
+function useBlockScrollDuringTouch(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const prevent = (e: TouchEvent) => { e.preventDefault() }
+    el.addEventListener('touchmove', prevent, { passive: false })
+    return () => el.removeEventListener('touchmove', prevent)
+  }, [ref])
+}
+
 export function TrendChart({ righe, righePrecedenti }: Props) {
   const [granularity, setGranularity] = useState<Granularity>('giorno')
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const hasCompare = !!righePrecedenti?.length
   const reducedMotion = usePrefersReducedMotion()
+  const chartAreaRef = useRef<HTMLDivElement>(null)
+  useBlockScrollDuringTouch(chartAreaRef)
 
   const data = useMemo(() => {
     const current = toBuckets(righe, granularity)
@@ -85,8 +103,8 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
     return current.map((b, i) => ({ ...b, entratePrecedente: previous[i]?.entrate ?? null }))
   }, [righe, righePrecedenti, granularity, hasCompare])
 
-  // Punto attivo (hover o tap): di default l'ultimo della serie, cosi' il
-  // fumetto mostra sempre un valore invece di restare vuoto a riposo.
+  // Punto attivo (hover, tap o scrub col dito): di default l'ultimo della
+  // serie, cosi' il fumetto mostra sempre un valore invece di restare vuoto.
   const active = useMemo(
     () => data.find(b => b.key === activeKey) ?? data[data.length - 1] ?? null,
     [data, activeKey]
@@ -94,7 +112,17 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
 
   if (righe.length === 0) return null
 
-  const chartMinWidth = Math.max(data.length * 44, 480)
+  // Aggiorna il punto attivo seguendo il mouse o il dito in tempo reale —
+  // stessa funzione per hover desktop e scrub touch, recharts calcola già
+  // internamente il punto più vicino al cursore/tocco in activeIndex.
+  function handleActive(state: MouseHandlerDataParam) {
+    // recharts espone activeIndex come TooltipIndex (stringa numerica a
+    // runtime, es. "2"), non come number — Number() lo normalizza per
+    // entrambi i casi.
+    const idx = state?.activeIndex != null ? Number(state.activeIndex) : NaN
+    const key = !Number.isNaN(idx) ? data[idx]?.key : undefined
+    if (key) setActiveKey(key)
+  }
 
   return (
     <div className="space-y-3">
@@ -107,7 +135,8 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
       </div>
 
       {/* Fumetto: sempre sopra il grafico, mai sovrapposto ai dati. Data,
-          Entrate, Spese e Differenza condividono lo stesso peso tipografico. */}
+          Entrate, Spese e Differenza condividono lo stesso peso tipografico.
+          Segue il dito in tempo reale durante lo scrub touch. */}
       {active && (
         <div className="cassa-numeric grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
           <div>
@@ -131,50 +160,43 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
         </div>
       )}
 
-      {/* Scroll orizzontale isolato: pan-x sul contenitore evita che uno
-          swipe pensato per il grafico scateni anche lo scroll verticale
-          della pagina. Il grafico si allarga oltre il 100% solo quando i
-          punti sono troppi per stare comodamente in vista. */}
-      <div className="overflow-x-auto overscroll-x-contain" style={{ touchAction: 'pan-x' }}>
-        <div className="h-72" style={{ minWidth: `${chartMinWidth}px` }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={data}
-              margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-              onMouseMove={state => {
-                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
-                const key = idx !== undefined ? data[idx]?.key : undefined
-                if (key) setActiveKey(key)
-              }}
-              onClick={state => {
-                const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined
-                const key = idx !== undefined ? data[idx]?.key : undefined
-                if (key) setActiveKey(prev => (prev === key ? null : key))
-              }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} width={60} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
-              <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
-              <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
-              {hasCompare && (
-                <Line
-                  type="monotone"
-                  dataKey="entratePrecedente"
-                  name="Entrate (anno precedente)"
-                  stroke="hsl(var(--muted-foreground))"
-                  strokeWidth={2}
-                  strokeDasharray="5 4"
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={!reducedMotion}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Il grafico mostra sempre l'intero periodo, mai panoramica: niente
+          scroll orizzontale. touch-action: none toglie al browser ogni
+          gesto nativo su quest'area (nessun pan-x/pan-y da negoziare), cosi'
+          il trascinamento è governato solo da onTouchMove/preventDefault
+          qui sotto — lo scroll verticale della pagina resta bloccato per
+          tutta la durata del gesto, non solo attenuato. */}
+      <div ref={chartAreaRef} className="h-72 w-full" style={{ touchAction: 'none' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={data}
+            margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+            onMouseMove={handleActive}
+            onTouchStart={handleActive}
+            onTouchMove={handleActive}
+          >
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <XAxis dataKey="label" type="category" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} width={60} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            {hasCompare && (
+              <Line
+                type="monotone"
+                dataKey="entratePrecedente"
+                name="Entrate (anno precedente)"
+                stroke="hsl(var(--muted-foreground))"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={false}
+                connectNulls
+                isAnimationActive={!reducedMotion}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
