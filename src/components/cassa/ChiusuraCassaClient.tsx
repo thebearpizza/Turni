@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -40,11 +41,23 @@ const emptyFields = () => ({
 })
 
 export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
+  // "Modifica" da Lista Chiusure arriva qui con ?restaurant_id=&data= per
+  // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
+  // carica normalmente, come per una data qualunque).
+  const searchParams = useSearchParams()
+  const editRestaurantId = searchParams.get('restaurant_id')
+  const editDate = searchParams.get('data')
+
   const [fase, setFase] = useState<1 | 2 | 3>(1)
   const [restaurantId, setRestaurantId] = useState(
-    fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : '')
+    editRestaurantId ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : '')
   )
-  const [date, setDate] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [date, setDate] = useState(() => editDate ?? formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+
+  useEffect(() => {
+    if (editRestaurantId) setRestaurantId(editRestaurantId)
+    if (editDate) setDate(editDate)
+  }, [editRestaurantId, editDate])
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)

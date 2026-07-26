@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -10,7 +11,7 @@ import { CassaPill } from '@/components/cassa/CassaPill'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Trash2, FileText, FileSpreadsheet } from 'lucide-react'
+import { Trash2, FileText, FileSpreadsheet, Pencil } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -42,6 +43,7 @@ function monthRange(month: string): { start: string; end: string } {
 }
 
 export function ListaChiusureClient({ restaurants }: Props) {
+  const router = useRouter()
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [righe, setRighe] = useState<Riga[]>([])
@@ -52,43 +54,49 @@ export function ListaChiusureClient({ restaurants }: Props) {
     setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
   }
 
-  useEffect(() => {
-    let cancelled = false
+  const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
+  const targetsKey = JSON.stringify(targets)
+
+  const load = useCallback(async () => {
     setLoading(true)
+    if (targets.length === 0) { setRighe([]); setLoading(false); return }
     const { start, end } = monthRange(month)
     const supabase = createClient()
-    const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
+    const { data } = await supabase
+      .from('cassa_chiusure')
+      .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, restaurant:restaurants(name)')
+      .in('restaurant_id', targets)
+      .eq('stato', 'confermata')
+      .gte('data', start)
+      .lte('data', end)
+      .order('data', { ascending: false })
 
-    async function load() {
-      if (targets.length === 0) {
-        if (!cancelled) { setRighe([]); setLoading(false) }
-        return
-      }
-      const { data } = await supabase
-        .from('cassa_chiusure')
-        .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, restaurant:restaurants(name)')
-        .in('restaurant_id', targets)
-        .eq('stato', 'confermata')
-        .gte('data', start)
-        .lte('data', end)
-        .order('data', { ascending: false })
+    setRighe(((data ?? []) as unknown as Array<Riga & { restaurant: { name: string } | null }>).map(r => ({
+      id: r.id,
+      data: r.data,
+      restaurant_id: r.restaurant_id,
+      restaurant_name: r.restaurant?.name ?? '—',
+      totale_entrate: r.totale_entrate,
+      totale_spese_giornaliere: r.totale_spese_giornaliere,
+      differenza: r.differenza,
+    })))
+    setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, targetsKey])
 
-      if (cancelled) return
-      setRighe(((data ?? []) as unknown as Array<Riga & { restaurant: { name: string } | null }>).map(r => ({
-        id: r.id,
-        data: r.data,
-        restaurant_id: r.restaurant_id,
-        restaurant_name: r.restaurant?.name ?? '—',
-        totale_entrate: r.totale_entrate,
-        totale_spese_giornaliere: r.totale_spese_giornaliere,
-        differenza: r.differenza,
-      })))
-      setLoading(false)
-    }
+  useEffect(() => { load() }, [load])
 
-    load()
-    return () => { cancelled = true }
-  }, [month, selectedRestaurants, restaurants])
+  // Riflette in tempo reale le modifiche fatte altrove (es. approvazione di
+  // una richiesta di modifica, o modifica diretta dalla vista Chiusura)
+  // senza dover ricaricare la pagina.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('cassa_chiusure_lista')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [load])
 
   async function handleDelete(id: string) {
     if (!confirm('Eliminare definitivamente questa chiusura? Verranno eliminate anche le spese collegate.')) return
@@ -191,6 +199,17 @@ export function ListaChiusureClient({ restaurants }: Props) {
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Modifica"
+                        disabled={busy}
+                        onClick={() => router.push(`/cassa/chiusura?restaurant_id=${r.restaurant_id}&data=${r.data}`)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"

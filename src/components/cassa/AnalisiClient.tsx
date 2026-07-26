@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -159,6 +159,7 @@ export function AnalisiClient({ restaurants }: Props) {
     () => selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id),
     [selectedRestaurants, restaurants]
   )
+  const targetsKey = useMemo(() => JSON.stringify(targets), [targets])
 
   async function handleExport(exportFormat: 'pdf' | 'xlsx') {
     setExporting(exportFormat)
@@ -185,36 +186,51 @@ export function AnalisiClient({ restaurants }: Props) {
     }
   }
 
-  useEffect(() => {
+  // requestId: scarta le risposte di un fetch superato da uno più recente
+  // (cambio filtro rapido, o un evento realtime arrivato durante un fetch
+  // già in corso) invece di lasciarle sovrascrivere lo stato con dati vecchi.
+  const requestId = useRef(0)
+
+  const load = useCallback(async () => {
     if (!start || !end) return
-    let cancelled = false
+    const myRequest = ++requestId.current
     setLoading(true)
 
     const supabase = createClient()
+    const current = await fetchRighe(supabase, targets, start, end)
+    if (requestId.current !== myRequest) return
+    setRighe(current)
 
-    async function load() {
-      const current = await fetchRighe(supabase, targets, start, end)
-      if (cancelled) return
-      setRighe(current)
+    const speseData = await fetchSpese(supabase, current.map(r => r.id))
+    if (requestId.current === myRequest) setSpese(speseData)
 
-      const speseData = await fetchSpese(supabase, current.map(r => r.id))
-      if (!cancelled) setSpese(speseData)
-
-      if (compareYoY) {
-        const prevStart = fmtDate(subYears(new Date(`${start}T12:00:00Z`), 1))
-        const prevEnd = fmtDate(subYears(new Date(`${end}T12:00:00Z`), 1))
-        const previous = await fetchRighe(supabase, targets, prevStart, prevEnd)
-        if (!cancelled) setRighePrecedenti(previous)
-      } else {
-        setRighePrecedenti([])
-      }
-
-      if (!cancelled) setLoading(false)
+    if (compareYoY) {
+      const prevStart = fmtDate(subYears(new Date(`${start}T12:00:00Z`), 1))
+      const prevEnd = fmtDate(subYears(new Date(`${end}T12:00:00Z`), 1))
+      const previous = await fetchRighe(supabase, targets, prevStart, prevEnd)
+      if (requestId.current === myRequest) setRighePrecedenti(previous)
+    } else {
+      setRighePrecedenti([])
     }
 
-    load()
-    return () => { cancelled = true }
-  }, [start, end, targets, compareYoY])
+    if (requestId.current === myRequest) setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end, targetsKey, compareYoY])
+
+  useEffect(() => { load() }, [load])
+
+  // Riflette in tempo reale le chiusure modificate/create/eliminate altrove
+  // (Lista Chiusure, wizard di modifica, approvazione richieste) senza
+  // dover ricaricare la pagina — stesso pattern già usato nel resto
+  // dell'app (canale postgres_changes su cassa_chiusure).
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('cassa_chiusure_analisi')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [load])
 
   return (
     <div className="space-y-4">
