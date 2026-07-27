@@ -104,27 +104,37 @@ async function fetchRighe(
 interface SpesaRow {
   importo: number
   categoria_nome: string | null
+  nome_spesa: string
   data: string
+  restaurant_id: string
+  restaurant_name: string
 }
 
-// dataById: data della chiusura per ogni id, dalle righe già caricate —
-// evita una join aggiuntiva solo per popolare il trend nel tempo.
+// chiusuraInfoById: data + locale della chiusura per ogni id, dalle righe
+// già caricate — evita una join aggiuntiva solo per popolare il trend nel
+// tempo e il drill-down per nome_spesa/locale nella ciambella categorie.
 async function fetchSpese(
   supabase: ReturnType<typeof createClient>,
   chiusure: Riga[]
 ): Promise<SpesaRow[]> {
   if (chiusure.length === 0) return []
-  const dataById = new Map(chiusure.map(r => [r.id, r.data]))
+  const chiusuraInfoById = new Map(chiusure.map(r => [r.id, r]))
   const { data } = await supabase
     .from('cassa_spese')
-    .select('importo, chiusura_id, categoria:cassa_categorie(nome)')
+    .select('importo, nome_spesa, chiusura_id, categoria:cassa_categorie(nome)')
     .in('chiusura_id', chiusure.map(r => r.id))
 
-  return ((data ?? []) as unknown as Array<{ importo: number; chiusura_id: string; categoria: { nome: string } | null }>).map(s => ({
-    importo: s.importo,
-    categoria_nome: s.categoria?.nome ?? null,
-    data: dataById.get(s.chiusura_id) ?? '',
-  }))
+  return ((data ?? []) as unknown as Array<{ importo: number; nome_spesa: string; chiusura_id: string; categoria: { nome: string } | null }>).map(s => {
+    const chiusura = chiusuraInfoById.get(s.chiusura_id)
+    return {
+      importo: s.importo,
+      categoria_nome: s.categoria?.nome ?? null,
+      nome_spesa: s.nome_spesa,
+      data: chiusura?.data ?? '',
+      restaurant_id: chiusura?.restaurant_id ?? '',
+      restaurant_name: chiusura?.restaurant_name ?? '—',
+    }
+  })
 }
 
 export function AnalisiClient({ restaurants }: Props) {
@@ -396,7 +406,7 @@ export function AnalisiClient({ restaurants }: Props) {
         <Card className="cassa-perforated-top">
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
-            <CategorieBreakdownChart spese={spese} />
+            <CategorieBreakdownChart spese={spese} multiRestaurant={targets.length > 1} />
           </CardContent>
         </Card>
       )}
