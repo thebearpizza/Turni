@@ -11,6 +11,7 @@ import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
 import { CategorieTrendChart } from '@/components/cassa/CategorieTrendChart'
+import { PagamentoBreakdownChart } from '@/components/cassa/PagamentoBreakdownChart'
 import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
 import { AnalisiKpiRow } from '@/components/cassa/AnalisiKpiRow'
 import { BestWorstDayHighlight } from '@/components/cassa/BestWorstDayHighlight'
@@ -42,6 +43,9 @@ interface Riga {
   differenza: number
   coperti: number
   incasso_asporto: number
+  entrate_contanti: number
+  entrate_pos: number
+  entrate_bonifico: number
 }
 
 function fmtDate(d: Date): string {
@@ -81,7 +85,7 @@ async function fetchRighe(
   if (targets.length === 0) return []
   const { data } = await supabase
     .from('cassa_chiusure')
-    .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, coperti, incasso_asporto, stato, restaurant:restaurants(name)')
+    .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, coperti, incasso_asporto, entrate_contanti, entrate_pos, entrate_bonifico, stato, restaurant:restaurants(name)')
     .in('restaurant_id', targets)
     .eq('stato', 'confermata')
     .gte('data', start)
@@ -98,6 +102,9 @@ async function fetchRighe(
     differenza: r.differenza,
     coperti: r.coperti,
     incasso_asporto: r.incasso_asporto,
+    entrate_contanti: r.entrate_contanti,
+    entrate_pos: r.entrate_pos,
+    entrate_bonifico: r.entrate_bonifico,
   }))
 }
 
@@ -401,6 +408,15 @@ export function AnalisiClient({ restaurants }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {!loading && righe.length > 0 && (
+        <Card className="cassa-perforated-top">
+          <CardContent className="pt-6 space-y-3">
+            <Label className="cassa-display text-base">Ripartizione entrate per tipo di pagamento</Label>
+            <PagamentoBreakdownChart righe={righe} />
+          </CardContent>
+        </Card>
+      )}
 
       {!loading && righe.length > 0 && (
         <Card className="cassa-perforated-top">
