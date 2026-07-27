@@ -12,7 +12,7 @@ const HUB_ITEMS = [
     description: 'Gestione turni, presenze, dipendenti e ristoranti',
   },
   {
-    href: '/cassa/chiusura',
+    href: '/cassa',
     icon: Wallet,
     title: 'Cassa',
     description: 'Chiusura cassa e analisi',
