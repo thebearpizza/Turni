@@ -23,6 +23,7 @@ interface RestaurantOption {
 
 interface Props {
   restaurants: RestaurantOption[]
+  role: 'manager' | 'cassiere'
 }
 
 interface Riga {
@@ -46,7 +47,7 @@ function monthRange(month: string): { start: string; end: string } {
   return { start, end }
 }
 
-export function ListaChiusureClient({ restaurants }: Props) {
+export function ListaChiusureClient({ restaurants, role }: Props) {
   const router = useRouter()
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
@@ -125,19 +126,28 @@ export function ListaChiusureClient({ restaurants }: Props) {
     <div className="space-y-4">
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6 space-y-4">
-          <div className="space-y-2">
-            <Label>Ristoranti</Label>
-            <div className="flex flex-wrap gap-2">
-              {restaurants.map(r => (
-                <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
-                  {r.name}
-                </CassaPill>
-              ))}
+          {role === 'manager' ? (
+            <div className="space-y-2">
+              <Label>Ristoranti</Label>
+              <div className="flex flex-wrap gap-2">
+                {restaurants.map(r => (
+                  <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
+                    {r.name}
+                  </CassaPill>
+                ))}
+              </div>
+              {selectedRestaurants.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
+              )}
             </div>
-            {selectedRestaurants.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
-            )}
-          </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Ristorante</Label>
+              <div className="flex h-9 w-fit min-w-40 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                {restaurants[0]?.name ?? 'Nessun ristorante assegnato'}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Mese</Label>
@@ -232,17 +242,19 @@ export function ListaChiusureClient({ restaurants }: Props) {
                       >
                         <FileSpreadsheet className="w-4 h-4" />
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        title="Elimina"
-                        disabled={busy}
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {role === 'manager' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          title="Elimina"
+                          disabled={busy}
+                          onClick={() => handleDelete(r.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )

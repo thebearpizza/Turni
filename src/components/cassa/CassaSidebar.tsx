@@ -8,17 +8,28 @@ import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
 // nessuna logica di business (niente badge, niente realtime).
-const navItems = [
-  { href: '/hub',              icon: Home,        label: 'Home',         roles: ['manager', 'cassiere'] },
-  { href: '/cassa/chiusura',   icon: Wallet,       label: 'Chiusura Cassa', roles: ['manager', 'cassiere'] },
-  { href: '/cassa/approvazioni', icon: ShieldCheck, label: 'Approvazioni', roles: ['manager'] },
-  { href: '/cassa/lista-chiusure', icon: ListChecks, label: 'Lista Chiusure', roles: ['manager'] },
-  { href: '/cassa/analisi',    icon: BarChart3,    label: 'Analisi',      roles: ['manager'] },
+//
+// Due elenchi separati (non un unico navItems filtrato per ruolo): manager
+// e cassiere non vogliono solo un sottoinsieme diverso di voci, ma un
+// ordine diverso degli stessi due elementi condivisi (Chiusura Cassa e
+// Lista Chiusure) — un filtro su un solo array ordinato non può produrre
+// entrambe le sequenze richieste.
+const managerNavItems = [
+  { href: '/hub',                  icon: Home,        label: 'Home' },
+  { href: '/cassa/analisi',        icon: BarChart3,   label: 'Analisi' },
+  { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
+  { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
+  { href: '/cassa/approvazioni',   icon: ShieldCheck, label: 'Approvazioni' },
+]
+
+const cassiereNavItems = [
+  { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
+  { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
 ]
 
 interface SidebarContentProps {
   pathname: string
-  items: typeof navItems
+  items: typeof managerNavItems
   onNavigate: () => void
   onLogout: () => void
 }
@@ -74,7 +85,7 @@ export function CassaSidebar({ role }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
-  const items = navItems.filter(item => item.roles.includes(role))
+  const items = role === 'manager' ? managerNavItems : cassiereNavItems
 
   async function handleLogout() {
     const supabase = createClient()
