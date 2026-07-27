@@ -131,7 +131,11 @@ export function CategorieTrendChart({ spese }: Props) {
       </div>
 
       {active && (
-        <div className="rounded-lg border border-border bg-muted/50 px-4 py-3">
+        // min-height fissa (non height secca, per non tagliare in casi
+        // limite) tarata sul caso peggiore — MAX_CATEGORIE + "Altro" righe
+        // andate a capo su mobile — cosi' il riquadro non salta di altezza
+        // passando da un giorno con 2 categorie a uno con 5+.
+        <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 min-h-32">
           <p className="text-sm font-semibold mb-2">{active.label}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">
             {categorie.map((cat, i) => {
