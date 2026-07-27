@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, FileText, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X } from 'lucide-react'
+import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { href: '/hub',              icon: Home,        label: 'Home',         roles: ['manager', 'cassiere'] },
   { href: '/cassa/chiusura',   icon: Wallet,       label: 'Chiusura Cassa', roles: ['manager', 'cassiere'] },
-  { href: '/cassa/prima-nota', icon: FileText,     label: 'Prima Nota',   roles: ['manager', 'cassiere'] },
   { href: '/cassa/approvazioni', icon: ShieldCheck, label: 'Approvazioni', roles: ['manager'] },
   { href: '/cassa/lista-chiusure', icon: ListChecks, label: 'Lista Chiusure', roles: ['manager'] },
   { href: '/cassa/analisi',    icon: BarChart3,    label: 'Analisi',      roles: ['manager'] },
@@ -31,7 +30,7 @@ function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarConten
     <div className="flex flex-col h-full">
       <div className="cassa-perforated-top p-6 border-b border-border">
         <h1 className="cassa-display text-2xl">Cassa</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Chiusura e prima nota</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Gestione cassa</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">

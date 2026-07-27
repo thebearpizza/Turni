@@ -15,7 +15,7 @@ const HUB_ITEMS = [
     href: '/cassa/chiusura',
     icon: Wallet,
     title: 'Cassa',
-    description: 'Chiusura cassa e prima nota',
+    description: 'Chiusura cassa e analisi',
   },
 ]
 
