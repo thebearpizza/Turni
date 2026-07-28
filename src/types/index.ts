@@ -365,3 +365,84 @@ export interface CassaChiusuraModifica {
   rivisto_at:    string | null
   created_at:    string
 }
+
+export type ArticoloTipologia = 'food' | 'beverage' | 'detergenza' | 'altro_no_food'
+
+export interface Fornitore {
+  id:             string
+  owner_id:       string
+  nome:           string
+  partita_iva:    string | null
+  created_at:     string
+}
+
+export interface CatalogoArticolo {
+  id:                    string
+  owner_id:              string
+  fornitore_id:          string
+  nome_articolo:         string
+  tipologia:             ArticoloTipologia
+  unita_misura:          string | null
+  fattore_conversione:   number
+  created_at:            string
+}
+
+export interface ArticoloMappaturaTesto {
+  id:                    string
+  owner_id:              string
+  fornitore_id:          string
+  testo_estratto:        string
+  catalogo_articolo_id:  string
+  created_at:            string
+}
+
+export interface CategoriaFatturaDiretta {
+  id:         string
+  owner_id:   string
+  nome:       string
+  created_at: string
+}
+
+export interface VerificaSospetta {
+  campo:      string
+  messaggio:  string
+}
+
+export interface Fattura {
+  id:                          string
+  restaurant_id:               string
+  fornitore_id:                string
+  numero_documento:            string
+  data:                        string // yyyy-MM-dd
+  ha_articoli:                 boolean
+  categoria_spesa_diretta_id:  string | null
+  totale_netto:                number
+  totale_iva:                  number
+  totale_lordo:                number
+  foto_paths:                  string[]
+  verifiche_sospette:          VerificaSospetta[]
+  created_by:                  string | null
+  updated_by:                  string | null
+  created_at:                  string
+  updated_at:                  string
+}
+
+export interface FatturaIvaDettaglio {
+  id:          string
+  fattura_id:  string
+  aliquota:    number
+  imponibile:  number
+  iva:         number
+  created_at:  string
+}
+
+export interface FatturaArticolo {
+  id:                    string
+  fattura_id:            string
+  catalogo_articolo_id:  string
+  testo_estratto:        string
+  quantita:              number
+  prezzo_unitario:       number
+  prezzo_riga:           number
+  created_at:            string
+}

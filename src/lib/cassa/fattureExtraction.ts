@@ -1,0 +1,149 @@
+import { generateObject, type ModelMessage } from 'ai'
+import { google } from '@ai-sdk/google'
+import { z } from 'zod'
+import type { ArticoloTipologia } from '@/types'
+
+// Stesso modello/fallback dell'assistente Telegram e del controllo
+// duplicati spese Cassa — un'unica coppia di env var per tutto l'uso di
+// Gemini nell'app.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite'
+
+function isRateLimitError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
+}
+
+async function generateWithFallback<T>(schema: z.ZodType<T>, messages: ModelMessage[]) {
+  try {
+    return await generateObject({ model: google(GEMINI_MODEL), schema, messages })
+  } catch (err) {
+    if (!isRateLimitError(err) || GEMINI_FALLBACK_MODEL === GEMINI_MODEL) throw err
+    console.warn(`[cassa/fatture] Quota esaurita per ${GEMINI_MODEL}, passo a ${GEMINI_FALLBACK_MODEL}`)
+    return await generateObject({ model: google(GEMINI_FALLBACK_MODEL), schema, messages })
+  }
+}
+
+// ── Estrazione dati fattura da foto ─────────────────────────────────────
+
+export const AliquotaEstrattaSchema = z.object({
+  aliquota: z.number().describe('Aliquota IVA in percentuale, es. 22, 10, 4, 0'),
+  imponibile: z.number().describe('Imponibile (netto) per questa aliquota'),
+  iva: z.number().describe('Importo IVA per questa aliquota'),
+})
+
+export const ArticoloEstrattoSchema = z.object({
+  nome: z.string().describe("Nome/descrizione dell'articolo così come scritto in fattura, testo esatto"),
+  quantita: z.number(),
+  prezzo_riga: z.number().describe('Importo totale della riga (quantità × prezzo unitario)'),
+})
+
+export const FatturaEstrattaSchema = z.object({
+  data: z.string().describe('Data del documento, formato yyyy-MM-dd'),
+  fornitore_nome: z.string().describe('Ragione sociale del fornitore/emittente'),
+  fornitore_partita_iva: z.string().nullable().describe('Partita IVA del fornitore se presente sul documento, altrimenti null'),
+  numero_documento: z.string().describe('Numero della fattura/documento'),
+  ha_articoli: z.boolean().describe(
+    "true se il documento riporta un elenco di articoli/prodotti con quantità e prezzi riga (es. fattura di un fornitore alimentare o di attrezzature); " +
+    "false se è un documento di spesa diretta senza dettaglio articoli (es. bolletta utenze, canone, intervento di manutenzione a corpo)"
+  ),
+  iva_dettaglio: z.array(AliquotaEstrattaSchema).describe('Una riga per ciascuna aliquota IVA distinta presente nel documento'),
+  articoli: z.array(ArticoloEstrattoSchema).describe('Elenco articoli — vuoto se ha_articoli è false'),
+})
+
+export type FatturaEstratta = z.infer<typeof FatturaEstrattaSchema>
+
+interface FotoInput {
+  buffer: ArrayBuffer
+  mediaType: string
+}
+
+export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta> {
+  const { object } = await generateWithFallback(FatturaEstrattaSchema, [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `Sei un assistente che legge fatture e documenti di spesa italiani fotografati da un ristorante. Le immagini allegate sono le pagine, in ordine, di un unico documento (potrebbero essere solo pagina fronte, o fronte+retro, o più pagine di un elenco articoli lungo). Estrai i dati richiesti dallo schema. Se un valore non è leggibile o non è presente, usa la stima più ragionevole per i numeri e una stringa vuota per il testo — non inventare un numero di documento o una partita IVA se non sono scritti.`,
+        },
+        ...foto.map(f => ({ type: 'image' as const, image: f.buffer, mediaType: f.mediaType })),
+      ],
+    },
+  ])
+  return object
+}
+
+// ── Matching semantico articoli vs catalogo esistente ───────────────────
+
+const MatchArticoloSchema = z.object({
+  testo_estratto: z.string().describe("Il testo esatto dell'articolo, identico a quello fornito in input"),
+  esito: z.enum(['chiaro', 'ambiguo', 'nuovo']).describe(
+    "'chiaro' se corrisponde senza dubbio a un candidato, 'ambiguo' se potrebbe essere un candidato ma non è certo (es. grammatura o formato diversi), 'nuovo' se non corrisponde a nessun candidato"
+  ),
+  candidato_indice: z.number().nullable().describe(
+    "Indice (0-based) del candidato corrispondente nell'elenco fornito PER QUESTO fornitore, se esito è 'chiaro' o 'ambiguo'. null se esito è 'nuovo'."
+  ),
+})
+
+const MatchResultSchema = z.object({
+  risultati: z.array(MatchArticoloSchema),
+})
+
+export interface CandidatoArticolo {
+  id: string
+  nome_articolo: string
+}
+
+export interface MatchArticoloEsito {
+  testo_estratto: string
+  esito: 'chiaro' | 'ambiguo' | 'nuovo'
+  catalogo_articolo_id: string | null
+}
+
+// Confronta ogni testo estratto con il catalogo esistente per lo stesso
+// fornitore. Valida l'indice restituito dal modello contro l'elenco reale
+// dei candidati (stessa disciplina di spesa-duplicati: mai fidarsi
+// ciecamente di un riferimento restituito dal modello).
+export async function matchArticoli(
+  testiEstratti: string[],
+  candidati: CandidatoArticolo[]
+): Promise<MatchArticoloEsito[]> {
+  if (testiEstratti.length === 0) return []
+
+  if (candidati.length === 0) {
+    return testiEstratti.map(t => ({ testo_estratto: t, esito: 'nuovo', catalogo_articolo_id: null }))
+  }
+
+  const { object } = await generateWithFallback(MatchResultSchema, [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: `Sei un assistente che riconosce articoli duplicati nel catalogo prodotti di un fornitore per un ristorante italiano.
+
+Articoli appena estratti da una nuova fattura dello stesso fornitore:
+${testiEstratti.map((t, i) => `${i}. "${t}"`).join('\n')}
+
+Catalogo articoli già registrati per questo fornitore (indice: nome):
+${candidati.map((c, i) => `${i}. "${c.nome_articolo}"`).join('\n')}
+
+Per ciascun articolo estratto, indica se corrisponde a un articolo già a catalogo (stesso prodotto, anche con formulazione diversa — es. "Mozzarella fior di latte 1kg" e "Mozzarella FDL kg1" sono lo stesso articolo), è ambiguo (potrebbe essere lo stesso ma con differenze che contano, es. formato o confezione diversi), oppure è un articolo nuovo mai visto per questo fornitore. Non inventare indici che non esistono nell'elenco.`,
+        },
+      ],
+    },
+  ])
+
+  return object.risultati.map(r => {
+    const idx = r.candidato_indice
+    const candidato = idx != null && idx >= 0 && idx < candidati.length ? candidati[idx] : null
+    return {
+      testo_estratto: r.testo_estratto,
+      esito: candidato ? r.esito : 'nuovo',
+      catalogo_articolo_id: candidato?.id ?? null,
+    }
+  })
+}
+
+export type { ArticoloTipologia }
