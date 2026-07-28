@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2 } from 'lucide-react'
+import { Loader2, FileText } from 'lucide-react'
 
 const BUCKET = 'fatture_foto'
 
@@ -53,10 +53,24 @@ export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title }: Prop
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           )}
-          {urls?.map((url, i) => (
-            // eslint-disable-next-line @next/next/no-img-element -- URL firmato temporaneo su storage privato, next/image non si applica
-            <img key={i} src={url} alt={`Pagina ${i + 1}`} className="w-full rounded-md border border-border" />
-          ))}
+          {urls?.map((url, i) => {
+            const isPdf = fotoPaths[i]?.toLowerCase().endsWith('.pdf')
+            return isPdf ? (
+              <a
+                key={i}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-md border border-border p-3 text-sm hover:bg-accent"
+              >
+                <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <span>Pagina {i + 1} — apri PDF</span>
+              </a>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- URL firmato temporaneo su storage privato, next/image non si applica
+              <img key={i} src={url} alt={`Pagina ${i + 1}`} className="w-full rounded-md border border-border" />
+            )
+          })}
         </div>
       </DialogContent>
     </Dialog>

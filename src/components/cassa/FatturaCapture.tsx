@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Camera, Upload, X, Loader2, AlertTriangle } from 'lucide-react'
+import { Camera, Upload, X, Loader2, AlertTriangle, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta } from '@/types'
 
@@ -126,8 +126,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     // un volto come nel fallback timbrature. Stesso limite di
     // MAX_LATO_LAVORO/warpProspettiva — coerente sia che la pagina sia
     // passata dallo scanner sia che l'utente scelga la foto originale.
+    // I PDF non passano da qui: compressImage lavora su un <canvas>,
+    // inapplicabile a un file che non è un'immagine.
     let compressed = file
-    try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
+    if (file.type.startsWith('image/')) {
+      try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
+    }
     setPages(prev => [...prev, compressed])
     setPreviews(prev => [...prev, URL.createObjectURL(compressed)])
   }
@@ -395,20 +399,35 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {previews.map((src, i) => (
-          <div key={i} className="relative aspect-[3/4] overflow-hidden rounded-md border border-border">
-            {/* eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL, next/image non si applica */}
-            <img src={src} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
-            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{i + 1}</span>
-            <button
-              type="button"
-              onClick={() => removePage(i)}
-              className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
+        {previews.map((src, i) => {
+          const isPdf = pages[i]?.type === 'application/pdf'
+          return (
+            <div key={i} className="relative aspect-[3/4] overflow-hidden rounded-md border border-border">
+              {isPdf ? (
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-muted p-2 text-center hover:bg-accent"
+                >
+                  <FileText className="h-6 w-6 text-muted-foreground" />
+                  <span className="line-clamp-2 break-all text-[10px] text-muted-foreground">{pages[i].name}</span>
+                </a>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL, next/image non si applica
+                <img src={src} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
+              )}
+              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{i + 1}</span>
+              <button
+                type="button"
+                onClick={() => removePage(i)}
+                className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )
+        })}
 
         <label className={cn(
           'flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground hover:bg-accent',
@@ -418,7 +437,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
           {initialMode === 'scan' ? (
             <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleAddPage} />
           ) : (
-            <input type="file" accept="image/*" multiple className="sr-only" onChange={handleAddPage} />
+            <input type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={handleAddPage} />
           )}
         </label>
       </div>

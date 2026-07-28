@@ -157,8 +157,14 @@ type PaginaEstratta = z.infer<typeof PaginaEstrattaSchema>
 
 async function estraiPagina(foto: FotoInput, numero: number, totale: number): Promise<PaginaEstratta> {
   const contesto = totale > 1
-    ? `L'immagine allegata è la pagina ${numero} di ${totale} di un unico documento. Estrai SOLO quello che è effettivamente stampato su questa pagina: i dati di testata (fornitore, numero, data) di norma stanno solo sulla prima pagina e il riepilogo IVA solo sull'ultima, quindi è del tutto normale che qui manchino — in quel caso usa null / array vuoti invece di dedurli o inventarli. Le pagine mancanti le ricompone il sistema.`
-    : `L'immagine allegata è l'unica pagina del documento.`
+    ? `L'allegato è l'elemento ${numero} di ${totale} che compongono insieme questo documento (ogni elemento è una foto di una pagina oppure un PDF — se è un PDF con più pagine, leggile tutte, fanno parte di questo stesso elemento). Estrai SOLO quello che è effettivamente presente in QUESTO elemento: i dati di testata (fornitore, numero, data) di norma stanno solo all'inizio del documento e il riepilogo IVA solo alla fine, quindi è del tutto normale che qui manchino — in quel caso usa null / array vuoti invece di dedurli o inventarli. Gli elementi mancanti li ricompone il sistema.`
+    : `L'allegato è l'unico elemento del documento: una foto oppure un PDF — se è un PDF con più pagine, leggile tutte.`
+
+  // PDF: mandato al modello come file nativo (Gemini legge tutte le
+  // pagine del PDF da sé). Immagine: come parte 'image', invariato.
+  const parteDocumento = foto.mediaType === 'application/pdf'
+    ? { type: 'file' as const, data: foto.buffer, mediaType: foto.mediaType }
+    : { type: 'image' as const, image: foto.buffer, mediaType: foto.mediaType }
 
   const { object } = await generateWithFallback(
     PaginaEstrattaSchema,
@@ -168,7 +174,7 @@ async function estraiPagina(foto: FotoInput, numero: number, totale: number): Pr
         content: [
           {
             type: 'text',
-            text: `Sei un assistente esperto nella lettura di fatture e documenti di spesa italiani, fotografati da un ristorante col telefono — quindi spesso con inquadratura leggermente storta, riflessi o testo piccolo. ${contesto} L'accuratezza conta più della velocità: prenditi tutto il tempo che serve per leggere con calma, non dare mai la prima lettura plausibile se puoi guardare meglio.
+            text: `Sei un assistente esperto nella lettura di fatture e documenti di spesa italiani — spesso foto scattate da un ristorante col telefono (quindi con inquadratura leggermente storta, riflessi o testo piccolo), talvolta invece PDF già digitali. ${contesto} L'accuratezza conta più della velocità: prenditi tutto il tempo che serve per leggere con calma, non dare mai la prima lettura plausibile se puoi guardare meglio.
 
 Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che è effettivamente leggibile: se c'è scritto "12,50" è 12.50, non 12 o 13. Le fatture italiane usano la virgola come separatore decimale e talvolta il punto come separatore delle migliaia (es. "1.234,56" = 1234.56) — non confonderli tra loro.
 
@@ -178,7 +184,7 @@ Se questa pagina riporta un elenco di articoli, leggi la tabella riga per riga d
 
 Non inventare mai un numero di documento o una partita IVA che non siano scritti su questa pagina.`,
           },
-          { type: 'image' as const, image: foto.buffer, mediaType: foto.mediaType },
+          parteDocumento,
         ],
       },
     ],
