@@ -14,7 +14,7 @@ import { FatturaCapture, type FatturaRisolta } from '@/components/cassa/FatturaC
 import { FatturaFotoViewer } from '@/components/cassa/FatturaFotoViewer'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Camera, Eye } from 'lucide-react'
+import { Camera, Eye, Upload } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -64,7 +64,18 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadRestaurantId, setUploadRestaurantId] = useState(restaurants[0]?.id ?? '')
+  const [captureMode, setCaptureMode] = useState<'file' | 'scan'>('scan')
   const [viewer, setViewer] = useState<Riga | null>(null)
+
+  function openUpload(mode: 'file' | 'scan') {
+    // Se il filtro locali è su un solo ristorante, precompila quello nel
+    // caricamento invece del primo della lista — è quasi certamente il
+    // locale su cui l'utente vuole caricare.
+    const daFiltro = selectedRestaurants.length === 1 ? selectedRestaurants[0] : null
+    setUploadRestaurantId(daFiltro ?? restaurants[0]?.id ?? '')
+    setCaptureMode(mode)
+    setUploadOpen(true)
+  }
 
   function toggleRestaurant(id: string) {
     setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
@@ -190,21 +201,27 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button
+      <div className="grid grid-cols-2 gap-3">
+        <button
           type="button"
-          onClick={() => {
-            // Se il filtro locali è su un solo ristorante, precompila
-            // quello nel caricamento invece del primo della lista — è
-            // quasi certamente il locale su cui l'utente vuole caricare.
-            const daFiltro = selectedRestaurants.length === 1 ? selectedRestaurants[0] : null
-            setUploadRestaurantId(daFiltro ?? restaurants[0]?.id ?? '')
-            setUploadOpen(true)
-          }}
+          onClick={() => openUpload('file')}
           disabled={restaurants.length === 0}
+          className="cassa-perforated-top flex flex-col items-center justify-center gap-1 rounded-lg border bg-card px-3 py-4 text-card-foreground shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
         >
-          <Camera className="w-4 h-4" /> Carica fattura
-        </Button>
+          <Upload className="h-5 w-5" />
+          <span className="text-sm font-semibold">Carica fattura</span>
+          <span className="text-xs text-muted-foreground">Scegli da file</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => openUpload('scan')}
+          disabled={restaurants.length === 0}
+          className="cassa-perforated-top flex flex-col items-center justify-center gap-1 rounded-lg border bg-card px-3 py-4 text-card-foreground shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+        >
+          <Camera className="h-5 w-5" />
+          <span className="text-sm font-semibold">Scansiona documento</span>
+          <span className="text-xs text-muted-foreground">Scatta una foto</span>
+        </button>
       </div>
 
       {loading ? (
@@ -285,7 +302,9 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent className="cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Carica fattura</DialogTitle>
+            <DialogTitle className="cassa-display text-lg">
+              {captureMode === 'scan' ? 'Scansiona documento' : 'Carica fattura'}
+            </DialogTitle>
           </DialogHeader>
           {role === 'manager' && restaurants.length > 1 && (
             <div className="space-y-1.5">
@@ -302,6 +321,7 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
             <FatturaCapture
               restaurantId={uploadRestaurantId}
               categorieDirette={categorieDirette}
+              initialMode={captureMode}
               onComplete={handleUploadComplete}
               onCancel={() => setUploadOpen(false)}
             />

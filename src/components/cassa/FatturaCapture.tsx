@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Camera, X, Loader2, AlertTriangle } from 'lucide-react'
+import { Camera, Upload, X, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta } from '@/types'
 
@@ -76,6 +76,11 @@ export interface FatturaRisolta {
 interface Props {
   restaurantId: string
   categorieDirette: Array<{ id: string; nome: string }>
+  // 'scan' = fotocamera + ritaglio prospettico (DocumentScanner), per un
+  // documento cartaceo davanti all'utente. 'file' = selezione diretta da
+  // file/galleria, multipla: si presume già un'immagine del documento
+  // (foto precedente, scansione, screenshot), quindi salta il ritaglio.
+  initialMode: 'file' | 'scan'
   onComplete: (fattura: FatturaRisolta) => void
   onCancel: () => void
 }
@@ -83,7 +88,7 @@ interface Props {
 // Cattura multi-pagina + pipeline di estrazione/matching (Task 1). Non
 // salva la fattura — restituisce i dati risolti a onComplete perché il
 // chiamante (Task 3) la persista dopo la conferma finale dell'utente.
-export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onCancel }: Props) {
+export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onCancel }: Props) {
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
   const [status, setStatus] = useState<'capturing' | 'processing' | 'review' | 'duplicate'>('capturing')
@@ -100,11 +105,18 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
   // valorizzata lo scanner prende il posto della griglia delle pagine.
   const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
 
-  function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
     e.target.value = ''
-    setDaRitagliare(file)
+    if (initialMode === 'scan') {
+      setDaRitagliare(files[0])
+      return
+    }
+    // Da file: niente ritaglio prospettico, si accodano direttamente
+    // (in sequenza, non in parallelo, per mantenere l'ordine di
+    // selezione anche se la compressione impiega tempi diversi).
+    for (const file of files) await aggiungiPagina(file)
   }
 
   async function aggiungiPagina(file: File) {
@@ -401,9 +413,13 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
         <label className={cn(
           'flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground hover:bg-accent',
         )}>
-          <Camera className="h-5 w-5" />
-          <span className="text-xs">Aggiungi pagina</span>
-          <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleAddPage} />
+          {initialMode === 'scan' ? <Camera className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
+          <span className="text-xs">{initialMode === 'scan' ? 'Aggiungi pagina' : 'Aggiungi da file'}</span>
+          {initialMode === 'scan' ? (
+            <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleAddPage} />
+          ) : (
+            <input type="file" accept="image/*" multiple className="sr-only" onChange={handleAddPage} />
+          )}
         </label>
       </div>
 
