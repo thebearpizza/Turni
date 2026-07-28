@@ -7,6 +7,12 @@ import type { VerificaSospetta, ArticoloTipologia } from '@/types'
 
 const BUCKET = 'fatture_foto'
 
+// L'estrazione ora usa un modello più lento ma più accurato (Gemini Pro
+// invece di Flash, vedi fattureExtraction.ts) — su una fattura di più
+// pagine può superare comodamente i 10s di default di molte piattaforme
+// serverless. Alza il limite per questa singola route.
+export const maxDuration = 60
+
 // POST /api/cassa/fatture/estrai
 // Multipart FormData: restaurant_id (string) + photo_0, photo_1, ... (File, in ordine di pagina)
 //

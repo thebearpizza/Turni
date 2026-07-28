@@ -360,6 +360,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
         </label>
       </div>
 
+      {status === 'processing' && (
+        <p className="text-xs text-muted-foreground">
+          Lettura accurata in corso, può richiedere qualche decina di secondi — non chiudere la pagina.
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <div className="flex justify-between pt-2">
