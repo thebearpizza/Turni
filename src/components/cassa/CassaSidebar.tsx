@@ -19,6 +19,8 @@ const managerNavItems = [
   { href: '/cassa/analisi',        icon: BarChart3,   label: 'Analisi' },
   { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
   { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
+  { href: '/cassa/fatture',        icon: FileText,    label: 'Fatture' },
+  { href: '/cassa/articoli',       icon: Package,     label: 'Articoli' },
   { href: '/cassa/approvazioni',   icon: ShieldCheck, label: 'Approvazioni' },
 ]
 
