@@ -14,13 +14,19 @@ const BUCKET = 'fatture_foto'
 export const maxDuration = 60
 
 // POST /api/cassa/fatture/estrai
-// Multipart FormData: restaurant_id (string) + photo_0, photo_1, ... (File, in ordine di pagina)
+// Body JSON: { restaurant_id: string, foto_paths: string[] }
 //
-// Carica le foto, estrae i dati della fattura via Gemini, risolve il
-// fornitore (trova o crea) e — se ha_articoli — abbina ogni articolo
-// estratto al catalogo esistente per quel fornitore. Non salva ancora la
-// fattura: restituisce i dati risolti perché l'utente li riveda (Task 2)
-// prima del salvataggio definitivo (Task 3).
+// Le foto le ha già caricate il client direttamente su Supabase Storage
+// (vedi FatturaCapture.tsx) — qui arrivano solo i percorsi, non i byte:
+// il corpo di una richiesta a una funzione serverless Vercel è limitato
+// a 4.5 MB, e con più pagine ad alta risoluzione (l'OCR deve leggere
+// testo piccolo) lo si supera facilmente passando i file nella richiesta
+// stessa. Questa route scarica le foto da storage lato server, estrae i
+// dati via Gemini, risolve il fornitore (trova o crea) e — se
+// ha_articoli — abbina ogni articolo estratto al catalogo esistente per
+// quel fornitore. Non salva ancora la fattura: restituisce i dati
+// risolti perché l'utente li riveda (Task 2) prima del salvataggio
+// definitivo (Task 3).
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -30,17 +36,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Estrazione automatica non disponibile: l'assistente AI non è configurato." }, { status: 503 })
   }
 
-  const formData = await request.formData()
-  const restaurantId = formData.get('restaurant_id') as string | null
+  const body = await request.json()
+  const restaurantId = body?.restaurant_id as string | undefined
+  const fotoPaths = body?.foto_paths as string[] | undefined
   if (!restaurantId) return NextResponse.json({ error: 'Locale mancante' }, { status: 400 })
-
-  const photos: File[] = []
-  for (const [key, value] of formData.entries()) {
-    if (key.startsWith('photo_') && value instanceof File) photos.push(value)
-  }
-  if (photos.length === 0) return NextResponse.json({ error: 'Nessuna foto ricevuta' }, { status: 400 })
-  if (photos.some(p => p.size > 10 * 1024 * 1024)) {
-    return NextResponse.json({ error: 'Ogni foto può arrivare al massimo a 10 MB' }, { status: 413 })
+  if (!fotoPaths?.length) return NextResponse.json({ error: 'Nessuna foto ricevuta' }, { status: 400 })
+  // Ogni percorso deve appartenere al locale dichiarato — altrimenti un
+  // utente potrebbe passare percorsi di un altro locale (il download
+  // sotto è comunque filtrato da RLS, ma qui evitiamo pure il tentativo).
+  if (fotoPaths.some(p => !p.startsWith(`${restaurantId}/`))) {
+    return NextResponse.json({ error: 'Percorso foto non valido' }, { status: 400 })
   }
 
   // Il locale deve esistere ed essere leggibile (RLS) dall'utente corrente
@@ -48,26 +53,13 @@ export async function POST(request: Request) {
   const { data: restaurant } = await supabase.from('restaurants').select('id, owner_id').eq('id', restaurantId).single()
   if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
 
-  // Upload foto — path {restaurant_id}/{timestamp}-{indice}.{ext}, RLS su
-  // storage.objects verifica manager/direttore sul locale.
-  const fotoPaths: string[] = []
   const fotoBuffers: { buffer: ArrayBuffer; mediaType: string }[] = []
-  for (let i = 0; i < photos.length; i++) {
-    const photo = photos[i]
-    const buffer = await photo.arrayBuffer()
-    fotoBuffers.push({ buffer, mediaType: photo.type || 'image/jpeg' })
-
-    const ext = photo.name.split('.').pop() ?? 'jpg'
-    const path = `${restaurantId}/${Date.now()}-${i}.${ext}`
-    const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, buffer, {
-      contentType: photo.type || 'image/jpeg',
-      upsert: false,
-    })
-    if (uploadErr) {
-      await supabase.storage.from(BUCKET).remove(fotoPaths)
-      return NextResponse.json({ error: 'Errore upload foto: ' + uploadErr.message }, { status: 500 })
+  for (const path of fotoPaths) {
+    const { data: fileBlob, error: downloadErr } = await supabase.storage.from(BUCKET).download(path)
+    if (downloadErr || !fileBlob) {
+      return NextResponse.json({ error: 'Errore nel recupero delle foto caricate: ' + (downloadErr?.message ?? 'file non trovato') }, { status: 500 })
     }
-    fotoPaths.push(path)
+    fotoBuffers.push({ buffer: await fileBlob.arrayBuffer(), mediaType: fileBlob.type || 'image/jpeg' })
   }
 
   let estratta

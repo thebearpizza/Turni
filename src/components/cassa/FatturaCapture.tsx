@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/compressImage'
 import { DocumentScanner } from '@/components/cassa/DocumentScanner'
 import { Button } from '@/components/ui/button'
@@ -86,6 +87,10 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
   const [status, setStatus] = useState<'capturing' | 'processing' | 'review' | 'duplicate'>('capturing')
+  // Solo per il messaggio mostrato durante 'processing' — il caricamento
+  // foto è rapido, la lettura AI no, distinguerli evita che un'attesa
+  // lunga sembri bloccata sul passo sbagliato.
+  const [faseElaborazione, setFaseElaborazione] = useState<'upload' | 'lettura'>('upload')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<EstraiResponse | null>(null)
   const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
@@ -125,13 +130,44 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
 
   async function handleElabora() {
     setStatus('processing')
+    setFaseElaborazione('upload')
     setError(null)
-    try {
-      const fd = new FormData()
-      fd.append('restaurant_id', restaurantId)
-      pages.forEach((p, i) => fd.append(`photo_${i}`, p))
 
-      const res = await fetch('/api/cassa/fatture/estrai', { method: 'POST', body: fd })
+    // Le foto le carica il client direttamente sullo storage, non la API
+    // route: il corpo di una richiesta a una funzione serverless Vercel
+    // è limitato a 4.5 MB, e con più pagine ad alta risoluzione (l'OCR
+    // deve leggere testo piccolo) si supera facilmente — il rifiuto a
+    // livello di piattaforma arriva al browser come connessione
+    // interrotta, non come un errore applicativo pulito. Qui invece la
+    // route riceve solo i percorsi, un payload minuscolo qualunque sia
+    // la dimensione delle foto.
+    const supabase = createClient()
+    const fotoPaths: string[] = []
+    try {
+      for (let i = 0; i < pages.length; i++) {
+        const ext = pages[i].name.split('.').pop() ?? 'jpg'
+        const path = `${restaurantId}/${Date.now()}-${i}.${ext}`
+        const { error: uploadErr } = await supabase.storage.from('fatture_foto').upload(path, pages[i], {
+          contentType: pages[i].type || 'image/jpeg',
+          upsert: false,
+        })
+        if (uploadErr) throw uploadErr
+        fotoPaths.push(path)
+      }
+    } catch (err) {
+      if (fotoPaths.length > 0) await supabase.storage.from('fatture_foto').remove(fotoPaths)
+      setError(err instanceof Error ? `Errore nel caricamento delle foto: ${err.message}` : 'Errore nel caricamento delle foto')
+      setStatus('capturing')
+      return
+    }
+
+    setFaseElaborazione('lettura')
+    try {
+      const res = await fetch('/api/cassa/fatture/estrai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths }),
+      })
       const data = await res.json()
       if (!res.ok) {
         setError(data.error ?? 'Errore nella lettura della fattura')
@@ -362,7 +398,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
 
       {status === 'processing' && (
         <p className="text-xs text-muted-foreground">
-          Lettura accurata in corso, può richiedere qualche decina di secondi — non chiudere la pagina.
+          {faseElaborazione === 'upload'
+            ? 'Caricamento foto in corso…'
+            : 'Lettura accurata in corso, può richiedere qualche decina di secondi — non chiudere la pagina.'}
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
