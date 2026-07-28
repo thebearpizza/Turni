@@ -202,26 +202,14 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => openUpload('file')}
-          disabled={restaurants.length === 0}
-          className="cassa-perforated-top flex flex-col items-center justify-center gap-1 rounded-lg border bg-card px-3 py-4 text-card-foreground shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        >
-          <Upload className="h-5 w-5" />
-          <span className="text-sm font-semibold">Carica fattura</span>
-          <span className="text-xs text-muted-foreground">Scegli da file</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => openUpload('scan')}
-          disabled={restaurants.length === 0}
-          className="cassa-perforated-top flex flex-col items-center justify-center gap-1 rounded-lg border bg-card px-3 py-4 text-card-foreground shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
-        >
-          <Camera className="h-5 w-5" />
-          <span className="text-sm font-semibold">Scansiona documento</span>
-          <span className="text-xs text-muted-foreground">Scatta una foto</span>
-        </button>
+        <Button type="button" onClick={() => openUpload('file')} disabled={restaurants.length === 0}>
+          <Upload className="w-4 h-4" /> Carica fattura
+        </Button>
+        <Button type="button" onClick={() => openUpload('scan')} disabled={restaurants.length === 0}>
+          <Camera className="w-4 h-4" />
+          <span className="hidden sm:inline">Scansiona documento</span>
+          <span className="sm:hidden">Scansiona</span>
+        </Button>
       </div>
 
       {loading ? (
