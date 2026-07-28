@@ -121,46 +121,64 @@ export const ArticoloEstrattoSchema = z.object({
   ),
 })
 
-export const FatturaEstrattaSchema = z.object({
-  data: z.string().describe('Data del documento, formato yyyy-MM-dd'),
-  fornitore_nome: z.string().describe('Ragione sociale del fornitore/emittente'),
-  fornitore_partita_iva: z.string().nullable().describe('Partita IVA del fornitore se presente sul documento, altrimenti null'),
-  numero_documento: z.string().describe('Numero della fattura/documento'),
-  ha_articoli: z.boolean().describe(
-    "true se il documento riporta un elenco di articoli/prodotti con quantità e prezzi riga (es. fattura di un fornitore alimentare o di attrezzature); " +
-    "false se è un documento di spesa diretta senza dettaglio articoli (es. bolletta utenze, canone, intervento di manutenzione a corpo)"
+// Schema di una SINGOLA pagina: i dati di testata compaiono di norma
+// solo sulla prima pagina e il riepilogo IVA solo sull'ultima, quindi
+// qui è tutto opzionale — le pagine vengono poi ricomposte da
+// unisciPagine().
+const PaginaEstrattaSchema = z.object({
+  data: z.string().nullable().describe('Data del documento (yyyy-MM-dd) se stampata su QUESTA pagina, altrimenti null'),
+  fornitore_nome: z.string().nullable().describe('Ragione sociale del fornitore se presente su QUESTA pagina, altrimenti null'),
+  fornitore_partita_iva: z.string().nullable().describe('Partita IVA del fornitore se presente su QUESTA pagina, altrimenti null'),
+  numero_documento: z.string().nullable().describe('Numero della fattura/documento se presente su QUESTA pagina, altrimenti null'),
+  iva_dettaglio: z.array(AliquotaEstrattaSchema).describe(
+    'Righe del riepilogo IVA per aliquota, SOLO se il riepilogo è stampato su questa pagina (di solito sull\'ultima). Array vuoto altrimenti.'
   ),
-  iva_dettaglio: z.array(AliquotaEstrattaSchema).describe('Una riga per ciascuna aliquota IVA distinta presente nel documento'),
-  articoli: z.array(ArticoloEstrattoSchema).describe('Elenco articoli — vuoto se ha_articoli è false'),
+  articoli: z.array(ArticoloEstrattoSchema).describe(
+    'Righe di prodotto presenti su QUESTA pagina. Array vuoto se la pagina non contiene una tabella di articoli (es. pagina di sole condizioni contrattuali, o bolletta a corpo).'
+  ),
 })
 
-export type FatturaEstratta = z.infer<typeof FatturaEstrattaSchema>
+export interface FatturaEstratta {
+  data: string
+  fornitore_nome: string
+  fornitore_partita_iva: string | null
+  numero_documento: string
+  ha_articoli: boolean
+  iva_dettaglio: z.infer<typeof AliquotaEstrattaSchema>[]
+  articoli: z.infer<typeof ArticoloEstrattoSchema>[]
+}
 
 interface FotoInput {
   buffer: ArrayBuffer
   mediaType: string
 }
 
-export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta> {
+type PaginaEstratta = z.infer<typeof PaginaEstrattaSchema>
+
+async function estraiPagina(foto: FotoInput, numero: number, totale: number): Promise<PaginaEstratta> {
+  const contesto = totale > 1
+    ? `L'immagine allegata è la pagina ${numero} di ${totale} di un unico documento. Estrai SOLO quello che è effettivamente stampato su questa pagina: i dati di testata (fornitore, numero, data) di norma stanno solo sulla prima pagina e il riepilogo IVA solo sull'ultima, quindi è del tutto normale che qui manchino — in quel caso usa null / array vuoti invece di dedurli o inventarli. Le pagine mancanti le ricompone il sistema.`
+    : `L'immagine allegata è l'unica pagina del documento.`
+
   const { object } = await generateWithFallback(
-    FatturaEstrattaSchema,
+    PaginaEstrattaSchema,
     [
       {
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Sei un assistente esperto nella lettura di fatture e documenti di spesa italiani, fotografati da un ristorante col telefono — quindi spesso con inquadratura leggermente storta, riflessi o testo piccolo. Le immagini allegate sono le pagine, in ordine, di un unico documento (potrebbero essere solo pagina fronte, o fronte+retro, o più pagine di un elenco articoli lungo). L'accuratezza conta più della velocità: prenditi tutto il tempo che serve per leggere con calma, non dare mai la prima lettura plausibile se puoi guardare meglio.
+            text: `Sei un assistente esperto nella lettura di fatture e documenti di spesa italiani, fotografati da un ristorante col telefono — quindi spesso con inquadratura leggermente storta, riflessi o testo piccolo. ${contesto} L'accuratezza conta più della velocità: prenditi tutto il tempo che serve per leggere con calma, non dare mai la prima lettura plausibile se puoi guardare meglio.
 
-Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che è effettivamente leggibile: se c'è scritto "12,50" è 12.50, non 12 o 13. Le fatture italiane usano la virgola come separatore decimale e talvolta il punto come separatore delle migliaia (es. "1.234,56" = 1234.56) — non confonderli tra loro. Ricontrolla mentalmente che netto + IVA torni (circa) con il totale prima di rispondere: se il conto non torna, è un segnale che hai letto male una cifra da qualche parte, quindi rileggi con più attenzione prima di dare la risposta finale.
+Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che è effettivamente leggibile: se c'è scritto "12,50" è 12.50, non 12 o 13. Le fatture italiane usano la virgola come separatore decimale e talvolta il punto come separatore delle migliaia (es. "1.234,56" = 1234.56) — non confonderli tra loro.
 
 Il nome di ogni articolo è il dato più importante di tutti: finisce in un catalogo prezzi e viene confrontato automaticamente con le fatture successive dello stesso fornitore, quindi anche un piccolo errore di trascrizione (una lettera sbagliata, un'abbreviazione sciolta o accorciata diversamente, uno spazio in più o in meno) crea un articolo duplicato invece di riconoscere quello giusto. Trascrivi il nome carattere per carattere, esattamente come stampato — non correggere refusi apparenti, non espandere abbreviazioni, non "ripulire" il testo. Presta particolare attenzione ai caratteri che si confondono facilmente: 0 (zero) vs O (lettera), 1 (uno) vs l (elle) vs I (i maiuscola), numeri e lettere accentate italiane (à è é ì ò ù). Se il testo è sfocato o troppo piccolo per essere certi al 100%, scegli comunque la lettura più fedele possibile ai tratti visibili, invece di sostituirla con una parola "che avrebbe senso".
 
-Se il documento riporta un elenco di articoli, leggi la tabella riga per riga dall'alto verso il basso, con calma, senza saltarne o unirne due insieme anche se il testo è piccolo o poco nitido — zoomando mentalmente sui dettagli di ogni riga prima di passare alla successiva. Non includere nell'elenco articoli le righe che sono chiaramente un totale, uno sconto, una nota o un'intestazione di colonna: sono articoli solo le righe di prodotto vero e proprio.
+Se questa pagina riporta un elenco di articoli, leggi la tabella riga per riga dall'alto verso il basso, con calma, senza saltarne o unirne due insieme anche se il testo è piccolo o poco nitido. Non includere fra gli articoli le righe che sono chiaramente un totale, uno sconto, una nota o un'intestazione di colonna: sono articoli solo le righe di prodotto vero e proprio. Se la pagina non contiene alcuna tabella di prodotti (per esempio riporta solo condizioni contrattuali, o è una bolletta a corpo), restituisci semplicemente un elenco articoli vuoto.
 
-Se un valore non è leggibile o non è presente sul documento, usa la stima più ragionevole per i numeri e una stringa vuota per il testo — ma non inventare mai un numero di documento o una partita IVA se non sono scritti da nessuna parte.`,
+Non inventare mai un numero di documento o una partita IVA che non siano scritti su questa pagina.`,
           },
-          ...foto.map(f => ({ type: 'image' as const, image: f.buffer, mediaType: f.mediaType })),
+          { type: 'image' as const, image: foto.buffer, mediaType: foto.mediaType },
         ],
       },
     ],
@@ -175,6 +193,52 @@ Se un valore non è leggibile o non è presente sul documento, usa la stima più
     }
   )
   return object
+}
+
+function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
+  const primoValorizzato = (valori: (string | null)[]) => valori.find(v => v?.trim())?.trim() ?? ''
+
+  // Riepilogo IVA: si prende quello dell'ULTIMA pagina che ne ha uno —
+  // sulle fatture multipagina il recap sta in fondo, e le pagine
+  // intermedie possono riportare subtotali parziali che non vanno
+  // sommati a quello finale.
+  const ivaDettaglio = [...pagine].reverse().find(p => p.iva_dettaglio.length > 0)?.iva_dettaglio ?? []
+
+  // Articoli concatenati nell'ordine delle pagine.
+  const articoli = pagine.flatMap(p => p.articoli)
+
+  return {
+    data: primoValorizzato(pagine.map(p => p.data)),
+    fornitore_nome: primoValorizzato(pagine.map(p => p.fornitore_nome)),
+    fornitore_partita_iva: pagine.find(p => p.fornitore_partita_iva?.trim())?.fornitore_partita_iva?.trim() ?? null,
+    numero_documento: primoValorizzato(pagine.map(p => p.numero_documento)),
+    // Derivato invece che chiesto al modello: se non è stata letta
+    // nessuna riga di prodotto su nessuna pagina il documento si comporta
+    // come una spesa diretta (l'utente sceglie la categoria a mano), che
+    // è anche la degradazione giusta se l'OCR non è riuscito a leggere la
+    // tabella.
+    ha_articoli: articoli.length > 0,
+    iva_dettaglio: ivaDettaglio,
+    articoli,
+  }
+}
+
+export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta> {
+  const inizio = Date.now()
+
+  // Una richiesta per pagina, in parallelo. Il collo di bottiglia è la
+  // generazione della risposta (un elenco articoli lungo), quindi
+  // mandare tre pagine in un'unica richiesta costa quanto la somma delle
+  // tre e sfora il tempo massimo della funzione; in parallelo il costo è
+  // quello della pagina più lenta. In più ogni chiamata ha molto meno da
+  // leggere, il che aiuta anche la precisione — che è la priorità qui.
+  const pagine = await Promise.all(foto.map((f, i) => estraiPagina(f, i + 1, foto.length)))
+
+  const unita = unisciPagine(pagine)
+  console.log(
+    `[cassa/fatture] estratte ${foto.length} pagine in ${Date.now() - inizio}ms, ${unita.articoli.length} articoli`
+  )
+  return unita
 }
 
 // ── Matching semantico articoli vs catalogo esistente ───────────────────
