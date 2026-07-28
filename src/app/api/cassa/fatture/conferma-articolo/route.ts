@@ -1,11 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
+import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 
 const TIPOLOGIE = ['food', 'beverage', 'detergenza', 'altro_no_food'] as const
 
 // POST /api/cassa/fatture/conferma-articolo
 // Body: { restaurant_id, fornitore_id, testo_estratto, decisione: 'stesso'|'nuovo',
-//         catalogo_articolo_id? (se 'stesso'), nuovo_articolo? (se 'nuovo') }
+//         catalogo_articolo_id? (se 'stesso'), nuovo_articolo? (se 'nuovo'),
+//         prezzo_unitario? (per la verifica di scostamento, Task 2) }
 //
 // Salva la decisione dell'utente su un match ambiguo/nuovo in
 // articoli_mappature_testo, così la stessa dicitura non verrà più chiesta
@@ -16,7 +19,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
 
   const body = await request.json()
-  const { restaurant_id, fornitore_id, testo_estratto, decisione, catalogo_articolo_id, nuovo_articolo } = body ?? {}
+  const { restaurant_id, fornitore_id, testo_estratto, decisione, catalogo_articolo_id, nuovo_articolo, prezzo_unitario } = body ?? {}
 
   if (!restaurant_id || !fornitore_id || !testo_estratto?.trim() || !['stesso', 'nuovo'].includes(decisione)) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
@@ -67,5 +70,14 @@ export async function POST(request: Request) {
   )
   if (mapErr) return NextResponse.json({ error: 'Errore nel salvataggio della mappatura: ' + mapErr.message }, { status: 500 })
 
-  return NextResponse.json({ catalogo_articolo_id: resolvedArticoloId })
+  // Scostamento prezzo (Task 2) contro l'ultimo acquisto noto — solo se il
+  // chiamante ha passato il prezzo unitario e la decisione era 'stesso'
+  // (un articolo appena creato non ha ancora uno storico prezzi).
+  let sospetto = null
+  if (decisione === 'stesso' && typeof prezzo_unitario === 'number') {
+    const ultimoPrezzo = await ultimoPrezzoNoto(supabase, resolvedArticoloId)
+    sospetto = verificaPrezzoArticolo(testo_estratto.trim(), prezzo_unitario, ultimoPrezzo)
+  }
+
+  return NextResponse.json({ catalogo_articolo_id: resolvedArticoloId, sospetto })
 }

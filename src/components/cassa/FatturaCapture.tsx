@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Camera, X, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ArticoloTipologia } from '@/types'
+import type { ArticoloTipologia, VerificaSospetta } from '@/types'
 
 const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
   food: 'Food',
@@ -30,6 +30,7 @@ interface ArticoloEstratto {
   esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
   catalogo_articolo_id: string | null
   candidato_nome: string | null
+  sospetto: VerificaSospetta | null
 }
 
 interface EstraiResponse {
@@ -45,6 +46,7 @@ interface EstraiResponse {
     totale_netto: number
     totale_iva: number
     totale_lordo: number
+    verifiche_sospette: VerificaSospetta[]
   }
   articoli?: ArticoloEstratto[]
 }
@@ -60,6 +62,10 @@ export interface FatturaRisolta {
   totale_iva: number
   totale_lordo: number
   articoli: Array<{ testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }>
+  // Tutti i campi segnalati come sospetti (Task 2) — fattura + articoli —
+  // da mostrare in sola lettura nella conferma finale (Task 3) e salvare
+  // così com'è su fatture.verifiche_sospette, senza ricalcolarli.
+  verifiche_sospette: VerificaSospetta[]
 }
 
 interface Props {
@@ -78,7 +84,7 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
   const [status, setStatus] = useState<'capturing' | 'processing' | 'review' | 'duplicate'>('capturing')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<EstraiResponse | null>(null)
-  const [resolved, setResolved] = useState<Map<string, string>>(new Map())
+  const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
 
   async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -141,28 +147,35 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
           fornitore_id: result.fornitore.id,
           testo_estratto: articolo.testo_estratto,
           decisione,
+          prezzo_unitario: articolo.quantita !== 0 ? articolo.prezzo_riga / articolo.quantita : articolo.prezzo_riga,
           ...payload,
         }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Errore nel salvataggio della scelta'); return }
-      setResolved(prev => new Map(prev).set(articolo.testo_estratto, data.catalogo_articolo_id))
+      setResolved(prev => new Map(prev).set(articolo.testo_estratto, { catalogoArticoloId: data.catalogo_articolo_id, sospetto: data.sospetto ?? null }))
       setConfirmingIndex(null)
     } catch {
       setError('Errore di rete, riprova')
     }
   }
 
-  function isArticoloRisolto(a: ArticoloEstratto): string | null {
-    if (a.esito === 'auto_mappato' || a.esito === 'chiaro') return a.catalogo_articolo_id
+  function risoltoInfo(a: ArticoloEstratto): { catalogoArticoloId: string; sospetto: VerificaSospetta | null } | null {
+    if (a.esito === 'auto_mappato' || a.esito === 'chiaro') {
+      return a.catalogo_articolo_id ? { catalogoArticoloId: a.catalogo_articolo_id, sospetto: a.sospetto } : null
+    }
     return resolved.get(a.testo_estratto) ?? null
   }
 
   const articoli = result?.articoli ?? []
-  const tuttiRisolti = articoli.every(a => isArticoloRisolto(a) !== null)
+  const tuttiRisolti = articoli.every(a => risoltoInfo(a) !== null)
 
   function handleConferma() {
     if (!result?.fattura || !tuttiRisolti) return
+    const verificheArticoli = articoli
+      .map(a => risoltoInfo(a)?.sospetto)
+      .filter((v): v is VerificaSospetta => !!v)
+
     onComplete({
       foto_paths: result.foto_paths,
       fornitore: result.fornitore,
@@ -177,8 +190,9 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
         testo_estratto: a.testo_estratto,
         quantita: a.quantita,
         prezzo_riga: a.prezzo_riga,
-        catalogo_articolo_id: isArticoloRisolto(a) as string,
+        catalogo_articolo_id: risoltoInfo(a)?.catalogoArticoloId as string,
       })),
+      verifiche_sospette: [...result.fattura.verifiche_sospette, ...verificheArticoli],
     })
   }
 
@@ -200,19 +214,31 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
   }
 
   if (status === 'review' && result?.fattura) {
+    const verificheFattura = result.fattura.verifiche_sospette
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
           <p><span className="text-muted-foreground">Fornitore</span> <strong>{result.fornitore.nome}</strong>{result.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</p>
-          <p><span className="text-muted-foreground">Data</span> <span className="cassa-numeric">{result.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{result.fattura.numero_documento}</span></p>
-          <p className="cassa-numeric"><span className="text-muted-foreground font-sans">Netto</span> € {result.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {result.fattura.totale_iva.toFixed(2)} · <span className="text-muted-foreground font-sans">Lordo</span> € {result.fattura.totale_lordo.toFixed(2)}</p>
+          <p>
+            <span className={cn('text-muted-foreground', verificheFattura.some(v => v.campo === 'data') && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</span>{' '}
+            <span className="cassa-numeric">{result.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{result.fattura.numero_documento}</span>
+          </p>
+          <p className="cassa-numeric">
+            <span className="text-muted-foreground font-sans">Netto</span> € {result.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {result.fattura.totale_iva.toFixed(2)} ·{' '}
+            <span className={cn('font-sans', verificheFattura.some(v => v.campo === 'totale_lordo') ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>Lordo</span> € {result.fattura.totale_lordo.toFixed(2)}
+          </p>
+          {verificheFattura.map((v, i) => (
+            <p key={i} className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {v.messaggio}
+            </p>
+          ))}
         </div>
 
         {articoli.length > 0 && (
           <div className="space-y-2">
             <Label>Articoli ({articoli.length})</Label>
             {articoli.map((a, i) => {
-              const risoltoId = isArticoloRisolto(a)
+              const info = risoltoInfo(a)
               const needsConfirm = a.esito === 'ambiguo' || a.esito === 'nuovo'
               return (
                 <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
@@ -220,10 +246,17 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
                     <span className="truncate">{a.testo_estratto}</span>
                     <span className="cassa-numeric text-muted-foreground whitespace-nowrap">{a.quantita} × · € {a.prezzo_riga.toFixed(2)}</span>
                   </div>
-                  {risoltoId ? (
-                    <Badge variant="secondary">
-                      {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
-                    </Badge>
+                  {info ? (
+                    <div className="space-y-1.5">
+                      <Badge variant="secondary">
+                        {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
+                      </Badge>
+                      {info.sospetto && (
+                        <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
+                        </p>
+                      )}
+                    </div>
                   ) : confirmingIndex === i ? (
                     <ArticoloConfirmForm
                       articolo={a}

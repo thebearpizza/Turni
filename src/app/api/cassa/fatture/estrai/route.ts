@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { estraiFattura, matchArticoli, type CandidatoArticolo } from '@/lib/cassa/fattureExtraction'
+import { verificaData, verificaQuadratura, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
+import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
+import type { VerificaSospetta } from '@/types'
 
 const BUCKET = 'fatture_foto'
 
@@ -116,6 +119,13 @@ export async function POST(request: Request) {
 
   const totaleNetto = estratta.iva_dettaglio.reduce((s, r) => s + r.imponibile, 0)
   const totaleIva = estratta.iva_dettaglio.reduce((s, r) => s + r.iva, 0)
+  const totaleLordo = totaleNetto + totaleIva
+
+  // ── Verifiche sui campi sospetti (Task 2) — solo segnalazione, non bloccano ──
+  const verificheFattura: VerificaSospetta[] = [
+    verificaData(estratta.data),
+    verificaQuadratura(totaleNetto, totaleIva, totaleLordo),
+  ].filter((v): v is VerificaSospetta => v !== null)
 
   // ── Matching articoli (solo se ha_articoli) ──
   let articoliRisolti: Array<{
@@ -125,6 +135,7 @@ export async function POST(request: Request) {
     esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
     catalogo_articolo_id: string | null
     candidato_nome: string | null
+    sospetto: VerificaSospetta | null
   }> = []
 
   if (estratta.ha_articoli && estratta.articoli.length > 0) {
@@ -170,12 +181,26 @@ export async function POST(request: Request) {
     }
 
     const esitoByTesto = new Map(esitiMatch.map(e => [e.testo_estratto, e]))
-    articoliRisolti = estratta.articoli.map(a => {
+    // Il controllo di scostamento prezzo (Task 2) richiede l'ultimo prezzo a
+    // sistema per l'articolo — possibile solo per gli articoli già risolti a
+    // questo punto (auto_mappato/chiaro); per ambigui/nuovi verrà rifatto
+    // dopo la conferma dell'utente (endpoint conferma-articolo).
+    articoliRisolti = await Promise.all(estratta.articoli.map(async a => {
       const mappato = mappaturaByTesto.get(a.nome)
+      const prezzoUnitario = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
+
       if (mappato) {
-        return { testo_estratto: a.nome, quantita: a.quantita, prezzo_riga: a.prezzo_riga, esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: null }
+        const ultimoPrezzo = await ultimoPrezzoNoto(supabase, mappato)
+        return {
+          testo_estratto: a.nome, quantita: a.quantita, prezzo_riga: a.prezzo_riga,
+          esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: null,
+          sospetto: verificaPrezzoArticolo(a.nome, prezzoUnitario, ultimoPrezzo),
+        }
       }
       const match = esitoByTesto.get(a.nome)
+      const sospetto = match?.catalogo_articolo_id
+        ? verificaPrezzoArticolo(a.nome, prezzoUnitario, await ultimoPrezzoNoto(supabase, match.catalogo_articolo_id))
+        : null
       return {
         testo_estratto: a.nome,
         quantita: a.quantita,
@@ -185,8 +210,9 @@ export async function POST(request: Request) {
         // Solo per 'ambiguo': il nome del candidato suggerito, da mostrare
         // nella conferma ("È lo stesso articolo di 'X'?").
         candidato_nome: match?.esito === 'ambiguo' && match.catalogo_articolo_id ? nomeById.get(match.catalogo_articolo_id) ?? null : null,
+        sospetto,
       }
-    })
+    }))
   }
 
   return NextResponse.json({
@@ -200,7 +226,8 @@ export async function POST(request: Request) {
       iva_dettaglio: estratta.iva_dettaglio,
       totale_netto: totaleNetto,
       totale_iva: totaleIva,
-      totale_lordo: totaleNetto + totaleIva,
+      totale_lordo: totaleLordo,
+      verifiche_sospette: verificheFattura,
     },
     articoli: articoliRisolti,
   })
