@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Trash2, FileText, FileSpreadsheet, Pencil } from 'lucide-react'
+import { Trash2, FileText, FileSpreadsheet, Pencil, Loader2 } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -62,7 +63,14 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
   const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
   const targetsKey = JSON.stringify(targets)
 
+  // Scarta il risultato di un fetch superato da uno più recente — senza
+  // questa guardia, un reload innescato dal canale realtime durante
+  // un'eliminazione (o due reload ravvicinati) possono risolversi fuori
+  // ordine e far ricomparire righe già rimosse, "rompendo" la lista.
+  const requestId = useRef(0)
+
   const load = useCallback(async () => {
+    const myRequest = ++requestId.current
     setLoading(true)
     if (targets.length === 0) { setRighe([]); setLoading(false); return }
     const { start, end } = monthRange(month)
@@ -75,6 +83,8 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
       .gte('data', start)
       .lte('data', end)
       .order('data', { ascending: false })
+
+    if (requestId.current !== myRequest) return
 
     setRighe(((data ?? []) as unknown as Array<Riga & { restaurant: { name: string } | null }>).map(r => ({
       id: r.id,
@@ -106,14 +116,29 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [load])
 
-  async function handleDelete(id: string) {
-    if (!confirm('Eliminare definitivamente questa chiusura? Verranno eliminate anche le spese collegate.')) return
+  // Dialog di conferma in-app invece di window.confirm(): oltre a essere
+  // coerente con lo stile dell'app, alcuni browser mobile/PWA sopprimono
+  // o ignorano i dialog nativi sincroni — il tasto Elimina risultava
+  // premuto ma senza alcun effetto visibile.
+  const [daEliminare, setDaEliminare] = useState<Riga | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  async function confermaEliminazione() {
+    if (!daEliminare) return
+    const id = daEliminare.id
     setWorkingId(id)
+    setDeleteError(null)
     const supabase = createClient()
     const { error } = await supabase.from('cassa_chiusure').delete().eq('id', id)
     setWorkingId(null)
-    if (error) { alert(`Errore nell'eliminazione: ${error.message}`); return }
+    if (error) { setDeleteError(error.message); return }
+    setDaEliminare(null)
+    // Aggiornamento ottimistico per un feedback immediato, poi un reload
+    // completo (con guardia di staleness) per allinearsi allo stato reale
+    // — invece di affidarsi al solo canale realtime, che su una
+    // connessione lenta può arrivare in ritardo o fuori ordine.
     setRighe(prev => prev.filter(r => r.id !== id))
+    load()
   }
 
   const [viewer, setViewer] = useState<{ riga: Riga; format: 'pdf' | 'xlsx' } | null>(null)
@@ -250,7 +275,7 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
                           className="h-8 w-8 text-destructive hover:text-destructive"
                           title="Elimina"
                           disabled={busy}
-                          onClick={() => handleDelete(r.id)}
+                          onClick={() => setDaEliminare(r)}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -272,6 +297,29 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
         title={viewer ? `${viewer.riga.restaurant_name} · ${formatInTimeZone(`${viewer.riga.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
         fileNameBase={viewer ? `chiusura-${viewer.riga.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.riga.data}` : 'chiusura'}
       />
+
+      <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
+        <DialogContent className="cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Eliminare questa chiusura?</DialogTitle>
+          </DialogHeader>
+          {daEliminare && (
+            <p className="text-sm text-muted-foreground">
+              {daEliminare.restaurant_name} · {formatInTimeZone(`${daEliminare.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
+              {' '}— verranno eliminate definitivamente anche le spese collegate. L&apos;operazione non è reversibile.
+            </p>
+          )}
+          {deleteError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setDaEliminare(null); setDeleteError(null) }} disabled={!!workingId}>
+              Annulla
+            </Button>
+            <Button type="button" variant="destructive" onClick={confermaEliminazione} disabled={!!workingId}>
+              {workingId ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
