@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { estraiFattura, matchArticoli, type CandidatoArticolo } from '@/lib/cassa/fattureExtraction'
 import { verificaData, verificaQuadratura, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
-import type { VerificaSospetta } from '@/types'
+import type { VerificaSospetta, ArticoloTipologia } from '@/types'
 
 const BUCKET = 'fatture_foto'
 
@@ -132,6 +132,8 @@ export async function POST(request: Request) {
     testo_estratto: string
     quantita: number
     prezzo_riga: number
+    unita_misura: string | null
+    tipologia_suggerita: ArticoloTipologia
     esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
     catalogo_articolo_id: string | null
     candidato_nome: string | null
@@ -193,6 +195,7 @@ export async function POST(request: Request) {
         const ultimoPrezzo = await ultimoPrezzoNoto(supabase, mappato)
         return {
           testo_estratto: a.nome, quantita: a.quantita, prezzo_riga: a.prezzo_riga,
+          unita_misura: a.unita_misura, tipologia_suggerita: a.tipologia_suggerita,
           esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: null,
           sospetto: verificaPrezzoArticolo(a.nome, prezzoUnitario, ultimoPrezzo),
         }
@@ -205,6 +208,8 @@ export async function POST(request: Request) {
         testo_estratto: a.nome,
         quantita: a.quantita,
         prezzo_riga: a.prezzo_riga,
+        unita_misura: a.unita_misura,
+        tipologia_suggerita: a.tipologia_suggerita,
         esito: match?.esito ?? 'nuovo',
         catalogo_articolo_id: match?.catalogo_articolo_id ?? null,
         // Solo per 'ambiguo': il nome del candidato suggerito, da mostrare

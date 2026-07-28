@@ -206,7 +206,7 @@ function dimensioniRaddrizzate(quad: Quadrilatero, maxLato: number): { w: number
 // Raddrizza il quadrilatero indicato in un rettangolo, con
 // interpolazione bilineare (evita la scalettatura del nearest neighbour
 // sul testo piccolo, che è proprio quello che l'OCR deve leggere).
-export function warpProspettiva(sorgente: HTMLCanvasElement, quad: Quadrilatero, maxLato = 1600): HTMLCanvasElement | null {
+export function warpProspettiva(sorgente: HTMLCanvasElement, quad: Quadrilatero, maxLato = 2200): HTMLCanvasElement | null {
   const { w: outW, h: outH } = dimensioniRaddrizzate(quad, maxLato)
   const H = omografiaDestinazioneVersoSorgente(quad, outW, outH)
   if (!H) return null

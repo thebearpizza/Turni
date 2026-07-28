@@ -28,6 +28,8 @@ interface ArticoloEstratto {
   testo_estratto: string
   quantita: number
   prezzo_riga: number
+  unita_misura: string | null
+  tipologia_suggerita: ArticoloTipologia
   esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
   catalogo_articolo_id: string | null
   candidato_nome: string | null
@@ -102,11 +104,13 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
 
   async function aggiungiPagina(file: File) {
     setDaRitagliare(null)
-    // Larghezza/qualità più alte del default (800/0.7): l'OCR deve leggere
-    // numeri e testo piccoli, non solo riconoscere un volto come nel
-    // fallback timbrature.
+    // Larghezza/qualità molto più alte del default (800/0.7): l'OCR deve
+    // leggere numeri e testo piccoli su una fattura, non solo riconoscere
+    // un volto come nel fallback timbrature. Stesso limite di
+    // MAX_LATO_LAVORO/warpProspettiva — coerente sia che la pagina sia
+    // passata dallo scanner sia che l'utente scelga la foto originale.
     let compressed = file
-    try { compressed = await compressImage(file, 1600, 0.85) } catch { /* usa l'originale */ }
+    try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
     setPages(prev => [...prev, compressed])
     setPreviews(prev => [...prev, URL.createObjectURL(compressed)])
   }
@@ -382,8 +386,11 @@ function ArticoloConfirmForm({
   const haCandidato = articolo.esito === 'ambiguo' && !!articolo.catalogo_articolo_id
   const [creaNuovo, setCreaNuovo] = useState(!haCandidato)
   const [nome, setNome] = useState(articolo.testo_estratto)
-  const [tipologia, setTipologia] = useState<ArticoloTipologia | ''>('')
-  const [unita, setUnita] = useState('')
+  // Precompilati dal suggerimento dell'OCR — l'utente conferma con un
+  // tocco invece di ricompilare tipologia/unità da zero per ogni
+  // articolo nuovo, che è quasi sempre già scritto in fattura.
+  const [tipologia, setTipologia] = useState<ArticoloTipologia | ''>(articolo.tipologia_suggerita)
+  const [unita, setUnita] = useState(articolo.unita_misura ?? '')
 
   if (!creaNuovo) {
     return (

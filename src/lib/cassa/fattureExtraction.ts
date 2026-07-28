@@ -36,6 +36,15 @@ export const ArticoloEstrattoSchema = z.object({
   nome: z.string().describe("Nome/descrizione dell'articolo così come scritto in fattura, testo esatto"),
   quantita: z.number(),
   prezzo_riga: z.number().describe('Importo totale della riga (quantità × prezzo unitario)'),
+  unita_misura: z.string().nullable().describe(
+    "Unità di misura o formato dell'articolo così come scritto in fattura (es. 'kg', 'L', 'pz', 'cartone da 12', 'conf. 6x1L'). " +
+    "null solo se davvero non è indicata da nessuna parte sulla riga — non inventarla, ma quasi sempre è presente su una fattura fornitori."
+  ),
+  tipologia_suggerita: z.enum(['food', 'beverage', 'detergenza', 'altro_no_food']).describe(
+    "La tua migliore stima della categoria merceologica di questo articolo in base al nome — food (alimentare), beverage (bevande), " +
+    "detergenza (pulizia/igiene), altro_no_food (tutto il resto: stoviglie, imballaggi, materiale non alimentare). " +
+    "Fai sempre una scelta, anche se incerta: è solo un suggerimento che l'utente può correggere."
+  ),
 })
 
 export const FatturaEstrattaSchema = z.object({
@@ -65,7 +74,13 @@ export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta>
       content: [
         {
           type: 'text',
-          text: `Sei un assistente che legge fatture e documenti di spesa italiani fotografati da un ristorante. Le immagini allegate sono le pagine, in ordine, di un unico documento (potrebbero essere solo pagina fronte, o fronte+retro, o più pagine di un elenco articoli lungo). Estrai i dati richiesti dallo schema. Se un valore non è leggibile o non è presente, usa la stima più ragionevole per i numeri e una stringa vuota per il testo — non inventare un numero di documento o una partita IVA se non sono scritti.`,
+          text: `Sei un assistente esperto nella lettura di fatture e documenti di spesa italiani, fotografati da un ristorante col telefono — quindi spesso con inquadratura leggermente storta, riflessi o testo piccolo. Le immagini allegate sono le pagine, in ordine, di un unico documento (potrebbero essere solo pagina fronte, o fronte+retro, o più pagine di un elenco articoli lungo).
+
+Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che è effettivamente leggibile: se c'è scritto "12,50" è 12.50, non 12 o 13. Le fatture italiane usano la virgola come separatore decimale e talvolta il punto come separatore delle migliaia (es. "1.234,56" = 1234.56) — non confonderli tra loro. Ricontrolla mentalmente che netto + IVA torni (circa) con il totale prima di rispondere: se il conto non torna, è un segnale che hai letto male una cifra da qualche parte, quindi rileggi con più attenzione prima di dare la risposta finale.
+
+Se il documento riporta un elenco di articoli, leggi la tabella riga per riga dall'alto verso il basso, con calma, senza saltarne o unirne due insieme anche se il testo è piccolo o poco nitido — zoomando mentalmente sui dettagli di ogni riga prima di passare alla successiva. Non includere nell'elenco articoli le righe che sono chiaramente un totale, uno sconto, una nota o un'intestazione di colonna: sono articoli solo le righe di prodotto vero e proprio.
+
+Se un valore non è leggibile o non è presente sul documento, usa la stima più ragionevole per i numeri e una stringa vuota per il testo — ma non inventare mai un numero di documento o una partita IVA se non sono scritti da nessuna parte.`,
         },
         ...foto.map(f => ({ type: 'image' as const, image: f.buffer, mediaType: f.mediaType })),
       ],

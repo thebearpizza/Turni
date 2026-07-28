@@ -4,9 +4,12 @@ import { rilevaAngoli, warpProspettiva, angoliDefault, type Quadrilatero } from 
 import { Button } from '@/components/ui/button'
 import { Loader2, ScanLine } from 'lucide-react'
 
-// Oltre questa risoluzione di lavoro il warp diventa lento sui telefoni
-// senza guadagno utile: l'uscita è comunque limitata a 1600px di lato.
-const MAX_LATO_LAVORO = 2000
+// Risoluzione di lavoro per rilevamento bordi e warp — deve restare pari
+// o superiore all'uscita del warp (vedi maxLato in warpProspettiva) per
+// non perdere dettaglio proprio nel ritaglio. L'OCR deve leggere prezzi
+// e nomi articolo anche piccoli, quindi qui la priorità è la leggibilità
+// del testo, non la velocità.
+const MAX_LATO_LAVORO = 2200
 
 interface Props {
   file: File
