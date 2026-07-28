@@ -191,7 +191,18 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       </Card>
 
       <div className="flex justify-end">
-        <Button type="button" onClick={() => { setUploadRestaurantId(restaurants[0]?.id ?? ''); setUploadOpen(true) }} disabled={restaurants.length === 0}>
+        <Button
+          type="button"
+          onClick={() => {
+            // Se il filtro locali è su un solo ristorante, precompila
+            // quello nel caricamento invece del primo della lista — è
+            // quasi certamente il locale su cui l'utente vuole caricare.
+            const daFiltro = selectedRestaurants.length === 1 ? selectedRestaurants[0] : null
+            setUploadRestaurantId(daFiltro ?? restaurants[0]?.id ?? '')
+            setUploadOpen(true)
+          }}
+          disabled={restaurants.length === 0}
+        >
           <Camera className="w-4 h-4" /> Carica fattura
         </Button>
       </div>
