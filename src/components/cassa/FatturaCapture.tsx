@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { compressImage } from '@/lib/compressImage'
+import { DocumentScanner } from '@/components/cassa/DocumentScanner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -88,11 +89,19 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
   const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
+  // Foto appena scattata, in attesa del ritaglio prospettico: finché è
+  // valorizzata lo scanner prende il posto della griglia delle pagine.
+  const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
 
-  async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
+    setDaRitagliare(file)
+  }
+
+  async function aggiungiPagina(file: File) {
+    setDaRitagliare(null)
     // Larghezza/qualità più alte del default (800/0.7): l'OCR deve leggere
     // numeri e testo piccoli, non solo riconoscere un volto come nel
     // fallback timbrature.
@@ -307,6 +316,16 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
           </Button>
         </div>
       </div>
+    )
+  }
+
+  if (daRitagliare) {
+    return (
+      <DocumentScanner
+        file={daRitagliare}
+        onConfirm={aggiungiPagina}
+        onCancel={() => setDaRitagliare(null)}
+      />
     )
   }
 
