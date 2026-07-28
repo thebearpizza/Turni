@@ -57,6 +57,7 @@ export interface FatturaRisolta {
   data: string
   numero_documento: string
   ha_articoli: boolean
+  categoria_spesa_diretta_id: string | null
   iva_dettaglio: AliquotaEstratta[]
   totale_netto: number
   totale_iva: number
@@ -70,15 +71,15 @@ export interface FatturaRisolta {
 
 interface Props {
   restaurantId: string
+  categorieDirette: Array<{ id: string; nome: string }>
   onComplete: (fattura: FatturaRisolta) => void
   onCancel: () => void
 }
 
 // Cattura multi-pagina + pipeline di estrazione/matching (Task 1). Non
 // salva la fattura — restituisce i dati risolti a onComplete perché il
-// chiamante (Task 2/3) applichi le verifiche sui campi sospetti e il
-// salvataggio definitivo.
-export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
+// chiamante (Task 3) la persista dopo la conferma finale dell'utente.
+export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onCancel }: Props) {
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
   const [status, setStatus] = useState<'capturing' | 'processing' | 'review' | 'duplicate'>('capturing')
@@ -86,6 +87,7 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
   const [result, setResult] = useState<EstraiResponse | null>(null)
   const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
+  const [categoriaDiretta, setCategoriaDiretta] = useState('')
 
   async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -168,7 +170,8 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
   }
 
   const articoli = result?.articoli ?? []
-  const tuttiRisolti = articoli.every(a => risoltoInfo(a) !== null)
+  const richiedeCategoriaDiretta = result?.fattura?.ha_articoli === false
+  const tuttiRisolti = articoli.every(a => risoltoInfo(a) !== null) && (!richiedeCategoriaDiretta || !!categoriaDiretta)
 
   function handleConferma() {
     if (!result?.fattura || !tuttiRisolti) return
@@ -182,6 +185,7 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
       data: result.fattura.data,
       numero_documento: result.fattura.numero_documento,
       ha_articoli: result.fattura.ha_articoli,
+      categoria_spesa_diretta_id: richiedeCategoriaDiretta ? categoriaDiretta : null,
       iva_dettaglio: result.fattura.iva_dettaglio,
       totale_netto: result.fattura.totale_netto,
       totale_iva: result.fattura.totale_iva,
@@ -218,7 +222,7 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
-          <p><span className="text-muted-foreground">Fornitore</span> <strong>{result.fornitore.nome}</strong>{result.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</p>
+          <div><span className="text-muted-foreground">Fornitore</span> <strong>{result.fornitore.nome}</strong>{result.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</div>
           <p>
             <span className={cn('text-muted-foreground', verificheFattura.some(v => v.campo === 'data') && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</span>{' '}
             <span className="cassa-numeric">{result.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{result.fattura.numero_documento}</span>
@@ -233,6 +237,20 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
             </p>
           ))}
         </div>
+
+        {richiedeCategoriaDiretta && (
+          <div className="space-y-1.5">
+            <Label>Categoria spesa diretta <span className="text-cassa-copper">*</span></Label>
+            <Select value={categoriaDiretta} onValueChange={setCategoriaDiretta}>
+              <SelectTrigger><SelectValue placeholder="Seleziona una categoria" /></SelectTrigger>
+              <SelectContent>
+                {categorieDirette.map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {articoli.length > 0 && (
           <div className="space-y-2">
@@ -285,7 +303,7 @@ export function FatturaCapture({ restaurantId, onComplete, onCancel }: Props) {
         <div className="flex justify-between pt-2">
           <Button type="button" variant="outline" onClick={onCancel}>Annulla</Button>
           <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti}>
-            Continua
+            Salva fattura
           </Button>
         </div>
       </div>
