@@ -1,16 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { estraiFattura, matchArticoli, type CandidatoArticolo } from '@/lib/cassa/fattureExtraction'
+import { estraiFattura, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo } from '@/lib/cassa/fattureExtraction'
 import { verificaData, verificaQuadratura, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import type { VerificaSospetta, ArticoloTipologia } from '@/types'
 
 const BUCKET = 'fatture_foto'
 
-// L'estrazione ora usa un modello più lento ma più accurato (Gemini Pro
-// invece di Flash, vedi fattureExtraction.ts) — su una fattura di più
-// pagine può superare comodamente i 10s di default di molte piattaforme
-// serverless. Alza il limite per questa singola route.
+// La lettura AI di più pagine supera comodamente i 10s di default di
+// molte piattaforme serverless. Il budget interno dell'estrazione
+// (BUDGET_ESTRAZIONE_MS) sta sotto questo limite di proposito: vogliamo
+// rispondere noi con un errore leggibile, non essere terminati a metà.
 export const maxDuration = 60
 
 // POST /api/cassa/fatture/estrai
@@ -68,6 +68,14 @@ export async function POST(request: Request) {
   } catch (err) {
     await supabase.storage.from(BUCKET).remove(fotoPaths)
     console.error('Errore estrazione fattura:', err instanceof Error ? err.message : err)
+
+    if (err instanceof EstrazioneTimeoutError) {
+      return NextResponse.json(
+        { error: 'La lettura ha superato il tempo massimo. Riprova con meno pagine per volta, oppure compila i dati a mano.' },
+        { status: 504 }
+      )
+    }
+
     const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(err instanceof Error ? err.message : String(err))
     return NextResponse.json(
       { error: rateLimited ? 'Troppe richieste all\'assistente AI in questo momento, riprova tra poco.' : 'Errore nella lettura della fattura, riprova o compila i dati a mano.' },

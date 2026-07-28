@@ -168,9 +168,20 @@ export function FatturaCapture({ restaurantId, categorieDirette, onComplete, onC
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Errore nella lettura della fattura')
+
+      // Una funzione terminata dalla piattaforma (timeout) risponde con
+      // una pagina di errore, non con JSON: senza questa guardia il
+      // res.json() esplode e l'utente vede un generico "Errore di rete"
+      // che non dice nulla su cosa è andato storto davvero.
+      const data = await res.json().catch(() => null)
+
+      if (!res.ok || !data) {
+        setError(
+          data?.error ??
+          (res.status === 504
+            ? 'La lettura ha superato il tempo massimo. Riprova con meno pagine per volta, oppure compila i dati a mano.'
+            : `Errore nella lettura della fattura (codice ${res.status}). Riprova o compila i dati a mano.`)
+        )
         setStatus('capturing')
         return
       }

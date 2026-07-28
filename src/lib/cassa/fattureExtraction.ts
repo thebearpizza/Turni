@@ -9,31 +9,87 @@ import type { ArticoloTipologia } from '@/types'
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite'
 
-// L'estrazione dati fattura ha una coppia separata, deliberatamente più
-// pesante: qui l'accuratezza (soprattutto sul nome degli articoli, che
-// finisce nel catalogo prezzi) conta più della latenza o del costo per
-// richiesta — Pro legge dettagli piccoli/rovinati molto meglio di Flash.
-// Il fallback su rate limit scende solo a Flash (non a Flash-Lite) per
-// non sacrificare troppa qualità anche nel caso limite.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-2.5-pro'
-const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-2.5-flash'
+// Coppia separata per l'estrazione dati fattura, così da poterla alzare
+// indipendentemente dal resto quando la quota Gemini lo consente.
+//
+// Default su Flash e NON su Pro: con la chiave attualmente in uso Pro
+// risponde sempre RESOURCE_EXHAUSTED, quindi puntarci significherebbe
+// solo bruciare secondi in tentativi destinati a fallire prima di
+// ripiegare comunque su Flash — non un compromesso qualità/tempo, una
+// perdita secca (era la causa dei 504 sulla route /estrai). Chi ha un
+// piano Gemini con quota su Pro può impostare
+// GEMINI_MODEL_ESTRAZIONE=gemini-2.5-pro e guadagnare accuratezza.
+const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-2.5-flash'
+const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-2.5-flash-lite'
+
+// Budget complessivo per l'estrazione, deliberatamente sotto il
+// maxDuration della route: scaduto questo, preferiamo rispondere con un
+// errore JSON leggibile piuttosto che farci uccidere a metà risposta —
+// una funzione terminata dalla piattaforma non produce alcun corpo, e al
+// browser arriva come connessione caduta ("Errore di rete").
+export const BUDGET_ESTRAZIONE_MS = 45_000
+
+export class EstrazioneTimeoutError extends Error {
+  constructor() { super('Tempo massimo di lettura superato') }
+}
 
 function isRateLimitError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
   return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
 }
 
+function isAbortError(err: unknown): boolean {
+  if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) return true
+  return /abort|timed? ?out/i.test(err instanceof Error ? err.message : String(err))
+}
+
 async function generateWithFallback<T>(
   schema: z.ZodType<T>,
   messages: ModelMessage[],
-  opts: { model: string; fallbackModel: string; temperature?: number }
+  opts: { model: string; fallbackModel: string; temperature?: number; budgetMs?: number }
 ) {
+  const scadenza = opts.budgetMs ? Date.now() + opts.budgetMs : null
+  // Almeno 5s al secondo tentativo: sotto quella soglia non ha senso
+  // provarci nemmeno, tanto vale riportare subito l'errore.
+  const rimanente = () => (scadenza ? scadenza - Date.now() : null)
+  const segnale = () => {
+    const ms = rimanente()
+    return ms != null ? AbortSignal.timeout(Math.max(1_000, ms)) : undefined
+  }
+
   try {
-    return await generateObject({ model: google(opts.model), schema, messages, temperature: opts.temperature })
+    return await generateObject({
+      model: google(opts.model),
+      schema,
+      messages,
+      temperature: opts.temperature,
+      // Un solo tentativo aggiuntivo: se il modello primario è fuori
+      // quota lo è anche fra due secondi, e il backoff dell'SDK
+      // mangerebbe il budget che serve al fallback per lavorare davvero.
+      maxRetries: 1,
+      abortSignal: segnale(),
+    })
   } catch (err) {
+    if (isAbortError(err)) throw new EstrazioneTimeoutError()
     if (!isRateLimitError(err) || opts.fallbackModel === opts.model) throw err
+
+    const ms = rimanente()
+    if (ms != null && ms < 5_000) throw new EstrazioneTimeoutError()
+
     console.warn(`[cassa/fatture] Quota esaurita per ${opts.model}, passo a ${opts.fallbackModel}`)
-    return await generateObject({ model: google(opts.fallbackModel), schema, messages, temperature: opts.temperature })
+    try {
+      return await generateObject({
+        model: google(opts.fallbackModel),
+        schema,
+        messages,
+        temperature: opts.temperature,
+        maxRetries: 1,
+        abortSignal: segnale(),
+      })
+    } catch (err2) {
+      if (isAbortError(err2)) throw new EstrazioneTimeoutError()
+      throw err2
+    }
   }
 }
 
@@ -111,7 +167,12 @@ Se un valore non è leggibile o non è presente sul documento, usa la stima più
     // Temperatura bassa: per un compito di trascrizione fedele conviene
     // che il modello riporti quello che vede, non che "arrotondi" verso
     // la variante testuale più probabile/comune.
-    { model: GEMINI_MODEL_ESTRAZIONE, fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE, temperature: 0.1 }
+    {
+      model: GEMINI_MODEL_ESTRAZIONE,
+      fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE,
+      temperature: 0.1,
+      budgetMs: BUDGET_ESTRAZIONE_MS,
+    }
   )
   return object
 }
