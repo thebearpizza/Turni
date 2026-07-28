@@ -468,8 +468,8 @@ function ArticoloConfirmForm({
   articolo, onStesso, onNuovo, onAnnulla,
 }: {
   articolo: ArticoloEstratto
-  onStesso: () => void
-  onNuovo: (payload: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string; fattore_conversione?: number }) => void
+  onStesso: () => Promise<void>
+  onNuovo: (payload: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string; fattore_conversione?: number }) => Promise<void>
   onAnnulla: () => void
 }) {
   const haCandidato = articolo.esito === 'ambiguo' && !!articolo.catalogo_articolo_id
@@ -480,14 +480,32 @@ function ArticoloConfirmForm({
   // articolo nuovo, che è quasi sempre già scritto in fattura.
   const [tipologia, setTipologia] = useState<ArticoloTipologia | ''>(articolo.tipologia_suggerita)
   const [unita, setUnita] = useState(articolo.unita_misura ?? '')
+  // La conferma passa da una chiamata di rete (match/verifica prezzo
+  // lato server): senza questo stato il tasto non dava nessun segnale
+  // durante l'attesa e sembrava non aver reagito al tocco.
+  const [salvando, setSalvando] = useState(false)
+
+  async function handleStesso() {
+    setSalvando(true)
+    try { await onStesso() } finally { setSalvando(false) }
+  }
+
+  async function handleNuovo() {
+    setSalvando(true)
+    try {
+      await onNuovo({ nome_articolo: nome.trim(), tipologia: tipologia as ArticoloTipologia, unita_misura: unita.trim() || undefined })
+    } finally { setSalvando(false) }
+  }
 
   if (!creaNuovo) {
     return (
       <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2">
         <span className="text-xs text-muted-foreground">Stesso articolo di &quot;{articolo.candidato_nome}&quot;?</span>
-        <Button type="button" size="sm" onClick={onStesso}>Sì, è lo stesso</Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setCreaNuovo(true)}>No, è nuovo</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla}>Annulla</Button>
+        <Button type="button" size="sm" onClick={handleStesso} disabled={salvando}>
+          {salvando ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Salvo…</> : 'Sì, è lo stesso'}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setCreaNuovo(true)} disabled={salvando}>No, è nuovo</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla} disabled={salvando}>Annulla</Button>
       </div>
     )
   }
@@ -516,14 +534,14 @@ function ArticoloConfirmForm({
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        {haCandidato && <Button type="button" size="sm" variant="ghost" onClick={() => setCreaNuovo(false)}>Indietro</Button>}
-        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla}>Annulla</Button>
+        {haCandidato && <Button type="button" size="sm" variant="ghost" onClick={() => setCreaNuovo(false)} disabled={salvando}>Indietro</Button>}
+        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla} disabled={salvando}>Annulla</Button>
         <Button
           type="button" size="sm"
-          disabled={!nome.trim() || !tipologia}
-          onClick={() => onNuovo({ nome_articolo: nome.trim(), tipologia: tipologia as ArticoloTipologia, unita_misura: unita.trim() || undefined })}
+          disabled={!nome.trim() || !tipologia || salvando}
+          onClick={handleNuovo}
         >
-          Salva come nuovo
+          {salvando ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Salvataggio…</> : 'Salva come nuovo'}
         </Button>
       </div>
     </div>
