@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X } from 'lucide-react'
+import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, FileText, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
@@ -25,6 +25,13 @@ const managerNavItems = [
 const cassiereNavItems = [
   { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
   { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
+]
+
+// capo_servizio con is_direttore=true: solo Fatture e Articoli, non figura
+// con le altre voci (niente Home/Chiusura Cassa/Lista Chiusure/Analisi).
+const direttoreNavItems = [
+  { href: '/cassa/fatture',  icon: FileText, label: 'Fatture' },
+  { href: '/cassa/articoli', icon: Package,  label: 'Articoli' },
 ]
 
 interface SidebarContentProps {
@@ -77,7 +84,7 @@ function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarConten
 }
 
 interface Props {
-  role: 'manager' | 'cassiere'
+  role: 'manager' | 'cassiere' | 'direttore'
 }
 
 export function CassaSidebar({ role }: Props) {
@@ -85,7 +92,7 @@ export function CassaSidebar({ role }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
-  const items = role === 'manager' ? managerNavItems : cassiereNavItems
+  const items = role === 'manager' ? managerNavItems : role === 'cassiere' ? cassiereNavItems : direttoreNavItems
 
   async function handleLogout() {
     const supabase = createClient()

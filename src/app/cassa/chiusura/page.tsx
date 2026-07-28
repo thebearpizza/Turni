@@ -9,11 +9,12 @@ export default async function ChiusuraCassaPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, is_direttore')
     .eq('id', user.id)
     .single()
 
   if (!profile) redirect('/login')
+  if (profile.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
 
   if (profile.role === 'manager') {
     const { data: restaurants } = await supabase

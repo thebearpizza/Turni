@@ -9,15 +9,19 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, is_direttore')
     .eq('id', user.id)
     .single()
 
-  if (!profile || !['manager', 'cassiere'].includes(profile.role)) redirect('/dashboard')
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+
+  if (!profile || !(['manager', 'cassiere'].includes(profile.role) || isDirettore)) redirect('/dashboard')
+
+  const cassaRole = profile.role === 'manager' ? 'manager' : profile.role === 'cassiere' ? 'cassiere' : 'direttore'
 
   return (
     <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">
-      <CassaSidebar role={profile.role} />
+      <CassaSidebar role={cassaRole} />
       <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
         {children}
       </main>
