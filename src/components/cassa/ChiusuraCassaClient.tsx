@@ -61,15 +61,10 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const editDate = searchParams.get('data')
 
   const [fase, setFase] = useState<1 | 2 | 3>(1)
-  const [restaurantId, setRestaurantId] = useState(
+  const [restaurantId, setRestaurantIdRaw] = useState(
     editRestaurantId ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : '')
   )
   const [date, setDate] = useState(() => editDate ?? formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-
-  useEffect(() => {
-    if (editRestaurantId) setRestaurantId(editRestaurantId)
-    if (editDate) setDate(editDate)
-  }, [editRestaurantId, editDate])
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -77,6 +72,19 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [fields, setFields] = useState(emptyFields())
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [touched, setTouched] = useState<Set<string>>(new Set())
+
+  // Cambiare ristorante è sempre "vai a un'altra chiusura" — a differenza
+  // di cambiare solo la data (vedi sotto), qui è corretto azzerare la
+  // chiusura eventualmente già caricata e farne cercare una nuova.
+  function selectRestaurant(id: string) {
+    setRestaurantIdRaw(id)
+    setExisting(null)
+  }
+
+  useEffect(() => {
+    if (editRestaurantId) { setRestaurantIdRaw(editRestaurantId); setExisting(null) }
+    if (editDate) { setDate(editDate); setExisting(null) }
+  }, [editRestaurantId, editDate])
 
   function markTouched(name: string) {
     setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
@@ -134,7 +142,17 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     setLoading(false)
   }, [restaurantId, date])
 
-  useEffect(() => { loadChiusura() }, [loadChiusura])
+  // Cerca/precompila SOLO finché non c'è già una chiusura caricata: una
+  // volta che existing è valorizzato (bozza in corso, o chiusura aperta
+  // per modificarla), toccare qui il campo Data serve a CORREGGERLA su
+  // quel record al prossimo salvataggio (vedi handleAvanti) — non a
+  // spostarsi a cercarne/crearne un'altra, altrimenti i dati già
+  // caricati (spese comprese) sparirebbero dal form come se non
+  // fossero mai stati salvati.
+  useEffect(() => {
+    if (existing) return
+    loadChiusura()
+  }, [loadChiusura, existing])
 
   useEffect(() => {
     if (!restaurantId) { setOwnerId(null); return }
@@ -173,10 +191,38 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   // (diretto o via richiesta di approvazione) avviene in Fase 3.
   const isDraftFlow = !isConfermata
 
+  const dataCorretta = !!existing && date !== existing.data
+
   async function handleAvanti() {
     if (!restaurantId || !date || !fase1Complete) return
 
+    // Una chiusura già confermata è un record "ufficiale": correggerne
+    // la data (a differenza delle altre correzioni Fase 1, che passano
+    // dall'approvazione in Fase 3) resta riservata al manager — il
+    // campo è comunque disabilitato per il cassiere in quel caso, qui è
+    // solo una seconda barriera.
+    if (dataCorretta && isConfermata && role !== 'manager') {
+      alert('Solo un manager può correggere la data di una chiusura già confermata.')
+      return
+    }
+
     if (!isDraftFlow) {
+      if (dataCorretta) {
+        setSaving(true)
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from('cassa_chiusure')
+          .update({ data: date, updated_by: userId })
+          .eq('id', existing!.id)
+          .select()
+          .single()
+        setSaving(false)
+        if (error || !data) {
+          alert(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+          return
+        }
+        setExisting(data)
+      }
       setFase(2)
       return
     }
@@ -197,19 +243,20 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       contanti_per_banca: fields.contantiPerBanca,
       updated_by: userId,
     }
-    const payload = existing
-      ? basePayload
-      : { ...basePayload, stato: 'in_verifica' as const, created_by: userId }
 
-    const { data, error } = await supabase
-      .from('cassa_chiusure')
-      .upsert(payload, { onConflict: 'restaurant_id,data' })
-      .select()
-      .single()
+    // Se un record è già caricato (bozza in corso, o una chiusura
+    // aperta per correggerne la data) si aggiorna SEMPRE per id, mai
+    // tramite upsert sulla chiave naturale (restaurant_id, data): se la
+    // data è stata corretta, un upsert per chiave naturale cercherebbe
+    // o creerebbe un'altra riga invece di correggere quella su cui si
+    // sta lavorando, lasciando indietro un doppione con i dati vecchi.
+    const { data, error } = existing
+      ? await supabase.from('cassa_chiusure').update(basePayload).eq('id', existing.id).select().single()
+      : await supabase.from('cassa_chiusure').upsert({ ...basePayload, stato: 'in_verifica' as const, created_by: userId }, { onConflict: 'restaurant_id,data' }).select().single()
 
     setSaving(false)
     if (error || !data) {
-      alert(`Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+      alert(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
       return
     }
     setExisting(data)
@@ -244,7 +291,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 {selectedRestaurantName ?? 'Nessun ristorante assegnato'}
               </div>
             ) : (
-              <Select value={restaurantId} onValueChange={setRestaurantId}>
+              <Select value={restaurantId} onValueChange={selectRestaurant}>
                 <SelectTrigger>
                   <SelectValue placeholder="Seleziona un ristorante" />
                 </SelectTrigger>
@@ -258,7 +305,15 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           </div>
           <div className="space-y-1.5">
             <Label>Data</Label>
-            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <Input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              disabled={isConfermata && role !== 'manager'}
+            />
+            {isConfermata && role !== 'manager' && (
+              <p className="text-xs text-muted-foreground">Solo un manager può correggere la data di una chiusura già confermata.</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -334,7 +389,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           <CardContent className="space-y-4">
             {isConfermata && (
               <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
-                Questa chiusura è già stata confermata. Il salvataggio delle modifiche avviene in Fase 3.
+                Questa chiusura è già stata confermata. Il salvataggio delle modifiche avviene in Fase 3
+                {dataCorretta && ' — la correzione della data invece si salva subito, proseguendo con "Avanti"'}.
               </p>
             )}
 

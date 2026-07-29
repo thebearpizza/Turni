@@ -13,7 +13,7 @@ import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Trash2, FileText, FileSpreadsheet, Pencil, Loader2 } from 'lucide-react'
+import { Trash2, FileText, FileSpreadsheet, Pencil, Loader2, Plus } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -180,6 +180,12 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <div className="flex justify-end">
+        <Button type="button" onClick={() => router.push('/cassa/chiusura')}>
+          <Plus className="w-4 h-4" /> Nuova Chiusura
+        </Button>
+      </div>
 
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6">
