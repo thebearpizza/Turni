@@ -34,8 +34,8 @@ const navItems = [
   // visibili anche al manager, perché roles include 'manager'), queste
   // due sono per il direttore soltanto: senza un ruolo che le includa,
   // compaiono solo passando dal ramo direttoreOnly && isDirettore.
-  { href: '/cassa/fatture',  icon: FileText, label: 'Fatture',  roles: [], direttoreOnly: true },
-  { href: '/cassa/articoli', icon: Package,  label: 'Articoli', roles: [], direttoreOnly: true },
+  { href: '/fatture',  icon: FileText, label: 'Fatture',  roles: [], direttoreOnly: true },
+  { href: '/articoli', icon: Package,  label: 'Articoli', roles: [], direttoreOnly: true },
   { href: '/account-pendenti', icon: UserCheck,       label: 'Account Pendenti', roles: ['manager'], platformOwnerOnly: true },
 ]
 

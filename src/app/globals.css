@@ -149,19 +149,26 @@
   --cassa-negative-bg: 8 40% 16%;
 }
 
-.cassa-display {
+/* Scoped under .cassa — vedi il commento in app/layout.tsx: i font
+   variable sono globali (impostati su <body>), ma queste classi devono
+   applicarli SOLO dentro il sottoalbero .cassa. Senza questo prefisso,
+   una vista Cassa ospitata fuori da /cassa (es. Fatture/Articoli nella
+   sidebar di Turni per il direttore, vedi app/(manager)/fatture) si
+   ritroverebbe con la tipografia di Cassa anche se il resto della
+   pagina usa i colori di Turni — l'obiettivo lì è l'esatto contrario. */
+.cassa .cassa-display {
   font-family: var(--font-fraunces), ui-serif, Georgia, serif;
   font-feature-settings: "ss01";
 }
 
-.cassa-numeric {
+.cassa .cassa-numeric {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
 }
 
 /* Signature element: a torn-receipt / ledger-stub edge, used as a
    card-header top border across the Cassa app instead of a plain line. */
-.cassa-perforated-top {
+.cassa .cassa-perforated-top {
   border-top: none;
   background-image: repeating-linear-gradient(
     90deg,
