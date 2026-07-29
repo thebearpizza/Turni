@@ -145,10 +145,11 @@ export default async function DashboardPage() {
         />
       )}
 
-      {/* Preview presenze di oggi — capo servizio e direttori. Niente ore
-          lavorate; cliccabile solo per il direttore (aggiunge/modifica). */}
+      {/* Preview presenze di oggi — capo servizio e direttori. Sola
+          lettura per entrambi: aggiungere/modificare una presenza da qui
+          non è più consentito neanche al direttore. */}
       {isCapoServizio && restaurantFilter && (
-        <PresenzePreviewSection restaurantId={restaurantFilter} isDirettore={isDirettore} />
+        <PresenzePreviewSection restaurantId={restaurantFilter} isDirettore={false} />
       )}
 
       {/* Consulenti del Lavoro — solo manager */}

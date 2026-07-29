@@ -50,7 +50,6 @@ interface Props {
   dipendenti: { id: string; full_name: string; role: string }[]
   currentUserRole: string
   currentRestaurantId: string | null
-  isDirectore: boolean
 }
 
 function formatDuration(minutes: number): string {
@@ -61,7 +60,7 @@ function formatDuration(minutes: number): string {
 
 export function PresenzeClient({
   initialPresenze, initialAbsences,
-  restaurants, dipendenti, currentUserRole, currentRestaurantId, isDirectore,
+  restaurants, dipendenti, currentUserRole, currentRestaurantId,
 }: Props) {
   const [presenze, setPresenze]   = useState(initialPresenze)
   const [absences, setAbsences]   = useState(initialAbsences)
@@ -390,7 +389,11 @@ export function PresenzeClient({
   }
 
   const isManager = currentUserRole === 'manager'
-  const canEdit   = isManager || (currentUserRole === 'capo_servizio' && isDirectore)
+  // capo_servizio (direttore compreso) non gestisce le presenze da qui —
+  // in pratica questa pagina non è comunque raggiungibile da quel ruolo
+  // (redirect a /dashboard), ma teniamo il componente coerente visto che
+  // resta riutilizzabile con qualunque ruolo passato via prop.
+  const canEdit = isManager
 
   const [unauthorizedMsg, setUnauthorizedMsg] = useState(false)
   function showUnauthorized() {

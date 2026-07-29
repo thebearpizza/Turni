@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
-  Menu, X, Bell, ClipboardList, CalendarClock, UserCheck, Home
+  Menu, X, Bell, ClipboardList, CalendarClock, UserCheck, Home,
+  FileText, Package
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -29,6 +30,12 @@ const navItems = [
   { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
   { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
   { href: '/report',           icon: FileSpreadsheet, label: 'Report',           roles: ['manager', 'capo_servizio'] },
+  // roles: [] — a differenza delle altre voci direttoreOnly (che restano
+  // visibili anche al manager, perché roles include 'manager'), queste
+  // due sono per il direttore soltanto: senza un ruolo che le includa,
+  // compaiono solo passando dal ramo direttoreOnly && isDirettore.
+  { href: '/cassa/fatture',  icon: FileText, label: 'Fatture',  roles: [], direttoreOnly: true },
+  { href: '/cassa/articoli', icon: Package,  label: 'Articoli', roles: [], direttoreOnly: true },
   { href: '/account-pendenti', icon: UserCheck,       label: 'Account Pendenti', roles: ['manager'], platformOwnerOnly: true },
 ]
 

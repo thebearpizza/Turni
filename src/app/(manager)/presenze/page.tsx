@@ -110,7 +110,6 @@ export default async function PresenzePage() {
         dipendenti={dipendenti ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}
         currentRestaurantId={profile?.restaurant_id ?? null}
-        isDirectore={profile?.is_direttore ?? false}
       />
     </div>
   )
