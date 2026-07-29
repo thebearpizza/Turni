@@ -55,6 +55,12 @@ interface EstraiResponse {
   articoli?: ArticoloEstratto[]
 }
 
+interface DatiNuovoArticolo {
+  nome_articolo: string
+  tipologia: ArticoloTipologia
+  unita_misura?: string
+}
+
 export interface FatturaRisolta {
   foto_paths: string[]
   fornitore: { id: string; nome: string; partita_iva: string | null }
@@ -66,7 +72,16 @@ export interface FatturaRisolta {
   totale_netto: number
   totale_iva: number
   totale_lordo: number
-  articoli: Array<{ testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }>
+  // Un articolo 'nuovo' mai confermato esplicitamente (non più
+  // obbligatorio) arriva con nuovo_articolo invece di
+  // catalogo_articolo_id: il chiamante crea la riga di catalogo al
+  // momento del salvataggio, non prima.
+  articoli: Array<
+    { testo_estratto: string; quantita: number; prezzo_riga: number } & (
+      | { catalogo_articolo_id: string; nuovo_articolo?: undefined }
+      | { catalogo_articolo_id?: undefined; nuovo_articolo: DatiNuovoArticolo }
+    )
+  >
   // Tutti i campi segnalati come sospetti (Task 2) — fattura + articoli —
   // da mostrare in sola lettura nella conferma finale (Task 3) e salvare
   // così com'è su fatture.verifiche_sospette, senza ricalcolarli.
@@ -112,6 +127,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   const [currentIndex, setCurrentIndex] = useState(0)
   const current = results[currentIndex] as EstraiResponse | undefined
   const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
+  // Articoli 'nuovo' (o 'ambiguo' risolto come nuovo) con dati modificati
+  // dall'utente tramite "Modifica" — chiave testo_estratto. La riga di
+  // catalogo non si crea qui: solo al salvataggio della fattura (vedi
+  // handleConferma), altrimenti annullare lascerebbe un articolo orfano.
+  const [nuoviModificati, setNuoviModificati] = useState<Map<string, DatiNuovoArticolo>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
   // Salvataggio (o presa visione di un doppione) della fattura corrente
@@ -228,11 +248,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     }
   }
 
-  async function confermaArticolo(
-    articolo: ArticoloEstratto,
-    decisione: 'stesso' | 'nuovo',
-    payload: { catalogo_articolo_id?: string; nuovo_articolo?: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string; fattore_conversione?: number } }
-  ) {
+  // Solo per la decisione 'stesso': l'id catalogo è già noto (il
+  // candidato suggerito), qui si registra solo la mappatura testo→id e si
+  // controlla lo scostamento prezzo — nessun rischio di lasciare un
+  // articolo orfano, quindi resta immediato (rete) invece che rimandato.
+  async function confermaStesso(articolo: ArticoloEstratto) {
     if (!current) return
     try {
       const res = await fetch('/api/cassa/fatture/conferma-articolo', {
@@ -242,9 +262,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
           restaurant_id: restaurantId,
           fornitore_id: current.fornitore.id,
           testo_estratto: articolo.testo_estratto,
-          decisione,
+          decisione: 'stesso',
+          catalogo_articolo_id: articolo.catalogo_articolo_id,
           prezzo_unitario: articolo.quantita !== 0 ? articolo.prezzo_riga / articolo.quantita : articolo.prezzo_riga,
-          ...payload,
         }),
       })
       const data = await res.json()
@@ -263,9 +283,28 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     return resolved.get(a.testo_estratto) ?? null
   }
 
+  // Dati con cui un articolo 'nuovo' (o 'ambiguo' risolto come nuovo)
+  // verrà creato al salvataggio: quelli eventualmente modificati
+  // dall'utente, altrimenti il suggerimento dell'OCR di default — non è
+  // più obbligatorio che l'utente li tocchi.
+  function datiNuovoArticolo(a: ArticoloEstratto): DatiNuovoArticolo {
+    return nuoviModificati.get(a.testo_estratto) ?? {
+      nome_articolo: a.testo_estratto,
+      tipologia: a.tipologia_suggerita,
+      unita_misura: a.unita_misura ?? undefined,
+    }
+  }
+
+  // Un 'ambiguo' blocca finché non è deciso (stesso o nuovo, anche solo
+  // con i valori di default); un 'nuovo' invece non blocca mai — ha
+  // sempre un default pronto all'uso.
+  function eRisolto(a: ArticoloEstratto): boolean {
+    return a.esito !== 'ambiguo' || risoltoInfo(a) !== null || nuoviModificati.has(a.testo_estratto)
+  }
+
   const articoli = current?.articoli ?? []
   const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
-  const tuttiRisolti = articoli.every(a => risoltoInfo(a) !== null) && (!richiedeCategoriaDiretta || !!categoriaDiretta)
+  const tuttiRisolti = articoli.every(eRisolto) && (!richiedeCategoriaDiretta || !!categoriaDiretta)
   const ultimaDelBatch = currentIndex >= results.length - 1
 
   // Passa alla fattura successiva del batch resettando lo stato di
@@ -276,6 +315,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     if (ultimaDelBatch) { onFinished(); return }
     setCurrentIndex(i => i + 1)
     setResolved(new Map())
+    setNuoviModificati(new Map())
     setConfirmingIndex(null)
     setCategoriaDiretta('')
     setError(null)
@@ -308,12 +348,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         totale_netto: current.fattura.totale_netto,
         totale_iva: current.fattura.totale_iva,
         totale_lordo: current.fattura.totale_lordo,
-        articoli: articoli.map(a => ({
-          testo_estratto: a.testo_estratto,
-          quantita: a.quantita,
-          prezzo_riga: a.prezzo_riga,
-          catalogo_articolo_id: risoltoInfo(a)?.catalogoArticoloId as string,
-        })),
+        articoli: articoli.map(a => {
+          const info = risoltoInfo(a)
+          return info
+            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: info.catalogoArticoloId }
+            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, nuovo_articolo: datiNuovoArticolo(a) }
+        }),
         verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
       })
       avanti()
@@ -387,14 +427,25 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
             <Label>Articoli ({articoli.length})</Label>
             {articoli.map((a, i) => {
               const info = risoltoInfo(a)
-              const needsConfirm = a.esito === 'ambiguo' || a.esito === 'nuovo'
+              const nuovoInfo = nuoviModificati.get(a.testo_estratto)
+              const prezzoUnitario = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
               return (
                 <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate">{a.testo_estratto}</span>
-                    <span className="cassa-numeric text-muted-foreground whitespace-nowrap">{a.quantita} × · € {a.prezzo_riga.toFixed(2)}</span>
+                    <span className="cassa-numeric text-muted-foreground whitespace-nowrap">€ {a.prezzo_riga.toFixed(2)}</span>
                   </div>
-                  {info ? (
+                  <p className="cassa-numeric text-xs text-muted-foreground">
+                    {a.quantita}{a.unita_misura ? ` ${a.unita_misura}` : ''} × € {prezzoUnitario.toFixed(2)} cad.
+                  </p>
+                  {confirmingIndex === i ? (
+                    <ArticoloConfirmForm
+                      articolo={a}
+                      onStesso={() => confermaStesso(a)}
+                      onNuovo={payload => { setNuoviModificati(prev => new Map(prev).set(a.testo_estratto, payload)); setConfirmingIndex(null) }}
+                      onAnnulla={() => setConfirmingIndex(null)}
+                    />
+                  ) : info ? (
                     <div className="space-y-1.5">
                       <Badge variant="secondary">
                         {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
@@ -405,21 +456,23 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                         </p>
                       )}
                     </div>
-                  ) : confirmingIndex === i ? (
-                    <ArticoloConfirmForm
-                      articolo={a}
-                      onStesso={() => confermaArticolo(a, 'stesso', { catalogo_articolo_id: a.catalogo_articolo_id as string })}
-                      onNuovo={payload => confermaArticolo(a, 'nuovo', { nuovo_articolo: payload })}
-                      onAnnulla={() => setConfirmingIndex(null)}
-                    />
+                  ) : nuovoInfo || a.esito === 'nuovo' ? (
+                    // Non blocca: verrà salvato come nuovo articolo con
+                    // questi dati (di default il suggerimento dell'OCR),
+                    // la modifica resta possibile ma non obbligatoria.
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Verrà salvato come nuovo articolo ({TIPOLOGIA_LABELS[nuovoInfo?.tipologia ?? a.tipologia_suggerita]}
+                        {(nuovoInfo?.unita_misura ?? a.unita_misura) ? `, ${nuovoInfo?.unita_misura ?? a.unita_misura}` : ''})
+                      </span>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Modifica</Button>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-amber-600 dark:text-amber-400">
-                        {a.esito === 'ambiguo' ? `È lo stesso articolo di "${a.candidato_nome}"?` : 'Articolo non riconosciuto'}
+                        È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
                       </span>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>
-                        {needsConfirm ? 'Conferma' : 'Rivedi'}
-                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
                     </div>
                   )}
                 </div>
@@ -525,7 +578,11 @@ function ArticoloConfirmForm({
 }: {
   articolo: ArticoloEstratto
   onStesso: () => Promise<void>
-  onNuovo: (payload: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string; fattore_conversione?: number }) => Promise<void>
+  // A differenza di onStesso, non è più una chiamata di rete: i dati si
+  // limitano a essere ricordati localmente, la riga di catalogo si crea
+  // solo al salvataggio della fattura (vedi handleConferma) — quindi
+  // nessun bisogno di stato di caricamento per questo tasto.
+  onNuovo: (payload: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string }) => void
   onAnnulla: () => void
 }) {
   const haCandidato = articolo.esito === 'ambiguo' && !!articolo.catalogo_articolo_id
@@ -536,9 +593,9 @@ function ArticoloConfirmForm({
   // articolo nuovo, che è quasi sempre già scritto in fattura.
   const [tipologia, setTipologia] = useState<ArticoloTipologia | ''>(articolo.tipologia_suggerita)
   const [unita, setUnita] = useState(articolo.unita_misura ?? '')
-  // La conferma passa da una chiamata di rete (match/verifica prezzo
-  // lato server): senza questo stato il tasto non dava nessun segnale
-  // durante l'attesa e sembrava non aver reagito al tocco.
+  // Solo per "Sì, è lo stesso": passa da una chiamata di rete
+  // (match/verifica prezzo lato server), senza questo stato il tasto non
+  // darebbe nessun segnale durante l'attesa.
   const [salvando, setSalvando] = useState(false)
 
   async function handleStesso() {
@@ -546,11 +603,8 @@ function ArticoloConfirmForm({
     try { await onStesso() } finally { setSalvando(false) }
   }
 
-  async function handleNuovo() {
-    setSalvando(true)
-    try {
-      await onNuovo({ nome_articolo: nome.trim(), tipologia: tipologia as ArticoloTipologia, unita_misura: unita.trim() || undefined })
-    } finally { setSalvando(false) }
+  function handleNuovo() {
+    onNuovo({ nome_articolo: nome.trim(), tipologia: tipologia as ArticoloTipologia, unita_misura: unita.trim() || undefined })
   }
 
   if (!creaNuovo) {
@@ -590,14 +644,10 @@ function ArticoloConfirmForm({
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        {haCandidato && <Button type="button" size="sm" variant="ghost" onClick={() => setCreaNuovo(false)} disabled={salvando}>Indietro</Button>}
-        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla} disabled={salvando}>Annulla</Button>
-        <Button
-          type="button" size="sm"
-          disabled={!nome.trim() || !tipologia || salvando}
-          onClick={handleNuovo}
-        >
-          {salvando ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Salvataggio…</> : 'Salva come nuovo'}
+        {haCandidato && <Button type="button" size="sm" variant="ghost" onClick={() => setCreaNuovo(false)}>Indietro</Button>}
+        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla}>Annulla</Button>
+        <Button type="button" size="sm" disabled={!nome.trim() || !tipologia} onClick={handleNuovo}>
+          Conferma dati
         </Button>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo, type FatturaEstratta } from '@/lib/cassa/fattureExtraction'
 import { verificaData, verificaQuadratura, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
+import { trovaFornitoreSimile } from '@/lib/cassa/fornitoriMatching'
 import type { VerificaSospetta, ArticoloTipologia } from '@/types'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
@@ -39,14 +40,34 @@ async function risolviFattura(
   estratta: FatturaEstratta,
   fotoPathsGruppo: string[]
 ) {
-  // ── Risoluzione fornitore: match su partita IVA, poi su nome, altrimenti crea ──
-  const fornitoreQuery = supabase.from('fornitori').select('id, nome, partita_iva').eq('owner_id', restaurant.owner_id)
+  // ── Risoluzione fornitore: match su partita IVA, poi su nome (anche solo
+  // simile — trovaFornitoreSimile normalizza forma societaria/punteggiatura
+  // e tollera piccole variazioni), altrimenti crea ──
   const piva = estratta.fornitore_partita_iva?.trim()
-  const { data: fornitoriEsistenti } = piva
-    ? await fornitoreQuery.eq('partita_iva', piva)
-    : await fornitoreQuery.ilike('nome', estratta.fornitore_nome.trim())
+  let fornitore: { id: string; nome: string; partita_iva: string | null } | null = null
 
-  let fornitore = fornitoriEsistenti?.[0] ?? null
+  if (piva) {
+    const { data } = await supabase.from('fornitori').select('id, nome, partita_iva').eq('owner_id', restaurant.owner_id).eq('partita_iva', piva).limit(1)
+    fornitore = data?.[0] ?? null
+  }
+
+  if (!fornitore) {
+    // Nessun match esatto per partita IVA (assente sulla fattura, o
+    // diversa da quella già registrata per lo stesso fornitore — capita,
+    // es. un errore di lettura OCR su una singola cifra): un nome anche
+    // solo simile a un fornitore esistente resta un segnale valido per
+    // non crearne uno duplicato.
+    const { data: candidati } = await supabase.from('fornitori').select('id, nome, partita_iva').eq('owner_id', restaurant.owner_id)
+    fornitore = trovaFornitoreSimile(estratta.fornitore_nome, candidati ?? [])
+
+    // Trovato per nome ma senza partita IVA già a sistema: la si registra
+    // ora che è stata letta, invece di lasciarla vuota per sempre.
+    if (fornitore && !fornitore.partita_iva && piva) {
+      await supabase.from('fornitori').update({ partita_iva: piva }).eq('id', fornitore.id)
+      fornitore = { ...fornitore, partita_iva: piva }
+    }
+  }
+
   let fornitoreNuovo = false
   if (!fornitore) {
     const { data: inserted, error: fornErr } = await supabase

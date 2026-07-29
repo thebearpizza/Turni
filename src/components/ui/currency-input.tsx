@@ -43,7 +43,20 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
   useEffect(() => { setText(formatDisplay(value, !isReadOnly)) }, [value, isReadOnly])
 
   function handleTextChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setText(e.target.value)
+    const raw = e.target.value
+    setText(raw)
+    // Propaga anche a ogni tasto premuto, non solo al blur: un calcolo
+    // derivato altrove (es. Differenza in Quadratura) deve aggiornarsi
+    // mentre si digita, non solo uscendo dal campo. Il testo mostrato
+    // resta quello digitato per intero — solo il valore comunicato al
+    // genitore viene già interpretato/vincolato, non la formattazione
+    // visiva del campo, che resta compito del blur (vedi handleBlur).
+    if (isReadOnly) return
+    const parsed = parseText(raw)
+    if (parsed !== null) {
+      const clamped = min != null ? Math.max(min, roundTo2(parsed)) : roundTo2(parsed)
+      onChange!(clamped)
+    }
   }
 
   function handleBlur() {

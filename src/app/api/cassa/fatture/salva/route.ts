@@ -28,6 +28,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Categoria spesa diretta obbligatoria per una fattura senza articoli' }, { status: 400 })
   }
 
+  // Serve owner_id per creare eventuali nuovi articoli di catalogo (sotto).
+  const { data: restaurant } = await supabase.from('restaurants').select('owner_id').eq('id', restaurant_id).single()
+  if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
+
   const { data: fattura, error: fatturaErr } = await supabase
     .from('fatture')
     .insert({
@@ -69,8 +73,77 @@ export async function POST(request: Request) {
   }
 
   if (ha_articoli && Array.isArray(articoli) && articoli.length > 0) {
+    // Un articolo "nuovo" può arrivare qui senza essere mai stato
+    // confermato esplicitamente in review (non è più obbligatorio): in
+    // quel caso porta nuovo_articolo invece di catalogo_articolo_id, e la
+    // riga di catalogo si crea ORA — non prima, in review, altrimenti
+    // annullare la fattura lascerebbe un articolo orfano a catalogo.
+    const risolti: Array<{ testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }> = []
+    for (const a of articoli as Array<{
+      testo_estratto: string
+      quantita: number
+      prezzo_riga: number
+      catalogo_articolo_id?: string
+      nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
+    }>) {
+      if (a.catalogo_articolo_id) {
+        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id })
+        continue
+      }
+
+      const nome = a.nuovo_articolo?.nome_articolo?.trim()
+      if (!nome || !a.nuovo_articolo?.tipologia) {
+        await supabase.from('fatture').delete().eq('id', fattura.id)
+        return NextResponse.json({ error: `Articolo "${a.testo_estratto}" senza dati sufficienti per essere salvato` }, { status: 400 })
+      }
+
+      const { data: nuovoArt, error: insErr } = await supabase
+        .from('catalogo_articoli')
+        .insert({
+          owner_id: restaurant.owner_id,
+          fornitore_id: fornitore.id,
+          nome_articolo: nome,
+          tipologia: a.nuovo_articolo.tipologia,
+          unita_misura: a.nuovo_articolo.unita_misura || null,
+        })
+        .select('id')
+        .single()
+
+      let catalogoArticoloId = nuovoArt?.id as string | undefined
+      if (insErr) {
+        // Stesso nome per lo stesso fornitore già a catalogo (es. due
+        // articoli "nuovi" nella stessa fattura col medesimo nome
+        // suggerito): non è un errore, si riusa quello esistente.
+        if (insErr.code === '23505') {
+          const { data: esistente } = await supabase
+            .from('catalogo_articoli')
+            .select('id')
+            .eq('owner_id', restaurant.owner_id)
+            .eq('fornitore_id', fornitore.id)
+            .eq('nome_articolo', nome)
+            .single()
+          catalogoArticoloId = esistente?.id
+        }
+        if (!catalogoArticoloId) {
+          await supabase.from('fatture').delete().eq('id', fattura.id)
+          return NextResponse.json({ error: 'Errore nella creazione del nuovo articolo: ' + insErr.message }, { status: 500 })
+        }
+      }
+      if (!catalogoArticoloId) {
+        await supabase.from('fatture').delete().eq('id', fattura.id)
+        return NextResponse.json({ error: `Errore nella creazione del nuovo articolo "${nome}": id mancante` }, { status: 500 })
+      }
+
+      await supabase.from('articoli_mappature_testo').upsert(
+        { owner_id: restaurant.owner_id, fornitore_id: fornitore.id, testo_estratto: a.testo_estratto, catalogo_articolo_id: catalogoArticoloId },
+        { onConflict: 'owner_id,fornitore_id,testo_estratto' }
+      )
+
+      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId })
+    }
+
     const { error: artErr } = await supabase.from('fatture_articoli').insert(
-      articoli.map((a: { testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }) => ({
+      risolti.map(a => ({
         fattura_id: fattura.id,
         catalogo_articolo_id: a.catalogo_articolo_id,
         testo_estratto: a.testo_estratto,

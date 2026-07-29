@@ -39,7 +39,16 @@ export function CountInput({ value, onChange, step = 1, min = 0, readOnly = fals
   useEffect(() => { setText(formatDisplay(value, !isReadOnly)) }, [value, isReadOnly])
 
   function handleTextChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setText(e.target.value.replace(/[^0-9]/g, ''))
+    const raw = e.target.value.replace(/[^0-9]/g, '')
+    setText(raw)
+    // Propaga anche a ogni tasto premuto, non solo al blur — stesso
+    // motivo di CurrencyInput: un calcolo derivato altrove deve
+    // aggiornarsi mentre si digita.
+    if (isReadOnly) return
+    const parsed = parseText(raw)
+    if (parsed !== null) {
+      onChange!(min != null ? Math.max(min, parsed) : parsed)
+    }
   }
 
   function handleBlur() {

@@ -34,6 +34,11 @@ interface ArticoloRiga {
   catalogo_articolo: { tipologia: string } | null
 }
 
+interface AliquotaRiga {
+  aliquota: number
+  iva: number
+}
+
 interface Riga {
   id: string
   restaurant_id: string
@@ -47,6 +52,7 @@ interface Riga {
   totale_lordo: number
   foto_paths: string[]
   fatture_articoli: ArticoloRiga[]
+  fatture_iva_dettaglio: AliquotaRiga[]
 }
 
 function monthRange(month: string): { start: string; end: string } {
@@ -102,7 +108,8 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
         id, restaurant_id, numero_documento, data, ha_articoli, totale_netto, totale_iva, totale_lordo, foto_paths,
         fornitore:fornitori(nome),
         categoria_diretta:categorie_fatture_dirette(nome),
-        fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))
+        fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia)),
+        fatture_iva_dettaglio(aliquota, iva)
       `)
       .in('restaurant_id', targets)
       .gte('data', start)
@@ -124,6 +131,7 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       totale_lordo: r.totale_lordo,
       foto_paths: r.foto_paths,
       fatture_articoli: r.fatture_articoli ?? [],
+      fatture_iva_dettaglio: r.fatture_iva_dettaglio ?? [],
     })))
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,7 +201,10 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
     setWorkingId(riga.id)
     setDeleteError(null)
     const supabase = createClient()
-    const { error } = await supabase.from('fatture').delete().eq('id', riga.id)
+    // RPC invece del delete diretto: ripulisce anche gli articoli di
+    // catalogo che restano senza più nessun acquisto (creati solo per
+    // questa fattura), non solo la riga fattura stessa.
+    const { error } = await supabase.rpc('elimina_fattura_con_pulizia_articoli', { p_fattura_id: riga.id })
     setWorkingId(null)
     if (error) { setDeleteError(error.message); return }
     setDaEliminare(null)
@@ -299,6 +310,12 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
             <div className="divide-y divide-border">
               {righe.map(r => {
                 const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
+                // Scomposizione per aliquota (4%, 10%, 22%...) invece di
+                // un unico totale IVA aggregato — sommata per aliquota nel
+                // caso raro di righe duplicate sulla stessa aliquota.
+                const ivaPerAliquota = Array.from(
+                  r.fatture_iva_dettaglio.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())
+                ).sort((a, b) => b[0] - a[0])
                 return (
                   <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div className="min-w-0">
@@ -311,7 +328,14 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
                         <span>·</span>
                         <span className="whitespace-nowrap">Netto € {r.totale_netto.toFixed(2)}</span>
                         <span>·</span>
-                        <span className="whitespace-nowrap">IVA € {r.totale_iva.toFixed(2)}</span>
+                        {ivaPerAliquota.length > 0 ? (
+                          ivaPerAliquota.flatMap(([aliquota, iva], idx) => [
+                            idx > 0 && <span key={`sep-${aliquota}`}>·</span>,
+                            <span key={aliquota} className="whitespace-nowrap">IVA {aliquota}% € {iva.toFixed(2)}</span>,
+                          ]).filter(Boolean)
+                        ) : (
+                          <span className="whitespace-nowrap">IVA € {r.totale_iva.toFixed(2)}</span>
+                        )}
                         <span>·</span>
                         <span className="whitespace-nowrap">Lordo € {r.totale_lordo.toFixed(2)}</span>
                       </p>
