@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -7,14 +7,14 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { FatturaCapture, type FatturaRisolta } from '@/components/cassa/FatturaCapture'
 import { FatturaFotoViewer } from '@/components/cassa/FatturaFotoViewer'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Camera, Eye, Upload } from 'lucide-react'
+import { Camera, Eye, Upload, Trash2, Loader2 } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -84,7 +84,14 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
   const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
   const targetsKey = JSON.stringify(targets)
 
+  // Scarta il risultato di un fetch superato da uno più recente — senza
+  // questa guardia, un reload innescato dal canale realtime durante
+  // un'eliminazione (o due reload ravvicinati) possono risolversi fuori
+  // ordine e far ricomparire righe già rimosse.
+  const requestId = useRef(0)
+
   const load = useCallback(async () => {
+    const myRequest = ++requestId.current
     setLoading(true)
     if (targets.length === 0) { setRighe([]); setLoading(false); return }
     const { start, end } = monthRange(month)
@@ -101,6 +108,8 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       .gte('data', start)
       .lte('data', end)
       .order('data', { ascending: false })
+
+    if (requestId.current !== myRequest) return
 
     setRighe(((data ?? []) as unknown as Array<Riga & { fornitore: { nome: string } | null; categoria_diretta: { nome: string } | null }>).map(r => ({
       id: r.id,
@@ -151,20 +160,51 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
     { netto: 0, lordo: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
   )
 
+  // Un caricamento può contenere più fatture insieme (Task batch): questa
+  // viene chiamata una volta per OGNI fattura confermata, e FatturaCapture
+  // se ne aspetta il risultato per sapere se può passare alla successiva
+  // del batch — per questo lancia invece di limitarsi a non chiudere il
+  // dialog, così l'errore (es. doppione rilevato solo ora da una richiesta
+  // in parallelo) resta visibile sulla fattura corrente invece di sparire.
   async function handleUploadComplete(fattura: FatturaRisolta) {
     const res = await fetch('/api/cassa/fatture/salva', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ restaurant_id: uploadRestaurantId, ...fattura }),
     })
-    if (res.ok) {
-      setUploadOpen(false)
-      load()
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
     }
-    // In caso di errore (es. doppione rilevato solo ora da un'altra
-    // richiesta in parallelo) il dialog resta aperto: FatturaCapture non
-    // ha modo di mostrare l'errore di questa chiamata perché onComplete
-    // l'ha già considerata conclusa — errore comunque loggato lato server.
+    load()
+  }
+
+  // Eliminazione riga fattura (solo manager, come da RLS) — stesso
+  // pattern di conferma in-app + staleness guard già usato per le
+  // chiusure: window.confirm() è inaffidabile su alcuni browser
+  // mobile/PWA.
+  const [daEliminare, setDaEliminare] = useState<Riga | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [workingId, setWorkingId] = useState<string | null>(null)
+
+  async function confermaEliminazione() {
+    if (!daEliminare) return
+    const riga = daEliminare
+    setWorkingId(riga.id)
+    setDeleteError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from('fatture').delete().eq('id', riga.id)
+    setWorkingId(null)
+    if (error) { setDeleteError(error.message); return }
+    setDaEliminare(null)
+    setRighe(prev => prev.filter(r => r.id !== riga.id))
+    load()
+    // Pulizia foto su storage: best-effort, non blocca né fallisce
+    // l'eliminazione già avvenuta — file orfani nel bucket non sono un
+    // problema di correttezza, solo spazio sprecato se dovesse fallire.
+    if (riga.foto_paths.length > 0) {
+      supabase.storage.from('fatture_foto').remove(riga.foto_paths).catch(() => {})
+    }
   }
 
   return (
@@ -276,9 +316,24 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
                         <span className="whitespace-nowrap">Lordo € {r.totale_lordo.toFixed(2)}</span>
                       </p>
                     </div>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" onClick={() => setViewer(r)}>
-                      <Eye className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      {role === 'manager' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          title="Elimina"
+                          disabled={workingId === r.id}
+                          onClick={() => setDaEliminare(r)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -311,6 +366,7 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
               categorieDirette={categorieDirette}
               initialMode={captureMode}
               onComplete={handleUploadComplete}
+              onFinished={() => setUploadOpen(false)}
               onCancel={() => setUploadOpen(false)}
             />
           )}
@@ -323,6 +379,29 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
         fotoPaths={viewer?.foto_paths ?? []}
         title={viewer ? `${viewer.fornitore_nome} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
       />
+
+      <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
+        <DialogContent className="cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Eliminare questa fattura?</DialogTitle>
+          </DialogHeader>
+          {daEliminare && (
+            <p className="text-sm text-muted-foreground">
+              {daEliminare.fornitore_nome} · {formatInTimeZone(`${daEliminare.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
+              {' '}— verranno eliminati definitivamente anche gli articoli collegati. L&apos;operazione non è reversibile.
+            </p>
+          )}
+          {deleteError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setDaEliminare(null); setDeleteError(null) }} disabled={!!workingId}>
+              Annulla
+            </Button>
+            <Button type="button" variant="destructive" onClick={confermaEliminazione} disabled={!!workingId}>
+              {workingId ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

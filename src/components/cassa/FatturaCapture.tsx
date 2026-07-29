@@ -81,26 +81,43 @@ interface Props {
   // file/galleria, multipla: si presume già un'immagine del documento
   // (foto precedente, scansione, screenshot), quindi salta il ritaglio.
   initialMode: 'file' | 'scan'
-  onComplete: (fattura: FatturaRisolta) => void
+  // Chiamato una volta per OGNI fattura confermata dall'utente (un
+  // caricamento può contenerne più di una — vedi results/currentIndex
+  // sotto). Deve lanciare in caso di errore: FatturaCapture resta sulla
+  // fattura corrente e mostra l'errore invece di considerarla comunque
+  // conclusa e passare oltre.
+  onComplete: (fattura: FatturaRisolta) => Promise<void>
+  // Chiamato una sola volta, quando TUTTE le fatture del batch sono
+  // state salvate (o, per un doppione, riconosciute come tali).
+  onFinished: () => void
   onCancel: () => void
 }
 
 // Cattura multi-pagina + pipeline di estrazione/matching (Task 1). Non
 // salva la fattura — restituisce i dati risolti a onComplete perché il
 // chiamante (Task 3) la persista dopo la conferma finale dell'utente.
-export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onCancel }: Props) {
+// Un caricamento può contenere più fatture distinte insieme (anche di
+// fornitori diversi): l'estrazione le separa già, qui si rivedono e
+// salvano una alla volta con uno stepper "Fattura N di M".
+export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onFinished, onCancel }: Props) {
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
-  const [status, setStatus] = useState<'capturing' | 'processing' | 'review' | 'duplicate'>('capturing')
+  const [status, setStatus] = useState<'capturing' | 'processing' | 'review'>('capturing')
   // Solo per il messaggio mostrato durante 'processing' — il caricamento
   // foto è rapido, la lettura AI no, distinguerli evita che un'attesa
   // lunga sembri bloccata sul passo sbagliato.
   const [faseElaborazione, setFaseElaborazione] = useState<'upload' | 'lettura'>('upload')
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<EstraiResponse | null>(null)
+  const [results, setResults] = useState<EstraiResponse[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const current = results[currentIndex] as EstraiResponse | undefined
   const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
+  // Salvataggio (o presa visione di un doppione) della fattura corrente
+  // in corso — passa da una richiesta di rete, senza questo stato il
+  // tasto "Salva fattura" non darebbe nessun segnale durante l'attesa.
+  const [saving, setSaving] = useState(false)
   // Foto appena scattata, in attesa del ritaglio prospettico: finché è
   // valorizzata lo scanner prende il posto della griglia delle pagine.
   const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
@@ -202,8 +219,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         return
       }
 
-      setResult(data)
-      setStatus(data.duplicato ? 'duplicate' : 'review')
+      setResults(data.fatture ?? [])
+      setCurrentIndex(0)
+      setStatus('review')
     } catch {
       setError('Errore di rete, riprova')
       setStatus('capturing')
@@ -215,14 +233,14 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     decisione: 'stesso' | 'nuovo',
     payload: { catalogo_articolo_id?: string; nuovo_articolo?: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string; fattore_conversione?: number } }
   ) {
-    if (!result) return
+    if (!current) return
     try {
       const res = await fetch('/api/cassa/fatture/conferma-articolo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurant_id: restaurantId,
-          fornitore_id: result.fornitore.id,
+          fornitore_id: current.fornitore.id,
           testo_estratto: articolo.testo_estratto,
           decisione,
           prezzo_unitario: articolo.quantita !== 0 ? articolo.prezzo_riga / articolo.quantita : articolo.prezzo_riga,
@@ -245,67 +263,103 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     return resolved.get(a.testo_estratto) ?? null
   }
 
-  const articoli = result?.articoli ?? []
-  const richiedeCategoriaDiretta = result?.fattura?.ha_articoli === false
+  const articoli = current?.articoli ?? []
+  const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
   const tuttiRisolti = articoli.every(a => risoltoInfo(a) !== null) && (!richiedeCategoriaDiretta || !!categoriaDiretta)
+  const ultimaDelBatch = currentIndex >= results.length - 1
 
-  function handleConferma() {
-    if (!result?.fattura || !tuttiRisolti) return
+  // Passa alla fattura successiva del batch resettando lo stato di
+  // revisione (è per forza tutto relativo alla fattura appena
+  // conclusa: fornitore, articoli e testo_estratto possono essere
+  // completamente diversi sulla prossima), oppure chiude se era l'ultima.
+  function avanti() {
+    if (ultimaDelBatch) { onFinished(); return }
+    setCurrentIndex(i => i + 1)
+    setResolved(new Map())
+    setConfirmingIndex(null)
+    setCategoriaDiretta('')
+    setError(null)
+  }
+
+  async function handleConferma() {
+    if (!current) return
+
+    if (current.duplicato) {
+      avanti()
+      return
+    }
+    if (!current.fattura || !tuttiRisolti) return
+
     const verificheArticoli = articoli
       .map(a => risoltoInfo(a)?.sospetto)
       .filter((v): v is VerificaSospetta => !!v)
 
-    onComplete({
-      foto_paths: result.foto_paths,
-      fornitore: result.fornitore,
-      data: result.fattura.data,
-      numero_documento: result.fattura.numero_documento,
-      ha_articoli: result.fattura.ha_articoli,
-      categoria_spesa_diretta_id: richiedeCategoriaDiretta ? categoriaDiretta : null,
-      iva_dettaglio: result.fattura.iva_dettaglio,
-      totale_netto: result.fattura.totale_netto,
-      totale_iva: result.fattura.totale_iva,
-      totale_lordo: result.fattura.totale_lordo,
-      articoli: articoli.map(a => ({
-        testo_estratto: a.testo_estratto,
-        quantita: a.quantita,
-        prezzo_riga: a.prezzo_riga,
-        catalogo_articolo_id: risoltoInfo(a)?.catalogoArticoloId as string,
-      })),
-      verifiche_sospette: [...result.fattura.verifiche_sospette, ...verificheArticoli],
-    })
+    setSaving(true)
+    setError(null)
+    try {
+      await onComplete({
+        foto_paths: current.foto_paths,
+        fornitore: current.fornitore,
+        data: current.fattura.data,
+        numero_documento: current.fattura.numero_documento,
+        ha_articoli: current.fattura.ha_articoli,
+        categoria_spesa_diretta_id: richiedeCategoriaDiretta ? categoriaDiretta : null,
+        iva_dettaglio: current.fattura.iva_dettaglio,
+        totale_netto: current.fattura.totale_netto,
+        totale_iva: current.fattura.totale_iva,
+        totale_lordo: current.fattura.totale_lordo,
+        articoli: articoli.map(a => ({
+          testo_estratto: a.testo_estratto,
+          quantita: a.quantita,
+          prezzo_riga: a.prezzo_riga,
+          catalogo_articolo_id: risoltoInfo(a)?.catalogoArticoloId as string,
+        })),
+        verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
+      })
+      avanti()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore nel salvataggio della fattura')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  if (status === 'duplicate') {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
-          <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-destructive">Possibile doppione</p>
-            <p className="text-muted-foreground">
-              Una fattura di <strong>{result?.fornitore.nome}</strong> con lo stesso numero documento è già presente a sistema. Non è stata salvata.
-            </p>
+  if (status === 'review' && current) {
+    if (current.duplicato) {
+      return (
+        <div className="space-y-4">
+          {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+            <div className="space-y-1 text-sm">
+              <p className="font-semibold text-destructive">Possibile doppione</p>
+              <p className="text-muted-foreground">
+                Una fattura di <strong>{current.fornitore.nome}</strong> con lo stesso numero documento è già presente a sistema. Non è stata salvata.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-between pt-2">
+            <Button type="button" variant="outline" onClick={onCancel}>Annulla</Button>
+            <Button type="button" onClick={avanti}>{ultimaDelBatch ? 'Chiudi' : 'Fattura successiva'}</Button>
           </div>
         </div>
-        <Button type="button" variant="outline" onClick={onCancel}>Chiudi</Button>
-      </div>
-    )
-  }
+      )
+    }
 
-  if (status === 'review' && result?.fattura) {
-    const verificheFattura = result.fattura.verifiche_sospette
+    if (!current.fattura) return null
+    const verificheFattura = current.fattura.verifiche_sospette
     return (
       <div className="space-y-4">
+        {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
         <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
-          <div><span className="text-muted-foreground">Fornitore</span> <strong>{result.fornitore.nome}</strong>{result.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</div>
+          <div><span className="text-muted-foreground">Fornitore</span> <strong>{current.fornitore.nome}</strong>{current.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</div>
           <p>
             <span className={cn('text-muted-foreground', verificheFattura.some(v => v.campo === 'data') && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</span>{' '}
-            <span className="cassa-numeric">{result.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{result.fattura.numero_documento}</span>
+            <span className="cassa-numeric">{current.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{current.fattura.numero_documento}</span>
           </p>
           <p className="cassa-numeric">
-            <span className="text-muted-foreground font-sans">Netto</span> € {result.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {result.fattura.totale_iva.toFixed(2)} ·{' '}
-            <span className={cn('font-sans', verificheFattura.some(v => v.campo === 'totale_lordo') ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>Lordo</span> € {result.fattura.totale_lordo.toFixed(2)}
+            <span className="text-muted-foreground font-sans">Netto</span> € {current.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {current.fattura.totale_iva.toFixed(2)} ·{' '}
+            <span className={cn('font-sans', verificheFattura.some(v => v.campo === 'totale_lordo') ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>Lordo</span> € {current.fattura.totale_lordo.toFixed(2)}
           </p>
           {verificheFattura.map((v, i) => (
             <p key={i} className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
@@ -377,9 +431,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <div className="flex justify-between pt-2">
-          <Button type="button" variant="outline" onClick={onCancel}>Annulla</Button>
-          <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti}>
-            Salva fattura
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Annulla</Button>
+          <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti || saving}>
+            {saving
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</>
+              : ultimaDelBatch ? 'Salva fattura' : 'Salva e continua'}
           </Button>
         </div>
       </div>

@@ -157,7 +157,7 @@ type PaginaEstratta = z.infer<typeof PaginaEstrattaSchema>
 
 async function estraiPagina(foto: FotoInput, numero: number, totale: number): Promise<PaginaEstratta> {
   const contesto = totale > 1
-    ? `L'allegato è l'elemento ${numero} di ${totale} che compongono insieme questo documento (ogni elemento è una foto di una pagina oppure un PDF — se è un PDF con più pagine, leggile tutte, fanno parte di questo stesso elemento). Estrai SOLO quello che è effettivamente presente in QUESTO elemento: i dati di testata (fornitore, numero, data) di norma stanno solo all'inizio del documento e il riepilogo IVA solo alla fine, quindi è del tutto normale che qui manchino — in quel caso usa null / array vuoti invece di dedurli o inventarli. Gli elementi mancanti li ricompone il sistema.`
+    ? `L'allegato è l'elemento ${numero} di ${totale} di un unico caricamento, ma NON dare per scontato che siano tutti la stessa fattura: l'utente può aver caricato insieme più fatture distinte, anche di fornitori diversi. Estrai SOLO quello che è effettivamente stampato su QUESTO elemento (ogni elemento è una foto di una pagina oppure un PDF — se è un PDF con più pagine, leggile tutte). Se questo elemento riporta una propria testata (fornitore e/o numero documento), è l'inizio di una fattura a sé — riportala così com'è, anche se un fornitore o numero diverso è comparso su un elemento precedente. Se invece non riporta alcuna testata (né fornitore né numero documento), è quasi certamente la continuazione della tabella articoli della fattura dell'elemento precedente: in quel caso usa null per i campi di testata invece di dedurli o copiarli da altrove. È il sistema, non tu, a ricomporre poi quali elementi appartengono a quale fattura in base a queste informazioni — quindi è fondamentale che questo giudizio (testata presente o assente) rispecchi esattamente cosa è stampato su questo elemento.`
     : `L'allegato è l'unico elemento del documento: una foto oppure un PDF — se è un PDF con più pagine, leggile tutte.`
 
   // PDF: mandato al modello come file nativo (Gemini legge tutte le
@@ -229,7 +229,60 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   }
 }
 
-export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta> {
+// Confronta due pagine per capire se appartengono alla stessa fattura:
+// stesso numero_documento se entrambe lo riportano, altrimenti stesso
+// fornitore_nome se entrambe lo riportano. Se nessuna delle due ha
+// nessuna informazione di testata (tipico di una pagina di sola
+// tabella articoli) si assume che continui la fattura corrente — la
+// vera decisione "stessa fattura o no" la prende raggruppaPagine
+// guardando se la pagina ha O NON ha affatto una testata.
+function stessaFattura(a: PaginaEstratta, b: PaginaEstratta): boolean {
+  const numA = a.numero_documento?.trim()
+  const numB = b.numero_documento?.trim()
+  if (numA && numB) return numA === numB
+  const fornA = a.fornitore_nome?.trim()
+  const fornB = b.fornitore_nome?.trim()
+  if (fornA && fornB) return fornA === fornB
+  return true
+}
+
+// Un caricamento può contenere più fatture distinte caricate insieme
+// (anche di fornitori diversi) invece di un'unica fattura multipagina:
+// raggruppa le pagine estratte confrontandole in ordine. Una pagina
+// senza alcuna informazione di testata (numero_documento e
+// fornitore_nome entrambi null) è per definizione una pagina di
+// continuazione — testata e riepilogo IVA compaiono di norma solo
+// sulla prima/ultima pagina di UN documento, mai su quelle di mezzo —
+// quindi resta nel gruppo corrente. Una pagina con una testata che non
+// coincide con quella del gruppo corrente apre un nuovo gruppo.
+function raggruppaPagine(pagine: PaginaEstratta[]): number[][] {
+  const gruppi: { pagina: PaginaEstratta; indice: number }[][] = []
+
+  pagine.forEach((pagina, indice) => {
+    const haTestata = !!(pagina.numero_documento?.trim() || pagina.fornitore_nome?.trim())
+    const gruppoCorrente = gruppi[gruppi.length - 1]
+    const riferimento = gruppoCorrente?.find(x => x.pagina.numero_documento?.trim() || x.pagina.fornitore_nome?.trim())?.pagina
+
+    if (gruppoCorrente && (!haTestata || !riferimento || stessaFattura(pagina, riferimento))) {
+      gruppoCorrente.push({ pagina, indice })
+    } else {
+      gruppi.push([{ pagina, indice }])
+    }
+  })
+
+  return gruppi.map(g => g.map(x => x.indice))
+}
+
+export interface FatturaEstrattaConIndici {
+  fattura: FatturaEstratta
+  // Indici (0-based, nell'ordine di upload) delle foto che compongono
+  // questa fattura all'interno dell'array passato a estraiFatture —
+  // servono al chiamante per assegnare a ciascuna fattura solo i propri
+  // foto_paths invece di tutti quelli del caricamento.
+  indiciFoto: number[]
+}
+
+export async function estraiFatture(foto: FotoInput[]): Promise<FatturaEstrattaConIndici[]> {
   const inizio = Date.now()
 
   // Una richiesta per pagina, in parallelo. Il collo di bottiglia è la
@@ -240,11 +293,17 @@ export async function estraiFattura(foto: FotoInput[]): Promise<FatturaEstratta>
   // leggere, il che aiuta anche la precisione — che è la priorità qui.
   const pagine = await Promise.all(foto.map((f, i) => estraiPagina(f, i + 1, foto.length)))
 
-  const unita = unisciPagine(pagine)
+  const gruppi = raggruppaPagine(pagine)
+  const fatture = gruppi.map(indici => ({
+    fattura: unisciPagine(indici.map(i => pagine[i])),
+    indiciFoto: indici,
+  }))
+
   console.log(
-    `[cassa/fatture] estratte ${foto.length} pagine in ${Date.now() - inizio}ms, ${unita.articoli.length} articoli`
+    `[cassa/fatture] estratte ${foto.length} pagine → ${fatture.length} fattur${fatture.length === 1 ? 'a' : 'e'} in ${Date.now() - inizio}ms, ` +
+    `${fatture.reduce((s, f) => s + f.fattura.articoli.length, 0)} articoli totali`
   )
-  return unita
+  return fatture
 }
 
 // ── Matching semantico articoli vs catalogo esistente ───────────────────

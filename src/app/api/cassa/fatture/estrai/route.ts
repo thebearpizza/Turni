@@ -1,9 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { estraiFattura, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo } from '@/lib/cassa/fattureExtraction'
+import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo, type FatturaEstratta } from '@/lib/cassa/fattureExtraction'
 import { verificaData, verificaQuadratura, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import type { VerificaSospetta, ArticoloTipologia } from '@/types'
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
 const BUCKET = 'fatture_foto'
 
@@ -13,76 +15,30 @@ const BUCKET = 'fatture_foto'
 // rispondere noi con un errore leggibile, non essere terminati a metà.
 export const maxDuration = 60
 
-// POST /api/cassa/fatture/estrai
-// Body JSON: { restaurant_id: string, foto_paths: string[] }
-//
-// Le foto le ha già caricate il client direttamente su Supabase Storage
-// (vedi FatturaCapture.tsx) — qui arrivano solo i percorsi, non i byte:
-// il corpo di una richiesta a una funzione serverless Vercel è limitato
-// a 4.5 MB, e con più pagine ad alta risoluzione (l'OCR deve leggere
-// testo piccolo) lo si supera facilmente passando i file nella richiesta
-// stessa. Questa route scarica le foto da storage lato server, estrae i
-// dati via Gemini, risolve il fornitore (trova o crea) e — se
-// ha_articoli — abbina ogni articolo estratto al catalogo esistente per
-// quel fornitore. Non salva ancora la fattura: restituisce i dati
-// risolti perché l'utente li riveda (Task 2) prima del salvataggio
-// definitivo (Task 3).
-export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
+interface ArticoloRisolto {
+  testo_estratto: string
+  quantita: number
+  prezzo_riga: number
+  unita_misura: string | null
+  tipologia_suggerita: ArticoloTipologia
+  esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
+  catalogo_articolo_id: string | null
+  candidato_nome: string | null
+  sospetto: VerificaSospetta | null
+}
 
-  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    return NextResponse.json({ error: "Estrazione automatica non disponibile: l'assistente AI non è configurato." }, { status: 503 })
-  }
-
-  const body = await request.json()
-  const restaurantId = body?.restaurant_id as string | undefined
-  const fotoPaths = body?.foto_paths as string[] | undefined
-  if (!restaurantId) return NextResponse.json({ error: 'Locale mancante' }, { status: 400 })
-  if (!fotoPaths?.length) return NextResponse.json({ error: 'Nessuna foto ricevuta' }, { status: 400 })
-  // Ogni percorso deve appartenere al locale dichiarato — altrimenti un
-  // utente potrebbe passare percorsi di un altro locale (il download
-  // sotto è comunque filtrato da RLS, ma qui evitiamo pure il tentativo).
-  if (fotoPaths.some(p => !p.startsWith(`${restaurantId}/`))) {
-    return NextResponse.json({ error: 'Percorso foto non valido' }, { status: 400 })
-  }
-
-  // Il locale deve esistere ed essere leggibile (RLS) dall'utente corrente
-  // — da qui ricaviamo owner_id per lo scope di fornitori/catalogo.
-  const { data: restaurant } = await supabase.from('restaurants').select('id, owner_id').eq('id', restaurantId).single()
-  if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
-
-  const fotoBuffers: { buffer: ArrayBuffer; mediaType: string }[] = []
-  for (const path of fotoPaths) {
-    const { data: fileBlob, error: downloadErr } = await supabase.storage.from(BUCKET).download(path)
-    if (downloadErr || !fileBlob) {
-      return NextResponse.json({ error: 'Errore nel recupero delle foto caricate: ' + (downloadErr?.message ?? 'file non trovato') }, { status: 500 })
-    }
-    fotoBuffers.push({ buffer: await fileBlob.arrayBuffer(), mediaType: fileBlob.type || 'image/jpeg' })
-  }
-
-  let estratta
-  try {
-    estratta = await estraiFattura(fotoBuffers)
-  } catch (err) {
-    await supabase.storage.from(BUCKET).remove(fotoPaths)
-    console.error('Errore estrazione fattura:', err instanceof Error ? err.message : err)
-
-    if (err instanceof EstrazioneTimeoutError) {
-      return NextResponse.json(
-        { error: 'La lettura ha superato il tempo massimo. Riprova con meno pagine per volta, oppure compila i dati a mano.' },
-        { status: 504 }
-      )
-    }
-
-    const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(err instanceof Error ? err.message : String(err))
-    return NextResponse.json(
-      { error: rateLimited ? 'Troppe richieste all\'assistente AI in questo momento, riprova tra poco.' : 'Errore nella lettura della fattura, riprova o compila i dati a mano.' },
-      { status: rateLimited ? 429 : 502 }
-    )
-  }
-
+// Risolve UNA fattura già estratta (fornitore, doppione, matching
+// articoli) — usata una volta per ogni fattura individuata nel
+// caricamento (Task: batch multi-fattura). Un caricamento può
+// contenere più fatture distinte, anche di fornitori diversi:
+// estraiFatture le ha già separate a monte, qui si tratta ciascuna
+// esattamente come prima quando ce n'era una sola.
+async function risolviFattura(
+  supabase: SupabaseServerClient,
+  restaurant: { id: string; owner_id: string },
+  estratta: FatturaEstratta,
+  fotoPathsGruppo: string[]
+) {
   // ── Risoluzione fornitore: match su partita IVA, poi su nome, altrimenti crea ──
   const fornitoreQuery = supabase.from('fornitori').select('id, nome, partita_iva').eq('owner_id', restaurant.owner_id)
   const piva = estratta.fornitore_partita_iva?.trim()
@@ -99,8 +55,7 @@ export async function POST(request: Request) {
       .select('id, nome, partita_iva')
       .single()
     if (fornErr || !inserted) {
-      await supabase.storage.from(BUCKET).remove(fotoPaths)
-      return NextResponse.json({ error: 'Errore nella registrazione del fornitore: ' + (fornErr?.message ?? 'sconosciuto') }, { status: 500 })
+      throw new Error('Errore nella registrazione del fornitore: ' + (fornErr?.message ?? 'sconosciuto'))
     }
     fornitore = inserted
     fornitoreNuovo = true
@@ -115,12 +70,12 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (doppione) {
-    return NextResponse.json({
+    return {
       duplicato: true,
       fornitore: { ...fornitore, nuovo: fornitoreNuovo },
       fattura_esistente_id: doppione.id,
-      foto_paths: fotoPaths,
-    })
+      foto_paths: fotoPathsGruppo,
+    }
   }
 
   const totaleNetto = estratta.iva_dettaglio.reduce((s, r) => s + r.imponibile, 0)
@@ -134,17 +89,7 @@ export async function POST(request: Request) {
   ].filter((v): v is VerificaSospetta => v !== null)
 
   // ── Matching articoli (solo se ha_articoli) ──
-  let articoliRisolti: Array<{
-    testo_estratto: string
-    quantita: number
-    prezzo_riga: number
-    unita_misura: string | null
-    tipologia_suggerita: ArticoloTipologia
-    esito: 'auto_mappato' | 'chiaro' | 'ambiguo' | 'nuovo'
-    catalogo_articolo_id: string | null
-    candidato_nome: string | null
-    sospetto: VerificaSospetta | null
-  }> = []
+  let articoliRisolti: ArticoloRisolto[] = []
 
   if (estratta.ha_articoli && estratta.articoli.length > 0) {
     const { data: mappatureEsistenti } = await supabase
@@ -226,9 +171,9 @@ export async function POST(request: Request) {
     }))
   }
 
-  return NextResponse.json({
+  return {
     duplicato: false,
-    foto_paths: fotoPaths,
+    foto_paths: fotoPathsGruppo,
     fornitore: { ...fornitore, nuovo: fornitoreNuovo },
     fattura: {
       data: estratta.data,
@@ -241,5 +186,102 @@ export async function POST(request: Request) {
       verifiche_sospette: verificheFattura,
     },
     articoli: articoliRisolti,
-  })
+  }
+}
+
+// POST /api/cassa/fatture/estrai
+// Body JSON: { restaurant_id: string, foto_paths: string[] }
+//
+// Le foto le ha già caricate il client direttamente su Supabase Storage
+// (vedi FatturaCapture.tsx) — qui arrivano solo i percorsi, non i byte:
+// il corpo di una richiesta a una funzione serverless Vercel è limitato
+// a 4.5 MB, e con più pagine ad alta risoluzione (l'OCR deve leggere
+// testo piccolo) lo si supera facilmente passando i file nella richiesta
+// stessa. Questa route scarica le foto da storage lato server, estrae i
+// dati via Gemini (che può individuare più fatture distinte nello stesso
+// caricamento — vedi estraiFatture), risolve il fornitore (trova o crea)
+// e — se ha_articoli — abbina ogni articolo estratto al catalogo
+// esistente per quel fornitore, per OGNUNA delle fatture trovate. Non
+// salva ancora nulla: restituisce i dati risolti perché l'utente li
+// riveda (Task 2) fattura per fattura prima del salvataggio definitivo
+// (Task 3).
+export async function POST(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
+
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    return NextResponse.json({ error: "Estrazione automatica non disponibile: l'assistente AI non è configurato." }, { status: 503 })
+  }
+
+  const body = await request.json()
+  const restaurantId = body?.restaurant_id as string | undefined
+  const fotoPaths = body?.foto_paths as string[] | undefined
+  if (!restaurantId) return NextResponse.json({ error: 'Locale mancante' }, { status: 400 })
+  if (!fotoPaths?.length) return NextResponse.json({ error: 'Nessuna foto ricevuta' }, { status: 400 })
+  // Ogni percorso deve appartenere al locale dichiarato — altrimenti un
+  // utente potrebbe passare percorsi di un altro locale (il download
+  // sotto è comunque filtrato da RLS, ma qui evitiamo pure il tentativo).
+  if (fotoPaths.some(p => !p.startsWith(`${restaurantId}/`))) {
+    return NextResponse.json({ error: 'Percorso foto non valido' }, { status: 400 })
+  }
+
+  // Il locale deve esistere ed essere leggibile (RLS) dall'utente corrente
+  // — da qui ricaviamo owner_id per lo scope di fornitori/catalogo.
+  const { data: restaurant } = await supabase.from('restaurants').select('id, owner_id').eq('id', restaurantId).single()
+  if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
+
+  const fotoBuffers: { buffer: ArrayBuffer; mediaType: string }[] = []
+  for (const path of fotoPaths) {
+    const { data: fileBlob, error: downloadErr } = await supabase.storage.from(BUCKET).download(path)
+    if (downloadErr || !fileBlob) {
+      return NextResponse.json({ error: 'Errore nel recupero delle foto caricate: ' + (downloadErr?.message ?? 'file non trovato') }, { status: 500 })
+    }
+    fotoBuffers.push({ buffer: await fileBlob.arrayBuffer(), mediaType: fileBlob.type || 'image/jpeg' })
+  }
+
+  let fatture
+  try {
+    fatture = await estraiFatture(fotoBuffers)
+  } catch (err) {
+    await supabase.storage.from(BUCKET).remove(fotoPaths)
+    console.error('Errore estrazione fattura:', err instanceof Error ? err.message : err)
+
+    if (err instanceof EstrazioneTimeoutError) {
+      return NextResponse.json(
+        { error: 'La lettura ha superato il tempo massimo. Riprova con meno pagine per volta, oppure compila i dati a mano.' },
+        { status: 504 }
+      )
+    }
+
+    const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(err instanceof Error ? err.message : String(err))
+    return NextResponse.json(
+      { error: rateLimited ? 'Troppe richieste all\'assistente AI in questo momento, riprova tra poco.' : 'Errore nella lettura della fattura, riprova o compila i dati a mano.' },
+      { status: rateLimited ? 429 : 502 }
+    )
+  }
+
+  // Un doppione in un gruppo (fattura già a sistema) è un esito
+  // normale per QUELLA fattura, non un errore di richiesta: le altre
+  // fatture del batch vanno comunque risolte e restituite. Un errore
+  // vero (es. insert fornitore fallito) invece abortisce tutto il
+  // batch, con pulizia di TUTTE le foto caricate — non solo quelle del
+  // gruppo che ha fallito, perché senza un risultato per ogni gruppo il
+  // client non ha modo di sapere quali foto tenere.
+  //
+  // In sequenza, non in parallelo: fornitori non ha un vincolo di
+  // unicità su nome/partita_iva, quindi due fatture dello stesso
+  // fornitore MAI VISTO PRIMA nello stesso batch risolte in parallelo
+  // creerebbero due righe fornitori duplicate invece che la seconda
+  // trovi quella appena creata dalla prima.
+  try {
+    const risultati = []
+    for (const { fattura: estratta, indiciFoto } of fatture) {
+      risultati.push(await risolviFattura(supabase, restaurant, estratta, indiciFoto.map(i => fotoPaths[i])))
+    }
+    return NextResponse.json({ fatture: risultati })
+  } catch (err) {
+    await supabase.storage.from(BUCKET).remove(fotoPaths)
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Errore nella registrazione della fattura' }, { status: 500 })
+  }
 }
