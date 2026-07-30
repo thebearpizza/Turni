@@ -11,6 +11,10 @@ interface CurrencyInputProps {
   readOnly?: boolean
   disabled?: boolean
   className?: string
+  // Nasconde gli stepper +/-: per un campo stretto (es. inline in una
+  // riga elenco) lo spazio riservato (pr-16) non lascerebbe posto al
+  // numero. Digitazione libera invariata.
+  hideStepper?: boolean
 }
 
 function roundTo2(n: number): number {
@@ -36,7 +40,7 @@ function parseText(t: string): number | null {
 // Campo per importi in euro: digitazione libera (virgola o punto) + stepper
 // +/- per micro-aggiustamenti, sul modello di time-input.tsx (testo libero
 // affiancato a un controllo dedicato).
-export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = false, disabled = false, className }: CurrencyInputProps) {
+export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = false, disabled = false, className, hideStepper = false }: CurrencyInputProps) {
   const isReadOnly = readOnly || !onChange
   const [text, setText] = useState(formatDisplay(value, !isReadOnly))
 
@@ -103,12 +107,13 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
         readOnly={isReadOnly}
         disabled={disabled}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-background pl-7 pr-16 py-1.5 text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-9 w-full rounded-md border border-input bg-background pl-7 py-1.5 text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+          hideStepper ? "pr-2" : "pr-16",
           isReadOnly && "bg-muted text-muted-foreground cursor-default",
           className
         )}
       />
-      {!isReadOnly && (
+      {!isReadOnly && !hideStepper && (
         <div className="absolute right-1 flex items-center gap-0.5">
           <button
             type="button"

@@ -6,6 +6,7 @@ import { DocumentScanner } from '@/components/cassa/DocumentScanner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { CurrencyInput } from '@/components/ui/currency-input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Camera, Upload, X, Loader2, AlertTriangle, FileText } from 'lucide-react'
@@ -132,6 +133,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // catalogo non si crea qui: solo al salvataggio della fattura (vedi
   // handleConferma), altrimenti annullare lascerebbe un articolo orfano.
   const [nuoviModificati, setNuoviModificati] = useState<Map<string, DatiNuovoArticolo>>(new Map())
+  // Prezzo riga corretto a mano in revisione — a differenza di
+  // resolved/nuoviModificati va tenuto per indice, non per
+  // testo_estratto: due righe con lo stesso testo estratto (raro ma
+  // possibile) non devono correggersi a vicenda.
+  const [prezziModificati, setPrezziModificati] = useState<Map<number, number>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
   // Salvataggio (o presa visione di un doppione) della fattura corrente
@@ -316,6 +322,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     setCurrentIndex(i => i + 1)
     setResolved(new Map())
     setNuoviModificati(new Map())
+    setPrezziModificati(new Map())
     setConfirmingIndex(null)
     setCategoriaDiretta('')
     setError(null)
@@ -348,11 +355,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         totale_netto: current.fattura.totale_netto,
         totale_iva: current.fattura.totale_iva,
         totale_lordo: current.fattura.totale_lordo,
-        articoli: articoli.map(a => {
+        articoli: articoli.map((a, i) => {
           const info = risoltoInfo(a)
+          const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
           return info
-            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: info.catalogoArticoloId }
-            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, nuovo_articolo: datiNuovoArticolo(a) }
+            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId }
+            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a) }
         }),
         verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
       })
@@ -426,22 +434,40 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
           <div className="space-y-2">
             <Label>Articoli ({articoli.length})</Label>
             {articoli.map((a, i) => {
+              const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
+              const prezzoModificato = prezziModificati.has(i)
+              // Con il prezzo corretto a mano: stesso oggetto ma con
+              // prezzo_riga aggiornato, così sia la conferma "è lo
+              // stesso" (verifica scostamento lato server) sia il nuovo
+              // articolo usano il valore corretto, non quello originale
+              // dell'OCR.
+              const aEffettivo = prezzoModificato ? { ...a, prezzo_riga: prezzoRiga } : a
               const info = risoltoInfo(a)
               const nuovoInfo = nuoviModificati.get(a.testo_estratto)
-              const prezzoUnitario = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
+              const prezzoUnitario = a.quantita !== 0 ? prezzoRiga / a.quantita : prezzoRiga
               return (
                 <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">{a.testo_estratto}</span>
-                    <span className="cassa-numeric text-muted-foreground whitespace-nowrap">€ {a.prezzo_riga.toFixed(2)}</span>
+                  <p className="truncate">{a.testo_estratto}</p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
+                      {a.quantita}{a.unita_misura ? ` ${a.unita_misura}` : ''} ×
+                    </span>
+                    <div className="w-24">
+                      <CurrencyInput
+                        value={prezzoRiga}
+                        onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v))}
+                        hideStepper
+                        className="h-7 px-2 text-sm cassa-numeric"
+                      />
+                    </div>
+                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
+                      € {prezzoUnitario.toFixed(2)} cad.{prezzoModificato && ' · corretto'}
+                    </span>
                   </div>
-                  <p className="cassa-numeric text-xs text-muted-foreground">
-                    {a.quantita}{a.unita_misura ? ` ${a.unita_misura}` : ''} × € {prezzoUnitario.toFixed(2)} cad.
-                  </p>
                   {confirmingIndex === i ? (
                     <ArticoloConfirmForm
-                      articolo={a}
-                      onStesso={() => confermaStesso(a)}
+                      articolo={aEffettivo}
+                      onStesso={() => confermaStesso(aEffettivo)}
                       onNuovo={payload => { setNuoviModificati(prev => new Map(prev).set(a.testo_estratto, payload)); setConfirmingIndex(null) }}
                       onAnnulla={() => setConfirmingIndex(null)}
                     />
@@ -450,7 +476,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                       <Badge variant="secondary">
                         {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
                       </Badge>
-                      {info.sospetto && (
+                      {info.sospetto && !prezzoModificato && (
                         <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
                         </p>
