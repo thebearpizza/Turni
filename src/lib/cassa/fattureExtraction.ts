@@ -119,6 +119,17 @@ export const ArticoloEstrattoSchema = z.object({
     "detergenza (pulizia/igiene), altro_no_food (tutto il resto: stoviglie, imballaggi, materiale non alimentare). " +
     "Fai sempre una scelta, anche se incerta: è solo un suggerimento che l'utente può correggere."
   ),
+  aliquota_iva: z.number().describe(
+    "Aliquota IVA italiana di questo articolo in percentuale (4, 5, 10 o 22) — SEMPRE valorizzata, anche quando la " +
+    "fattura non riporta un riepilogo IVA leggibile: se manca il riepilogo, questo campo diventa l'unico modo per " +
+    "ricostruire i totali, quindi va comunque stimata dalla categoria merceologica del prodotto. Se la aliquota è " +
+    "scritta esplicitamente su questa riga, usa quella. Altrimenti, in base al buon senso sulle aliquote italiane: " +
+    "alimentari di base (pane, pasta, farina, riso, latte, verdura, frutta) sono di norma al 4%; la maggior parte " +
+    "degli altri alimentari, della ristorazione e dei prodotti confezionati è al 10%; bevande alcoliche, acqua e " +
+    "bibite, prodotti per pulizia/detergenza/igiene, monouso/plastica/imballaggi, stoviglie e ogni articolo non " +
+    "alimentare sono quasi sempre al 22%. Nel dubbio scegli 22%, l'aliquota ordinaria: è la stima più prudente " +
+    "quando non sei sicuro della categoria esatta."
+  ),
 })
 
 // Schema di una SINGOLA pagina: i dati di testata compaiono di norma
@@ -145,6 +156,11 @@ export interface FatturaEstratta {
   numero_documento: string
   ha_articoli: boolean
   iva_dettaglio: z.infer<typeof AliquotaEstrattaSchema>[]
+  // true quando iva_dettaglio non viene dal riepilogo stampato in
+  // fattura (non trovato/non letto) ma è stato ricostruito sommando gli
+  // articoli per aliquota_iva stimata — un numero plausibile, non un
+  // dato letto, da segnalare come tale invece di presentarlo come certo.
+  iva_stimata: boolean
   articoli: z.infer<typeof ArticoloEstrattoSchema>[]
 }
 
@@ -201,6 +217,24 @@ Non inventare mai un numero di documento o una partita IVA che non siano scritti
   return object
 }
 
+// Ricostruisce il riepilogo IVA raggruppando gli articoli per la loro
+// aliquota_iva stimata, quando la fattura non riporta un riepilogo
+// leggibile — prezzo_riga è per convenzione il netto di riga (come per
+// ogni altro calcolo in questo file), quindi imponibile = somma dei
+// prezzo_riga del gruppo e iva = imponibile × aliquota/100.
+function calcolaIvaDaArticoli(articoli: z.infer<typeof ArticoloEstrattoSchema>[]): z.infer<typeof AliquotaEstrattaSchema>[] {
+  const imponibilePerAliquota = new Map<number, number>()
+  for (const a of articoli) {
+    imponibilePerAliquota.set(a.aliquota_iva, (imponibilePerAliquota.get(a.aliquota_iva) ?? 0) + a.prezzo_riga)
+  }
+  return Array.from(imponibilePerAliquota.entries())
+    .sort(([a], [b]) => b - a)
+    .map(([aliquota, imponibileGrezzo]) => {
+      const imponibile = Math.round(imponibileGrezzo * 100) / 100
+      return { aliquota, imponibile, iva: Math.round(imponibile * aliquota) / 100 }
+    })
+}
+
 function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   const primoValorizzato = (valori: (string | null)[]) => valori.find(v => v?.trim())?.trim() ?? ''
 
@@ -208,10 +242,16 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   // sulle fatture multipagina il recap sta in fondo, e le pagine
   // intermedie possono riportare subtotali parziali che non vanno
   // sommati a quello finale.
-  const ivaDettaglio = [...pagine].reverse().find(p => p.iva_dettaglio.length > 0)?.iva_dettaglio ?? []
+  const ivaStampata = [...pagine].reverse().find(p => p.iva_dettaglio.length > 0)?.iva_dettaglio ?? []
 
   // Articoli concatenati nell'ordine delle pagine.
   const articoli = pagine.flatMap(p => p.articoli)
+
+  // Se il riepilogo non è stato trovato/letto ma ci sono articoli con
+  // un prezzo, non lasciamo i totali a zero: li ricostruiamo dalle
+  // aliquote stimate per ciascun articolo (vedi calcolaIvaDaArticoli).
+  const ivaStimata = ivaStampata.length === 0 && articoli.length > 0
+  const ivaDettaglio = ivaStimata ? calcolaIvaDaArticoli(articoli) : ivaStampata
 
   return {
     data: primoValorizzato(pagine.map(p => p.data)),
@@ -225,6 +265,7 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
     // tabella.
     ha_articoli: articoli.length > 0,
     iva_dettaglio: ivaDettaglio,
+    iva_stimata: ivaStimata,
     articoli,
   }
 }
