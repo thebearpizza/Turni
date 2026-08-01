@@ -457,7 +457,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                         value={prezzoRiga}
                         onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v))}
                         hideStepper
-                        className="h-7 px-2 text-sm cassa-numeric"
+                        className="h-7 text-sm cassa-numeric"
                       />
                     </div>
                     <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">

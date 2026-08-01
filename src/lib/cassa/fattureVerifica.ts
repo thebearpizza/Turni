@@ -31,6 +31,21 @@ export function verificaQuadratura(netto: number, iva: number, lordo: number, to
   return null
 }
 
+// Riepilogo IVA non estratto nonostante la fattura abbia articoli veri:
+// Netto/IVA/Lordo (tutti derivati da iva_dettaglio, mai dagli articoli)
+// restano silenziosamente a zero. verificaQuadratura non lo cattura,
+// perché netto=iva=lordo=0 "torna" per definizione (0+0=0) — serve un
+// controllo dedicato per non lasciare un totale a zero senza spiegazione.
+export function verificaIvaMancante(numRigheIva: number, haArticoli: boolean, numArticoli: number): VerificaSospetta | null {
+  if (haArticoli && numArticoli > 0 && numRigheIva === 0) {
+    return {
+      campo: 'totale_lordo',
+      messaggio: 'Riepilogo IVA non trovato in fattura: Netto/IVA/Lordo sono a zero, vanno corretti a mano prima di salvare.',
+    }
+  }
+  return null
+}
+
 // Prezzo unitario di un articolo che si scosta oltre una soglia
 // dall'ultimo prezzo noto per lo stesso articolo+fornitore.
 export function verificaPrezzoArticolo(
