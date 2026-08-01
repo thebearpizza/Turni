@@ -45,6 +45,28 @@ export function similaritaNomi(a: string, b: string): number {
 // brevi e simili (es. "Pregis" vs "Prealpi") non devono finire fusi.
 const SOGLIA_DUPLICATO = 0.85
 
+// Punteggio assegnato quando un nome è il prefisso esatto dell'altro
+// (vedi unoEPrefissoDellAltro) — sopra soglia, ma sotto il match esatto.
+const PUNTEGGIO_PREFISSO = 0.9
+
+// Il coefficiente di Dice sui bigrammi cattura bene le varianti di
+// battitura/OCR a parità di lunghezza, ma penalizza troppo un'intera
+// parola aggiunta in coda: "Leroy Merlin" vs "Leroy Merlin Italia
+// S.r.l.", o "Castelli Carta Srl" vs "Castelli Carta Srl Print" (magari
+// letto da un'insegna/slogan), scendono sotto SOGLIA_DUPLICATO pur
+// essendo quasi certamente lo stesso fornitore con una dicitura più o
+// meno estesa. Un nome che è ESATTAMENTE il prefisso dell'altro (fino a
+// un confine di parola, non a metà parola) è un segnale forte e
+// indipendente dalla lunghezza aggiunta. Richiede almeno 2 parole sul
+// nome più corto per evitare falsi positivi su un'unica parola generica
+// (es. "Roma" non deve fondersi con "Roma Trasporti").
+function unoEPrefissoDellAltro(a: string, b: string): boolean {
+  const corto = a.length <= b.length ? a : b
+  const lungo = a.length <= b.length ? b : a
+  if (!corto || corto.split(' ').length < 2) return false
+  return lungo === corto || lungo.startsWith(corto + ' ')
+}
+
 export interface CandidatoFornitore {
   id: string
   nome: string
@@ -63,7 +85,11 @@ export function trovaFornitoreSimile(nome: string, candidati: CandidatoFornitore
   let migliore: { candidato: CandidatoFornitore; punteggio: number } | null = null
   for (const c of candidati) {
     const normC = normalizzaNomeFornitore(c.nome)
-    const punteggio = normC === normalizzato ? 1 : similaritaNomi(normalizzato, normC)
+    const punteggio = normC === normalizzato
+      ? 1
+      : unoEPrefissoDellAltro(normalizzato, normC)
+        ? PUNTEGGIO_PREFISSO
+        : similaritaNomi(normalizzato, normC)
     if (punteggio >= SOGLIA_DUPLICATO && (!migliore || punteggio > migliore.punteggio)) {
       migliore = { candidato: c, punteggio }
     }
