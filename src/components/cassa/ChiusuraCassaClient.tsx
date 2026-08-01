@@ -52,6 +52,18 @@ const FASE1_FIELDS = ['entrateContanti', 'entratePos', 'entrateBonifico', 'coper
 const FASE3_FIELDS = ['contantiPerBanca'] as const
 const ALL_FIELDS = [...FASE1_FIELDS, 'fondoCassaIniziale', ...FASE3_FIELDS] as const
 
+// Chi chiude cassa dopo mezzanotte (fino alle 3 circa) sta quasi sempre
+// ancora completando il servizio del giorno PRIMA — il locale resta
+// aperto oltre la mezzanotte — non quello appena scattato per
+// calendario. Precompilare con la data "di oggi" in quella fascia
+// porterebbe la chiusura sulla data sbagliata di default.
+function dataChiusuraDiDefault(): string {
+  const ora = new Date()
+  const oraLocale = Number(formatInTimeZone(ora, TZ, 'H'))
+  const giorno = oraLocale < 3 ? new Date(ora.getTime() - 24 * 60 * 60 * 1000) : ora
+  return formatInTimeZone(giorno, TZ, 'yyyy-MM-dd')
+}
+
 export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
   // "Modifica" da Lista Chiusure arriva qui con ?restaurant_id=&data= per
   // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
@@ -64,7 +76,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [restaurantId, setRestaurantIdRaw] = useState(
     editRestaurantId ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : '')
   )
-  const [date, setDate] = useState(() => editDate ?? formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [date, setDate] = useState(() => editDate ?? dataChiusuraDiDefault())
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
