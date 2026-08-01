@@ -167,7 +167,7 @@ export function ArticoliClient({ fornitori }: Props) {
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{r.nome_articolo}</p>
+                          <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nome_articolo}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             {r.fornitore_nome}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
