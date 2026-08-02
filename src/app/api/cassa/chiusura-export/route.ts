@@ -140,7 +140,12 @@ async function buildCategoryChartPng(spese: SpesaRow[]): Promise<ChartAsset | nu
   const BARS_ROW_H = VALUE_LABEL_H + BAR_MAX_H
   const LABEL_ROW_H = 16
   const TITLE_ROW_H = 34
-  const WIDTH = Math.max(220, entries.length * (COL_W + COL_GAP) - COL_GAP + PADDING * 2)
+  // Minimo alzato da 220 a 300: con una sola categoria (o poche) il box
+  // poteva restare più stretto del titolo "Spese per categoria" a
+  // fontSize 20, che andava a capo su due righe pur avendo un'altezza di
+  // riga fissa (TITLE_ROW_H) tarata per una riga sola — le righe
+  // sottostanti finivano schiacciate/sovrapposte dal testo traboccante.
+  const WIDTH = Math.max(300, entries.length * (COL_W + COL_GAP) - COL_GAP + PADDING * 2)
   const HEIGHT = PADDING * 2 + TITLE_ROW_H + BARS_ROW_H + 8 + LABEL_ROW_H
   const s = (n: number) => n * RENDER_SCALE
   // Troncamento più corto del precedente: a fontSize 10 su una colonna di
@@ -152,7 +157,7 @@ async function buildCategoryChartPng(spese: SpesaRow[]): Promise<ChartAsset | nu
   const el = h(
     'div',
     { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: CHART_BG, padding: `${s(PADDING)}px`, fontFamily: 'sans-serif' } },
-    h('div', { style: { display: 'flex', height: s(TITLE_ROW_H), alignItems: 'center', fontSize: s(20), fontWeight: 700, color: CHART_QUALITATIVE[0] } }, 'Spese per categoria'),
+    h('div', { style: { display: 'flex', height: s(TITLE_ROW_H), alignItems: 'center', fontSize: s(20), fontWeight: 700, color: CHART_QUALITATIVE[0], whiteSpace: 'nowrap' } }, 'Spese per categoria'),
     h(
       'div',
       { style: { display: 'flex', flexDirection: 'row', alignItems: 'flex-end', height: s(BARS_ROW_H), gap: s(COL_GAP) } },
