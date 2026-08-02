@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RestaurantMultiSelect } from '@/components/cassa/RestaurantMultiSelect'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
@@ -20,7 +21,7 @@ import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { FileText, FileSpreadsheet } from 'lucide-react'
+import { FileText, FileSpreadsheet, Download } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -313,21 +314,26 @@ export function AnalisiClient({ restaurants }: Props) {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end gap-2">
-        <Button
-          type="button" variant="outline" size="sm"
-          disabled={righe.length === 0}
-          onClick={() => handleExport('pdf')}
-        >
-          <FileText className="w-4 h-4" /> Esporta PDF
-        </Button>
-        <Button
-          type="button" variant="outline" size="sm"
-          disabled={righe.length === 0}
-          onClick={() => handleExport('xlsx')}
-        >
-          <FileSpreadsheet className="w-4 h-4" /> Esporta Excel
-        </Button>
+      {/* Larga quanto una card KPI: stessa griglia di AnalisiKpiRow, il
+          tasto occupa solo l'ultima colonna così resta allineato a destra
+          e della stessa larghezza di una card sotto, invece di avere una
+          sua larghezza indipendente. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="sm" disabled={righe.length === 0} className="col-start-2 lg:col-start-4">
+              <Download className="w-4 h-4" /> Esporta
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleExport('xlsx')}>
+              <FileSpreadsheet className="w-4 h-4" /> Excel
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport('pdf')}>
+              <FileText className="w-4 h-4" /> PDF
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <CassaFileViewer
