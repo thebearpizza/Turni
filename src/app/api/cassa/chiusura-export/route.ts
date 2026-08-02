@@ -66,15 +66,19 @@ async function buildPaymentChartPng(entrateContanti: number, entratePos: number,
   // stretto qui non "schiaccia" il contenuto (le altezze sotto sono
   // fisse in px) ma lo TAGLIA, perché next/og renderizza esattamente il
   // canvas richiesto senza scroll — la percentuale in fondo spariva
-  // proprio per questo.
+  // proprio per questo. Il margine sotto il titolo è volutamente
+  // generoso: il line-height reale del font usato in produzione (satori
+  // su Vercel) rende meno spazio "leading" sotto il testo di quanto
+  // sembri in anteprima locale, e la "g" di "Pagamento" arrivava quasi a
+  // toccare la barra.
   const WIDTH = 360
-  const HEIGHT = 200
+  const HEIGHT = 218
   const s = (n: number) => n * RENDER_SCALE
 
   const el = h(
     'div',
     { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: CHART_BG, padding: `${s(28)}px`, fontFamily: 'sans-serif' } },
-    h('div', { style: { display: 'flex', fontSize: s(22), fontWeight: 700, color: CHART_QUALITATIVE[0], marginBottom: s(22) } }, 'Pagamento'),
+    h('div', { style: { display: 'flex', fontSize: s(22), fontWeight: 700, color: CHART_QUALITATIVE[0], marginBottom: s(40) } }, 'Pagamento'),
     h(
       'div',
       { style: { display: 'flex', width: '100%', height: s(44), borderRadius: s(8), overflow: 'hidden' } },
@@ -417,13 +421,13 @@ async function buildPdf(chiusura: any, restaurantName: string, dataLabel: string
   }
 
   let rowIndex = 0
-  function row(label: string, value: string, opts: { emphasis?: boolean; color?: readonly [number, number, number] } = {}) {
+  function row(label: string, value: string, opts: { emphasis?: boolean; color?: readonly [number, number, number]; size?: number } = {}) {
     const ROW_H = 20
     ensureSpace(ROW_H)
     if (rowIndex % 2 === 0) {
       page.drawRectangle({ x: MARGIN, y: y - 5, width: CONTENT_W, height: ROW_H, color: c(PDF_COLORS.paper) })
     }
-    const size = opts.emphasis ? 11.5 : 10.5
+    const size = opts.size ?? (opts.emphasis ? 11.5 : 10.5)
     page.drawText(label, { x: MARGIN + 8, y, size, font: opts.emphasis ? bold : font, color: c(PDF_COLORS.mutedFg) })
     const valueFont = opts.emphasis ? bold : font
     const valueColor = opts.color ? c(opts.color) : opts.emphasis ? c(PDF_COLORS.primary) : c(PDF_COLORS.ink)
@@ -455,7 +459,7 @@ async function buildPdf(chiusura: any, restaurantName: string, dataLabel: string
   row('Entrate Contanti', euro(chiusura.entrate_contanti))
   row('Entrate POS', euro(chiusura.entrate_pos))
   row('Entrate Bonifico', euro(chiusura.entrate_bonifico))
-  row('Totale Entrate', euro(chiusura.totale_entrate), { emphasis: true })
+  row('Totale Entrate', euro(chiusura.totale_entrate), { emphasis: true, size: 14 })
   spacer()
 
   sectionTitle('Cassa')
@@ -473,7 +477,7 @@ async function buildPdf(chiusura: any, restaurantName: string, dataLabel: string
     color: isBalanced ? c(PDF_COLORS.positiveBg) : c(PDF_COLORS.negativeBg),
   })
   page.drawText('Differenza', { x: MARGIN + 12, y: y - 10, size: 11, font: bold, color: isBalanced ? c(PDF_COLORS.positiveText) : c(PDF_COLORS.negativeText) })
-  const diffFontSize = 16
+  const diffFontSize = 12
   const diffW = bold.widthOfTextAtSize(diffLabel, diffFontSize)
   page.drawText(diffLabel, {
     x: MARGIN + CONTENT_W - 12 - diffW, y: y - 12, size: diffFontSize, font: bold,
