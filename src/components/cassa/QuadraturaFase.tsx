@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { cn } from '@/lib/utils'
+import { notificaChiusuraConfermata } from '@/app/actions/cassa'
 import type { CassaChiusura } from '@/types'
 
 interface Fields {
@@ -95,6 +96,9 @@ export function QuadraturaFase({
         return
       }
       onSaved(data as CassaChiusura)
+      // Solo alla prima conferma (bozza → confermata): notifica i manager.
+      // Fire-and-forget, un errore qui non deve bloccare il cassiere.
+      if (isDraft) notificaChiusuraConfermata(chiusura.id).catch(() => {})
       return
     }
 

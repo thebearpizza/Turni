@@ -11,6 +11,7 @@ import { FallbackApprovalSection, type PendingItem } from '@/components/manager/
 import { PresenzePreviewClient, type PresenzaPreviewRow } from '@/components/manager/PresenzePreviewClient'
 import { RestaurantQrCard } from '@/components/manager/RestaurantQrCard'
 import { TelegramLinkButton } from '@/components/manager/TelegramLinkButton'
+import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 
 const TZ = 'Europe/Rome'
 
@@ -98,6 +99,8 @@ export default async function DashboardPage() {
           {formatInTimeZone(new Date(), TZ, "EEEE d MMMM yyyy", { locale: it })}
         </p>
       </div>
+
+      {isManager && <PushNotificationPrompt />}
 
       {/* KPI grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

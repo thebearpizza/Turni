@@ -24,7 +24,7 @@ export function PushNotificationBanner({ permission, onSubscribe }: Props) {
     <div className="mx-4 mb-3 flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
       <BellRing className="w-4 h-4 text-primary shrink-0" />
       <p className="flex-1 text-xs text-muted-foreground leading-snug">
-        Ricevi notifiche sui comunicati in bacheca
+        Ricevi notifiche push su questo dispositivo
       </p>
       <button
         onClick={handleSubscribe}
