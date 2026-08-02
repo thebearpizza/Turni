@@ -17,7 +17,8 @@ export default function RegisterPage() {
           />
           <div className="text-center">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">inTurno</h1>
-            <p className="text-muted-foreground mt-1 text-sm">Crea il tuo account</p>
+            <p className="text-muted-foreground mt-1 text-sm">Richiedi accesso per il tuo locale</p>
+            <p className="text-muted-foreground/70 mt-1 text-xs">Sei un dipendente? Le credenziali te le fornisce il tuo manager.</p>
           </div>
         </div>
 

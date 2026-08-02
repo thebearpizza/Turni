@@ -159,6 +159,17 @@ export async function POST(request: Request) {
       is_direttore: isDirettore,
       consultant_restaurant_ids: role === 'consulente_lavoro' ? consultant_restaurant_ids : [],
       can_view_hours: role === 'consulente_lavoro' ? can_view_hours : false,
+      // Un manager creato da qui va SEMPRE scoped al ristorante scelto nel
+      // form — mai lasciato implicito: la colonna non ha default e null
+      // significa "platform owner" (accesso a tutti i ristoranti reali).
+      // Nessuna UI qui permette di assegnarne più di uno o di concedere
+      // volutamente l'accesso illimitato, quindi va sempre ristretto.
+      ...(role === 'manager' ? { managed_restaurant_ids: restaurant_id ? [restaurant_id] : [] } : {}),
+      // La riga può già esistere (creata dal trigger handle_new_user su
+      // auth.users) con account_status di default: va sempre forzato ad
+      // active esplicitamente, un dipendente aggiunto da un manager non
+      // deve mai restare nello stato "in attesa di approvazione".
+      account_status: 'active',
     })
     .select('*, restaurant:restaurants(id, name)')
     .single()
@@ -195,11 +206,15 @@ export async function PATCH(request: Request) {
 
   const admin = createAdminClient()
 
+  // Serve sempre — anche quando il chiamante è manager — per sapere se
+  // questo profilo STA DIVENTANDO manager ora (promozione) oppure lo era
+  // già, vedi managed_restaurant_ids sotto.
+  const { data: targetBefore } = await admin
+    .from('profiles').select('role, restaurant_id, managed_restaurant_ids').eq('id', id).single()
+
   // Direttore: confined to its own restaurant, cannot manage managers or consulenti.
   if (caller.role !== 'manager') {
-    const { data: target } = await admin
-      .from('profiles').select('role, restaurant_id').eq('id', id).single()
-    if (!target || target.restaurant_id !== caller.restaurant_id || target.role === 'manager' || target.role === 'consulente_lavoro') {
+    if (!targetBefore || targetBefore.restaurant_id !== caller.restaurant_id || targetBefore.role === 'manager' || targetBefore.role === 'consulente_lavoro') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
     }
     if (role === 'manager' || role === 'consulente_lavoro') {
@@ -213,6 +228,21 @@ export async function PATCH(request: Request) {
   // secondary_departments è editabile solo dal manager (non dal direttore)
   const isCallerManager = caller.role === 'manager'
 
+  // Chi resta manager (non una NUOVA promozione) mantiene lo scope che
+  // aveva già — un manager esistente potrebbe comparire in questa stessa
+  // lista/form (es. il platform owner che corregge il proprio nome) e un
+  // salvataggio non deve MAI potergli azzerare managed_restaurant_ids come
+  // effetto collaterale. Solo una promozione VERA (il profilo non era già
+  // manager) deriva lo scope dal ristorante scelto nel form — mai lasciato
+  // implicito: la colonna non ha default e null vuol dire "platform owner"
+  // (accesso a tutti i ristoranti reali). Per qualunque ruolo diverso da
+  // manager lo svuota, cosi' non resta uno scope "fantasma".
+  const wasAlreadyManager = targetBefore?.role === 'manager'
+  const managedRestaurantIds =
+    role !== 'manager' ? []
+    : wasAlreadyManager ? targetBefore!.managed_restaurant_ids
+    : (restaurant_id ? [restaurant_id] : [])
+
   const { data: profile, error } = await admin
     .from('profiles')
     .update({
@@ -224,6 +254,7 @@ export async function PATCH(request: Request) {
       is_direttore: isDirettore,
       consultant_restaurant_ids: role === 'consulente_lavoro' ? consultant_restaurant_ids : [],
       can_view_hours: role === 'consulente_lavoro' ? can_view_hours : false,
+      managed_restaurant_ids: managedRestaurantIds,
       // AI scheduling
       weekly_rest_days,
       preferred_rest_day,

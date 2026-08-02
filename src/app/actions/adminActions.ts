@@ -13,11 +13,16 @@ async function assertPlatformOwner() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, managed_restaurant_ids')
+    .select('role, managed_restaurant_ids, account_status')
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'manager' || profile.managed_restaurant_ids !== null) {
+  // account_status è un controllo aggiuntivo di difesa in profondità: con
+  // i fix su /api/register e /api/users un account non platform-owner non
+  // dovrebbe più poter avere managed_restaurant_ids=null, ma approvare le
+  // richieste di accesso altrui è un'azione abbastanza sensibile da non
+  // fidarsi di un solo livello di controllo.
+  if (profile?.role !== 'manager' || profile.managed_restaurant_ids !== null || profile.account_status !== 'active') {
     throw new Error('Non autorizzato')
   }
   return { supabase, user }

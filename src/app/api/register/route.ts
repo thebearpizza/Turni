@@ -63,7 +63,13 @@ export async function POST(request: Request) {
     department:                null,
     restaurant_id:             null,
     account_status:            'pending',
-    managed_restaurant_ids:    null,
+    // Mai null qui: null significa "platform owner", accesso illimitato a
+    // TUTTI i ristoranti reali non-demo (vedi can_manage_restaurant). Un
+    // account appena richiesto, ancora da approvare, non deve avere accesso
+    // a nulla finché createDemoData() sotto non lo scopa sui suoi soli
+    // ristoranti demo — se quella chiamata fallisse, deve restare a [] (zero
+    // accesso), mai a null.
+    managed_restaurant_ids:    [],
     can_post_bulletin:         true,
     is_direttore:              false,
     consultant_restaurant_ids: [],
