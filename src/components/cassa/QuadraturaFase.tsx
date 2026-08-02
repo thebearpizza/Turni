@@ -137,12 +137,6 @@ export function QuadraturaFase({
           </p>
         ) : (
           <>
-            {!isDraft && role === 'cassiere' && (
-              <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
-                Questa chiusura è già confermata: le modifiche verranno inviate al manager per l&apos;approvazione.
-              </p>
-            )}
-
             <div className="space-y-1.5">
               <Label>Banca Teorica</Label>
               <CurrencyInput value={bancaTeorica} readOnly className="cassa-numeric" />
