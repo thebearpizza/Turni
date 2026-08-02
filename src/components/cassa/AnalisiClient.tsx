@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu'
+import { RestaurantMultiSelect } from '@/components/cassa/RestaurantMultiSelect'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
@@ -20,7 +20,7 @@ import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { FileText, FileSpreadsheet, ChevronDown } from 'lucide-react'
+import { FileText, FileSpreadsheet } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -165,10 +165,6 @@ export function AnalisiClient({ restaurants }: Props) {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
 
-  function toggleRestaurant(id: string) {
-    setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
-  }
-
   const quickPeriods = useMemo(() => quickPeriodRanges(), [])
 
   // Mese corrente + 3 precedenti, calcolati dalla data odierna — ogni
@@ -256,12 +252,6 @@ export function AnalisiClient({ restaurants }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [load])
 
-  const restaurantsLabel = selectedRestaurants.length === 0
-    ? 'Tutti i ristoranti'
-    : selectedRestaurants.length === 1
-      ? (restaurants.find(r => r.id === selectedRestaurants[0])?.name ?? '1 selezionato')
-      : `${selectedRestaurants.length} ristoranti selezionati`
-
   return (
     <div className="space-y-4">
       {/* Filtri: prima cosa selezionabile in pagina, tutto il resto (KPI,
@@ -270,26 +260,7 @@ export function AnalisiClient({ restaurants }: Props) {
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
             <Label>Ristoranti</Label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" className="w-full sm:w-72 justify-between font-normal">
-                  <span className="truncate">{restaurantsLabel}</span>
-                  <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72">
-                {restaurants.map(r => (
-                  <DropdownMenuCheckboxItem
-                    key={r.id}
-                    checked={selectedRestaurants.includes(r.id)}
-                    onSelect={e => e.preventDefault()}
-                    onCheckedChange={() => toggleRestaurant(r.id)}
-                  >
-                    {r.name}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
             {selectedRestaurants.length === 0 && (
               <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
             )}
