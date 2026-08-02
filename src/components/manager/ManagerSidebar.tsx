@@ -206,7 +206,7 @@ export function ManagerSidebar({ profile }: Props) {
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center h-14 px-4 border-b border-border bg-background">
         <button
           onClick={() => setOpen(true)}
-          className="p-2 rounded-md hover:bg-accent"
+          className="-m-1 p-3 rounded-md hover:bg-accent"
         >
           <Menu className="w-5 h-5" />
         </button>
