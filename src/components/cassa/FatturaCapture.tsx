@@ -494,11 +494,25 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                       <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Modifica</Button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-amber-600 dark:text-amber-400">
                         È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
                       </span>
                       <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
+                      {/* Un click, nessuna rete: scarta subito un suggerimento
+                          sbagliato invece di dover aprire il mini-form e
+                          scegliere lì "No, è nuovo" — l'articolo passa alla
+                          stessa vista non bloccante di un 'nuovo' qualsiasi. */}
+                      <Button
+                        type="button" size="sm" variant="ghost"
+                        onClick={() => setNuoviModificati(prev => new Map(prev).set(a.testo_estratto, {
+                          nome_articolo: a.testo_estratto,
+                          tipologia: a.tipologia_suggerita,
+                          unita_misura: a.unita_misura ?? undefined,
+                        }))}
+                      >
+                        No, è diverso
+                      </Button>
                     </div>
                   )}
                 </div>

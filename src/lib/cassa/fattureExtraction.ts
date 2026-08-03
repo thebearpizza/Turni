@@ -352,7 +352,7 @@ export async function estraiFatture(foto: FotoInput[]): Promise<FatturaEstrattaC
 const MatchArticoloSchema = z.object({
   testo_estratto: z.string().describe("Il testo esatto dell'articolo, identico a quello fornito in input"),
   esito: z.enum(['chiaro', 'ambiguo', 'nuovo']).describe(
-    "'chiaro' se corrisponde senza dubbio a un candidato, 'ambiguo' se potrebbe essere un candidato ma non è certo (es. grammatura o formato diversi), 'nuovo' se non corrisponde a nessun candidato"
+    "'chiaro' se è lo stesso prodotto di un candidato senza dubbio, 'ambiguo' solo se è quasi certamente lo stesso prodotto ma con grammatura/formato/confezione diversi, 'nuovo' se il nome specifico del prodotto è diverso da ogni candidato (anche se condivide una parola generica o è graficamente simile, es. 'lime' vs 'limone')"
   ),
   candidato_indice: z.number().nullable().describe(
     "Indice (0-based) del candidato corrispondente nell'elenco fornito PER QUESTO fornitore, se esito è 'chiaro' o 'ambiguo'. null se esito è 'nuovo'."
@@ -404,7 +404,13 @@ ${testiEstratti.map((t, i) => `${i}. "${t}"`).join('\n')}
 Catalogo articoli già registrati per questo fornitore (indice: nome):
 ${candidati.map((c, i) => `${i}. "${c.nome_articolo}"`).join('\n')}
 
-Per ciascun articolo estratto, indica se corrisponde a un articolo già a catalogo (stesso prodotto, anche con formulazione diversa — es. "Mozzarella fior di latte 1kg" e "Mozzarella FDL kg1" sono lo stesso articolo), è ambiguo (potrebbe essere lo stesso ma con differenze che contano, es. formato o confezione diversi), oppure è un articolo nuovo mai visto per questo fornitore. Non inventare indici che non esistono nell'elenco.`,
+Per ciascun articolo estratto, confrontalo con i candidati e scegli:
+
+- 'chiaro': è lo STESSO prodotto, scritto in modo diverso (abbreviazioni, ordine delle parole, maiuscole) — es. "Mozzarella fior di latte 1kg" e "Mozzarella FDL kg1".
+- 'ambiguo': è quasi certamente lo stesso prodotto ma con una differenza di formato/confezione/grammatura che non è chiaro se conti — es. "Passata di pomodoro 500g" vs "Passata di pomodoro 1kg" dello stesso fornitore.
+- 'nuovo': è un prodotto DIVERSO, anche se il nome è simile o condivide una parola col candidato.
+
+Attenzione agli errori più comuni: nomi che condividono solo una parola generica ("Patata Americana" vs "Patate Fioroni Bianche": varietà/marchi diversi, non lo stesso articolo) sono prodotti DIVERSI, non varianti di formato — vanno sempre 'nuovo'. Allo stesso modo, parole che si somigliano nella grafia ma indicano un ingrediente diverso ("lime"/"limes" vs "limone"/"limoni": frutti diversi) vanno sempre 'nuovo', mai 'ambiguo' o 'chiaro'. Nel dubbio tra 'ambiguo' e 'nuovo': se il nome specifico del prodotto differisce (non solo grammatura/confezione), scegli 'nuovo'. Non inventare indici che non esistono nell'elenco.`,
           },
         ],
       },
