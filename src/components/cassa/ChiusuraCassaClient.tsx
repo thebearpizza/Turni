@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
@@ -83,6 +83,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
   // carica normalmente, come per una data qualunque).
   const searchParams = useSearchParams()
+  const router = useRouter()
   const editRestaurantId = searchParams.get('restaurant_id')
   const editDate = searchParams.get('data')
 
@@ -601,7 +602,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               </p>
             )}
 
-            <div className="pt-2 flex justify-end">
+            <div className="flex justify-between pt-2">
+              <Button type="button" variant="outline" onClick={() => router.back()} disabled={saving}>Annulla</Button>
               <Button onClick={handleAvanti} disabled={saving || !fase1Complete}>
                 {saving ? 'Salvataggio…' : 'Avanti'}
               </Button>
