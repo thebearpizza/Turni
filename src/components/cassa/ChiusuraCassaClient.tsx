@@ -370,13 +370,13 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   return (
     <div className="p-6 lg:p-8 max-w-2xl mx-auto">
       {altreBozze.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-col gap-2">
           {altreBozze.map(b => (
-            <div key={b.id} className="inline-flex h-8 items-center rounded-full border border-border bg-background pl-3.5 pr-1.5 text-sm font-medium">
+            <div key={b.id} className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background pl-3.5 pr-1.5 text-sm font-medium">
               <button
                 type="button"
                 onClick={() => apriBozza(b)}
-                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
+                className="flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
               >
                 {restaurants.find(r => r.id === b.restaurant_id)?.name ?? '—'} · {formatDataBreve(b.data)}
               </button>
@@ -384,9 +384,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 type="button"
                 onClick={() => setBozzaDaEliminare(b)}
                 aria-label="Elimina bozza"
-                className="ml-1 rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ml-1 shrink-0 rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}
