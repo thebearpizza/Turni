@@ -301,16 +301,14 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     }
   }
 
-  // Un 'ambiguo' blocca finché non è deciso (stesso o nuovo, anche solo
-  // con i valori di default); un 'nuovo' invece non blocca mai — ha
-  // sempre un default pronto all'uso.
-  function eRisolto(a: ArticoloEstratto): boolean {
-    return a.esito !== 'ambiguo' || risoltoInfo(a) !== null || nuoviModificati.has(a.testo_estratto)
-  }
-
   const articoli = current?.articoli ?? []
   const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
-  const tuttiRisolti = articoli.every(eRisolto) && (!richiedeCategoriaDiretta || !!categoriaDiretta)
+  // Nessun articolo blocca più il salvataggio in attesa di una decisione:
+  // un 'ambiguo' non confermato si salva come nuovo articolo (i default
+  // sono già pronti in datiNuovoArticolo), esattamente come un 'nuovo' —
+  // confermare che è lo stesso di un candidato a catalogo resta possibile
+  // ma opzionale, mai obbligatorio.
+  const tuttiRisolti = !richiedeCategoriaDiretta || !!categoriaDiretta
   const ultimaDelBatch = currentIndex >= results.length - 1
 
   // Passa alla fattura successiva del batch resettando lo stato di
@@ -482,37 +480,30 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                         </p>
                       )}
                     </div>
-                  ) : nuovoInfo || a.esito === 'nuovo' ? (
-                    // Non blocca: verrà salvato come nuovo articolo con
-                    // questi dati (di default il suggerimento dell'OCR),
-                    // la modifica resta possibile ma non obbligatoria.
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Verrà salvato come nuovo articolo ({TIPOLOGIA_LABELS[nuovoInfo?.tipologia ?? a.tipologia_suggerita]}
-                        {(nuovoInfo?.unita_misura ?? a.unita_misura) ? `, ${nuovoInfo?.unita_misura ?? a.unita_misura}` : ''})
-                      </span>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Modifica</Button>
-                    </div>
                   ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-amber-600 dark:text-amber-400">
-                        È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
-                      </span>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
-                      {/* Un click, nessuna rete: scarta subito un suggerimento
-                          sbagliato invece di dover aprire il mini-form e
-                          scegliere lì "No, è nuovo" — l'articolo passa alla
-                          stessa vista non bloccante di un 'nuovo' qualsiasi. */}
-                      <Button
-                        type="button" size="sm" variant="ghost"
-                        onClick={() => setNuoviModificati(prev => new Map(prev).set(a.testo_estratto, {
-                          nome_articolo: a.testo_estratto,
-                          tipologia: a.tipologia_suggerita,
-                          unita_misura: a.unita_misura ?? undefined,
-                        }))}
-                      >
-                        No, è diverso
-                      </Button>
+                    // Non blocca mai: verrà salvato come nuovo articolo con
+                    // questi dati (di default il suggerimento dell'OCR),
+                    // la modifica resta possibile ma non obbligatoria. Vale
+                    // anche per un 'ambiguo' non confermato: non rispondere
+                    // al suggerimento equivale a dire che è un prodotto
+                    // diverso, coerente col default "nuovo articolo" — la
+                    // conferma del match resta un'azione facoltativa.
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Verrà salvato come nuovo articolo ({TIPOLOGIA_LABELS[nuovoInfo?.tipologia ?? a.tipologia_suggerita]}
+                          {(nuovoInfo?.unita_misura ?? a.unita_misura) ? `, ${nuovoInfo?.unita_misura ?? a.unita_misura}` : ''})
+                        </span>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Modifica</Button>
+                      </div>
+                      {a.esito === 'ambiguo' && !nuovoInfo && a.candidato_nome && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-amber-600 dark:text-amber-400">
+                            È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
+                          </span>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

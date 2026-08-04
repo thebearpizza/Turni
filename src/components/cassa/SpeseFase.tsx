@@ -33,6 +33,14 @@ interface Props {
 // prima di salvare una voce mai vista.
 export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: Props) {
   const locked = chiusura.stato === 'confermata'
+  // Un manager può aggiungere/eliminare spese anche su una chiusura già
+  // confermata (la RLS di cassa_spese lo consente senza condizioni su
+  // stato per un manager — cassa_spese_manager_all — a differenza del
+  // cassiere, per cui la stessa RLS richiede stato <> 'confermata': le sue
+  // modifiche a una chiusura già confermata passano dall'approvazione,
+  // vedi QuadraturaFase). Il form/i tasti elimina restano quindi visibili
+  // per un manager anche a chiusura confermata.
+  const modificabile = !locked || role === 'manager'
 
   const [categorie, setCategorie] = useState<CassaCategoria[]>([])
   const [spese, setSpese] = useState<CassaSpesa[]>([])
@@ -175,13 +183,13 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
         {role === 'manager' && <CategorieManagerDialog ownerId={ownerId} onChange={loadCategorie} />}
       </CardHeader>
       <CardContent className="space-y-4">
-        {locked && (
+        {locked && !modificabile && (
           <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
-            Questa chiusura è già stata confermata. La modifica sarà disponibile a breve.
+            Questa chiusura è già stata confermata: solo un manager può modificarne le spese.
           </p>
         )}
 
-        {!locked && (
+        {modificabile && (
           <div className="space-y-3 border border-border rounded-lg p-3">
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
               <div className="relative space-y-1.5">
@@ -262,7 +270,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
-                  {!locked && (
+                  {modificabile && (
                     <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteSpesa(s.id)}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
