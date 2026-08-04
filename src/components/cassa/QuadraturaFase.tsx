@@ -50,6 +50,10 @@ export function QuadraturaFase({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestSent, setRequestSent] = useState(false)
+  // Disabilita il tasto subito dopo un salvataggio riuscito, cosi' non
+  // resta cliccabile su dati già salvati (rischio di doppio salvataggio/
+  // doppia richiesta) — si riabilita solo se l'utente ritocca un campo.
+  const [justSaved, setJustSaved] = useState(false)
 
   const isDraft = chiusura.stato === 'in_verifica'
 
@@ -96,6 +100,7 @@ export function QuadraturaFase({
         return
       }
       onSaved(data as CassaChiusura)
+      setJustSaved(true)
       // Solo alla prima conferma (bozza → confermata): notifica i manager.
       // Fire-and-forget, un errore qui non deve bloccare il cassiere.
       if (isDraft) notificaChiusuraConfermata(chiusura.id).catch(() => {})
@@ -150,7 +155,7 @@ export function QuadraturaFase({
               <Label>Contanti per Banca <span className="text-cassa-copper">*</span></Label>
               <CurrencyInput
                 value={fields.contantiPerBanca}
-                onChange={v => { onFieldsChange(f => ({ ...f, contantiPerBanca: v })); onContantiPerBancaTouched() }}
+                onChange={v => { onFieldsChange(f => ({ ...f, contantiPerBanca: v })); onContantiPerBancaTouched(); setJustSaved(false) }}
                 className="cassa-numeric"
               />
             </div>
@@ -180,8 +185,8 @@ export function QuadraturaFase({
         <div className="flex justify-between pt-2">
           <Button type="button" variant="outline" onClick={onBack} disabled={saving}>Indietro</Button>
           {!requestSent && (
-            <Button type="button" onClick={handleSubmit} disabled={saving || !contantiPerBancaTouched}>
-              {saving ? 'Salvataggio…' : submitLabel}
+            <Button type="button" onClick={handleSubmit} disabled={saving || !contantiPerBancaTouched || justSaved}>
+              {saving ? 'Salvataggio…' : justSaved ? 'Salvato' : submitLabel}
             </Button>
           )}
         </div>
