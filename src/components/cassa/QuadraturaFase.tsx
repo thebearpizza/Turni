@@ -186,7 +186,7 @@ export function QuadraturaFase({
           <Button type="button" variant="outline" onClick={onBack} disabled={saving}>Indietro</Button>
           {!requestSent && (
             <Button type="button" onClick={handleSubmit} disabled={saving || !contantiPerBancaTouched || justSaved}>
-              {saving ? 'Salvataggio…' : justSaved ? 'Salvato' : submitLabel}
+              {saving ? 'Salvataggio…' : justSaved ? 'Salvato!' : submitLabel}
             </Button>
           )}
         </div>
