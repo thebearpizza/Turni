@@ -13,7 +13,8 @@ import { CurrencyInput } from '@/components/ui/currency-input'
 import { CountInput } from '@/components/ui/count-input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CassaPill } from '@/components/cassa/CassaPill'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { X, Loader2 } from 'lucide-react'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import type { CassaChiusura } from '@/types'
@@ -148,6 +149,34 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     setDate(b.data)
     setExisting(null)
     setFase(1)
+  }
+
+  // Dialog di conferma in-app invece di window.confirm() — stesso motivo
+  // di ListaChiusureClient: alcuni browser mobile/PWA sopprimono i dialog
+  // nativi sincroni.
+  const [bozzaDaEliminare, setBozzaDaEliminare] = useState<Bozza | null>(null)
+  const [eliminandoBozza, setEliminandoBozza] = useState(false)
+  const [deleteBozzaError, setDeleteBozzaError] = useState<string | null>(null)
+
+  async function confermaEliminaBozza() {
+    if (!bozzaDaEliminare) return
+    const id = bozzaDaEliminare.id
+    setEliminandoBozza(true)
+    setDeleteBozzaError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from('cassa_chiusure').delete().eq('id', id)
+    setEliminandoBozza(false)
+    if (error) { setDeleteBozzaError(error.message); return }
+    setBozzeInSospeso(prev => prev.filter(b => b.id !== id))
+    // Se si stava eliminando la bozza attualmente aperta a schermo, il
+    // wizard non deve restare a mostrare dati appena cancellati.
+    if (existing?.id === id) {
+      setExisting(null)
+      setFields(emptyFields())
+      setTouched(new Set())
+      setFase(1)
+    }
+    setBozzaDaEliminare(null)
   }
 
   useEffect(() => {
@@ -343,9 +372,23 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       {altreBozze.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
           {altreBozze.map(b => (
-            <CassaPill key={b.id} active={false} onClick={() => apriBozza(b)}>
-              {restaurants.find(r => r.id === b.restaurant_id)?.name ?? '—'} · {formatDataBreve(b.data)}
-            </CassaPill>
+            <div key={b.id} className="inline-flex h-8 items-center rounded-full border border-border bg-background pl-3.5 pr-1.5 text-sm font-medium">
+              <button
+                type="button"
+                onClick={() => apriBozza(b)}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
+              >
+                {restaurants.find(r => r.id === b.restaurant_id)?.name ?? '—'} · {formatDataBreve(b.data)}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBozzaDaEliminare(b)}
+                aria-label="Elimina bozza"
+                className="ml-1 rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -592,6 +635,29 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           onContantiPerBancaTouched={() => markTouched('contantiPerBanca')}
         />
       )}
+
+      <Dialog open={!!bozzaDaEliminare} onOpenChange={open => { if (!open) { setBozzaDaEliminare(null); setDeleteBozzaError(null) } }}>
+        <DialogContent className="cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Eliminare questa bozza?</DialogTitle>
+          </DialogHeader>
+          {bozzaDaEliminare && (
+            <p className="text-sm text-muted-foreground">
+              {restaurants.find(r => r.id === bozzaDaEliminare.restaurant_id)?.name ?? '—'} · {formatDataBreve(bozzaDaEliminare.data)}
+              {' '}— tutti i dati inseriti finora andranno persi. L&apos;operazione non è reversibile.
+            </p>
+          )}
+          {deleteBozzaError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteBozzaError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setBozzaDaEliminare(null); setDeleteBozzaError(null) }} disabled={eliminandoBozza}>
+              Annulla
+            </Button>
+            <Button type="button" variant="destructive" onClick={confermaEliminaBozza} disabled={eliminandoBozza}>
+              {eliminandoBozza ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
