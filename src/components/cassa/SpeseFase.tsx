@@ -263,15 +263,15 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
           {spese.map(s => {
             const cat = categorie.find(c => c.id === s.categoria_id)
             return (
-              <div key={s.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                <div>
+              <div key={s.id} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <div className="min-w-0 flex-1 break-words">
                   <span className="font-medium">{s.nome_spesa}</span>
                   {cat && <span className="text-muted-foreground ml-2">({cat.nome})</span>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
                   {modificabile && (
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteSpesa(s.id)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDeleteSpesa(s.id)}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   )}
