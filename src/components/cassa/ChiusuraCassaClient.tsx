@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
+import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,7 @@ import { CurrencyInput } from '@/components/ui/currency-input'
 import { CountInput } from '@/components/ui/count-input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CassaPill } from '@/components/cassa/CassaPill'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import type { CassaChiusura } from '@/types'
@@ -21,6 +23,12 @@ const TZ = 'Europe/Rome'
 interface RestaurantOption {
   id: string
   name: string
+}
+
+interface Bozza {
+  id: string
+  restaurant_id: string
+  data: string
 }
 
 interface Props {
@@ -64,6 +72,11 @@ function dataChiusuraDiDefault(): string {
   return formatInTimeZone(giorno, TZ, 'yyyy-MM-dd')
 }
 
+function formatDataBreve(data: string): string {
+  const label = formatInTimeZone(`${data}T12:00:00Z`, TZ, 'd MMM', { locale: it })
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
   // "Modifica" da Lista Chiusure arriva qui con ?restaurant_id=&data= per
   // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
@@ -84,6 +97,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [fields, setFields] = useState(emptyFields())
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [touched, setTouched] = useState<Set<string>>(new Set())
+  const [bozzeInSospeso, setBozzeInSospeso] = useState<Bozza[]>([])
 
   // Cambiare ristorante è sempre "vai a un'altra chiusura" — a differenza
   // di cambiare solo la data (vedi sotto), qui è corretto azzerare la
@@ -91,6 +105,49 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   function selectRestaurant(id: string) {
     setRestaurantIdRaw(id)
     setExisting(null)
+  }
+
+  // Bozze (stato 'in_verifica') su uno qualsiasi dei ristoranti visibili a
+  // questo utente — restaurants è già scoped correttamente lato server
+  // (un solo ristorante per il cassiere, tutti i gestiti per il manager),
+  // qui basta filtrare per quegli id senza dover ricalcolare i permessi.
+  const restaurantIds = useMemo(() => restaurants.map(r => r.id), [restaurants])
+  const loadBozze = useCallback(async () => {
+    if (restaurantIds.length === 0) { setBozzeInSospeso([]); return }
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('cassa_chiusure')
+      .select('id, restaurant_id, data')
+      .in('restaurant_id', restaurantIds)
+      .eq('stato', 'in_verifica')
+      .order('data', { ascending: false })
+    setBozzeInSospeso((data ?? []) as Bozza[])
+  }, [restaurantIds])
+
+  useEffect(() => { loadBozze() }, [loadBozze])
+
+  // Una bozza può cambiare da un'altra sessione (un altro cassiere, o lo
+  // stesso su un altro dispositivo) — tiene l'elenco aggiornato senza bisogno
+  // di ricaricare la pagina.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('cassa_chiusure_bozze_sospese')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => loadBozze())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [loadBozze])
+
+  // Riapre il wizard esattamente da dove si era rimasti: stessi
+  // ristorante+data della bozza, così loadChiusura (sotto) ritrova il
+  // record esistente e ripopola i campi già inseriti — non un semplice
+  // collegamento, la stessa identica logica usata quando si cambiano
+  // manualmente ristorante/data.
+  function apriBozza(b: Bozza) {
+    setRestaurantIdRaw(b.restaurant_id)
+    setDate(b.data)
+    setExisting(null)
+    setFase(1)
   }
 
   useEffect(() => {
@@ -277,8 +334,22 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   const selectedRestaurantName = restaurants.find(r => r.id === restaurantId)?.name
 
+  // Non ha senso proporre come "bozza da riprendere" quella già aperta a
+  // schermo in questo momento.
+  const altreBozze = bozzeInSospeso.filter(b => !(b.restaurant_id === restaurantId && b.data === date))
+
   return (
     <div className="p-6 lg:p-8 max-w-2xl mx-auto">
+      {altreBozze.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {altreBozze.map(b => (
+            <CassaPill key={b.id} active={false} onClick={() => apriBozza(b)}>
+              {restaurants.find(r => r.id === b.restaurant_id)?.name ?? '—'} · {formatDataBreve(b.data)}
+            </CassaPill>
+          ))}
+        </div>
+      )}
+
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="cassa-display text-2xl">Chiusura Cassa</h1>
