@@ -16,7 +16,8 @@ import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDia
 import { PrenotazioneFormDialog } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
 import {
-  costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario, FASCE,
+  costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
+  dettaglioBambini, FASCE,
 } from '@/lib/cassa/prenotazioniAgenda'
 import { cn } from '@/lib/utils'
 import type { Prenotazione, PrenotazioneServizio, PrenotazioneStato } from '@/types'
@@ -109,6 +110,7 @@ function RigaPrenotazione({
                 {etichettaInsegna}
               </span>
             )}
+            {dettaglioBambini(p) && <span>· {dettaglioBambini(p)}</span>}
             {p.sconto_percentuale != null && (
               <span className="text-[hsl(var(--cassa-copper))]">· −{p.sconto_percentuale}%</span>
             )}

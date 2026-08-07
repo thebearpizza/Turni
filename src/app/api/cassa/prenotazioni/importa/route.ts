@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
 import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
-import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
-import { abbinaInsegna, type Insegna } from '@/lib/cassa/prenotazioniLocali'
-import type { PrenotazioneStato } from '@/types'
+import { type Insegna } from '@/lib/cassa/prenotazioniLocali'
+import { preparaImport, type PrenotazioneEsistente } from '@/lib/cassa/prenotazioniImport'
 
 // Import "una tantum" delle prenotazioni già presenti nei libri visite:
 // il manager esporta da TheFork/Restoo e carica qui il file. La route
@@ -88,9 +87,9 @@ export async function POST(request: Request) {
 
   const tabellare = TIPI_TABELLARI.includes(file.type) || /\.(xlsx|xls|csv|txt)$/i.test(file.name)
 
-  let righe
+  let letto
   try {
-    righe = tabellare
+    letto = tabellare
       ? await interpretaImport({
           testo: await foglioInTesto(file),
           nomeFile: file.name,
@@ -109,37 +108,30 @@ export async function POST(request: Request) {
     )
   }
 
-  // A differenza delle mail, qui il locale l'ha scelto il manager nel
-  // selettore: un file di export riguarda un locale solo, quindi le righe
-  // che non nominano l'insegna ereditano quella di default invece di
-  // essere scartate.
-  const insegneLocale = (insegne ?? []) as Insegna[]
-  const insegnaDefault = [...insegneLocale].sort((a, b) => a.priorita - b.priorita)[0]?.codice ?? null
+  // Il giorno lo si conosce solo dopo la lettura: si interrogano le
+  // prenotazioni già in agenda per quelle date, così l'anteprima può
+  // segnalare i doppioni invece di crearli.
+  const giorni = [...new Set(letto.prenotazioni.map(r => r.data).filter(Boolean))] as string[]
+  const { data: esistenti } = giorni.length
+    ? await supabase
+        .from('prenotazioni')
+        .select('data, orario, nome, cognome')
+        .eq('restaurant_id', restaurantId)
+        .in('data', giorni)
+        .neq('stato', 'eliminata')
+    : { data: [] }
 
-  const prenotazioni = righe
-    .filter(r => r.nome && r.data && r.orario)
-    .map(r => {
-      const orario = normalizzaOrario(r.orario!)
-      const insegna = abbinaInsegna(insegneLocale, r.locale)?.codice ?? insegnaDefault
-
-      return {
-        restaurant_id:      restaurantId,
-        insegna,
-        origine:            'import' as const,
-        data:               r.data!,
-        orario,
-        servizio:           servizioDaOrario(orario),
-        nome:               r.nome!,
-        cognome:            r.cognome,
-        persone:            r.persone ?? 1,
-        bambini:            r.bambini ?? 0,
-        sconto_percentuale: r.sconto_percentuale,
-        telefono:           r.telefono,
-        email:              r.email,
-        note:               r.note,
-        stato:              (r.stato ?? 'confermata') as PrenotazioneStato,
-      }
+  return NextResponse.json(
+    preparaImport({
+      righe:           letto.prenotazioni,
+      paxDichiarati:   letto.totale_pax_dichiarato,
+      righeDichiarate: letto.totale_prenotazioni_dichiarato,
+      restaurantId,
+      // A differenza delle mail, qui il locale l'ha scelto il manager nel
+      // selettore: un export riguarda un locale solo, quindi le righe che
+      // non nominano l'insegna ereditano quella di default.
+      insegne:         (insegne ?? []) as Insegna[],
+      esistenti:       (esistenti ?? []) as PrenotazioneEsistente[],
     })
-
-  return NextResponse.json({ prenotazioni, scartate: righe.length - prenotazioni.length })
+  )
 }

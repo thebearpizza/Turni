@@ -81,6 +81,18 @@ async function lavoraMail(
   const origine = letta.fonte ?? (/restoo/i.test(msg.mittente) ? 'restoo' : 'thefork')
   const orario = normalizzaOrario(letta.orario)
 
+  // Coperti TOTALI, bambini inclusi: la notifica scrive "10/9" per 10
+  // adulti e 9 bambini, ma a tavola sono 19. Se i coperti non sono stati
+  // letti si mette 0 e lo si scrive nelle note: la prenotazione deve
+  // comunque comparire in agenda — un cliente invisibile è peggio di un
+  // numero da correggere — ma lo zero rende l'errore impossibile da non
+  // vedere, mentre un "1" di ripiego passerebbe inosservato.
+  const bambini = letta.bambini ?? 0
+  const persone = letta.adulti != null ? letta.adulti + bambini : 0
+  const note = letta.adulti != null
+    ? letta.note
+    : ['⚠ Coperti non letti dalla notifica: da verificare', letta.note].filter(Boolean).join(' — ')
+
   // Aggancio a una prenotazione già in agenda: prima per riferimento del
   // gestionale (l'unico davvero affidabile), poi — quando la mail non ne
   // riporta uno — per nome + giorno, che è il criterio con cui il
@@ -125,12 +137,12 @@ async function lavoraMail(
     servizio:            servizioDaOrario(orario),
     nome:                letta.nome,
     cognome:             letta.cognome,
-    persone:             letta.persone ?? 1,
-    bambini:             letta.bambini ?? 0,
+    persone,
+    bambini,
     sconto_percentuale:  letta.sconto_percentuale,
     telefono:            letta.telefono,
     email:               letta.email,
-    note:                letta.note,
+    note,
   }
 
   if (esistenteId) {

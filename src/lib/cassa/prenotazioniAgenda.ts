@@ -78,24 +78,32 @@ export function costruisciFasce(
     return {
       orario,
       prenotazioni: lista,
-      coperti: lista.reduce((tot, p) => tot + p.persone + p.bambini, 0),
+      coperti: lista.reduce((tot, p) => tot + p.persone, 0),
       fuoriFascia: !standard.has(orario),
     }
   })
 }
 
 export function contaCoperti(prenotazioni: Prenotazione[]): number {
-  return prenotazioni.reduce((tot, p) => tot + p.persone + p.bambini, 0)
+  return prenotazioni.reduce((tot, p) => tot + p.persone, 0)
 }
 
 export function nomeCompleto(p: Pick<Prenotazione, 'nome' | 'cognome'>): string {
   return [p.nome, p.cognome].filter(Boolean).join(' ').trim()
 }
 
-// "3/1" quando ci sono bambini, "3" quando non ce ne sono — la stessa
-// notazione del libro visite.
-export function formatPax(p: Pick<Prenotazione, 'persone' | 'bambini'>): string {
-  return p.bambini > 0 ? `${p.persone}/${p.bambini}` : String(p.persone)
+// Sempre il numero di coperti TOTALE, bambini inclusi. Il libro visite
+// stampa "10/9" (10 adulti + 9 bambini) ma a chi lavora il servizio serve
+// sapere che quel tavolo è da 19: la ripartizione è un dettaglio, e
+// mostrarla al posto del totale ha già prodotto letture sbagliate.
+export function formatPax(p: Pick<Prenotazione, 'persone'>): string {
+  return String(p.persone)
+}
+
+// Dettaglio da affiancare al totale dove c'è spazio (scheda, dialog).
+export function dettaglioBambini(p: Pick<Prenotazione, 'persone' | 'bambini'>): string | null {
+  if (p.bambini <= 0) return null
+  return `${p.persone - p.bambini} adulti + ${p.bambini} bambini`
 }
 
 export const ORIGINE_LABEL: Record<string, string> = {

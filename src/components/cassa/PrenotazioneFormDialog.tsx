@@ -172,12 +172,23 @@ export function PrenotazioneFormDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Persone</Label>
-            <CountInput value={campi.persone} onChange={v => setCampi(c => ({ ...c, persone: v }))} min={0} />
+            <Label>Coperti totali</Label>
+            <CountInput
+              value={campi.persone}
+              // I bambini sono un sottoinsieme dei coperti, non un
+              // addendo: abbassare il totale sotto il numero di bambini
+              // produrrebbe una riga che il database rifiuta.
+              onChange={v => setCampi(c => ({ ...c, persone: v, bambini: Math.min(c.bambini, v) }))}
+              min={0}
+            />
           </div>
           <div className="space-y-1.5">
-            <Label>Bambini</Label>
-            <CountInput value={campi.bambini} onChange={v => setCampi(c => ({ ...c, bambini: v }))} min={0} />
+            <Label>Di cui bambini</Label>
+            <CountInput
+              value={campi.bambini}
+              onChange={v => setCampi(c => ({ ...c, bambini: Math.min(v, c.persone) }))}
+              min={0}
+            />
           </div>
 
           <div className="space-y-1.5">
