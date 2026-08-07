@@ -1,0 +1,140 @@
+import { NextResponse } from 'next/server'
+import ExcelJS from 'exceljs'
+import { createClient } from '@/lib/supabase/server'
+import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
+import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
+import type { PrenotazioneStato } from '@/types'
+
+// Import "una tantum" delle prenotazioni già presenti nei libri visite:
+// il manager esporta da TheFork/Restoo e carica qui il file. La route
+// si limita a LEGGERE e restituire l'anteprima — l'inserimento avviene
+// dal client solo dopo conferma, così una lettura sbagliata non finisce
+// in agenda senza che nessuno l'abbia vista.
+export const maxDuration = 60
+
+const TIPI_TABELLARI = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  'text/plain',
+]
+
+// Excel/CSV vengono convertiti qui in testo tabellare: il modello deve
+// occuparsi solo di capire quale colonna è quale, non di decomprimere
+// un formato binario.
+async function foglioInTesto(file: File): Promise<string> {
+  if (file.type === 'text/csv' || file.type === 'text/plain' || /\.csv$/i.test(file.name)) {
+    return (await file.text()).slice(0, 60_000)
+  }
+
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(await file.arrayBuffer())
+
+  const righe: string[] = []
+  workbook.eachSheet(sheet => {
+    righe.push(`# Foglio: ${sheet.name}`)
+    sheet.eachRow(row => {
+      const celle: string[] = []
+      row.eachCell({ includeEmpty: true }, cell => {
+        const v = cell.value
+        if (v == null) celle.push('')
+        else if (v instanceof Date) celle.push(v.toISOString().slice(0, 16).replace('T', ' '))
+        else if (typeof v === 'object' && 'text' in v) celle.push(String(v.text))
+        else if (typeof v === 'object' && 'result' in v) celle.push(String(v.result ?? ''))
+        else celle.push(String(v))
+      })
+      righe.push(celle.join('\t'))
+    })
+  })
+
+  return righe.join('\n').slice(0, 60_000)
+}
+
+export async function POST(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'manager') return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+
+  if (!aiConfigurata()) {
+    return NextResponse.json({ error: 'Lettura file non disponibile: chiave AI non configurata' }, { status: 503 })
+  }
+
+  const form = await request.formData()
+  const file = form.get('file')
+  const restaurantId = form.get('restaurant_id')
+
+  if (!(file instanceof File)) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
+  if (typeof restaurantId !== 'string' || !restaurantId) {
+    return NextResponse.json({ error: 'Ristorante mancante' }, { status: 400 })
+  }
+
+  // Il SELECT passa da RLS: se il manager non gestisce questo locale non
+  // trova la riga e la richiesta si ferma qui.
+  const { data: insegne } = await supabase
+    .from('prenotazioni_insegne')
+    .select('codice, pattern')
+    .eq('restaurant_id', restaurantId)
+
+  const { data: locale } = await supabase
+    .from('restaurants')
+    .select('id')
+    .eq('id', restaurantId)
+    .maybeSingle()
+  if (!locale) return NextResponse.json({ error: 'Ristorante non gestito' }, { status: 403 })
+
+  const tabellare = TIPI_TABELLARI.includes(file.type) || /\.(xlsx|xls|csv|txt)$/i.test(file.name)
+
+  let righe
+  try {
+    righe = tabellare
+      ? await interpretaImport({
+          testo: await foglioInTesto(file),
+          nomeFile: file.name,
+          annoDiRiferimento: new Date().getFullYear(),
+        })
+      : await interpretaImport({
+          documento: { buffer: await file.arrayBuffer(), mediaType: file.type || 'application/pdf' },
+          nomeFile: file.name,
+          annoDiRiferimento: new Date().getFullYear(),
+        })
+  } catch (err) {
+    console.error('[cassa/prenotazioni] Import fallito:', err)
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Impossibile leggere il file' },
+      { status: 502 }
+    )
+  }
+
+  const insegnaDefault = insegne?.[0]?.codice ?? null
+
+  const prenotazioni = righe
+    .filter(r => r.nome && r.data && r.orario)
+    .map(r => {
+      const orario = normalizzaOrario(r.orario!)
+      const testoLocale = (r.locale ?? '').toLowerCase()
+      const insegna = insegne?.find(i => testoLocale.includes(i.pattern.toLowerCase()))?.codice ?? insegnaDefault
+
+      return {
+        restaurant_id:      restaurantId,
+        insegna,
+        origine:            'import' as const,
+        data:               r.data!,
+        orario,
+        servizio:           servizioDaOrario(orario),
+        nome:               r.nome!,
+        cognome:            r.cognome,
+        persone:            r.persone ?? 1,
+        bambini:            r.bambini ?? 0,
+        sconto_percentuale: r.sconto_percentuale,
+        telefono:           r.telefono,
+        email:              r.email,
+        note:               r.note,
+        stato:              (r.stato ?? 'confermata') as PrenotazioneStato,
+      }
+    })
+
+  return NextResponse.json({ prenotazioni, scartate: righe.length - prenotazioni.length })
+}

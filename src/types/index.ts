@@ -446,3 +446,40 @@ export interface FatturaArticolo {
   prezzo_riga:           number
   created_at:            string
 }
+
+// ── Prenotazioni ──────────────────────────────────────────────────────
+export type PrenotazioneOrigine  = 'thefork' | 'restoo' | 'manuale' | 'import'
+export type PrenotazioneStato    = 'confermata' | 'seduta' | 'no_show' | 'eliminata'
+export type PrenotazioneServizio = 'pranzo' | 'cena'
+
+export interface Prenotazione {
+  id:                   string
+  restaurant_id:        string
+  insegna:              string | null
+  origine:              PrenotazioneOrigine
+  riferimento_esterno:  string | null
+  data:                 string // yyyy-MM-dd
+  orario:               string // HH:mm:ss
+  servizio:             PrenotazioneServizio
+  nome:                 string
+  cognome:              string | null
+  persone:              number
+  bambini:              number
+  sconto_percentuale:   number | null
+  telefono:             string | null
+  email:                string | null
+  note:                 string | null
+  stato:                PrenotazioneStato
+  seduta_at:            string | null
+  created_at:           string
+  updated_at:           string
+}
+
+export interface PrenotazioneInsegna {
+  id:             string
+  restaurant_id:  string
+  codice:         string
+  etichetta:      string
+  pattern:        string
+  created_at:     string
+}

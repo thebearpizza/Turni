@@ -168,7 +168,13 @@
 
 /* Signature element: a torn-receipt / ledger-stub edge, used as a
    card-header top border across the Cassa app instead of a plain line. */
-.cassa .cassa-perforated-top {
+/* Anche `.cassa.cassa-perforated-top` (stesso elemento, non discendente):
+   i contenuti dei Dialog vengono montati in un portale su <body>, quindi
+   fuori dal sottoalbero .cassa — per avere la palette di Cassa devono
+   portarsi addosso la classe, e in quel caso il selettore discendente
+   non li raggiungerebbe. */
+.cassa .cassa-perforated-top,
+.cassa.cassa-perforated-top {
   border-top: none;
   background-image: repeating-linear-gradient(
     90deg,
