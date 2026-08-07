@@ -3,8 +3,42 @@ import { useEffect, useState, useCallback } from 'react'
 
 export type PushPermission = 'default' | 'granted' | 'denied' | 'unsupported'
 
+// Registra la subscription push presso il server. Da chiamare SEMPRE, anche
+// quando il browser ne ha già una locale: il server può non averla più (viene
+// cancellata quando il push service risponde 410 Gone, cosa che capita a ogni
+// rotazione dell'endpoint), e in quel caso il browser resterebbe convinto di
+// essere iscritto mentre in realtà nessuno può più raggiungerlo. È il motivo
+// per cui le notifiche funzionavano solo il primo giorno.
+async function registraSubscription(): Promise<boolean> {
+  const chiave = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  if (!chiave) {
+    console.error('[push] NEXT_PUBLIC_VAPID_PUBLIC_KEY assente: impossibile iscriversi alle notifiche')
+    return false
+  }
+
+  const reg = await navigator.serviceWorker.ready
+  const sub =
+    (await reg.pushManager.getSubscription()) ??
+    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chiave }))
+
+  const res = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sub),
+  })
+
+  if (!res.ok) {
+    console.error('[push] Il server ha rifiutato la subscription:', res.status, await res.text())
+    return false
+  }
+  return true
+}
+
 export function usePushNotifications() {
   const [permission, setPermission] = useState<PushPermission>('default')
+  // null finché non lo sappiamo ancora; false = permesso concesso ma questo
+  // dispositivo non è raggiungibile, lo stato che prima restava invisibile.
+  const [subscribed, setSubscribed] = useState<boolean | null>(null)
 
   // Leggi stato iniziale e registra SW silenziosamente (senza chiedere permesso)
   useEffect(() => {
@@ -38,26 +72,20 @@ export function usePushNotifications() {
     return () => navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
   }, [])
 
-  // Se il permesso è già concesso (utente che ritorna), assicura che la subscription esista
+  // Permesso già concesso (utente che ritorna): riallinea il server a ogni
+  // apertura. Costa una POST idempotente e mantiene viva la registrazione
+  // anche quando l'endpoint viene ruotato dal browser o dal sistema.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return
     if (Notification.permission !== 'granted') return
 
-    navigator.serviceWorker.ready.then(async (reg) => {
-      const existing = await reg.pushManager.getSubscription()
-      if (existing) return
-      // Subscription scaduta — rinnova silenziosamente
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    registraSubscription()
+      .then(setSubscribed)
+      .catch(err => {
+        console.error('[push] Riallineamento subscription fallito:', err)
+        setSubscribed(false)
       })
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub),
-      })
-    }).catch(() => {})
   }, [])
 
   // Chiamato esplicitamente dal click dell'utente sul banner
@@ -68,24 +96,12 @@ export function usePushNotifications() {
       const perm = await Notification.requestPermission()
       setPermission(perm as PushPermission)
       if (perm !== 'granted') return
-
-      const reg = await navigator.serviceWorker.ready
-      let sub = await reg.pushManager.getSubscription()
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-        })
-      }
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub),
-      })
-    } catch {
-      // Browser non supporta push o utente ha negato
+      setSubscribed(await registraSubscription())
+    } catch (err) {
+      console.error('[push] Attivazione notifiche fallita:', err)
+      setSubscribed(false)
     }
   }, [])
 
-  return { permission, subscribe }
+  return { permission, subscribed, subscribe }
 }

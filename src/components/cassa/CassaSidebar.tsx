@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, FileText, Package, Banknote, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PushTestButton } from '@/components/shared/PushTestButton'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
 // nessuna logica di business (niente badge, niente realtime).
@@ -74,7 +75,8 @@ function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarConten
         ))}
       </nav>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border space-y-3">
+        <PushTestButton />
         <button
           onClick={onLogout}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"

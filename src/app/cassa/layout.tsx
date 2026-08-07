@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { CassaSidebar } from '@/components/cassa/CassaSidebar'
+import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 
 export default async function CassaLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -23,6 +24,12 @@ export default async function CassaLayout({ children }: { children: React.ReactN
     <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">
       <CassaSidebar role={cassaRole} />
       <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
+        {/* Non è (solo) un banner: montarlo qui riallinea la subscription
+            push col server a ogni apertura di Cassa. Chi lavora tutto il
+            giorno qui dentro prima non rinnovava mai la registrazione. */}
+        <div className="pt-3">
+          <PushNotificationPrompt />
+        </div>
         {children}
       </main>
     </div>

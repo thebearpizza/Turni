@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { LogOut } from 'lucide-react'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 
 // Layout minimale per /hub: nessuna sidebar, solo un header leggero.
 // L'autenticazione e lo scope per ruolo sono verificati in hub/page.tsx.
@@ -30,6 +31,9 @@ export default function HubLayout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
+      <div className="pt-3">
+        <PushNotificationPrompt />
+      </div>
       {children}
     </div>
   )

@@ -56,7 +56,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   const [gpsFailed, setGpsFailed] = useState(false)
   const router = useRouter()
 
-  const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
+  const { permission: pushPermission, subscribed: pushSubscribed, subscribe: subscribePush } = usePushNotifications()
   const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
   useEffect(() => {
@@ -253,7 +253,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
         </div>
       </div>
 
-      <PushNotificationBanner permission={pushPermission} onSubscribe={subscribePush} />
+      <PushNotificationBanner permission={pushPermission} subscribed={pushSubscribed} onSubscribe={subscribePush} />
 
       <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
 

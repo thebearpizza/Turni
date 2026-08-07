@@ -131,13 +131,13 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
     }
   }
 
-  const { permission: pushPermission, subscribe: subscribePush } = usePushNotifications()
+  const { permission: pushPermission, subscribed: pushSubscribed, subscribe: subscribePush } = usePushNotifications()
   const isOut = !!attendance
   const isGeoChecking = geoStatus === 'checking'
 
   return (
     <>
-      <PushNotificationBanner permission={pushPermission} onSubscribe={subscribePush} />
+      <PushNotificationBanner permission={pushPermission} subscribed={pushSubscribed} onSubscribe={subscribePush} />
       <div className="mt-4 bg-card border border-border rounded-md p-4 flex items-center gap-4">
         {/* Left: label + status */}
         <div className="flex-1 min-w-0">
