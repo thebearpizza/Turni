@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, Loader2, CheckCircle2,
+  Armchair, Phone, Eye, CheckCircle2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -102,9 +102,13 @@ function RigaPrenotazione({
 
         <button type="button" onClick={onEspandi} className="min-w-0 flex-1 text-left">
           <div className="break-words font-medium leading-tight">{nomeCompleto(p)}</div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span className="cassa-numeric">{normalizzaOrario(p.orario)}</span>
-            {etichettaInsegna && <span>· {etichettaInsegna}</span>}
+            {etichettaInsegna && (
+              <span className="rounded border border-border bg-secondary px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+                {etichettaInsegna}
+              </span>
+            )}
             {p.sconto_percentuale != null && (
               <span className="text-[hsl(var(--cassa-copper))]">· −{p.sconto_percentuale}%</span>
             )}
@@ -182,12 +186,12 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     () => insegne.filter(i => i.restaurant_id === restaurantId),
     [insegne, restaurantId]
   )
+  // Sempre visibile quando c'è: Crunch! e Benthos condividono la stessa
+  // agenda, quindi da quale delle due arriva il cliente è informazione di
+  // servizio, non un dettaglio.
   const etichettaInsegna = useCallback(
     (codice: string | null) => {
       if (!codice) return null
-      // Con una sola insegna il nome non aggiunge nulla: è già il locale
-      // che si sta guardando.
-      if (insegneLocale.length < 2) return null
       return insegneLocale.find(i => i.codice === codice)?.etichetta ?? codice
     },
     [insegneLocale]
@@ -356,6 +360,23 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         >
           <ChevronRight className="h-5 w-5" />
         </Button>
+
+        {/* Aggiorna: rilegge la casella dei libri visite e ricarica
+            l'agenda. Sta qui, dopo la freccia del giorno successivo,
+            perché è il gesto che si fa durante il servizio — non fra le
+            azioni di gestione più in basso. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          aria-label="Aggiorna prenotazioni"
+          title="Aggiorna le prenotazioni"
+          onClick={sincronizza}
+          disabled={sincronizzando}
+        >
+          <RefreshCw className={cn('h-4 w-4', sincronizzando && 'animate-spin')} />
+        </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -364,11 +385,6 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={() => setImportAperto(true)}>
           <Upload className="h-4 w-4" /> Importa
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={sincronizza} disabled={sincronizzando}>
-          {sincronizzando
-            ? <><Loader2 className="h-4 w-4 animate-spin" /> Aggiorno…</>
-            : <><RefreshCw className="h-4 w-4" /> Aggiorna</>}
         </Button>
         {data !== oggiRoma() && (
           <Button type="button" size="sm" variant="ghost" onClick={() => setData(oggiRoma())}>

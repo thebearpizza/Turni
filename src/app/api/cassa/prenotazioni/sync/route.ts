@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { cercaMessaggi, leggiMessaggio, gmailConfigurato } from '@/lib/gmail'
 import { interpretaEmail, aiConfigurata, type EmailPrenotazione } from '@/lib/cassa/prenotazioniParsing'
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
+import { abbinaInsegna, localeDaIgnorare, type Insegna, type LocaleIgnorato } from '@/lib/cassa/prenotazioniLocali'
 
 // Legge la casella su cui TheFork e Restoo recapitano le notifiche e
 // riversa le prenotazioni nell'agenda. Invocata dal cron di Vercel e,
@@ -31,19 +32,6 @@ const MITTENTI = [
 const GIORNI_FINESTRA = 3
 const MAX_MESSAGGI = 60
 
-interface Insegna { restaurant_id: string; codice: string; pattern: string }
-
-function abbinaInsegna(
-  insegne: Insegna[],
-  locale: string | null
-): { restaurant_id: string; insegna: string } | null {
-  if (insegne.length === 0) return null
-  const testo = (locale ?? '').toLowerCase()
-  const match = insegne.find(i => testo.includes(i.pattern.toLowerCase()))
-  if (match) return { restaurant_id: match.restaurant_id, insegna: match.codice }
-  return null
-}
-
 interface Esito {
   esito:   'importata' | 'ignorata' | 'errore'
   evento?: EmailPrenotazione['evento']
@@ -56,11 +44,21 @@ type AdminClient = ReturnType<typeof createAdminClient>
 async function lavoraMail(
   admin: AdminClient,
   insegne: Insegna[],
+  ignorati: LocaleIgnorato[],
   msg: { id: string; mittente: string; oggetto: string; testo: string; ricevutaAt: string | null }
 ): Promise<Esito> {
   const letta = await interpretaEmail(msg)
 
   if (!letta.e_prenotazione) return { esito: 'ignorata' }
+
+  // Prima di tutto il resto: se la notifica riguarda un altro locale del
+  // gruppo si scarta e basta. Ogni locale ha il proprio libro visite e
+  // questa agenda è solo di Porto Rotondo — mescolarle la renderebbe
+  // inutilizzabile proprio durante il servizio.
+  const escluso = localeDaIgnorare(ignorati, [letta.locale, msg.oggetto])
+  if (escluso) {
+    return { esito: 'ignorata', evento: letta.evento, errore: `Locale escluso (${escluso.termine})` }
+  }
 
   // Senza data e orario non c'è una riga di agenda da scrivere: la mail
   // resta nel log come errore, così è rileggibile invece che persa.
@@ -68,6 +66,9 @@ async function lavoraMail(
     return { esito: 'errore', evento: letta.evento, errore: 'Dati insufficienti: manca nome, data o orario' }
   }
 
+  // Allow-list stretta: si importa solo ciò che corrisponde a un'insegna
+  // configurata. Nessun ripiego su un locale "probabile" — una
+  // prenotazione non attribuita con certezza resta fuori dall'agenda.
   const abbinamento = abbinaInsegna(insegne, letta.locale)
   if (!abbinamento) {
     return {
@@ -116,7 +117,7 @@ async function lavoraMail(
 
   const campi = {
     restaurant_id:       abbinamento.restaurant_id,
-    insegna:             abbinamento.insegna,
+    insegna:             abbinamento.codice,
     origine,
     riferimento_esterno: letta.riferimento,
     data:                letta.data,
@@ -160,9 +161,10 @@ async function sincronizza() {
 
   const admin = createAdminClient()
 
-  const { data: insegne } = await admin
-    .from('prenotazioni_insegne')
-    .select('restaurant_id, codice, pattern')
+  const [{ data: insegne }, { data: ignorati }] = await Promise.all([
+    admin.from('prenotazioni_insegne').select('restaurant_id, codice, termini, priorita'),
+    admin.from('prenotazioni_locali_ignorati').select('termine, motivo'),
+  ])
 
   const query = `(${MITTENTI.map(m => `from:${m}`).join(' OR ')}) newer_than:${GIORNI_FINESTRA}d`
 
@@ -201,7 +203,12 @@ async function sincronizza() {
 
     let esito: Esito
     try {
-      esito = await lavoraMail(admin, (insegne ?? []) as Insegna[], msg)
+      esito = await lavoraMail(
+        admin,
+        (insegne ?? []) as Insegna[],
+        (ignorati ?? []) as LocaleIgnorato[],
+        msg,
+      )
     } catch (err) {
       esito = { esito: 'errore', errore: err instanceof Error ? err.message : String(err) }
     }

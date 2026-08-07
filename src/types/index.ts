@@ -480,6 +480,9 @@ export interface PrenotazioneInsegna {
   restaurant_id:  string
   codice:         string
   etichetta:      string
-  pattern:        string
+  // Tutti questi termini devono comparire nel nome del locale scritto
+  // dal gestionale perché la prenotazione venga attribuita all'insegna.
+  termini:        string[]
+  priorita:       number
   created_at:     string
 }

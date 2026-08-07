@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
 import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
+import { abbinaInsegna, type Insegna } from '@/lib/cassa/prenotazioniLocali'
 import type { PrenotazioneStato } from '@/types'
 
 // Import "una tantum" delle prenotazioni già presenti nei libri visite:
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
   // trova la riga e la richiesta si ferma qui.
   const { data: insegne } = await supabase
     .from('prenotazioni_insegne')
-    .select('codice, pattern')
+    .select('restaurant_id, codice, termini, priorita')
     .eq('restaurant_id', restaurantId)
 
   const { data: locale } = await supabase
@@ -108,14 +109,18 @@ export async function POST(request: Request) {
     )
   }
 
-  const insegnaDefault = insegne?.[0]?.codice ?? null
+  // A differenza delle mail, qui il locale l'ha scelto il manager nel
+  // selettore: un file di export riguarda un locale solo, quindi le righe
+  // che non nominano l'insegna ereditano quella di default invece di
+  // essere scartate.
+  const insegneLocale = (insegne ?? []) as Insegna[]
+  const insegnaDefault = [...insegneLocale].sort((a, b) => a.priorita - b.priorita)[0]?.codice ?? null
 
   const prenotazioni = righe
     .filter(r => r.nome && r.data && r.orario)
     .map(r => {
       const orario = normalizzaOrario(r.orario!)
-      const testoLocale = (r.locale ?? '').toLowerCase()
-      const insegna = insegne?.find(i => testoLocale.includes(i.pattern.toLowerCase()))?.codice ?? insegnaDefault
+      const insegna = abbinaInsegna(insegneLocale, r.locale)?.codice ?? insegnaDefault
 
       return {
         restaurant_id:      restaurantId,
