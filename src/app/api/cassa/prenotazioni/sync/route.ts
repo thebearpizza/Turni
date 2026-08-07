@@ -5,6 +5,7 @@ import { cercaMessaggi, leggiMessaggio, gmailConfigurato } from '@/lib/gmail'
 import { interpretaEmail, aiConfigurata, type EmailPrenotazione } from '@/lib/cassa/prenotazioniParsing'
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
 import { abbinaInsegna, localeDaIgnorare, type Insegna, type LocaleIgnorato } from '@/lib/cassa/prenotazioniLocali'
+import { queryMittenti, MAX_MESSAGGI } from '@/lib/cassa/prenotazioniMail'
 
 // Legge la casella su cui TheFork e Restoo recapitano le notifiche e
 // riversa le prenotazioni nell'agenda. Invocata dal cron di Vercel e,
@@ -12,25 +13,6 @@ import { abbinaInsegna, localeDaIgnorare, type Insegna, type LocaleIgnorato } fr
 //
 // Interpretare N mail con l'AI richiede più dei 10s di default.
 export const maxDuration = 60
-
-// Mittenti da cui possono arrivare notifiche di prenotazione. Volutamente
-// larga: il filtro fine (è davvero una prenotazione?) lo fa l'AI, qui si
-// vuole solo evitare di dare in pasto al modello l'intera casella.
-const MITTENTI = [
-  'thefork.com',
-  'theforkmanager.com',
-  'restaurant-information.com',
-  'lafourchette.com',
-  'restoo.me',
-  'restoo.it',
-]
-
-// Finestra di sicurezza: si rileggono sempre gli ultimi giorni e si
-// scartano per gmail_message_id le mail già lavorate. Nessuno stato di
-// avanzamento da mantenere, e un fermo del cron di qualche ora si
-// recupera da solo al primo giro utile.
-const GIORNI_FINESTRA = 3
-const MAX_MESSAGGI = 60
 
 interface Esito {
   esito:   'importata' | 'ignorata' | 'errore'
@@ -178,11 +160,9 @@ async function sincronizza() {
     admin.from('prenotazioni_locali_ignorati').select('termine, motivo'),
   ])
 
-  const query = `(${MITTENTI.map(m => `from:${m}`).join(' OR ')}) newer_than:${GIORNI_FINESTRA}d`
-
   let ids: string[]
   try {
-    ids = await cercaMessaggi(query, MAX_MESSAGGI)
+    ids = await cercaMessaggi(queryMittenti(), MAX_MESSAGGI)
   } catch (err) {
     console.error('[cassa/prenotazioni] Lettura casella fallita:', err)
     return NextResponse.json(

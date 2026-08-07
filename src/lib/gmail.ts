@@ -134,6 +134,14 @@ function header(payload: GmailPart | undefined, nome: string): string {
   return h?.value ?? ''
 }
 
+// Quale casella si sta effettivamente leggendo. È la verifica che
+// nessun'altra risponde: le credenziali possono essere valide ma emesse
+// per l'account sbagliato, e in quel caso la sincronizzazione gira senza
+// errori e non trova mai niente.
+export async function profiloGmail(): Promise<{ emailAddress: string; messagesTotal: number }> {
+  return apiGet<{ emailAddress: string; messagesTotal: number }>('/profile')
+}
+
 // Cerca i messaggi che soddisfano una query in sintassi Gmail e ne
 // restituisce solo gli ID (la lista non porta con sé il corpo).
 export async function cercaMessaggi(query: string, max = 50): Promise<string[]> {

@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info,
+  Armchair, Phone, Eye, CheckCircle2, Info, Mail,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,6 +15,7 @@ import { StatoIcona } from '@/components/cassa/PrenotazioneIcona'
 import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDialog'
 import { PrenotazioneFormDialog } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
+import { PrenotazioniDiagnosticaDialog } from '@/components/cassa/PrenotazioniDiagnosticaDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
@@ -180,6 +181,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   // dai dati giusti senza doverli risincronizzare con un effetto.
   const [formSeq, setFormSeq] = useState(0)
   const [importAperto, setImportAperto] = useState(false)
+  const [diagnosticaAperta, setDiagnosticaAperta] = useState(false)
 
   const [sincronizzando, setSincronizzando] = useState(false)
   const [avviso, setAvviso] = useState<string | null>(null)
@@ -401,6 +403,9 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         <Button type="button" size="sm" variant="outline" onClick={() => setImportAperto(true)}>
           <Upload className="h-4 w-4" /> Importa
         </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setDiagnosticaAperta(true)}>
+          <Mail className="h-4 w-4" /> Collegamento mail
+        </Button>
         {data !== oggiRoma() && (
           <Button type="button" size="sm" variant="ghost" onClick={() => setData(oggiRoma())}>
             Oggi
@@ -554,6 +559,8 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         restaurantId={restaurantId}
         onImportate={n => { setAvviso(`${n} prenotazioni importate.`); carica() }}
       />
+
+      <PrenotazioniDiagnosticaDialog open={diagnosticaAperta} onOpenChange={setDiagnosticaAperta} />
     </div>
   )
 }
