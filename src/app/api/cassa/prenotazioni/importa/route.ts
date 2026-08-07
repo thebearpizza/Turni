@@ -75,7 +75,7 @@ export async function POST(request: Request) {
   // trova la riga e la richiesta si ferma qui.
   const { data: insegne } = await supabase
     .from('prenotazioni_insegne')
-    .select('restaurant_id, codice, termini, priorita')
+    .select('restaurant_id, codice, termini, priorita, principale')
     .eq('restaurant_id', restaurantId)
 
   const { data: locale } = await supabase

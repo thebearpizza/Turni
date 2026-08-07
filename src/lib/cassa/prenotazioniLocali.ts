@@ -11,7 +11,21 @@ export interface Insegna {
   restaurant_id: string
   codice:        string
   termini:       string[]
+  // Ordina il riconoscimento testuale, NON indica l'insegna di casa:
+  // Benthos va provato prima di Crunch perché "Benthos Porto Rotondo"
+  // contiene anche "porto rotondo".
   priorita:      number
+  // L'insegna a cui attribuire una prenotazione quando il documento non
+  // nomina il locale. Una sola per ristorante.
+  principale:    boolean
+}
+
+// Ripiego per i documenti che non ripetono il nome del locale riga per
+// riga. Deliberatamente NON è "la prima per priorità": quella è la
+// gerarchia del matching testuale, e usarla qui etichettava ogni riga
+// come Benthos anche quando era di Crunch.
+export function insegnaPrincipale(insegne: Insegna[]): Insegna | null {
+  return insegne.find(i => i.principale) ?? null
 }
 
 export interface LocaleIgnorato {

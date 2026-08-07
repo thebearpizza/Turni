@@ -1,5 +1,5 @@
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
-import { abbinaInsegna, type Insegna } from '@/lib/cassa/prenotazioniLocali'
+import { abbinaInsegna, insegnaPrincipale, type Insegna } from '@/lib/cassa/prenotazioniLocali'
 import type { RigaImportata } from '@/lib/cassa/prenotazioniParsing'
 import type { PrenotazioneStato } from '@/types'
 
@@ -68,7 +68,7 @@ export function preparaImport(opts: {
   insegne:          Insegna[]
   esistenti:        PrenotazioneEsistente[]
 }): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica } {
-  const insegnaDefault = [...opts.insegne].sort((a, b) => a.priorita - b.priorita)[0]?.codice ?? null
+  const insegnaDefault = insegnaPrincipale(opts.insegne)?.codice ?? null
 
   const complete = opts.righe.filter(r => r.nome && r.data && r.orario)
 

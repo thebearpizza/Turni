@@ -484,5 +484,6 @@ export interface PrenotazioneInsegna {
   // dal gestionale perché la prenotazione venga attribuita all'insegna.
   termini:        string[]
   priorita:       number
+  principale:     boolean
   created_at:     string
 }

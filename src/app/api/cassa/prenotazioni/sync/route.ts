@@ -174,7 +174,7 @@ async function sincronizza() {
   const admin = createAdminClient()
 
   const [{ data: insegne }, { data: ignorati }] = await Promise.all([
-    admin.from('prenotazioni_insegne').select('restaurant_id, codice, termini, priorita'),
+    admin.from('prenotazioni_insegne').select('restaurant_id, codice, termini, priorita, principale'),
     admin.from('prenotazioni_locali_ignorati').select('termine, motivo'),
   ])
 

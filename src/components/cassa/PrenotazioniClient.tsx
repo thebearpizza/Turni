@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2,
+  Armchair, Phone, Eye, CheckCircle2, Info,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -165,7 +165,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const [data, setData] = useState(oggiRoma)
   const [servizio, setServizio] = useState<PrenotazioneServizio>(servizioCorrente)
 
-  const [prenotazioni, setPrenotazioni] = useState<Prenotazione[]>([])
+  const [giornata, setGiornata] = useState<Prenotazione[]>([])
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
 
@@ -199,21 +199,24 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     [insegneLocale]
   )
 
+  // Si carica l'intera giornata, non il solo servizio selezionato: serve
+  // per poter dire "a pranzo non c'è nulla, ma a cena ci sono 7
+  // prenotazioni" invece di mostrare una pagina vuota che sembra un
+  // guasto. In più cambiare servizio non richiede una nuova query.
   const carica = useCallback(async () => {
-    if (!restaurantId) { setPrenotazioni([]); setCaricamento(false); return }
+    if (!restaurantId) { setGiornata([]); setCaricamento(false); return }
     const supabase = createClient()
     const { data: righe, error } = await supabase
       .from('prenotazioni')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .eq('data', data)
-      .eq('servizio', servizio)
       .neq('stato', 'eliminata')
       .order('orario')
     setErrore(error?.message ?? null)
-    setPrenotazioni((righe ?? []) as Prenotazione[])
+    setGiornata((righe ?? []) as Prenotazione[])
     setCaricamento(false)
-  }, [restaurantId, data, servizio])
+  }, [restaurantId, data])
 
   useEffect(() => { setCaricamento(true); carica() }, [carica])
 
@@ -229,6 +232,16 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [carica])
 
+  const prenotazioni = useMemo(() => giornata.filter(p => p.servizio === servizio), [giornata, servizio])
+  // Quante ne ha l'altro servizio dello stesso giorno: è l'informazione
+  // che trasforma "non vedo niente" in "stai guardando il servizio
+  // sbagliato".
+  const altroServizio: PrenotazioneServizio = servizio === 'cena' ? 'pranzo' : 'cena'
+  const nAltroServizio = useMemo(
+    () => giornata.filter(p => p.servizio === altroServizio).length,
+    [giornata, altroServizio]
+  )
+
   const confermate = useMemo(() => prenotazioni.filter(p => p.stato === 'confermata'), [prenotazioni])
   const sedute     = useMemo(() => prenotazioni.filter(p => p.stato === 'seduta'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
@@ -243,7 +256,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     if (error) throw new Error(error.message)
     // Aggiornamento ottimistico: il realtime arriva comunque, ma dopo un
     // giro di rete — durante il servizio il riscontro deve essere subito.
-    setPrenotazioni(prev =>
+    setGiornata(prev =>
       stato === 'eliminata'
         ? prev.filter(x => x.id !== p.id)
         : prev.map(x => (x.id === p.id ? { ...x, stato } : x))
@@ -397,6 +410,23 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
       {avviso && <p className="text-sm text-muted-foreground">{avviso}</p>}
       {errore && <p className="text-sm text-destructive">Errore nel caricamento: {errore}</p>}
+
+      {!caricamento && prenotazioni.length === 0 && nAltroServizio > 0 && (
+        <button
+          type="button"
+          onClick={() => setServizio(altroServizio)}
+          className="flex w-full items-center gap-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2.5 text-left text-sm"
+        >
+          <Info className="h-4 w-4 shrink-0 text-[hsl(var(--cassa-copper))]" />
+          <span className="flex-1">
+            Nessuna prenotazione a {servizio}. Ce ne sono{' '}
+            <span className="cassa-numeric font-medium">{nAltroServizio}</span> a {altroServizio}.
+          </span>
+          <span className="shrink-0 font-medium text-[hsl(var(--cassa-copper))]">
+            Vai a {altroServizio}
+          </span>
+        </button>
+      )}
 
       {caricamento ? (
         <div className="space-y-2">
