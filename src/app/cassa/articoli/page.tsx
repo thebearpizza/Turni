@@ -9,6 +9,7 @@ export default async function ArticoliPage() {
 
   const { data: profile } = await supabase.from('profiles').select('role, is_direttore').eq('id', user.id).single()
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (!profile || !(profile.role === 'manager' || isDirettore)) redirect('/cassa/chiusura')
 
   // fornitori è già scoped da RLS sull'owner corretto per entrambi i ruoli.

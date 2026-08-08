@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'capo_servizio' | 'dipendente' | 'consulente_lavoro' | 'cassiere'
+export type Role = 'manager' | 'capo_servizio' | 'dipendente' | 'consulente_lavoro' | 'cassiere' | 'hostess'
 export type AbsenceType = 'ferie' | 'malattia' | 'riposo' | 'assenza_ingiustificata'
 export type AbsenceStatus = 'pending' | 'approved' | 'rejected'
 export type BulletinTarget = 'all' | 'restaurant' | 'role' | 'users' | 'department'
@@ -143,6 +143,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   dipendente: 'Dipendente',
   consulente_lavoro: 'Consulente del Lavoro',
   cassiere: 'Cassiere',
+  hostess: 'Hostess',
 }
 
 // ── Consultant Messaging ─────────────────────────────────────────────

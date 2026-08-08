@@ -94,7 +94,7 @@ export function PrenotazioneStatoDialog({ prenotazione, onOpenChange, onCambiaSt
                         : 'border-border bg-card hover:bg-accent'
                     )}
                   >
-                    <StatoIcona stato={stato} origine={prenotazione.origine} />
+                    <StatoIcona stato={stato} origine={prenotazione.origine} scontoPercentuale={prenotazione.sconto_percentuale} />
                     <span className="flex-1 font-medium">{STATO_LABEL[stato]}</span>
                     {inCorso === stato && <Loader2 className="h-4 w-4 animate-spin" />}
                   </button>

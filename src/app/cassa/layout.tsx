@@ -16,9 +16,12 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
 
-  if (!profile || !(['manager', 'cassiere'].includes(profile.role) || isDirettore)) redirect('/dashboard')
+  if (!profile || !(['manager', 'cassiere', 'hostess'].includes(profile.role) || isDirettore)) redirect('/dashboard')
 
-  const cassaRole = profile.role === 'manager' ? 'manager' : profile.role === 'cassiere' ? 'cassiere' : 'direttore'
+  const cassaRole =
+    profile.role === 'manager'  ? 'manager' :
+    profile.role === 'cassiere' ? 'cassiere' :
+    profile.role === 'hostess'  ? 'hostess'  : 'direttore'
 
   return (
     <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">

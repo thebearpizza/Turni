@@ -17,7 +17,7 @@ export default async function PrenotazioniPage({
 
   const { data: profile } = await supabase.from('profiles').select('role, is_direttore').eq('id', user.id).single()
   if (profile?.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
-  if (profile?.role !== 'manager') redirect('/cassa/chiusura')
+  if (profile?.role !== 'manager' && profile?.role !== 'hostess') redirect('/cassa/chiusura')
 
   // Solo i locali con almeno un'insegna configurata hanno un libro
   // visite collegato: mostrare gli altri nel selettore significherebbe

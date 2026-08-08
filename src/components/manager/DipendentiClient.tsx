@@ -32,6 +32,7 @@ const roleColors: Record<Role, string> = {
   dipendente:        'bg-slate-100  text-slate-700 dark:bg-slate-800      dark:text-slate-300',
   consulente_lavoro: 'bg-amber-100  text-amber-800 dark:bg-amber-900/30  dark:text-amber-300',
   cassiere:          'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  hostess:           'bg-pink-100   text-pink-800  dark:bg-pink-900/30   dark:text-pink-300',
 }
 
 const deptColors: Record<Department, string> = {
@@ -256,7 +257,7 @@ export function DipendentiClient({
   // consulente_lavoro is managed via the dedicated ConsulenteLavoroManager section
   const assignableRoles = (Object.keys(ROLE_LABELS) as Role[])
     .filter(r => r !== 'consulente_lavoro' && (isManager || r !== 'manager'))
-  const needsDept = role !== 'manager'
+  const needsDept = role !== 'manager' && role !== 'hostess'
   const canSave = !!fullName.trim() &&
     (editing
       ? !usernameError

@@ -17,6 +17,7 @@ export default async function ManagerLayout({ children }: { children: React.Reac
 
   if (!profile || profile.role === 'dipendente') redirect('/home')
   if (profile.role === 'consulente_lavoro') redirect('/consulente/dashboard')
+  if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
 
   const isPending = profile.account_status === 'pending'
 

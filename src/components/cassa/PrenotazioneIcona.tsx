@@ -28,10 +28,16 @@ const BASE = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full tex
 export function StatoIcona({
   stato,
   origine,
+  scontoPercentuale,
   className,
 }: {
   stato: PrenotazioneStato
   origine: PrenotazioneOrigine
+  // Lo sconto promozionale è una funzione di TheFork: se c'è, la
+  // prenotazione viene da lì con certezza pratica, anche quando l'origine
+  // registrata dice altro (es. una vecchia importazione senza piattaforma
+  // nota) — vince sempre F.
+  scontoPercentuale?: number | null
   className?: string
 }) {
   if (stato === 'seduta') {
@@ -56,6 +62,6 @@ export function StatoIcona({
     )
   }
 
-  const stile = ORIGINE_STILE[origine === 'thefork' ? 'thefork' : 'restoo']
+  const stile = ORIGINE_STILE[origine === 'thefork' || scontoPercentuale != null ? 'thefork' : 'restoo']
   return <span className={cn(BASE, stile.classe, className)}>{stile.contenuto}</span>
 }

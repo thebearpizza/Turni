@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
-  const requiresDept = role !== 'manager' && role !== 'consulente_lavoro'
+  const requiresDept = role !== 'manager' && role !== 'consulente_lavoro' && role !== 'hostess'
   if (requiresDept && !department) {
     return NextResponse.json({ error: 'Il reparto è obbligatorio' }, { status: 400 })
   }

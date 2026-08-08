@@ -32,6 +32,11 @@ const cassiereNavItems = [
   { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
 ]
 
+// hostess: solo Prenotazioni, nient'altro di Cassa.
+const hostessNavItems = [
+  { href: '/cassa/prenotazioni', icon: CalendarDays, label: 'Prenotazioni' },
+]
+
 // capo_servizio con is_direttore=true: solo Fatture e Articoli, non figura
 // con le altre voci (niente Home/Chiusura Cassa/Lista Chiusure/Analisi).
 const direttoreNavItems = [
@@ -90,7 +95,7 @@ function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarConten
 }
 
 interface Props {
-  role: 'manager' | 'cassiere' | 'direttore'
+  role: 'manager' | 'cassiere' | 'direttore' | 'hostess'
 }
 
 export function CassaSidebar({ role }: Props) {
@@ -98,7 +103,10 @@ export function CassaSidebar({ role }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
-  const items = role === 'manager' ? managerNavItems : role === 'cassiere' ? cassiereNavItems : direttoreNavItems
+  const items =
+    role === 'manager'  ? managerNavItems :
+    role === 'cassiere' ? cassiereNavItems :
+    role === 'hostess'  ? hostessNavItems  : direttoreNavItems
 
   async function handleLogout() {
     const supabase = createClient()

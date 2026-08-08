@@ -19,7 +19,7 @@ export default async function HomePage() {
     redirect('/home')
   } else if (profile.role === 'manager') {
     redirect('/hub')
-  } else if (profile.role === 'cassiere') {
+  } else if (profile.role === 'cassiere' || profile.role === 'hostess') {
     redirect('/cassa')
   } else {
     redirect('/dashboard')

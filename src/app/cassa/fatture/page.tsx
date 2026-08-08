@@ -9,6 +9,7 @@ export default async function FatturePage() {
 
   const { data: profile } = await supabase.from('profiles').select('role, is_direttore, restaurant_id').eq('id', user.id).single()
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (!profile || !(profile.role === 'manager' || isDirettore)) redirect('/cassa/chiusura')
 
   // categorie_fatture_dirette è già scoped da RLS sull'owner corretto per

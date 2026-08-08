@@ -130,7 +130,7 @@ function RigaPrenotazione({
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex items-start gap-3 p-3">
         <button type="button" onClick={onStato} aria-label={`Cambia stato di ${nomeCompleto(p)}`}>
-          <StatoIcona stato={p.stato} origine={p.origine} />
+          <StatoIcona stato={p.stato} origine={p.origine} scontoPercentuale={p.sconto_percentuale} />
         </button>
 
         <button type="button" onClick={onEspandi} className="min-w-0 flex-1 text-left">
