@@ -326,18 +326,22 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const sedute     = useMemo(() => prenotazioni.filter(p => p.stato === 'seduta'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
 
-  // Quanti PAX confermati vengono da ciascuna insegna via TheFork e quanti
-  // sono diretti (Restoo) — coperti, non numero di prenotazioni: è quello
-  // che dice davvero quanto lavoro arriva da dove, un tavolo da 8 pesa
-  // come 8 da 1, non come una singola voce nell'elenco.
+  // Quanti PAX confermati per ciascuna insegna e quanti diretti (Restoo)
+  // — coperti, non numero di prenotazioni: un tavolo da 8 pesa come 8 da
+  // 1, non come una singola voce nell'elenco. "Dirette" prende TUTTE le
+  // Restoo (qualunque insegna); Benthos/Crunch! prendono tutto il resto
+  // — comprese le importate dal libro visite, che hanno insegna ma non
+  // vengono da TheFork — diviso per insegna. Così le tre voci sommano
+  // sempre esattamente ai coperti totali del servizio, senza una
+  // categoria residua per ciò che non trova posto.
   const confermatePax = useMemo(() => {
     let benthos = 0
     let crunch = 0
     let restoo = 0
     for (const p of confermate) {
       if (p.origine === 'restoo') restoo += p.persone
-      else if (p.origine === 'thefork' && p.insegna === 'benthos') benthos += p.persone
-      else if (p.origine === 'thefork' && p.insegna === 'crunch') crunch += p.persone
+      else if (p.insegna === 'benthos') benthos += p.persone
+      else if (p.insegna === 'crunch') crunch += p.persone
     }
     return { benthos, crunch, restoo }
   }, [confermate])
