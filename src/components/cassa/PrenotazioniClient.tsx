@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info, Clock, StickyNote,
+  Armchair, Phone, Eye, CheckCircle2, Info, Clock, StickyNote, RotateCcw, User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,7 +22,7 @@ import {
 } from '@/lib/cassa/prenotazioniAgenda'
 import { chiaveCliente } from '@/lib/cassa/prenotazioniImport'
 import { cn } from '@/lib/utils'
-import type { Prenotazione, PrenotazioneServizio, PrenotazioneStato } from '@/types'
+import { ROLE_LABELS, type Prenotazione, type PrenotazioneServizio, type PrenotazioneStato, type Role } from '@/types'
 
 const TZ = 'Europe/Rome'
 
@@ -62,6 +62,12 @@ interface Props {
   // log> (il link della notifica push per una voce in coda): arriva già
   // pronta, non richiede una query dal client dopo l'idratazione.
   bozzaIniziale?: BozzaCoda | null
+  // Chi sta guardando l'agenda in questo momento: serve a scrivere "chi"
+  // ha segnato l'ultimo cambio stato (seduta/no show/cancellata) sulla
+  // prenotazione stessa — nome e ruolo, non solo l'id, perché un join su
+  // profiles non sarebbe leggibile da entrambi i ruoli che possono farlo
+  // (manager e hostess non si vedono a vicenda via RLS).
+  currentUser:    { fullName: string; role: string }
 }
 
 function oggiRoma(): string {
@@ -121,10 +127,13 @@ function RigaPrenotazione({
   onDettagli:       () => void
 }) {
   // Da confermata l'azione ovvia è far sedere il cliente; da seduta
-  // l'unica utile è tornare indietro (tavolo liberato per sbaglio).
-  const azione = p.stato === 'seduta'
-    ? { label: 'Confermata', icona: <CheckCircle2 className="h-4 w-4" /> }
-    : { label: 'Seduta',     icona: <Armchair className="h-4 w-4" /> }
+  // l'unica utile è tornare indietro (tavolo liberato per sbaglio); da
+  // cancellata l'unica sensata è ripristinarla — "Seduta" sarebbe
+  // fuorviante lì, l'etichetta deve dire cosa fa davvero il tasto.
+  const azione =
+    p.stato === 'seduta'    ? { label: 'Confermata', icona: <CheckCircle2 className="h-4 w-4" /> } :
+    p.stato === 'eliminata' ? { label: 'Ripristina',  icona: <RotateCcw className="h-4 w-4" /> } :
+                               { label: 'Seduta',      icona: <Armchair className="h-4 w-4" /> }
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -173,6 +182,21 @@ function RigaPrenotazione({
             </div>
           )}
 
+          {/* Chi ha fatto l'ultimo cambio stato (seduta/no show/cancellata)
+              e con quale ruolo — assente sulle prenotazioni mai toccate a
+              mano (es. ancora "confermata" da quando è arrivata via mail). */}
+          {p.stato_modificato_da_nome && (
+            <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+              <User className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {p.stato_modificato_da_nome}
+                {p.stato_modificato_da_ruolo && (
+                  <> · {ROLE_LABELS[p.stato_modificato_da_ruolo as Role] ?? p.stato_modificato_da_ruolo}</>
+                )}
+              </span>
+            </div>
+          )}
+
           <div className="grid grid-cols-3 divide-x divide-primary-foreground/20 bg-primary text-primary-foreground">
             <button
               type="button"
@@ -212,7 +236,7 @@ function RigaPrenotazione({
   )
 }
 
-export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Props) {
+export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, currentUser }: Props) {
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? '')
   const [data, setData] = useState(oggiRoma)
   const [servizio, setServizio] = useState<PrenotazioneServizio>(servizioCorrente)
@@ -221,7 +245,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Prop
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
 
-  const [aperte, setAperte] = useState({ confermate: true, sedute: true, noShow: false })
+  const [aperte, setAperte] = useState({ confermate: true, sedute: true, cancellate: false, noShow: false })
   const [espansa, setEspansa] = useState<string | null>(null)
 
   const [statoTarget, setStatoTarget] = useState<Prenotazione | null>(null)
@@ -266,7 +290,6 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Prop
       .select('*')
       .eq('restaurant_id', restaurantId)
       .eq('data', data)
-      .neq('stato', 'eliminata')
       .order('orario')
     setErrore(error?.message ?? null)
     setGiornata((righe ?? []) as Prenotazione[])
@@ -383,6 +406,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Prop
 
   const confermate = useMemo(() => prenotazioni.filter(p => p.stato === 'confermata'), [prenotazioni])
   const sedute     = useMemo(() => prenotazioni.filter(p => p.stato === 'seduta'), [prenotazioni])
+  const cancellate = useMemo(() => prenotazioni.filter(p => p.stato === 'eliminata'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
 
   // Quanti PAX confermati per ciascuna insegna e quanti diretti (Restoo)
@@ -409,18 +433,24 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Prop
 
   async function cambiaStato(p: Prenotazione, stato: PrenotazioneStato) {
     const supabase = createClient()
+    const campi = {
+      stato,
+      seduta_at: stato === 'seduta' ? new Date().toISOString() : null,
+      // Chi ha fatto QUESTO cambio, non chi ha creato la prenotazione —
+      // sovrascritto a ogni cambio stato, apposta: conta solo l'ultimo.
+      stato_modificato_da_nome:  currentUser.fullName,
+      stato_modificato_da_ruolo: currentUser.role,
+    }
     const { error } = await supabase
       .from('prenotazioni')
-      .update({ stato, seduta_at: stato === 'seduta' ? new Date().toISOString() : null })
+      .update(campi)
       .eq('id', p.id)
     if (error) throw new Error(error.message)
     // Aggiornamento ottimistico: il realtime arriva comunque, ma dopo un
     // giro di rete — durante il servizio il riscontro deve essere subito.
-    setGiornata(prev =>
-      stato === 'eliminata'
-        ? prev.filter(x => x.id !== p.id)
-        : prev.map(x => (x.id === p.id ? { ...x, stato } : x))
-    )
+    // Le cancellate restano visibili (sezione dedicata), non vanno più
+    // tolte dall'elenco.
+    setGiornata(prev => prev.map(x => (x.id === p.id ? { ...x, ...campi } : x)))
     setEspansa(null)
   }
 
@@ -750,6 +780,28 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Prop
                   />
                 ))}
           </Sezione>
+
+          {cancellate.length > 0 && (
+            <Sezione
+              titolo="Cancellate"
+              prenotazioni={cancellate}
+              aperta={aperte.cancellate}
+              onToggle={() => setAperte(a => ({ ...a, cancellate: !a.cancellate }))}
+            >
+              {cancellate.map(p => (
+                <RigaPrenotazione
+                  key={p.id}
+                  p={p}
+                  etichettaInsegna={etichettaInsegna(p.insegna)}
+                  espansa={espansa === p.id}
+                  onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
+                  onStato={() => setStatoTarget(p)}
+                  onAzioneRapida={() => cambiaStato(p, 'confermata')}
+                  onDettagli={() => apriDettagli(p)}
+                />
+              ))}
+            </Sezione>
+          )}
 
           {noShow.length > 0 && (
             <Sezione

@@ -472,6 +472,11 @@ export interface Prenotazione {
   note:                 string | null
   stato:                PrenotazioneStato
   seduta_at:            string | null
+  // Chi ha segnato l'ultimo cambio stato e con quale ruolo — null sulle
+  // prenotazioni mai toccate manualmente (es. ancora "confermata" da
+  // quando è arrivata via mail) o create prima che questi campi esistessero.
+  stato_modificato_da_nome:  string | null
+  stato_modificato_da_ruolo: string | null
   created_at:           string
   updated_at:           string
 }

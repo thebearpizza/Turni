@@ -15,7 +15,7 @@ export default async function PrenotazioniPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('role, is_direttore').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('role, is_direttore, full_name').eq('id', user.id).single()
   if (profile?.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
   if (profile?.role !== 'manager' && profile?.role !== 'hostess') redirect('/cassa/chiusura')
 
@@ -61,6 +61,7 @@ export default async function PrenotazioniPage({
         etichetta: i.etichetta,
       }))}
       bozzaIniziale={bozzaIniziale}
+      currentUser={{ fullName: profile.full_name, role: profile.role }}
     />
   )
 }
