@@ -328,18 +328,19 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
   // Quanti PAX confermati per ciascuna insegna e quanti diretti (Restoo)
   // — coperti, non numero di prenotazioni: un tavolo da 8 pesa come 8 da
-  // 1, non come una singola voce nell'elenco. "Dirette" prende TUTTE le
-  // Restoo (qualunque insegna); Benthos/Crunch! prendono tutto il resto
-  // — comprese le importate dal libro visite, che hanno insegna ma non
-  // vengono da TheFork — diviso per insegna. Così le tre voci sommano
-  // sempre esattamente ai coperti totali del servizio, senza una
-  // categoria residua per ciò che non trova posto.
+  // 1, non come una singola voce nell'elenco. "Dirette" prende Restoo E le
+  // prenotazioni inserite a mano (qualunque insegna abbiano — un manuale
+  // non passa da TheFork solo perché gli si è assegnata un'insegna);
+  // Benthos/Crunch! prendono tutto il resto — comprese le importate dal
+  // libro visite — diviso per insegna. Così le tre voci sommano sempre
+  // esattamente ai coperti totali del servizio, senza una categoria
+  // residua per ciò che non trova posto.
   const confermatePax = useMemo(() => {
     let benthos = 0
     let crunch = 0
     let restoo = 0
     for (const p of confermate) {
-      if (p.origine === 'restoo') restoo += p.persone
+      if (p.origine === 'restoo' || p.origine === 'manuale') restoo += p.persone
       else if (p.insegna === 'benthos') benthos += p.persone
       else if (p.insegna === 'crunch') crunch += p.persone
     }
