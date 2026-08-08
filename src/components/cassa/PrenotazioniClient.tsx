@@ -443,26 +443,30 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   const cancellate = useMemo(() => prenotazioni.filter(p => p.stato === 'eliminata'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
 
-  // Quanti PAX confermati per ciascuna insegna e quanti diretti (Restoo)
-  // — coperti, non numero di prenotazioni: un tavolo da 8 pesa come 8 da
-  // 1, non come una singola voce nell'elenco. "Dirette" prende Restoo E le
-  // prenotazioni inserite a mano (qualunque insegna abbiano — un manuale
-  // non passa da TheFork solo perché gli si è assegnata un'insegna);
-  // Benthos/Crunch! prendono tutto il resto — comprese le importate dal
-  // libro visite — diviso per insegna. Così le tre voci sommano sempre
-  // esattamente ai coperti totali del servizio, senza una categoria
-  // residua per ciò che non trova posto.
-  const confermatePax = useMemo(() => {
+  // Quanti PAX per ciascuna insegna e quanti diretti (Restoo) — coperti,
+  // non numero di prenotazioni: un tavolo da 8 pesa come 8 da 1, non come
+  // una singola voce nell'elenco. Comprende sia le confermate che le già
+  // sedute: far sedere un cliente non lo fa sparire dal servizio, quindi
+  // non deve scalare il totale — resta lì finché non se ne va (no show o
+  // cancellata). "Dirette" prende Restoo E le prenotazioni inserite a
+  // mano (qualunque insegna abbiano — un manuale non passa da TheFork
+  // solo perché gli si è assegnata un'insegna, e ci finiscono anche i
+  // passanti); Benthos/Crunch! prendono tutto il resto — comprese le
+  // importate dal libro visite — diviso per insegna. Così le tre voci
+  // sommano sempre esattamente ai coperti totali attivi del servizio,
+  // senza una categoria residua per ciò che non trova posto.
+  const paxServizio = useMemo(() => {
     let benthos = 0
     let crunch = 0
     let restoo = 0
-    for (const p of confermate) {
+    for (const p of prenotazioni) {
+      if (p.stato !== 'confermata' && p.stato !== 'seduta') continue
       if (p.origine === 'restoo' || p.origine === 'manuale') restoo += p.persone
       else if (p.insegna === 'benthos') benthos += p.persone
       else if (p.insegna === 'crunch') crunch += p.persone
     }
     return { benthos, crunch, restoo }
-  }, [confermate])
+  }, [prenotazioni])
   const fasce      = useMemo(() => costruisciFasce(servizio, confermate), [servizio, confermate])
 
   async function cambiaStato(p: Prenotazione, stato: PrenotazioneStato) {
@@ -765,18 +769,18 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         </div>
       ) : (
         <div className="space-y-4">
-          {confermate.length > 0 && (
+          {(confermate.length > 0 || sedute.length > 0) && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className={cn('h-2 w-2 rounded-full', puntoInsegna('benthos'))} />
-                <span className="cassa-numeric font-medium text-foreground">{confermatePax.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
+                <span className="cassa-numeric font-medium text-foreground">{paxServizio.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className={cn('h-2 w-2 rounded-full', puntoInsegna('crunch'))} />
-                <span className="cassa-numeric font-medium text-foreground">{confermatePax.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
+                <span className="cassa-numeric font-medium text-foreground">{paxServizio.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
               </span>
               <span>
-                <span className="cassa-numeric font-medium text-foreground">{confermatePax.restoo}</span> pax dirette (Restoo)
+                <span className="cassa-numeric font-medium text-foreground">{paxServizio.restoo}</span> pax dirette (Restoo)
               </span>
             </p>
           )}
