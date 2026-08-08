@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { interpretaEmail, type EmailPrenotazione } from '@/lib/cassa/prenotazioniParsing'
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
 import { abbinaInsegna, localeDaIgnorare, type Insegna, type LocaleIgnorato } from '@/lib/cassa/prenotazioniLocali'
+import { estraiDaLinkTheFork } from '@/lib/cassa/prenotazioniTheForkLink'
 
 // Cosa fare con UNA mail di notifica, indipendentemente da come è
 // arrivata — letta a intervalli da una casella Gmail o consegnata subito
@@ -32,9 +33,23 @@ export async function lavoraMail(
   ignorati: LocaleIgnorato[],
   msg: MessaggioPrenotazione
 ): Promise<EsitoMail> {
-  const letta = await interpretaEmail(msg)
+  const daModello = await interpretaEmail(msg)
 
-  if (!letta.e_prenotazione) return { esito: 'ignorata' }
+  if (!daModello.e_prenotazione) return { esito: 'ignorata' }
+
+  // Le notifiche "Nuova prenotazione" di TheFork non scrivono affatto
+  // data e orario nel corpo — solo dietro il link "Vedi i dettagli",
+  // passato da un redirect di tracciamento. Quel link porta comunque
+  // solo alla pagina del GIORNO (mai l'orario), ma la data lì dentro è
+  // certa: preferirla a quella eventualmente indovinata dal modello da
+  // un testo che non la contiene affatto. Lo stesso per il codice
+  // prenotazione, più affidabile di quanto il testo libero possa offrire.
+  const daLink = estraiDaLinkTheFork(msg.testo)
+  const letta = {
+    ...daModello,
+    data:        daLink?.data ?? daModello.data,
+    riferimento: daLink?.riferimento ?? daModello.riferimento,
+  }
 
   // Prima di tutto il resto: se la notifica riguarda un altro locale del
   // gruppo si scarta e basta. Ogni locale ha il proprio libro visite e
@@ -45,10 +60,19 @@ export async function lavoraMail(
     return { esito: 'ignorata', evento: letta.evento, errore: `Locale escluso (${escluso.termine})` }
   }
 
-  // Senza data e orario non c'è una riga di agenda da scrivere: la mail
-  // resta nel log come errore, così è rileggibile invece che persa.
-  if (!letta.data || !letta.orario || !letta.nome) {
-    return { esito: 'errore', evento: letta.evento, errore: 'Dati insufficienti: manca nome, data o orario' }
+  // Senza data, orario o nome non c'è una riga di agenda da scrivere: la
+  // mail resta nel log come errore, così è rileggibile invece che persa.
+  // Il messaggio indica esattamente cosa manca — capita spesso che sia
+  // solo l'orario (TheFork non lo scrive da nessuna parte in questo tipo
+  // di notifica, nemmeno nel link), ed è utile saperlo a colpo d'occhio
+  // invece di dover riaprire il testo della mail per capire cosa cercare.
+  if (!letta.nome || !letta.data || !letta.orario) {
+    const mancanti = [
+      !letta.nome && 'nome',
+      !letta.data && 'data',
+      !letta.orario && 'orario',
+    ].filter(Boolean).join(', ')
+    return { esito: 'errore', evento: letta.evento, errore: `Manca ${mancanti}: dati insufficienti per l'agenda` }
   }
 
   // Allow-list stretta: si importa solo ciò che corrisponde a un'insegna
