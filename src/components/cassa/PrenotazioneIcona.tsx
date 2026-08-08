@@ -1,5 +1,5 @@
 'use client'
-import { Armchair, Ban, Trash2, Phone, FileUp } from 'lucide-react'
+import { Armchair, Ban, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PrenotazioneOrigine, PrenotazioneStato } from '@/types'
 
@@ -9,14 +9,18 @@ import type { PrenotazioneOrigine, PrenotazioneStato } from '@/types'
 // l'informazione che serve a colpo d'occhio durante il servizio.
 // È anche il comando che apre il cambio stato, come nel libro visite.
 
+// Solo due icone, non quattro: F per TheFork (comprese le prenotazioni
+// importate dal suo export), R per tutto il resto — Restoo, inserite a
+// mano, e le vecchie importazioni di cui non si sa più la piattaforma —
+// perché "dirette" è già come le si tratta ovunque nell'app (riepilogo
+// PAX incluso), non serve una terza icona per dirlo di nuovo.
+//
 // Le origini restano su toni neutri di proposito: il colore è riservato
 // allo stato (verde seduta, rosso no show), altrimenti una prenotazione
 // solo confermata sembrerebbe già a tavolo.
-const ORIGINE_STILE: Record<PrenotazioneOrigine, { classe: string; contenuto: React.ReactNode }> = {
-  thefork: { classe: 'bg-foreground text-background',                       contenuto: 'F' },
-  restoo:  { classe: 'bg-muted-foreground text-background',                 contenuto: 'R' },
-  manuale: { classe: 'bg-secondary text-secondary-foreground border border-border', contenuto: <Phone className="h-4 w-4" /> },
-  import:  { classe: 'bg-secondary text-secondary-foreground border border-border', contenuto: <FileUp className="h-4 w-4" /> },
+const ORIGINE_STILE: Record<'thefork' | 'restoo', { classe: string; contenuto: React.ReactNode }> = {
+  thefork: { classe: 'bg-foreground text-background',       contenuto: 'F' },
+  restoo:  { classe: 'bg-muted-foreground text-background', contenuto: 'R' },
 }
 
 const BASE = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold'
@@ -52,6 +56,6 @@ export function StatoIcona({
     )
   }
 
-  const stile = ORIGINE_STILE[origine]
+  const stile = ORIGINE_STILE[origine === 'thefork' ? 'thefork' : 'restoo']
   return <span className={cn(BASE, stile.classe, className)}>{stile.contenuto}</span>
 }
