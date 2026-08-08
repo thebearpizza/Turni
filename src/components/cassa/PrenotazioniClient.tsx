@@ -32,16 +32,24 @@ const TZ = 'Europe/Rome'
 // hash sulla sigla, così qualunque locale futuro ottiene comunque un
 // colore diverso da quelli già in uso sullo stesso giorno.
 const PALETTE_INSEGNA = [
-  'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300',
-  'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300',
-  'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300',
-  'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300',
+  { pillola: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300', punto: 'bg-indigo-500' },
+  { pillola: 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300',         punto: 'bg-rose-500' },
+  { pillola: 'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300',         punto: 'bg-teal-500' },
+  { pillola: 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300', punto: 'bg-violet-500' },
 ]
 
-function coloreInsegna(codice: string): string {
+function indiceInsegna(codice: string): number {
   let h = 0
   for (let i = 0; i < codice.length; i++) h = (h * 31 + codice.charCodeAt(i)) >>> 0
-  return PALETTE_INSEGNA[h % PALETTE_INSEGNA.length]
+  return h % PALETTE_INSEGNA.length
+}
+
+function coloreInsegna(codice: string): string {
+  return PALETTE_INSEGNA[indiceInsegna(codice)].pillola
+}
+
+function puntoInsegna(codice: string): string {
+  return PALETTE_INSEGNA[indiceInsegna(codice)].punto
 }
 
 interface RestaurantOption { id: string; name: string }
@@ -319,6 +327,22 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const confermate = useMemo(() => prenotazioni.filter(p => p.stato === 'confermata'), [prenotazioni])
   const sedute     = useMemo(() => prenotazioni.filter(p => p.stato === 'seduta'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
+
+  // Quante delle confermate vengono da ciascuna insegna via TheFork e
+  // quante sono dirette (Restoo): la fascia oraria dice quante persone
+  // arrivano, questo dice da dove — utile per capire in anticipo se la
+  // sala servirà due carte diverse o soprattutto una.
+  const confermatePerFonte = useMemo(() => {
+    const perInsegna = new Map<string, number>()
+    let restoo = 0
+    let altre = 0
+    for (const p of confermate) {
+      if (p.origine === 'restoo') restoo++
+      else if (p.origine === 'thefork' && p.insegna) perInsegna.set(p.insegna, (perInsegna.get(p.insegna) ?? 0) + 1)
+      else altre++
+    }
+    return { perInsegna, restoo, altre }
+  }, [confermate])
   const fasce      = useMemo(() => costruisciFasce(servizio, confermate), [servizio, confermate])
 
   async function cambiaStato(p: Prenotazione, stato: PrenotazioneStato) {
@@ -540,6 +564,28 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         </div>
       ) : (
         <div className="space-y-4">
+          {confermate.length > 0 && (
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
+              {[...confermatePerFonte.perInsegna.entries()].map(([insegna, quante]) => (
+                <span key={insegna} className="flex items-center gap-1.5">
+                  <span className={cn('h-2 w-2 rounded-full', puntoInsegna(insegna))} />
+                  <span className="cassa-numeric font-medium text-foreground">{quante}</span> {etichettaInsegna(insegna) ?? insegna}
+                </span>
+              ))}
+              {confermatePerFonte.restoo > 0 && (
+                <span>
+                  <span className="cassa-numeric font-medium text-foreground">{confermatePerFonte.restoo}</span>{' '}
+                  dirett{confermatePerFonte.restoo === 1 ? 'a' : 'e'} (Restoo)
+                </span>
+              )}
+              {confermatePerFonte.altre > 0 && (
+                <span>
+                  <span className="cassa-numeric font-medium text-foreground">{confermatePerFonte.altre}</span> altre
+                </span>
+              )}
+            </p>
+          )}
+
           <Sezione
             titolo="Confermate"
             prenotazioni={confermate}
