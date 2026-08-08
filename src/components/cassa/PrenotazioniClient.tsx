@@ -472,7 +472,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
             className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))] hover:underline"
           >
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'} da confermare l&apos;orario
+            <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
           </button>
         )}
         <h1 className="cassa-display text-2xl">Prenotazioni</h1>
