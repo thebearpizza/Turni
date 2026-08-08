@@ -30,7 +30,11 @@ export interface VoceCoda {
 export interface RigaPreparata {
   restaurant_id:      string
   insegna:            string | null
-  origine:            'import' | DatiParziali['origine']
+  // Sempre la fonte vera (TheFork/Restoo), mai un generico "import": il
+  // manager la dichiara scegliendo da quale gestionale viene il file
+  // caricato, così la riga usa la stessa icona F/R delle prenotazioni
+  // arrivate via mail — nessuna terza icona per "importata".
+  origine:            DatiParziali['origine']
   riferimento_esterno: string | null
   data:               string
   orario:             string
@@ -86,6 +90,9 @@ export function preparaImport(opts: {
   // l'export importato ne contiene una (stesso giorno, stesso cliente),
   // questa riga la completa invece di generarne una seconda.
   coda:             VoceCoda[]
+  // Gestionale da cui viene il file: lo dichiara il manager scegliendo
+  // il tasto di caricamento, non si indovina dal contenuto.
+  fonte:            DatiParziali['origine']
 }): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica } {
   const insegnaDefault = insegnaPrincipale(opts.insegne)?.codice ?? null
 
@@ -134,7 +141,7 @@ export function preparaImport(opts: {
     return {
       restaurant_id:      opts.restaurantId,
       insegna:            abbinaInsegna(opts.insegne, r.locale)?.codice ?? insegnaDefault,
-      origine:            daCoda?.parziale.origine ?? 'import',
+      origine:            daCoda?.parziale.origine ?? opts.fonte,
       riferimento_esterno: daCoda?.parziale.riferimento_esterno ?? null,
       data:               r.data!,
       orario,

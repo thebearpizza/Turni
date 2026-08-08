@@ -66,10 +66,14 @@ export async function POST(request: Request) {
   const form = await request.formData()
   const file = form.get('file')
   const restaurantId = form.get('restaurant_id')
+  const fonte = form.get('fonte')
 
   if (!(file instanceof File)) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
   if (typeof restaurantId !== 'string' || !restaurantId) {
     return NextResponse.json({ error: 'Ristorante mancante' }, { status: 400 })
+  }
+  if (fonte !== 'thefork' && fonte !== 'restoo') {
+    return NextResponse.json({ error: 'Gestionale di provenienza mancante' }, { status: 400 })
   }
 
   // Il SELECT passa da RLS: se il manager non gestisce questo locale non
@@ -151,6 +155,7 @@ export async function POST(request: Request) {
       insegne:         (insegne ?? []) as Insegna[],
       esistenti:       (esistenti ?? []) as PrenotazioneEsistente[],
       coda,
+      fonte,
     })
   )
 }

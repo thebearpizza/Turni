@@ -17,7 +17,7 @@ import type { PrenotazioneServizio, PrenotazioneStato } from '@/types'
 interface RigaLetta {
   restaurant_id:      string
   insegna:            string | null
-  origine:            'import' | 'thefork' | 'restoo'
+  origine:            'thefork' | 'restoo'
   riferimento_esterno: string | null
   data:               string
   orario:             string
@@ -57,6 +57,7 @@ interface Props {
 
 export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onImportate }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const [fonte, setFonte] = useState<'thefork' | 'restoo'>('thefork')
   const [nomeFile, setNomeFile] = useState<string | null>(null)
   const [leggendo, setLeggendo] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -67,6 +68,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
   const [errore, setErrore] = useState<string | null>(null)
 
   function reset() {
+    setFonte('thefork')
     setNomeFile(null); setRighe(null); setVerifica(null); setScartate(0)
     setEscluse(new Set()); setErrore(null)
     if (inputRef.current) inputRef.current.value = ''
@@ -83,6 +85,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
       const form = new FormData()
       form.append('file', file)
       form.append('restaurant_id', restaurantId)
+      form.append('fonte', fonte)
       const res = await fetch('/api/cassa/prenotazioni/importa', { method: 'POST', body: form })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Lettura non riuscita')
@@ -163,6 +166,33 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
           Carica l&apos;esportazione del libro visite (Excel, CSV o PDF). Le colonne vengono
           riconosciute automaticamente: controlla l&apos;anteprima prima di confermare.
         </p>
+
+        {/* Va dichiarata: non si indovina dal contenuto del file, e decide
+            l'icona (F/R) con cui la prenotazione comparirà in agenda —
+            la stessa delle prenotazioni arrivate via mail. */}
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium">File esportato da</p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={fonte === 'thefork' ? 'default' : 'outline'}
+              className="flex-1"
+              onClick={() => setFonte('thefork')}
+              disabled={leggendo || salvando}
+            >
+              TheFork
+            </Button>
+            <Button
+              type="button"
+              variant={fonte === 'restoo' ? 'default' : 'outline'}
+              className="flex-1"
+              onClick={() => setFonte('restoo')}
+              disabled={leggendo || salvando}
+            >
+              Restoo
+            </Button>
+          </div>
+        </div>
 
         <input
           ref={inputRef}
