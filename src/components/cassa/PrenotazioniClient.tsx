@@ -6,16 +6,17 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info, Mail,
+  Armchair, Phone, Eye, CheckCircle2, Info, Mail, Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { StatoIcona } from '@/components/cassa/PrenotazioneIcona'
 import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDialog'
-import { PrenotazioneFormDialog } from '@/components/cassa/PrenotazioneFormDialog'
+import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
 import { PrenotazioniDiagnosticaDialog } from '@/components/cassa/PrenotazioniDiagnosticaDialog'
+import { PrenotazioniCodaDialog } from '@/components/cassa/PrenotazioniCodaDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
@@ -177,11 +178,14 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const [formAperto, setFormAperto] = useState(false)
   const [formIniziale, setFormIniziale] = useState<{ data: string; orario: string } | null>(null)
   const [formPrenotazione, setFormPrenotazione] = useState<Prenotazione | null>(null)
+  const [formBozza, setFormBozza] = useState<BozzaCoda | null>(null)
   // Cresce a ogni apertura e fa da key al dialog: il form riparte sempre
   // dai dati giusti senza doverli risincronizzare con un effetto.
   const [formSeq, setFormSeq] = useState(0)
   const [importAperto, setImportAperto] = useState(false)
   const [diagnosticaAperta, setDiagnosticaAperta] = useState(false)
+  const [codaAperta, setCodaAperta] = useState(false)
+  const [codaCount, setCodaCount] = useState(0)
 
   const [sincronizzando, setSincronizzando] = useState(false)
   const [avviso, setAvviso] = useState<string | null>(null)
@@ -234,6 +238,31 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [carica])
 
+  // Quante prenotazioni sono "in coda" (nome e data noti, manca solo
+  // l'orario) per il locale selezionato — solo il conteggio, la lista
+  // vera la carica il dialog dedicato quando lo si apre.
+  const caricaCoda = useCallback(async () => {
+    if (!restaurantId) { setCodaCount(0); return }
+    const supabase = createClient()
+    const { count } = await supabase
+      .from('prenotazioni_email_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('esito', 'incompleta')
+      .eq('payload->parziale->>restaurant_id', restaurantId)
+    setCodaCount(count ?? 0)
+  }, [restaurantId])
+
+  useEffect(() => { caricaCoda() }, [caricaCoda])
+
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('prenotazioni_coda')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prenotazioni_email_log' }, () => caricaCoda())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [caricaCoda])
+
   const prenotazioni = useMemo(() => giornata.filter(p => p.servizio === servizio), [giornata, servizio])
   // Quante ne ha l'altro servizio dello stesso giorno: è l'informazione
   // che trasforma "non vedo niente" in "stai guardando il servizio
@@ -273,11 +302,11 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
       const res = await fetch('/api/cassa/prenotazioni/sync', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Sincronizzazione non riuscita')
-      setAvviso(
-        json.importate > 0
-          ? `${json.importate} prenotazioni aggiornate dalla casella.`
-          : 'Nessuna nuova prenotazione nella casella.'
-      )
+      const parti = [
+        json.importate > 0 && `${json.importate} aggiornate`,
+        json.incomplete > 0 && `${json.incomplete} da completare (manca l'orario)`,
+      ].filter(Boolean)
+      setAvviso(parti.length > 0 ? `${parti.join(', ')}.` : 'Nessuna nuova prenotazione nella casella.')
       await carica()
     } catch (err) {
       setAvviso(err instanceof Error ? err.message : 'Sincronizzazione non riuscita')
@@ -288,6 +317,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
   function apriNuova(orario: string) {
     setFormPrenotazione(null)
+    setFormBozza(null)
     setFormIniziale({ data, orario })
     setFormSeq(n => n + 1)
     setFormAperto(true)
@@ -295,7 +325,17 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
   function apriDettagli(p: Prenotazione) {
     setFormIniziale(null)
+    setFormBozza(null)
     setFormPrenotazione(p)
+    setFormSeq(n => n + 1)
+    setFormAperto(true)
+  }
+
+  function completaDaCoda(voce: BozzaCoda) {
+    setCodaAperta(false)
+    setFormIniziale(null)
+    setFormPrenotazione(null)
+    setFormBozza(voce)
     setFormSeq(n => n + 1)
     setFormAperto(true)
   }
@@ -406,6 +446,17 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         <Button type="button" size="sm" variant="outline" onClick={() => setDiagnosticaAperta(true)}>
           <Mail className="h-4 w-4" /> Collegamento mail
         </Button>
+        {codaCount > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="border-[hsl(var(--cassa-copper))]/50 text-[hsl(var(--cassa-copper))] hover:text-[hsl(var(--cassa-copper))]"
+            onClick={() => setCodaAperta(true)}
+          >
+            <Clock className="h-4 w-4" /> <span className="cassa-numeric">{codaCount}</span> da completare
+          </Button>
+        )}
         {data !== oggiRoma() && (
           <Button type="button" size="sm" variant="ghost" onClick={() => setData(oggiRoma())}>
             Oggi
@@ -550,6 +601,7 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         insegne={insegneLocale}
         iniziale={formIniziale}
         prenotazione={formPrenotazione}
+        bozza={formBozza}
         onSalvata={carica}
       />
 
@@ -561,6 +613,14 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
       />
 
       <PrenotazioniDiagnosticaDialog open={diagnosticaAperta} onOpenChange={setDiagnosticaAperta} />
+
+      <PrenotazioniCodaDialog
+        open={codaAperta}
+        onOpenChange={setCodaAperta}
+        restaurantId={restaurantId}
+        onCompleta={completaDaCoda}
+        onCambiato={caricaCoda}
+      />
     </div>
   )
 }

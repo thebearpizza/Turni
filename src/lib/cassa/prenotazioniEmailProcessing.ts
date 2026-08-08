@@ -18,11 +18,33 @@ export interface MessaggioPrenotazione {
   ricevutaAt: string | null
 }
 
+// Tutto ciò che si sa già di una prenotazione a cui manca solo l'orario
+// — abbastanza per compilare in anticipo il modulo di completamento in
+// coda, così il manager tocca "Completa" e aggiunge solo quel campo
+// invece di ridigitare nome, telefono, persone e sconto da zero.
+export interface DatiParziali {
+  restaurant_id:       string
+  insegna:             string | null
+  origine:             'thefork' | 'restoo'
+  riferimento_esterno: string | null
+  data:                string
+  nome:                string
+  cognome:             string | null
+  persone:             number
+  bambini:             number
+  sconto_percentuale:  number | null
+  telefono:            string | null
+  email:               string | null
+  note:                string | null
+}
+
 export interface EsitoMail {
-  esito:   'importata' | 'ignorata' | 'errore'
+  esito:   'importata' | 'ignorata' | 'errore' | 'incompleta'
   evento?: EmailPrenotazione['evento']
   errore?: string
   prenotazione_id?: string
+  // Presente solo quando esito === 'incompleta'.
+  parziale?: DatiParziali
 }
 
 export type AdminClient = ReturnType<typeof createAdminClient>
@@ -60,18 +82,11 @@ export async function lavoraMail(
     return { esito: 'ignorata', evento: letta.evento, errore: `Locale escluso (${escluso.termine})` }
   }
 
-  // Senza data, orario o nome non c'è una riga di agenda da scrivere: la
-  // mail resta nel log come errore, così è rileggibile invece che persa.
-  // Il messaggio indica esattamente cosa manca — capita spesso che sia
-  // solo l'orario (TheFork non lo scrive da nessuna parte in questo tipo
-  // di notifica, nemmeno nel link), ed è utile saperlo a colpo d'occhio
-  // invece di dover riaprire il testo della mail per capire cosa cercare.
-  if (!letta.nome || !letta.data || !letta.orario) {
-    const mancanti = [
-      !letta.nome && 'nome',
-      !letta.data && 'data',
-      !letta.orario && 'orario',
-    ].filter(Boolean).join(', ')
+  // Senza nome o data non c'è nulla di azionabile — nemmeno una voce in
+  // coda avrebbe senso, perché mancherebbe chi è o per quando. Resta un
+  // errore semplice, non recuperabile dal manager senza riaprire la mail.
+  if (!letta.nome || !letta.data) {
+    const mancanti = [!letta.nome && 'nome', !letta.data && 'data'].filter(Boolean).join(', ')
     return { esito: 'errore', evento: letta.evento, errore: `Manca ${mancanti}: dati insufficienti per l'agenda` }
   }
 
@@ -88,7 +103,6 @@ export async function lavoraMail(
   }
 
   const origine = letta.fonte ?? (/restoo/i.test(msg.mittente) ? 'restoo' : 'thefork')
-  const orario = normalizzaOrario(letta.orario)
 
   // Coperti TOTALI, bambini inclusi: la notifica scrive "10/9" per 10
   // adulti e 9 bambini, ma a tavola sono 19. Se i coperti non sono stati
@@ -101,6 +115,39 @@ export async function lavoraMail(
   const note = letta.adulti != null
     ? letta.note
     : ['⚠ Coperti non letti dalla notifica: da verificare', letta.note].filter(Boolean).join(' — ')
+
+  // TheFork non scrive l'orario da nessuna parte in questo tipo di
+  // notifica — nemmeno nel link, che porta solo alla pagina del GIORNO.
+  // Senza saperlo non si può nemmeno dedurre il servizio (pranzo/cena
+  // dipende dall'ora): indovinarlo rischierebbe di piazzare la
+  // prenotazione nel servizio sbagliato, invisibile a chi gestisce
+  // quello giusto — peggio che non mostrarla affatto. Resta "incompleta":
+  // compare nella coda della tab Prenotazioni con tutto ciò che si sa
+  // già, pronta perché il manager aggiunga solo l'orario mancante.
+  if (!letta.orario) {
+    return {
+      esito: 'incompleta',
+      evento: letta.evento,
+      errore: 'Manca orario: in coda per completamento manuale',
+      parziale: {
+        restaurant_id:       abbinamento.restaurant_id,
+        insegna:             abbinamento.codice,
+        origine,
+        riferimento_esterno: letta.riferimento,
+        data:                letta.data,
+        nome:                letta.nome,
+        cognome:             letta.cognome,
+        persone,
+        bambini,
+        sconto_percentuale:  letta.sconto_percentuale,
+        telefono:            letta.telefono,
+        email:               letta.email,
+        note,
+      },
+    }
+  }
+
+  const orario = normalizzaOrario(letta.orario)
 
   // Aggancio a una prenotazione già in agenda: prima per riferimento del
   // gestionale (l'unico davvero affidabile), poi — quando la mail non ne
@@ -189,8 +236,9 @@ export async function caricaConfigurazioneLocali(
 }
 
 // Registra l'esito nel log, qualunque sia stata la via d'ingresso — è
-// ciò che alimenta sia l'idempotenza (message_id UNIQUE) sia la
-// diagnostica in-app.
+// ciò che alimenta l'idempotenza (message_id UNIQUE per origine), la
+// diagnostica in-app e, per l'esito 'incompleta', la coda di
+// completamento manuale.
 export async function registraEsito(
   admin: AdminClient,
   opts: {
@@ -214,7 +262,8 @@ export async function registraEsito(
     prenotazione_id: opts.esito.prenotazione_id ?? null,
     // Il testo della mail resta nel log: è ciò che permette di rileggere
     // una notifica non interpretata dopo aver migliorato il parser,
-    // senza dover risalire alla casella.
-    payload: { testo: opts.msg.testo },
+    // senza dover risalire alla casella. `parziale` alimenta la coda di
+    // completamento quando presente.
+    payload: { testo: opts.msg.testo, parziale: opts.esito.parziale ?? null },
   })
 }

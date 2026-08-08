@@ -12,8 +12,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2 } from 'lucide-react'
 import { servizioDaOrario, normalizzaOrario, ORIGINE_LABEL } from '@/lib/cassa/prenotazioniAgenda'
 import type { Prenotazione } from '@/types'
+import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
 
 interface InsegnaOption { codice: string; etichetta: string }
+
+// Una voce della coda "da completare": stessa forma dei dati parziali
+// salvati nel log mail, più l'id della riga di log da aggiornare quando
+// il completamento va a buon fine.
+export interface BozzaCoda extends DatiParziali {
+  logId: string
+}
 
 interface Props {
   open:          boolean
@@ -26,6 +34,10 @@ interface Props {
   // perché mostra tutti i campi del record — inclusi quelli che nella
   // riga in agenda non ci starebbero (telefono, note, provenienza).
   prenotazione:  Prenotazione | null
+  // In completamento da coda: nome/telefono/persone/sconto arrivano già
+  // dalla mail, manca solo l'orario — l'unico campo che TheFork non
+  // scrive da nessuna parte per questo tipo di notifica.
+  bozza?:        BozzaCoda | null
   onSalvata:     () => void
 }
 
@@ -69,6 +81,25 @@ function campiDa(p: Prenotazione): Campi {
   }
 }
 
+// Come campiDa, ma da una voce di coda: manca sempre l'orario (è per
+// questo che è in coda) — resta vuoto apposta, così il tasto Salva
+// resta disabilitato finché il manager non lo aggiunge.
+function campiDaBozza(b: BozzaCoda, insegnaDefault: string): Campi {
+  return {
+    nome:     b.nome,
+    cognome:  b.cognome ?? '',
+    data:     b.data,
+    orario:   '',
+    persone:  b.persone,
+    bambini:  b.bambini,
+    telefono: b.telefono ?? '',
+    email:    b.email ?? '',
+    sconto:   b.sconto_percentuale != null ? String(b.sconto_percentuale) : '',
+    insegna:  b.insegna ?? insegnaDefault,
+    note:     b.note ?? '',
+  }
+}
+
 // Il chiamante monta questo componente con una `key` che cambia a ogni
 // apertura: i campi si inizializzano una volta sola, alla creazione, e
 // non serve alcun effetto per risincronizzarli. Vale anche come
@@ -77,11 +108,13 @@ function campiDa(p: Prenotazione): Campi {
 // un effetto di sincronizzazione rischierebbe di sovrascrivere il testo
 // appena scritto.
 export function PrenotazioneFormDialog({
-  open, onOpenChange, restaurantId, insegne, iniziale, prenotazione, onSalvata,
+  open, onOpenChange, restaurantId, insegne, iniziale, prenotazione, bozza, onSalvata,
 }: Props) {
   const insegnaDefault = insegne[0]?.codice ?? ''
-  const [campi, setCampi] = useState<Campi>(
-    () => (prenotazione ? campiDa(prenotazione) : campiVuoti(iniziale, insegnaDefault))
+  const [campi, setCampi] = useState<Campi>(() =>
+    prenotazione ? campiDa(prenotazione)
+    : bozza ? campiDaBozza(bozza, insegnaDefault)
+    : campiVuoti(iniziale, insegnaDefault)
   )
   const [salvando, setSalvando] = useState(false)
   const [errore, setErrore] = useState<string | null>(null)
@@ -97,7 +130,7 @@ export function PrenotazioneFormDialog({
     const sconto = campi.sconto.trim() === '' ? null : Number(campi.sconto.replace(',', '.'))
 
     const valori = {
-      restaurant_id:      restaurantId,
+      restaurant_id:      bozza?.restaurant_id ?? restaurantId,
       insegna:            campi.insegna || null,
       data:               campi.data,
       orario,
@@ -113,12 +146,44 @@ export function PrenotazioneFormDialog({
     }
 
     const supabase = createClient()
-    const { error } = prenotazione
-      ? await supabase.from('prenotazioni').update(valori).eq('id', prenotazione.id)
-      : await supabase.from('prenotazioni').insert({ ...valori, origine: 'manuale', stato: 'confermata' })
+
+    if (prenotazione) {
+      const { error } = await supabase.from('prenotazioni').update(valori).eq('id', prenotazione.id)
+      setSalvando(false)
+      if (error) { setErrore(error.message); return }
+      onSalvata()
+      onOpenChange(false)
+      return
+    }
+
+    // Completando da coda la prenotazione resta attribuita alla fonte
+    // vera (TheFork/Restoo) con il suo riferimento, non "manuale": è
+    // arrivata da lì, solo con un campo da finire a mano.
+    const { data: creata, error } = await supabase
+      .from('prenotazioni')
+      .insert(
+        bozza
+          ? { ...valori, origine: bozza.origine, riferimento_esterno: bozza.riferimento_esterno, stato: 'confermata' }
+          : { ...valori, origine: 'manuale', stato: 'confermata' }
+      )
+      .select('id')
+      .single()
+
+    if (error) { setSalvando(false); setErrore(error.message); return }
+
+    if (bozza) {
+      // Se questo fallisce la prenotazione è comunque creata — non si
+      // blocca il salvataggio per questo. Nel peggiore dei casi la voce
+      // resta visibile in coda anche se ormai già completata, cosa che
+      // si nota e si sistema al volo, molto meglio che perdere una
+      // prenotazione già salvata per un errore di bookkeeping.
+      await supabase
+        .from('prenotazioni_email_log')
+        .update({ esito: 'importata', prenotazione_id: creata.id })
+        .eq('id', bozza.logId)
+    }
 
     setSalvando(false)
-    if (error) { setErrore(error.message); return }
     onSalvata()
     onOpenChange(false)
   }
@@ -128,7 +193,7 @@ export function PrenotazioneFormDialog({
       <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="cassa-display text-lg">
-            {prenotazione ? 'Dettagli prenotazione' : 'Nuova prenotazione'}
+            {prenotazione ? 'Dettagli prenotazione' : bozza ? 'Completa prenotazione' : 'Nuova prenotazione'}
           </DialogTitle>
         </DialogHeader>
 
@@ -136,6 +201,11 @@ export function PrenotazioneFormDialog({
           <p className="text-xs text-muted-foreground">
             {ORIGINE_LABEL[prenotazione.origine] ?? prenotazione.origine}
             {prenotazione.riferimento_esterno && ` · rif. ${prenotazione.riferimento_esterno}`}
+          </p>
+        )}
+        {!prenotazione && bozza && (
+          <p className="text-xs text-muted-foreground">
+            {ORIGINE_LABEL[bozza.origine] ?? bozza.origine} — manca solo l&apos;orario, il resto è già dalla notifica
           </p>
         )}
 

@@ -53,7 +53,7 @@ async function sincronizza() {
   const visti = new Set((giaViste ?? []).map(r => r.message_id as string))
   const daLavorare = ids.filter(id => !visti.has(id))
 
-  const conteggio = { lette: daLavorare.length, importate: 0, ignorate: 0, errori: 0 }
+  const conteggio = { lette: daLavorare.length, importate: 0, ignorate: 0, incomplete: 0, errori: 0 }
 
   for (const id of daLavorare) {
     let msg
@@ -74,6 +74,7 @@ async function sincronizza() {
 
     if (esito.esito === 'importata') conteggio.importate++
     else if (esito.esito === 'ignorata') conteggio.ignorate++
+    else if (esito.esito === 'incompleta') conteggio.incomplete++
     else conteggio.errori++
 
     await registraEsito(admin, { origine: 'gmail', messageId: msg.id, threadId: msg.threadId, msg, esito })
