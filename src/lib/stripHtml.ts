@@ -17,3 +17,24 @@ export function stripHtml(html: string): string {
     .replace(/\n\s*\n\s*\n+/g, '\n\n')
     .trim()
 }
+
+// Sceglie il corpo più sostanzioso fra la parte text/plain e quella HTML
+// (ripulita) di una mail multipart.
+//
+// Non ci si può fidare che "plain se non è vuoto" sia sempre la scelta
+// giusta: le notifiche TheFork viste in produzione arrivano con una
+// parte text/plain che è solo il testo dell'oggetto ripetuto — non vuota,
+// quindi "vince" comunque su un `plain.trim() || html`, ma inutile: il
+// nome del cliente, il telefono, i coperti stanno solo nell'HTML. Con
+// quella logica ogni mail veniva letta come "senza dati", non per un
+// errore di interpretazione ma perché il testo passato al parser non
+// conteneva letteralmente nient'altro che il titolo.
+//
+// Si sceglie sempre la versione più lunga delle due: un corpo reale è
+// sempre più ricco di un semplice doppione del subject, qualunque sia il
+// mittente.
+export function sceglieCorpoMail(plain: string, html: string): string {
+  const testoPlain = plain.trim()
+  const testoHtml = stripHtml(html)
+  return testoHtml.length > testoPlain.length ? testoHtml : testoPlain
+}

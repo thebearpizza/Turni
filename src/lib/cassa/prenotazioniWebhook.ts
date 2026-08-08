@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { stripHtml } from '@/lib/stripHtml'
+import { sceglieCorpoMail } from '@/lib/stripHtml'
 import type { MessaggioPrenotazione } from '@/lib/cassa/prenotazioniEmailProcessing'
 
 // Traduce il payload JSON che CloudMailin invia al webhook nello stesso
@@ -56,7 +56,7 @@ export function estraiMessaggioCloudMailin(payload: unknown): MessaggioWebhook |
   const html  = typeof p.html  === 'string' ? p.html  : ''
   // Stesso taglio usato per Gmail: al parser AI bastano le prime migliaia
   // di caratteri, dove stanno sempre i dati della prenotazione.
-  const testo = (plain.trim() || stripHtml(html)).slice(0, 12_000)
+  const testo = sceglieCorpoMail(plain, html).slice(0, 12_000)
 
   // Un payload senza nessuno di questi tre campi non è una mail utile:
   // o non è CloudMailin, o è un evento vuoto di test.
@@ -72,5 +72,14 @@ export function estraiMessaggioCloudMailin(payload: unknown): MessaggioWebhook |
     .update([mittente, oggetto, dataHeader, plain.slice(0, 300)].filter(Boolean).join('|') || JSON.stringify(p).slice(0, 500))
     .digest('hex')
 
-  return { messageId, msg: { mittente, oggetto, testo, ricevutaAt } }
+  return {
+    messageId,
+    // debug: plain/html grezzi, non passati al parser AI — servono solo
+    // se un giorno il testo scelto risulta di nuovo sbagliato, per
+    // vedere subito cosa conteneva davvero ciascuna parte invece di
+    // doverlo dedurre dalla lunghezza del risultato finale (così è
+    // stato scoperto questo bug: il testo salvato coincideva esatto con
+    // l'oggetto, e senza le parti grezze c'era da indovinare il perché).
+    msg: { mittente, oggetto, testo, ricevutaAt, debug: { plain, html } },
+  }
 }

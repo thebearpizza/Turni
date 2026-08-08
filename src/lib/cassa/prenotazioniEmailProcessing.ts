@@ -16,6 +16,11 @@ export interface MessaggioPrenotazione {
   oggetto:    string
   testo:      string
   ricevutaAt: string | null
+  // plain/html grezzi prima della scelta di quale usare come `testo`:
+  // non servono all'interpretazione, solo a poter capire in seguito
+  // perché il testo scelto era sbagliato, senza dover riprodurre la
+  // stessa mail per vederlo di nuovo.
+  debug?:     { plain: string; html: string }
 }
 
 // Tutto ciò che si sa già di una prenotazione a cui manca solo l'orario
@@ -263,7 +268,12 @@ export async function registraEsito(
     // Il testo della mail resta nel log: è ciò che permette di rileggere
     // una notifica non interpretata dopo aver migliorato il parser,
     // senza dover risalire alla casella. `parziale` alimenta la coda di
-    // completamento quando presente.
-    payload: { testo: opts.msg.testo, parziale: opts.esito.parziale ?? null },
+    // completamento quando presente; `debug` le parti plain/html grezze,
+    // per capire perché `testo` è quello che è quando non torna.
+    payload: {
+      testo:    opts.msg.testo,
+      parziale: opts.esito.parziale ?? null,
+      debug:    opts.msg.debug ?? null,
+    },
   })
 }

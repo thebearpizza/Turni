@@ -9,7 +9,7 @@
 // refresh token non scade finché l'app OAuth è pubblicata in
 // produzione: in modalità "Testing" Google lo invalida dopo 7 giorni.
 
-import { stripHtml } from '@/lib/stripHtml'
+import { sceglieCorpoMail } from '@/lib/stripHtml'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
@@ -89,15 +89,16 @@ export interface MessaggioGmail {
   mittente:  string
   oggetto:   string
   testo:     string
+  debug:     { plain: string; html: string }
 }
 
 function decodeBase64Url(data: string): string {
   return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
 }
 
-// Le mail dei gestionali sono multipart HTML: si preferisce il ramo
-// text/plain quando c'è (già pulito), altrimenti si ripiega sull'HTML
-// ripulito dai tag. Il parser AI a valle lavora comunque su testo.
+// Le mail dei gestionali sono multipart HTML: quale dei due rami usare
+// (sceglieCorpoMail, non semplicemente "plain se c'è") lo decide chi
+// chiama, non questa funzione — qui si estraggono entrambi e basta.
 function estraiTesto(part: GmailPart | undefined): { plain: string; html: string } {
   if (!part) return { plain: '', html: '' }
 
@@ -139,7 +140,7 @@ export async function cercaMessaggi(query: string, max = 50): Promise<string[]> 
 export async function leggiMessaggio(id: string): Promise<MessaggioGmail> {
   const msg = await apiGet<GmailMessage>(`/messages/${id}?format=full`)
   const { plain, html } = estraiTesto(msg.payload)
-  const testo = plain.trim() || stripHtml(html)
+  const testo = sceglieCorpoMail(plain, html)
 
   return {
     id:         msg.id,
@@ -151,5 +152,6 @@ export async function leggiMessaggio(id: string): Promise<MessaggioGmail> {
     // prime migliaia di caratteri, dove stanno sempre i dati della
     // prenotazione.
     testo:      testo.slice(0, 12_000),
+    debug:      { plain, html },
   }
 }
