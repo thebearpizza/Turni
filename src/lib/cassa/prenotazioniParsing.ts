@@ -88,7 +88,12 @@ const CampiPrenotazione = {
   telefono: z.string().nullable().describe('Numero di telefono del cliente, se presente.'),
   email: z.string().nullable().describe('Email del cliente, se presente.'),
   note: z.string().nullable().describe(
-    'Richieste particolari, allergie, occasione, sala richiesta, note del cliente o del gestionale. Sintetiche, in italiano. null se non ce ne sono.'
+    'SOLO note del cliente: richieste particolari, allergie/intolleranze, occasione (compleanno, anniversario...), ' +
+    'sala o tavolo richiesto, altre indicazioni scritte per il servizio. Sintetiche, in italiano. ' +
+    'NON va in questo campo: sigle, codici o marcatori interni del gestionale (es. una lettera isolata come "P" o "T", ' +
+    'una spunta, un flag), il canale con cui è arrivata la prenotazione, il numero di tavolo assegnato, lo storico ' +
+    'visite. Se non è chiaramente una nota scritta per il cliente, lascia null: un campo vuoto è meglio di un codice ' +
+    'interno scambiato per una richiesta del cliente.'
   ),
 }
 

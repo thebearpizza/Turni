@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info, Mail, Clock,
+  Armchair, Phone, Eye, CheckCircle2, Info, Mail, Clock, StickyNote,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -139,7 +139,6 @@ function RigaPrenotazione({
                 −{p.sconto_percentuale}% di sconto
               </span>
             )}
-            {p.note && <span className="break-words">· {p.note}</span>}
           </div>
         </button>
 
@@ -150,38 +149,51 @@ function RigaPrenotazione({
       </div>
 
       {espansa && (
-        <div className="grid grid-cols-3 divide-x divide-primary-foreground/20 bg-primary text-primary-foreground">
-          <button
-            type="button"
-            onClick={onAzioneRapida}
-            className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
-          >
-            {azione.icona} {azione.label}
-          </button>
-
-          {p.telefono ? (
-            <a
-              href={`tel:${p.telefono.replace(/\s/g, '')}`}
-              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
-            >
-              <Phone className="h-4 w-4" /> Contattare
-            </a>
-          ) : (
-            <span
-              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium opacity-50"
-              title="Nessun recapito nella prenotazione"
-            >
-              <Phone className="h-4 w-4" /> Contattare
-            </span>
+        <div>
+          {/* La nota del cliente non sta nella riga compatta: si vede
+              solo qui, ad espansione avvenuta, e solo quando c'è
+              davvero — è quello che fa crescere il riquadro di poco
+              invece che di una riga fissa per tutti. */}
+          {p.note && (
+            <div className="flex items-start gap-2 border-t border-border bg-secondary/50 px-3 py-2 text-sm text-secondary-foreground">
+              <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="break-words">{p.note}</span>
+            </div>
           )}
 
-          <button
-            type="button"
-            onClick={onDettagli}
-            className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
-          >
-            <Eye className="h-4 w-4" /> Dettagli
-          </button>
+          <div className="grid grid-cols-3 divide-x divide-primary-foreground/20 bg-primary text-primary-foreground">
+            <button
+              type="button"
+              onClick={onAzioneRapida}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+            >
+              {azione.icona} {azione.label}
+            </button>
+
+            {p.telefono ? (
+              <a
+                href={`tel:${p.telefono.replace(/\s/g, '')}`}
+                className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+              >
+                <Phone className="h-4 w-4" /> Contattare
+              </a>
+            ) : (
+              <span
+                className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium opacity-50"
+                title="Nessun recapito nella prenotazione"
+              >
+                <Phone className="h-4 w-4" /> Contattare
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={onDettagli}
+              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+            >
+              <Eye className="h-4 w-4" /> Dettagli
+            </button>
+          </div>
         </div>
       )}
     </div>
