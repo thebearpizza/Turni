@@ -20,6 +20,7 @@ import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
 } from '@/lib/cassa/prenotazioniAgenda'
+import { chiaveCliente } from '@/lib/cassa/prenotazioniImport'
 import { cn } from '@/lib/utils'
 import type { Prenotazione, PrenotazioneServizio, PrenotazioneStato } from '@/types'
 
@@ -270,23 +271,20 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
   useEffect(() => { setCaricamento(true); carica() }, [carica])
 
-  // Le prenotazioni arrivano anche da fuori app (il cron che legge la
-  // casella): senza realtime l'agenda resterebbe ferma sullo stato del
-  // momento in cui è stata aperta, proprio durante il servizio.
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('prenotazioni_agenda')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'prenotazioni' }, () => carica())
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [carica])
-
   // Tutte le prenotazioni "in coda" (nome e data noti, manca solo
   // l'orario) su TUTTI i locali gestiti, comprese le date future — non
   // solo quella aperta in agenda in questo momento. Alimenta sia la
   // stringa sopra il titolo sia, quando aperto, il riepilogo sfogliabile
   // per giorno.
+  //
+  // Una voce può risultare già risolta senza che il log lo sappia: un
+  // completamento fatto ricreando la prenotazione a mano invece che dal
+  // tasto "Completa", o un aggiornamento del log che per qualche motivo
+  // non è andato a buon fine dopo l'inserimento. Se esiste già una
+  // prenotazione confermata con lo stesso giorno e cliente è un
+  // doppione, non va mostrata — e si chiude anche il log, così non
+  // ricompare al giro successivo e non serve rifare questo controllo
+  // ogni volta.
   const caricaCoda = useCallback(async () => {
     if (restaurants.length === 0) { setCodaVoci([]); return }
     const supabase = createClient()
@@ -298,10 +296,60 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     const voci = ((righe ?? []) as { id: string; payload: { parziale?: BozzaCoda | null } | null }[])
       .map(r => (r.payload?.parziale ? { logId: r.id, voce: { ...r.payload.parziale, logId: r.id } } : null))
       .filter((x): x is VoceCoda => x !== null)
-    setCodaVoci(voci)
+
+    if (voci.length === 0) { setCodaVoci([]); return }
+
+    const giorni = [...new Set(voci.map(v => v.voce.data))]
+    const { data: esistenti } = await supabase
+      .from('prenotazioni')
+      .select('id, restaurant_id, data, nome, cognome')
+      .in('restaurant_id', restaurants.map(r => r.id))
+      .in('data', giorni)
+      .neq('stato', 'eliminata')
+
+    const mappaEsistenti = new Map<string, string>()
+    for (const e of (esistenti ?? []) as { id: string; restaurant_id: string; data: string; nome: string; cognome: string | null }[]) {
+      mappaEsistenti.set(`${e.restaurant_id}|${e.data}|${chiaveCliente(e.nome, e.cognome)}`, e.id)
+    }
+
+    const risolte: { logId: string; prenotazioneId: string }[] = []
+    const daMostrare = voci.filter(v => {
+      const trovata = mappaEsistenti.get(
+        `${v.voce.restaurant_id}|${v.voce.data}|${chiaveCliente(v.voce.nome, v.voce.cognome)}`
+      )
+      if (trovata) { risolte.push({ logId: v.logId, prenotazioneId: trovata }); return false }
+      return true
+    })
+
+    setCodaVoci(daMostrare)
+
+    if (risolte.length > 0) {
+      await Promise.all(
+        risolte.map(({ logId, prenotazioneId }) =>
+          supabase
+            .from('prenotazioni_email_log')
+            .update({ esito: 'importata', prenotazione_id: prenotazioneId })
+            .eq('id', logId)
+        )
+      )
+    }
   }, [restaurants])
 
   useEffect(() => { caricaCoda() }, [caricaCoda])
+
+  // Le prenotazioni arrivano anche da fuori app (il cron che legge la
+  // casella): senza realtime l'agenda resterebbe ferma sullo stato del
+  // momento in cui è stata aperta, proprio durante il servizio. La coda
+  // si riallinea alla stessa notifica: una nuova prenotazione confermata
+  // può risolvere un doppione ancora in coda.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('prenotazioni_agenda')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prenotazioni' }, () => { carica(); caricaCoda() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [carica, caricaCoda])
 
   useEffect(() => {
     const supabase = createClient()
