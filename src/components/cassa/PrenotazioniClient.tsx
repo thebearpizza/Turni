@@ -17,6 +17,7 @@ import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/Preno
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
 import { PrenotazioniDiagnosticaDialog } from '@/components/cassa/PrenotazioniDiagnosticaDialog'
 import { PrenotazioniCodaDialog } from '@/components/cassa/PrenotazioniCodaDialog'
+import { PrenotazioniRiepilogoCodaDialog } from '@/components/cassa/PrenotazioniRiepilogoCodaDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
@@ -25,6 +26,24 @@ import { cn } from '@/lib/utils'
 import type { Prenotazione, PrenotazioneServizio, PrenotazioneStato } from '@/types'
 
 const TZ = 'Europe/Rome'
+
+// Colore stabile per insegna: due locali (es. Crunch!/Benthos) condividono
+// la stessa agenda e durante il servizio bisogna distinguerli a colpo
+// d'occhio, non leggendo la sigla. Non dipende dal nome specifico — un
+// hash sulla sigla, così qualunque locale futuro ottiene comunque un
+// colore diverso da quelli già in uso sullo stesso giorno.
+const PALETTE_INSEGNA = [
+  'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300',
+  'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300',
+  'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300',
+  'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300',
+]
+
+function coloreInsegna(codice: string): string {
+  let h = 0
+  for (let i = 0; i < codice.length; i++) h = (h * 31 + codice.charCodeAt(i)) >>> 0
+  return PALETTE_INSEGNA[h % PALETTE_INSEGNA.length]
+}
 
 interface RestaurantOption { id: string; name: string }
 interface InsegnaOption { id: string; restaurant_id: string; codice: string; etichetta: string }
@@ -108,19 +127,27 @@ function RigaPrenotazione({
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span className="cassa-numeric">{normalizzaOrario(p.orario)}</span>
             {etichettaInsegna && (
-              <span className="rounded border border-border bg-secondary px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary-foreground">
+              <span className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                p.insegna ? coloreInsegna(p.insegna) : 'bg-secondary text-secondary-foreground'
+              )}>
                 {etichettaInsegna}
               </span>
             )}
             {dettaglioBambini(p) && <span>· {dettaglioBambini(p)}</span>}
             {p.sconto_percentuale != null && (
-              <span className="text-[hsl(var(--cassa-copper))]">· −{p.sconto_percentuale}%</span>
+              <span className="font-medium text-[hsl(var(--cassa-copper))]">
+                −{p.sconto_percentuale}% di sconto
+              </span>
             )}
             {p.note && <span className="break-words">· {p.note}</span>}
           </div>
         </button>
 
-        <div className="cassa-numeric shrink-0 text-lg font-semibold">{formatPax(p)}</div>
+        <div className="shrink-0 text-right leading-none">
+          <span className="cassa-numeric text-lg font-semibold">{formatPax(p)}</span>
+          <span className="ml-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">pax</span>
+        </div>
       </div>
 
       {espansa && (
@@ -333,6 +360,12 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
   function completaDaCoda(voce: BozzaCoda) {
     setCodaAperta(false)
+    // Il riepilogo giornaliero raccoglie la coda su tutti i locali: una
+    // voce può appartenere a un locale diverso da quello aperto in
+    // agenda in questo momento. Si passa a quello giusto prima di aprire
+    // il modulo, altrimenti il selettore insegna mostrerebbe le opzioni
+    // del locale sbagliato.
+    if (voce.restaurant_id !== restaurantId) setRestaurantId(voce.restaurant_id)
     setFormIniziale(null)
     setFormPrenotazione(null)
     setFormBozza(voce)
@@ -621,6 +654,8 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         onCompleta={completaDaCoda}
         onCambiato={caricaCoda}
       />
+
+      <PrenotazioniRiepilogoCodaDialog restaurants={restaurants} onCompleta={completaDaCoda} />
     </div>
   )
 }

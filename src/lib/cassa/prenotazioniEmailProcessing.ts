@@ -43,6 +43,20 @@ export interface DatiParziali {
   note:                string | null
 }
 
+// Il minimo che serve per annunciare l'arrivo di una prenotazione (push +
+// notifica in-app): sottoinsieme di DatiParziali, ma con l'orario — che lì
+// non c'è mai per definizione — perché qui serve dire anche "confermata
+// per le 20:30", non solo "in coda".
+export interface DettagliNotifica {
+  restaurant_id: string
+  origine:       'thefork' | 'restoo'
+  nome:          string
+  cognome:       string | null
+  data:          string
+  orario:        string | null
+  persone:       number
+}
+
 export interface EsitoMail {
   esito:   'importata' | 'ignorata' | 'errore' | 'incompleta'
   evento?: EmailPrenotazione['evento']
@@ -50,6 +64,14 @@ export interface EsitoMail {
   prenotazione_id?: string
   // Presente solo quando esito === 'incompleta'.
   parziale?: DatiParziali
+  // true solo per un inserimento nuovo (non per l'aggiornamento di una
+  // prenotazione già in agenda): è quello che decide se vale la pena
+  // avvisare — una modifica a qualcosa che il manager conosce già non è
+  // "è arrivata una prenotazione".
+  nuova?: boolean
+  // Presente quando c'è qualcosa da annunciare (nuova === true oppure
+  // esito === 'incompleta').
+  dettagli?: DettagliNotifica
 }
 
 export type AdminClient = ReturnType<typeof createAdminClient>
@@ -71,7 +93,14 @@ export async function lavoraMail(
   // certa: preferirla a quella eventualmente indovinata dal modello da
   // un testo che non la contiene affatto. Lo stesso per il codice
   // prenotazione, più affidabile di quanto il testo libero possa offrire.
-  const daLink = estraiDaLinkTheFork(msg.testo)
+  //
+  // L'URL vive SOLO nell'href, mai nel testo visibile: `msg.testo` è già
+  // ripulito dall'HTML (sceglieCorpoMail/stripHtml), quindi cercare il
+  // link lì non trova mai nulla — va cercato nell'HTML grezzo, prima che
+  // gli attributi dei tag vengano scartati. Per questo si usa `debug.html`
+  // (e, per sicurezza, anche `debug.plain`) invece di `testo`.
+  const grezzo = [msg.debug?.html, msg.debug?.plain, msg.testo].filter(Boolean).join('\n')
+  const daLink = estraiDaLinkTheFork(grezzo)
   const letta = {
     ...daModello,
     data:        daLink?.data ?? daModello.data,
@@ -149,6 +178,15 @@ export async function lavoraMail(
         email:               letta.email,
         note,
       },
+      dettagli: {
+        restaurant_id: abbinamento.restaurant_id,
+        origine,
+        nome:          letta.nome,
+        cognome:       letta.cognome,
+        data:          letta.data,
+        orario:        null,
+        persone,
+      },
     }
   }
 
@@ -221,7 +259,21 @@ export async function lavoraMail(
     .single()
 
   if (error) return { esito: 'errore', evento: letta.evento, errore: error.message }
-  return { esito: 'importata', evento: letta.evento, prenotazione_id: creata.id }
+  return {
+    esito: 'importata',
+    evento: letta.evento,
+    prenotazione_id: creata.id,
+    nuova: true,
+    dettagli: {
+      restaurant_id: abbinamento.restaurant_id,
+      origine,
+      nome:          letta.nome,
+      cognome:       letta.cognome,
+      data:          letta.data,
+      orario,
+      persone,
+    },
+  }
 }
 
 // Righe di prenotazioni_insegne / prenotazioni_locali_ignorati, lette una

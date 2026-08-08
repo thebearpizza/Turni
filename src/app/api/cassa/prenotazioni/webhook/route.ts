@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { lavoraMail, caricaConfigurazioneLocali, registraEsito, type EsitoMail } from '@/lib/cassa/prenotazioniEmailProcessing'
 import { estraiMessaggioCloudMailin } from '@/lib/cassa/prenotazioniWebhook'
+import { notificaNuovaPrenotazione } from '@/lib/cassa/prenotazioniNotifiche'
 
 // Riceve in tempo reale le mail di notifica che CloudMailin inoltra
 // dall'indirizzo di posta in entrata dedicato a questa agenda —
@@ -68,6 +69,17 @@ export async function POST(request: Request) {
   }
 
   await registraEsito(admin, { origine: 'cloudmailin', messageId, msg, esito })
+
+  // Attesa (non fire-and-forget): su un runtime serverless una promise
+  // avviata e non attesa rischia di restare a metà quando la funzione
+  // si congela subito dopo la risposta. La funzione stessa non lancia mai
+  // — è già best-effort al suo interno — quindi attenderla qui non
+  // rischia di far fallire il webhook, solo di impiegare qualche istante
+  // in più. Solo per un arrivo vero (nuova in agenda o in coda), non per
+  // l'aggiornamento di una prenotazione già nota.
+  if (esito.dettagli && (esito.nuova || esito.esito === 'incompleta')) {
+    await notificaNuovaPrenotazione(esito.dettagli)
+  }
 
   // Sempre 200 se si è arrivati fin qui, anche per un esito 'errore' di
   // interpretazione: quell'errore è nostro (mail non capita), non un

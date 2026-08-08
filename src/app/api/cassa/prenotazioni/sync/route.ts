@@ -5,6 +5,7 @@ import { cercaMessaggi, leggiMessaggio, gmailConfigurato } from '@/lib/gmail'
 import { aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { queryMittenti, MAX_MESSAGGI } from '@/lib/cassa/prenotazioniMail'
 import { lavoraMail, caricaConfigurazioneLocali, registraEsito, type EsitoMail } from '@/lib/cassa/prenotazioniEmailProcessing'
+import { notificaNuovaPrenotazione } from '@/lib/cassa/prenotazioniNotifiche'
 
 // Legge la casella su cui TheFork e Restoo recapitano le notifiche e
 // riversa le prenotazioni nell'agenda. Invocata dal cron di Vercel e,
@@ -78,6 +79,14 @@ async function sincronizza() {
     else conteggio.errori++
 
     await registraEsito(admin, { origine: 'gmail', messageId: msg.id, threadId: msg.threadId, msg, esito })
+
+    // Solo per un arrivo vero (nuova in agenda o in coda), non per
+    // l'aggiornamento di una prenotazione già nota. In sequenza col resto
+    // del ciclo: il cron ha 60s di margine, e batch di N mail non devono
+    // sparare N notifiche in parallelo l'una sull'altra.
+    if (esito.dettagli && (esito.nuova || esito.esito === 'incompleta')) {
+      await notificaNuovaPrenotazione(esito.dettagli)
+    }
   }
 
   return NextResponse.json(conteggio)
