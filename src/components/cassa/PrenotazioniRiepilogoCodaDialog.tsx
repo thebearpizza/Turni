@@ -33,6 +33,7 @@ function diffGiorni(a: string, b: string): number {
 }
 
 interface RestaurantOption { id: string; name: string }
+interface InsegnaOption { restaurant_id: string; codice: string; etichetta: string }
 
 export interface VoceCoda { logId: string; voce: BozzaCoda }
 
@@ -41,6 +42,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
   voci:         VoceCoda[]
   restaurants:  RestaurantOption[]
+  insegne:      InsegnaOption[]
   onCompleta:   (voce: BozzaCoda) => void
   // Chiamato dopo aver scartato una voce, per far ricalcolare subito il
   // contatore sopra il titolo — il realtime arriva comunque, ma con un
@@ -48,7 +50,7 @@ interface Props {
   onCambiato:   () => void
 }
 
-export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, restaurants, onCompleta, onCambiato }: Props) {
+export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, restaurants, insegne, onCompleta, onCambiato }: Props) {
   const [giorno, setGiorno] = useState(oggiRoma)
   const [inCorso, setInCorso] = useState<string | null>(null)
 
@@ -60,11 +62,23 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
     onCambiato()
   }
 
-  const nomeLocale = (id: string) => restaurants.find(r => r.id === id)?.name ?? id
+  // Il nome del ristorante NON basta a distinguere il locale: Crunch! e
+  // Benthos condividono lo stesso record `restaurants` (un'unica agenda),
+  // quindi va mostrata l'insegna della prenotazione, non il nome della
+  // riga restaurants — altrimenti una prenotazione Benthos comparirebbe
+  // etichettata col nome dell'altra insegna.
+  const etichettaLocale = (restaurantId: string, codiceInsegna: string | null) => {
+    const trovata = codiceInsegna
+      ? insegne.find(i => i.restaurant_id === restaurantId && i.codice === codiceInsegna)
+      : null
+    return trovata?.etichetta ?? codiceInsegna ?? restaurants.find(r => r.id === restaurantId)?.name ?? restaurantId
+  }
 
   const delGiorno = voci
     .filter(v => v.voce.data === giorno)
-    .sort((a, b) => nomeLocale(a.voce.restaurant_id).localeCompare(nomeLocale(b.voce.restaurant_id)))
+    .sort((a, b) =>
+      etichettaLocale(a.voce.restaurant_id, a.voce.insegna).localeCompare(etichettaLocale(b.voce.restaurant_id, b.voce.insegna))
+    )
 
   // Il giorno più vicino con qualcosa in coda, quando quello aperto è
   // vuoto: è quello che trasforma "non c'è nulla" in "guarda lì invece".
@@ -161,7 +175,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
                     <span>· <span className="cassa-numeric">{voce.persone}</span> pax</span>
-                    <span>· {nomeLocale(voce.restaurant_id)}</span>
+                    <span>· {etichettaLocale(voce.restaurant_id, voce.insegna)}</span>
                     <span>· {ORIGINE_LABEL[voce.origine] ?? voce.origine}</span>
                   </div>
                 </div>

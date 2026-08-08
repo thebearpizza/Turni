@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     esito = { esito: 'errore', errore: err instanceof Error ? err.message : String(err) }
   }
 
-  await registraEsito(admin, { origine: 'cloudmailin', messageId, msg, esito })
+  const logId = await registraEsito(admin, { origine: 'cloudmailin', messageId, msg, esito })
 
   // Attesa (non fire-and-forget): su un runtime serverless una promise
   // avviata e non attesa rischia di restare a metà quando la funzione
@@ -78,7 +78,10 @@ export async function POST(request: Request) {
   // in più. Solo per un arrivo vero (nuova in agenda o in coda), non per
   // l'aggiornamento di una prenotazione già nota.
   if (esito.dettagli && (esito.nuova || esito.esito === 'incompleta')) {
-    await notificaNuovaPrenotazione(esito.dettagli)
+    // logId solo per l'esito 'incompleta': è quello che serve alla
+    // notifica per linkare dritto al completamento di questa voce.
+    const dettagli = esito.esito === 'incompleta' && logId ? { ...esito.dettagli, logId } : esito.dettagli
+    await notificaNuovaPrenotazione(dettagli)
   }
 
   // Sempre 200 se si è arrivati fin qui, anche per un esito 'errore' di

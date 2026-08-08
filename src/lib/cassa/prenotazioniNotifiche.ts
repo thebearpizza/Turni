@@ -45,7 +45,14 @@ export async function notificaNuovaPrenotazione(dettagli: DettagliNotifica): Pro
     const message = dettagli.orario
       ? `${nome} · ${dataLabel} ${normalizzaOrario(dettagli.orario)} · ${paxLabel} · ${ORIGINE_LABEL[dettagli.origine] ?? dettagli.origine}`
       : `${nome} · ${dataLabel} · ${paxLabel} · manca l'orario (${ORIGINE_LABEL[dettagli.origine] ?? dettagli.origine})`
-    const link = '/cassa/prenotazioni'
+    // Safari/iOS ignora i pulsanti azione nelle notifiche push (tenerla
+    // premuta o tirarla giù non mostra alcuna azione personalizzata,
+    // solo "Visualizza" — limite della piattaforma, non della notifica
+    // qui inviata): il modo più vicino a "scegli l'orario dalla notifica"
+    // è che il tocco porti dritto al modulo di completamento di QUESTA
+    // prenotazione invece che alla tab in generale, pronto per scrivere
+    // l'orario — il servizio (pranzo/cena) si deduce da solo da quello.
+    const link = dettagli.logId ? `/cassa/prenotazioni?completa=${dettagli.logId}` : '/cassa/prenotazioni'
 
     const managerIds = targetManagers.map(m => m.id)
     const [, { data: subs }] = await Promise.all([

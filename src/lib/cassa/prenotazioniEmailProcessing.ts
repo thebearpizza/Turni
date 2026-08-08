@@ -55,6 +55,11 @@ export interface DettagliNotifica {
   data:          string
   orario:        string | null
   persone:       number
+  // Id della riga di log, aggiunto dal chiamante DOPO registraEsito()
+  // (qui non esiste ancora): solo quando presente la notifica può
+  // linkare dritto al completamento di QUESTA prenotazione invece che
+  // alla tab Prenotazioni in generale.
+  logId?:        string
 }
 
 export interface EsitoMail {
@@ -295,7 +300,11 @@ export async function caricaConfigurazioneLocali(
 // Registra l'esito nel log, qualunque sia stata la via d'ingresso — è
 // ciò che alimenta l'idempotenza (message_id UNIQUE per origine), la
 // diagnostica in-app e, per l'esito 'incompleta', la coda di
-// completamento manuale.
+// completamento manuale. Restituisce l'id della riga: la notifica push,
+// quando l'esito è 'incompleta', lo usa per portare chi tocca la notifica
+// dritto al modulo di completamento di QUESTA prenotazione — il log non
+// esiste ancora finché lavoraMail() non è tornata, quindi quel link si
+// costruisce solo qui, dopo l'insert.
 export async function registraEsito(
   admin: AdminClient,
   opts: {
@@ -305,8 +314,8 @@ export async function registraEsito(
     msg:       MessaggioPrenotazione
     esito:     EsitoMail
   }
-): Promise<void> {
-  await admin.from('prenotazioni_email_log').insert({
+): Promise<string | null> {
+  const { data } = await admin.from('prenotazioni_email_log').insert({
     origine:      opts.origine,
     message_id:   opts.messageId,
     thread_id:    opts.threadId ?? null,
@@ -327,5 +336,6 @@ export async function registraEsito(
       parziale: opts.esito.parziale ?? null,
       debug:    opts.msg.debug ?? null,
     },
-  })
+  }).select('id').single()
+  return data?.id ?? null
 }

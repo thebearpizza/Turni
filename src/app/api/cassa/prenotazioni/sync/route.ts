@@ -78,14 +78,17 @@ async function sincronizza() {
     else if (esito.esito === 'incompleta') conteggio.incomplete++
     else conteggio.errori++
 
-    await registraEsito(admin, { origine: 'gmail', messageId: msg.id, threadId: msg.threadId, msg, esito })
+    const logId = await registraEsito(admin, { origine: 'gmail', messageId: msg.id, threadId: msg.threadId, msg, esito })
 
     // Solo per un arrivo vero (nuova in agenda o in coda), non per
     // l'aggiornamento di una prenotazione già nota. In sequenza col resto
     // del ciclo: il cron ha 60s di margine, e batch di N mail non devono
     // sparare N notifiche in parallelo l'una sull'altra.
     if (esito.dettagli && (esito.nuova || esito.esito === 'incompleta')) {
-      await notificaNuovaPrenotazione(esito.dettagli)
+      // logId solo per l'esito 'incompleta': è quello che serve alla
+      // notifica per linkare dritto al completamento di questa voce.
+      const dettagli = esito.esito === 'incompleta' && logId ? { ...esito.dettagli, logId } : esito.dettagli
+      await notificaNuovaPrenotazione(dettagli)
     }
   }
 

@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info, Mail, Clock, StickyNote,
+  Armchair, Phone, Eye, CheckCircle2, Info, Clock, StickyNote,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,7 +15,6 @@ import { StatoIcona } from '@/components/cassa/PrenotazioneIcona'
 import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDialog'
 import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
-import { PrenotazioniDiagnosticaDialog } from '@/components/cassa/PrenotazioniDiagnosticaDialog'
 import { PrenotazioniRiepilogoCodaDialog, type VoceCoda } from '@/components/cassa/PrenotazioniRiepilogoCodaDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
@@ -229,7 +228,6 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   // dai dati giusti senza doverli risincronizzare con un effetto.
   const [formSeq, setFormSeq] = useState(0)
   const [importAperto, setImportAperto] = useState(false)
-  const [diagnosticaAperta, setDiagnosticaAperta] = useState(false)
   const [riepilogoAperto, setRiepilogoAperto] = useState(false)
   const [codaVoci, setCodaVoci] = useState<VoceCoda[]>([])
 
@@ -328,20 +326,20 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const sedute     = useMemo(() => prenotazioni.filter(p => p.stato === 'seduta'), [prenotazioni])
   const noShow     = useMemo(() => prenotazioni.filter(p => p.stato === 'no_show'), [prenotazioni])
 
-  // Quante delle confermate vengono da ciascuna insegna via TheFork e
-  // quante sono dirette (Restoo): la fascia oraria dice quante persone
-  // arrivano, questo dice da dove — utile per capire in anticipo se la
-  // sala servirà due carte diverse o soprattutto una.
-  const confermatePerFonte = useMemo(() => {
-    const perInsegna = new Map<string, number>()
+  // Quanti PAX confermati vengono da ciascuna insegna via TheFork e quanti
+  // sono diretti (Restoo) — coperti, non numero di prenotazioni: è quello
+  // che dice davvero quanto lavoro arriva da dove, un tavolo da 8 pesa
+  // come 8 da 1, non come una singola voce nell'elenco.
+  const confermatePax = useMemo(() => {
+    let benthos = 0
+    let crunch = 0
     let restoo = 0
-    let altre = 0
     for (const p of confermate) {
-      if (p.origine === 'restoo') restoo++
-      else if (p.origine === 'thefork' && p.insegna) perInsegna.set(p.insegna, (perInsegna.get(p.insegna) ?? 0) + 1)
-      else altre++
+      if (p.origine === 'restoo') restoo += p.persone
+      else if (p.origine === 'thefork' && p.insegna === 'benthos') benthos += p.persone
+      else if (p.origine === 'thefork' && p.insegna === 'crunch') crunch += p.persone
     }
-    return { perInsegna, restoo, altre }
+    return { benthos, crunch, restoo }
   }, [confermate])
   const fasce      = useMemo(() => costruisciFasce(servizio, confermate), [servizio, confermate])
 
@@ -412,6 +410,40 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     setFormSeq(n => n + 1)
     setFormAperto(true)
   }
+
+  // Safari/iOS non mostra pulsanti azione sulle notifiche push (tenerle
+  // premute o tirarle giù non offre nulla oltre "Visualizza": limite
+  // della piattaforma). Il modo più vicino a "scegli l'orario dalla
+  // notifica" è che il link della notifica porti già dritto qui — la
+  // route /api/cassa/prenotazioni/webhook e /sync lo costruiscono come
+  // ?completa=<id log> — e apra subito il modulo di completamento di
+  // QUELLA prenotazione, pronto per scrivere l'orario (il servizio si
+  // deduce da solo, non va scelto a parte). Lettura diretta dell'URL
+  // invece di useSearchParams: un solo controllo all'apertura, non serve
+  // reagire alla navigazione.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const logId = params.get('completa')
+    if (!logId) return
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('completa')
+    window.history.replaceState({}, '', url)
+
+    const supabase = createClient()
+    supabase
+      .from('prenotazioni_email_log')
+      .select('id, payload')
+      .eq('id', logId)
+      .eq('esito', 'incompleta')
+      .maybeSingle()
+      .then(({ data }) => {
+        const parziale = (data?.payload as { parziale?: BozzaCoda | null } | null)?.parziale
+        if (data && parziale) completaDaCoda({ ...parziale, logId: data.id })
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (restaurants.length === 0) {
     return (
@@ -521,18 +553,17 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={() => apriNuova(FASCE[servizio].inizio)}>
+      {/* Stesso peso visivo della barra del calendario sopra: due tasti
+          pari invece di una fila di pulsanti di larghezza diversa. */}
+      <div className="flex items-center gap-2">
+        <Button type="button" className="flex-1" onClick={() => apriNuova(FASCE[servizio].inizio)}>
           <Plus className="h-4 w-4" /> Prenotazione
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setImportAperto(true)}>
+        <Button type="button" variant="outline" className="flex-1" onClick={() => setImportAperto(true)}>
           <Upload className="h-4 w-4" /> Importa
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setDiagnosticaAperta(true)}>
-          <Mail className="h-4 w-4" /> Collegamento mail
-        </Button>
         {data !== oggiRoma() && (
-          <Button type="button" size="sm" variant="ghost" onClick={() => setData(oggiRoma())}>
+          <Button type="button" variant="outline" className="flex-1" onClick={() => setData(oggiRoma())}>
             Oggi
           </Button>
         )}
@@ -566,23 +597,17 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         <div className="space-y-4">
           {confermate.length > 0 && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
-              {[...confermatePerFonte.perInsegna.entries()].map(([insegna, quante]) => (
-                <span key={insegna} className="flex items-center gap-1.5">
-                  <span className={cn('h-2 w-2 rounded-full', puntoInsegna(insegna))} />
-                  <span className="cassa-numeric font-medium text-foreground">{quante}</span> {etichettaInsegna(insegna) ?? insegna}
-                </span>
-              ))}
-              {confermatePerFonte.restoo > 0 && (
-                <span>
-                  <span className="cassa-numeric font-medium text-foreground">{confermatePerFonte.restoo}</span>{' '}
-                  dirett{confermatePerFonte.restoo === 1 ? 'a' : 'e'} (Restoo)
-                </span>
-              )}
-              {confermatePerFonte.altre > 0 && (
-                <span>
-                  <span className="cassa-numeric font-medium text-foreground">{confermatePerFonte.altre}</span> altre
-                </span>
-              )}
+              <span className="flex items-center gap-1.5">
+                <span className={cn('h-2 w-2 rounded-full', puntoInsegna('benthos'))} />
+                <span className="cassa-numeric font-medium text-foreground">{confermatePax.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className={cn('h-2 w-2 rounded-full', puntoInsegna('crunch'))} />
+                <span className="cassa-numeric font-medium text-foreground">{confermatePax.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
+              </span>
+              <span>
+                <span className="cassa-numeric font-medium text-foreground">{confermatePax.restoo}</span> pax dirette (Restoo)
+              </span>
             </p>
           )}
 
@@ -708,13 +733,12 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         onImportate={n => { setAvviso(`${n} prenotazioni importate.`); carica() }}
       />
 
-      <PrenotazioniDiagnosticaDialog open={diagnosticaAperta} onOpenChange={setDiagnosticaAperta} />
-
       <PrenotazioniRiepilogoCodaDialog
         open={riepilogoAperto}
         onOpenChange={setRiepilogoAperto}
         voci={codaVoci}
         restaurants={restaurants}
+        insegne={insegne}
         onCompleta={completaDaCoda}
         onCambiato={caricaCoda}
       />
