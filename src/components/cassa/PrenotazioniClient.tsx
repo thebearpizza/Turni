@@ -16,8 +16,7 @@ import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDia
 import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
 import { PrenotazioniDiagnosticaDialog } from '@/components/cassa/PrenotazioniDiagnosticaDialog'
-import { PrenotazioniCodaDialog } from '@/components/cassa/PrenotazioniCodaDialog'
-import { PrenotazioniRiepilogoCodaDialog } from '@/components/cassa/PrenotazioniRiepilogoCodaDialog'
+import { PrenotazioniRiepilogoCodaDialog, type VoceCoda } from '@/components/cassa/PrenotazioniRiepilogoCodaDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
@@ -211,8 +210,8 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   const [formSeq, setFormSeq] = useState(0)
   const [importAperto, setImportAperto] = useState(false)
   const [diagnosticaAperta, setDiagnosticaAperta] = useState(false)
-  const [codaAperta, setCodaAperta] = useState(false)
-  const [codaCount, setCodaCount] = useState(0)
+  const [riepilogoAperto, setRiepilogoAperto] = useState(false)
+  const [codaVoci, setCodaVoci] = useState<VoceCoda[]>([])
 
   const [sincronizzando, setSincronizzando] = useState(false)
   const [avviso, setAvviso] = useState<string | null>(null)
@@ -265,19 +264,24 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [carica])
 
-  // Quante prenotazioni sono "in coda" (nome e data noti, manca solo
-  // l'orario) per il locale selezionato — solo il conteggio, la lista
-  // vera la carica il dialog dedicato quando lo si apre.
+  // Tutte le prenotazioni "in coda" (nome e data noti, manca solo
+  // l'orario) su TUTTI i locali gestiti, comprese le date future — non
+  // solo quella aperta in agenda in questo momento. Alimenta sia la
+  // stringa sopra il titolo sia, quando aperto, il riepilogo sfogliabile
+  // per giorno.
   const caricaCoda = useCallback(async () => {
-    if (!restaurantId) { setCodaCount(0); return }
+    if (restaurants.length === 0) { setCodaVoci([]); return }
     const supabase = createClient()
-    const { count } = await supabase
+    const { data: righe } = await supabase
       .from('prenotazioni_email_log')
-      .select('*', { count: 'exact', head: true })
+      .select('id, payload')
       .eq('esito', 'incompleta')
-      .eq('payload->parziale->>restaurant_id', restaurantId)
-    setCodaCount(count ?? 0)
-  }, [restaurantId])
+      .in('payload->parziale->>restaurant_id', restaurants.map(r => r.id))
+    const voci = ((righe ?? []) as { id: string; payload: { parziale?: BozzaCoda | null } | null }[])
+      .map(r => (r.payload?.parziale ? { logId: r.id, voce: { ...r.payload.parziale, logId: r.id } } : null))
+      .filter((x): x is VoceCoda => x !== null)
+    setCodaVoci(voci)
+  }, [restaurants])
 
   useEffect(() => { caricaCoda() }, [caricaCoda])
 
@@ -359,8 +363,8 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   }
 
   function completaDaCoda(voce: BozzaCoda) {
-    setCodaAperta(false)
-    // Il riepilogo giornaliero raccoglie la coda su tutti i locali: una
+    setRiepilogoAperto(false)
+    // Il riepilogo raccoglie la coda su tutti i locali: una
     // voce può appartenere a un locale diverso da quello aperto in
     // agenda in questo momento. Si passa a quello giusto prima di aprire
     // il modulo, altrimenti il selettore insegna mostrerebbe le opzioni
@@ -387,6 +391,18 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 lg:p-8">
       <div>
+        {/* Sempre visibile, indipendentemente dal giorno aperto in
+            agenda in questo momento: la coda non è legata a "oggi". */}
+        {codaVoci.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setRiepilogoAperto(true)}
+            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))] hover:underline"
+          >
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+            <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'} da confermare l&apos;orario
+          </button>
+        )}
         <h1 className="cassa-display text-2xl">Prenotazioni</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           TheFork e Restoo in un&apos;unica agenda di servizio.
@@ -479,17 +495,6 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
         <Button type="button" size="sm" variant="outline" onClick={() => setDiagnosticaAperta(true)}>
           <Mail className="h-4 w-4" /> Collegamento mail
         </Button>
-        {codaCount > 0 && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="border-[hsl(var(--cassa-copper))]/50 text-[hsl(var(--cassa-copper))] hover:text-[hsl(var(--cassa-copper))]"
-            onClick={() => setCodaAperta(true)}
-          >
-            <Clock className="h-4 w-4" /> <span className="cassa-numeric">{codaCount}</span> da completare
-          </Button>
-        )}
         {data !== oggiRoma() && (
           <Button type="button" size="sm" variant="ghost" onClick={() => setData(oggiRoma())}>
             Oggi
@@ -647,15 +652,14 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
 
       <PrenotazioniDiagnosticaDialog open={diagnosticaAperta} onOpenChange={setDiagnosticaAperta} />
 
-      <PrenotazioniCodaDialog
-        open={codaAperta}
-        onOpenChange={setCodaAperta}
-        restaurantId={restaurantId}
+      <PrenotazioniRiepilogoCodaDialog
+        open={riepilogoAperto}
+        onOpenChange={setRiepilogoAperto}
+        voci={codaVoci}
+        restaurants={restaurants}
         onCompleta={completaDaCoda}
         onCambiato={caricaCoda}
       />
-
-      <PrenotazioniRiepilogoCodaDialog restaurants={restaurants} onCompleta={completaDaCoda} />
     </div>
   )
 }
