@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Loader2, Upload, CheckCircle2, AlertTriangle, Copy } from 'lucide-react'
+import { Loader2, Upload, CheckCircle2, AlertTriangle, Copy, Clock } from 'lucide-react'
 import { normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
 import { cn } from '@/lib/utils'
 import type { PrenotazioneServizio, PrenotazioneStato } from '@/types'
@@ -17,7 +17,8 @@ import type { PrenotazioneServizio, PrenotazioneStato } from '@/types'
 interface RigaLetta {
   restaurant_id:      string
   insegna:            string | null
-  origine:            'import'
+  origine:            'import' | 'thefork' | 'restoo'
+  riferimento_esterno: string | null
   data:               string
   orario:             string
   servizio:           PrenotazioneServizio
@@ -33,6 +34,9 @@ interface RigaLetta {
   // Solo per l'anteprima: non vanno inviate al database.
   duplicato:          string | null
   avviso:             string | null
+  // Presente quando questa riga completa una voce della coda mail: dopo
+  // l'insert va anche chiusa quella voce di log.
+  completaLogId:      string | null
 }
 
 interface Verifica {
@@ -99,32 +103,54 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
 
   async function conferma() {
     if (!righe) return
-    // duplicato e avviso servono solo all'anteprima: la tabella non ha
-    // quelle colonne e Supabase rifiuterebbe l'insert.
-    const daInserire = righe
-      .filter((_, i) => !escluse.has(i))
-      .map(r => {
-        const riga = { ...r }
-        delete (riga as Partial<RigaLetta>).duplicato
-        delete (riga as Partial<RigaLetta>).avviso
-        return riga
-      })
-    if (daInserire.length === 0) return
+    const selezionate = righe.filter((_, i) => !escluse.has(i))
+    if (selezionate.length === 0) return
+
+    // duplicato, avviso e completaLogId servono solo all'anteprima: la
+    // tabella non ha quelle colonne e Supabase rifiuterebbe l'insert.
+    const daInserire = selezionate.map(r => {
+      const riga = { ...r }
+      delete (riga as Partial<RigaLetta>).duplicato
+      delete (riga as Partial<RigaLetta>).avviso
+      delete (riga as Partial<RigaLetta>).completaLogId
+      return riga
+    })
 
     setSalvando(true)
     setErrore(null)
     const supabase = createClient()
-    const { error } = await supabase.from('prenotazioni').insert(daInserire)
+    const { data: create, error } = await supabase.from('prenotazioni').insert(daInserire).select('id')
     setSalvando(false)
 
     if (error) { setErrore(error.message); return }
+
+    // Le righe che completavano una voce in coda vanno chiuse: l'orario
+    // ora c'è, non deve più comparire come "da completare". Best-effort —
+    // se questo fallisce le prenotazioni sono comunque create, resta solo
+    // una voce di coda ormai superata da sistemare al volo.
+    const daChiudere = selezionate
+      .map((r, i) => (r.completaLogId ? { logId: r.completaLogId, prenotazioneId: create?.[i]?.id } : null))
+      .filter((x): x is { logId: string; prenotazioneId: string } => !!x?.prenotazioneId)
+
+    if (daChiudere.length > 0) {
+      await Promise.all(
+        daChiudere.map(({ logId, prenotazioneId }) =>
+          supabase
+            .from('prenotazioni_email_log')
+            .update({ esito: 'importata', prenotazione_id: prenotazioneId })
+            .eq('id', logId)
+        )
+      )
+    }
+
     onImportate(daInserire.length)
     reset()
     onOpenChange(false)
   }
 
-  const selezionate = righe ? righe.length - escluse.size : 0
+  const selezionateCount = righe ? righe.length - escluse.size : 0
   const doppioni = righe?.filter(r => r.duplicato).length ?? 0
+  const completamenti = righe?.filter(r => r.completaLogId).length ?? 0
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!leggendo && !salvando) { if (!o) reset(); onOpenChange(o) } }}>
@@ -205,7 +231,10 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         {righe && (
           <div className="space-y-2">
             <p className="text-sm">
-              <span className="cassa-numeric font-medium">{selezionate}</span> di {righe.length} da importare
+              <span className="cassa-numeric font-medium">{selezionateCount}</span> di {righe.length} da importare
+              {completamenti > 0 && (
+                <span className="text-[hsl(var(--cassa-copper))]"> · {completamenti} completano una prenotazione in coda</span>
+              )}
               {doppioni > 0 && (
                 <span className="text-muted-foreground"> · {doppioni} già in agenda</span>
               )}
@@ -243,6 +272,11 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                           <Copy className="h-3 w-3 shrink-0" /> {r.duplicato}
                         </span>
                       )}
+                      {r.completaLogId && (
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[hsl(var(--cassa-copper))]">
+                          <Clock className="h-3 w-3 shrink-0" /> Era in coda senza orario: lo assegna questo import
+                        </span>
+                      )}
                       {r.avviso && (
                         <span className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
                           <AlertTriangle className="h-3 w-3 shrink-0" /> {r.avviso}
@@ -262,10 +296,10 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={leggendo || salvando}>
             Annulla
           </Button>
-          <Button type="button" onClick={conferma} disabled={!righe || selezionate === 0 || salvando || leggendo}>
+          <Button type="button" onClick={conferma} disabled={!righe || selezionateCount === 0 || salvando || leggendo}>
             {salvando
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Importazione…</>
-              : `Importa ${selezionate || ''}`.trim()}
+              : `Importa ${selezionateCount || ''}`.trim()}
           </Button>
         </DialogFooter>
       </DialogContent>

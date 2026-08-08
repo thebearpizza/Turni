@@ -1,6 +1,7 @@
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
 import { abbinaInsegna, insegnaPrincipale, type Insegna } from '@/lib/cassa/prenotazioniLocali'
 import type { RigaImportata } from '@/lib/cassa/prenotazioniParsing'
+import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
 import type { PrenotazioneStato } from '@/types'
 
 // Tutto ciò che va fatto sulle righe lette dall'AI prima di mostrarle in
@@ -16,10 +17,21 @@ export interface PrenotazioneEsistente {
   cognome: string | null
 }
 
+// Una voce in coda di completamento (esito 'incompleta' in
+// prenotazioni_email_log): TheFork/Restoo non scrivevano l'orario nella
+// notifica, ma l'export completo del libro visite ce l'ha per forza —
+// se un giorno il locale importa quell'export, l'orario mancante si trova
+// lì, senza dover ricompilare a mano ciò che si sa già.
+export interface VoceCoda {
+  logId:    string
+  parziale: DatiParziali
+}
+
 export interface RigaPreparata {
   restaurant_id:      string
   insegna:            string | null
-  origine:            'import'
+  origine:            'import' | DatiParziali['origine']
+  riferimento_esterno: string | null
   data:               string
   orario:             string
   servizio:           ReturnType<typeof servizioDaOrario>
@@ -35,6 +47,9 @@ export interface RigaPreparata {
   // Solo anteprima: non sono colonne della tabella.
   duplicato:          string | null
   avviso:             string | null
+  // Presente quando questa riga completa una voce in coda: dopo l'insert
+  // va anche aggiornato il log (esito → importata) con l'id della riga.
+  completaLogId:      string | null
 }
 
 export interface Verifica {
@@ -67,6 +82,10 @@ export function preparaImport(opts: {
   restaurantId:     string
   insegne:          Insegna[]
   esistenti:        PrenotazioneEsistente[]
+  // Voci in coda dello stesso locale a cui manca solo l'orario: se
+  // l'export importato ne contiene una (stesso giorno, stesso cliente),
+  // questa riga la completa invece di generarne una seconda.
+  coda:             VoceCoda[]
 }): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica } {
   const insegnaDefault = insegnaPrincipale(opts.insegne)?.codice ?? null
 
@@ -75,6 +94,11 @@ export function preparaImport(opts: {
   const inAgenda = new Map<string, PrenotazioneEsistente>()
   for (const e of opts.esistenti) {
     inAgenda.set(`${e.data}|${chiaveCliente(e.nome, e.cognome)}`, e)
+  }
+
+  const inCoda = new Map<string, VoceCoda>()
+  for (const v of opts.coda) {
+    inCoda.set(`${v.parziale.data}|${chiaveCliente(v.parziale.nome, v.parziale.cognome)}`, v)
   }
 
   const vistiNelFile = new Set<string>()
@@ -101,10 +125,17 @@ export function preparaImport(opts: {
       vistiNelFile.add(chiave)
     }
 
+    // Non ancora in agenda: forse è proprio la prenotazione che aspettava
+    // solo l'orario. Se la voce in coda coincide si eredita la sua fonte
+    // vera (origine + riferimento_esterno) invece di "import" — così una
+    // futura mail di modifica da TheFork/Restoo la ritrova ancora.
+    const daCoda = !gia ? inCoda.get(chiave) : undefined
+
     return {
       restaurant_id:      opts.restaurantId,
       insegna:            abbinaInsegna(opts.insegne, r.locale)?.codice ?? insegnaDefault,
-      origine:            'import',
+      origine:            daCoda?.parziale.origine ?? 'import',
+      riferimento_esterno: daCoda?.parziale.riferimento_esterno ?? null,
       data:               r.data!,
       orario,
       servizio:           servizioDaOrario(orario),
@@ -119,6 +150,7 @@ export function preparaImport(opts: {
       stato:              (r.stato ?? 'confermata') as PrenotazioneStato,
       duplicato,
       avviso:             r.adulti == null ? 'Coperti non letti dal file: da inserire a mano' : null,
+      completaLogId:      daCoda?.logId ?? null,
     }
   })
 

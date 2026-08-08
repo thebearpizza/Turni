@@ -3,7 +3,8 @@ import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
 import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { type Insegna } from '@/lib/cassa/prenotazioniLocali'
-import { preparaImport, type PrenotazioneEsistente } from '@/lib/cassa/prenotazioniImport'
+import { preparaImport, type PrenotazioneEsistente, type VoceCoda } from '@/lib/cassa/prenotazioniImport'
+import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
 
 // Import "una tantum" delle prenotazioni già presenti nei libri visite:
 // il manager esporta da TheFork/Restoo e carica qui il file. La route
@@ -121,6 +122,23 @@ export async function POST(request: Request) {
         .neq('stato', 'eliminata')
     : { data: [] }
 
+  // Prenotazioni in coda (mail arrivate senza orario) dello stesso
+  // locale: se l'export appena caricato contiene la stessa prenotazione,
+  // ora completa di orario, la si usa per chiudere quella voce invece di
+  // lasciarla in attesa di un completamento manuale.
+  const { data: righeCoda } = await supabase
+    .from('prenotazioni_email_log')
+    .select('id, payload')
+    .eq('esito', 'incompleta')
+    .eq('payload->parziale->>restaurant_id', restaurantId)
+
+  const coda: VoceCoda[] = (righeCoda ?? [])
+    .map(r => {
+      const parziale = (r.payload as { parziale?: DatiParziali } | null)?.parziale
+      return parziale ? { logId: r.id as string, parziale } : null
+    })
+    .filter((v): v is VoceCoda => v !== null)
+
   return NextResponse.json(
     preparaImport({
       righe:           letto.prenotazioni,
@@ -132,6 +150,7 @@ export async function POST(request: Request) {
       // non nominano l'insegna ereditano quella di default.
       insegne:         (insegne ?? []) as Insegna[],
       esistenti:       (esistenti ?? []) as PrenotazioneEsistente[],
+      coda,
     })
   )
 }
