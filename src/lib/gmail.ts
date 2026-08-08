@@ -9,6 +9,8 @@
 // refresh token non scade finché l'app OAuth è pubblicata in
 // produzione: in modalità "Testing" Google lo invalida dopo 7 giorni.
 
+import { stripHtml } from '@/lib/stripHtml'
+
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
@@ -91,22 +93,6 @@ export interface MessaggioGmail {
 
 function decodeBase64Url(data: string): string {
   return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/[ \t ]+/g, ' ')
-    .replace(/\n\s*\n\s*\n+/g, '\n\n')
-    .trim()
 }
 
 // Le mail dei gestionali sono multipart HTML: si preferisce il ramo

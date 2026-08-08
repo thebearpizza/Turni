@@ -5,20 +5,32 @@ import { cercaMessaggi, leggiMessaggio, profiloGmail, gmailConfigurato } from '@
 import { aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { queryMittenti, GIORNI_FINESTRA } from '@/lib/cassa/prenotazioniMail'
 
-// Risponde alla domanda "la casella è collegata e l'app la legge?" con
-// dei fatti invece che con una supposizione: prova davvero a collegarsi,
-// dice QUALE casella sta leggendo e mostra le ultime mail che ha visto
-// dai due gestionali.
-//
-// Serve perché il modo in cui questa integrazione fallisce è silenzioso:
-// credenziali mancanti, credenziali emesse per l'account sbagliato,
-// notifiche che il gestionale non manda affatto — tutti e tre danno lo
-// stesso risultato a schermo (agenda vuota) e nessun errore visibile.
+// Risponde alla domanda "le prenotazioni entrano davvero?" con dei fatti
+// invece che con una supposizione — su entrambe le vie d'ingresso
+// possibili: il polling di una casella Gmail, o il webhook di posta in
+// entrata (CloudMailin). Entrambe falliscono in silenzio nello stesso
+// modo: credenziali mancanti, credenziali/indirizzo sbagliati, oppure
+// notifiche che il gestionale non manda affatto — sempre la stessa
+// agenda vuota, mai un errore visibile.
 export const maxDuration = 30
 
-// Quante mail mostrare come prova. Poche: servono a riconoscere cosa
-// arriva davvero, non a leggere la posta dall'app.
+// Quante mail mostrare come prova, per via d'ingresso. Poche: servono a
+// riconoscere cosa arriva davvero, non a leggere la posta dall'app.
 const ANTEPRIME = 5
+
+type RigaLog = { oggetto: string | null; mittente: string | null; esito: string; errore: string | null; created_at: string }
+
+async function statoCanale(admin: ReturnType<typeof createAdminClient>, origine: 'gmail' | 'cloudmailin') {
+  const [{ count }, { data: ultime }] = await Promise.all([
+    admin.from('prenotazioni_email_log').select('*', { count: 'exact', head: true }).eq('origine', origine),
+    admin.from('prenotazioni_email_log')
+      .select('oggetto, mittente, esito, errore, created_at')
+      .eq('origine', origine)
+      .order('created_at', { ascending: false })
+      .limit(ANTEPRIME),
+  ])
+  return { mailLavorate: count ?? 0, ultime: (ultime ?? []) as RigaLog[] }
+}
 
 export async function GET() {
   const supabase = await createClient()
@@ -30,81 +42,57 @@ export async function GET() {
 
   const admin = createAdminClient()
 
-  // Stato del registro: quante mail sono state effettivamente lavorate
-  // finora. Zero righe qui significa che la sincronizzazione non è mai
-  // partita, indipendentemente da tutto il resto.
-  const [{ count: mailLavorate }, { data: ultimeLavorate }, { count: daMail }] = await Promise.all([
-    admin.from('prenotazioni_email_log').select('*', { count: 'exact', head: true }),
-    admin.from('prenotazioni_email_log')
-      .select('oggetto, mittente, esito, evento, errore, created_at')
-      .order('created_at', { ascending: false })
-      .limit(ANTEPRIME),
-    admin.from('prenotazioni').select('*', { count: 'exact', head: true }).in('origine', ['thefork', 'restoo']),
-  ])
-
   const configurazione = {
     gmail:      gmailConfigurato(),
+    // Il webhook non ha credenziali da collegare come Gmail: esiste ed è
+    // attivo se e solo se il segreto con cui si autentica è impostato.
+    webhook:    !!process.env.PRENOTAZIONI_WEBHOOK_SECRET,
     ai:         aiConfigurata(),
-    // Senza questo lo scheduler non può invocare la sincronizzazione:
-    // l'endpoint rifiuta la chiamata prima di fare qualsiasi altra cosa.
+    // Senza questo lo scheduler non può invocare la sincronizzazione
+    // Gmail: l'endpoint rifiuta la chiamata prima di fare altro. Non
+    // riguarda il webhook, che non passa dallo scheduler.
     cronSecret: !!process.env.CRON_SECRET,
   }
 
-  // Se le credenziali non ci sono non ha senso tentare il collegamento:
-  // si risponde con quello che si sa già.
-  if (!configurazione.gmail) {
-    return NextResponse.json({
-      configurazione,
-      collegamento: { ok: false, motivo: 'Credenziali Gmail non configurate sul server' },
-      registro: {
-        mailLavorate: mailLavorate ?? 0,
-        prenotazioniDaMail: daMail ?? 0,
-        ultime: ultimeLavorate ?? [],
-      },
-    })
-  }
+  const [canaleGmail, canaleWebhook] = await Promise.all([
+    statoCanale(admin, 'gmail'),
+    statoCanale(admin, 'cloudmailin'),
+  ])
 
-  // Collegamento reale: prima chi siamo (quale casella), poi cosa si
-  // vede con la stessa identica query della sincronizzazione.
-  let collegamento: {
+  // Prova di collegamento reale a Gmail (solo se configurato): prima chi
+  // siamo — quale casella — poi cosa si vede con la stessa identica
+  // query della sincronizzazione. Non c'è un equivalente per il webhook:
+  // è CloudMailin che chiama noi, non il contrario, quindi qui non c'è
+  // nulla da "provare a collegare" — il numero di mail già ricevute
+  // (canaleWebhook.mailLavorate) è già la prova che serve.
+  let gmail: {
     ok: boolean
     casella?: string
     motivo?: string
     trovate?: number
     finestraGiorni?: number
     anteprime?: Array<{ mittente: string; oggetto: string; ricevutaAt: string | null }>
-  }
+  } | null = null
 
-  try {
-    const profilo = await profiloGmail()
-    const ids = await cercaMessaggi(queryMittenti(), ANTEPRIME)
-    const anteprime = await Promise.all(
-      ids.slice(0, ANTEPRIME).map(async id => {
-        const m = await leggiMessaggio(id)
-        return { mittente: m.mittente, oggetto: m.oggetto, ricevutaAt: m.ricevutaAt }
-      })
-    )
-    collegamento = {
-      ok: true,
-      casella: profilo.emailAddress,
-      trovate: ids.length,
-      finestraGiorni: GIORNI_FINESTRA,
-      anteprime,
-    }
-  } catch (err) {
-    collegamento = {
-      ok: false,
-      motivo: err instanceof Error ? err.message : 'Collegamento a Gmail non riuscito',
+  if (configurazione.gmail) {
+    try {
+      const profilo = await profiloGmail()
+      const ids = await cercaMessaggi(queryMittenti(), ANTEPRIME)
+      const anteprime = await Promise.all(
+        ids.slice(0, ANTEPRIME).map(async id => {
+          const m = await leggiMessaggio(id)
+          return { mittente: m.mittente, oggetto: m.oggetto, ricevutaAt: m.ricevutaAt }
+        })
+      )
+      gmail = { ok: true, casella: profilo.emailAddress, trovate: ids.length, finestraGiorni: GIORNI_FINESTRA, anteprime }
+    } catch (err) {
+      gmail = { ok: false, motivo: err instanceof Error ? err.message : 'Collegamento a Gmail non riuscito' }
     }
   }
 
   return NextResponse.json({
     configurazione,
-    collegamento,
-    registro: {
-      mailLavorate: mailLavorate ?? 0,
-      prenotazioniDaMail: daMail ?? 0,
-      ultime: ultimeLavorate ?? [],
-    },
+    gmail,
+    canali: { gmail: canaleGmail, cloudmailin: canaleWebhook },
   })
 }

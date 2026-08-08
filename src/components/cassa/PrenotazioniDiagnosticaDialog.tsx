@@ -5,27 +5,37 @@ import { Button } from '@/components/ui/button'
 import { CheckCircle2, XCircle, Loader2, AlertTriangle, Mail } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// "La casella è collegata e l'app la legge?" — con dei fatti, non con
-// una supposizione. Questa integrazione fallisce in silenzio: credenziali
-// assenti, credenziali dell'account sbagliato, oppure notifiche che il
-// gestionale non manda affatto. A schermo i tre casi sono identici
-// (agenda vuota), quindi vanno distinti qui.
+// "Le prenotazioni entrano davvero?" — con dei fatti, non con una
+// supposizione. Ci sono due vie d'ingresso possibili (polling Gmail,
+// webhook CloudMailin) ed entrambe falliscono in silenzio nello stesso
+// modo: credenziali assenti, indirizzo sbagliato, oppure notifiche che
+// il gestionale non manda affatto. A schermo, in tutti i casi, l'agenda
+// resta semplicemente vuota — quindi la verifica va fatta qui.
+
+interface RigaLog {
+  oggetto: string | null
+  mittente: string | null
+  esito: string
+  errore: string | null
+  created_at: string
+}
+
+interface CanaleStato {
+  mailLavorate: number
+  ultime: RigaLog[]
+}
 
 interface Diagnostica {
-  configurazione: { gmail: boolean; ai: boolean; cronSecret: boolean }
-  collegamento: {
+  configurazione: { gmail: boolean; webhook: boolean; ai: boolean; cronSecret: boolean }
+  gmail: {
     ok: boolean
     casella?: string
     motivo?: string
     trovate?: number
     finestraGiorni?: number
     anteprime?: Array<{ mittente: string; oggetto: string; ricevutaAt: string | null }>
-  }
-  registro: {
-    mailLavorate: number
-    prenotazioniDaMail: number
-    ultime: Array<{ oggetto: string | null; mittente: string | null; esito: string; errore: string | null; created_at: string }>
-  }
+  } | null
+  canali: { gmail: CanaleStato; cloudmailin: CanaleStato }
 }
 
 function Riga({ ok, testo }: { ok: boolean; testo: React.ReactNode }) {
@@ -36,6 +46,26 @@ function Riga({ ok, testo }: { ok: boolean; testo: React.ReactNode }) {
         : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
       <span className="min-w-0 flex-1">{testo}</span>
     </div>
+  )
+}
+
+function ListaLog({ righe }: { righe: RigaLog[] }) {
+  if (!righe.length) return null
+  return (
+    <ul className="mt-1 space-y-1 rounded-md border border-border p-2">
+      {righe.map((u, i) => (
+        <li key={i} className="flex items-start gap-2 text-xs">
+          {u.esito === 'errore'
+            ? <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+            : <Mail className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />}
+          <span className="min-w-0 flex-1 break-words">
+            <span className="font-medium">{u.oggetto}</span>
+            <span className="text-muted-foreground"> · {u.esito}</span>
+            {u.errore && <span className="text-destructive"> · {u.errore}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -65,21 +95,23 @@ export function PrenotazioniDiagnosticaDialog({
   }
 
   const c = dati?.configurazione
-  const l = dati?.collegamento
-  const r = dati?.registro
-  const tuttoPronto = !!c?.gmail && !!c?.ai && !!c?.cronSecret && !!l?.ok
+  const gmailAttivo = !!c?.gmail && !!dati?.gmail?.ok
+  const webhookAttivo = !!c?.webhook
+  // "Pronto" non richiede entrambe le vie: basta che almeno una sia
+  // davvero funzionante e che l'AI (necessaria a entrambe) sia presente.
+  const tuttoPronto = !!c?.ai && (gmailAttivo || webhookAttivo)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Collegamento casella mail</DialogTitle>
+          <DialogTitle className="cassa-display text-lg">Ingresso prenotazioni da mail</DialogTitle>
         </DialogHeader>
 
         {!dati && !inCorso && (
           <p className="text-sm text-muted-foreground">
-            Controlla se l&apos;app riesce a leggere la casella su cui TheFork e Restoo
-            mandano le notifiche di prenotazione, e cosa ci trova davvero.
+            Controlla se l&apos;app riceve davvero le notifiche di prenotazione da TheFork e Restoo,
+            via casella Gmail o via webhook, e cosa ha visto finora.
           </p>
         )}
 
@@ -100,33 +132,46 @@ export function PrenotazioniDiagnosticaDialog({
               )}
             >
               {tuttoPronto
-                ? 'La casella è collegata e l’app la legge.'
-                : 'La lettura della casella NON è attiva: nessuna prenotazione può entrare da sé.'}
+                ? 'Almeno una via d’ingresso è attiva.'
+                : 'Nessuna via d’ingresso è attiva: nessuna prenotazione può entrare da sé.'}
             </div>
 
+            <Riga ok={!!c?.ai} testo={c?.ai ? 'Chiave AI presente' : 'Chiave AI assente: nessuna mail potrebbe essere interpretata, su nessuna via'} />
+
+            {/* ── Webhook CloudMailin ── */}
             <section className="space-y-1.5">
-              <h3 className="cassa-display text-sm">Configurazione</h3>
-              <Riga ok={!!c?.gmail} testo={c?.gmail ? 'Credenziali Gmail presenti' : 'Credenziali Gmail assenti (GMAIL_CLIENT_ID / SECRET / REFRESH_TOKEN)'} />
-              <Riga ok={!!c?.ai}    testo={c?.ai ? 'Chiave AI presente' : 'Chiave AI assente: le mail non potrebbero essere interpretate'} />
-              <Riga ok={!!c?.cronSecret} testo={c?.cronSecret ? 'Segreto dello scheduler presente' : 'CRON_SECRET assente: lo scheduler non può avviare la sincronizzazione'} />
+              <h3 className="cassa-display text-sm">Webhook (CloudMailin)</h3>
+              <Riga ok={webhookAttivo} testo={webhookAttivo ? 'Segreto del webhook configurato' : 'PRENOTAZIONI_WEBHOOK_SECRET assente: il webhook rifiuta ogni chiamata'} />
+              <Riga
+                ok={dati.canali.cloudmailin.mailLavorate > 0}
+                testo={
+                  dati.canali.cloudmailin.mailLavorate > 0
+                    ? <><span className="cassa-numeric">{dati.canali.cloudmailin.mailLavorate}</span> mail ricevute via webhook</>
+                    : <>Nessuna mail mai ricevuta via webhook{webhookAttivo ? ': verifica l’indirizzo impostato in TheFork/Restoo' : ''}</>
+                }
+              />
+              <ListaLog righe={dati.canali.cloudmailin.ultime} />
             </section>
 
+            {/* ── Gmail ── */}
             <section className="space-y-1.5">
-              <h3 className="cassa-display text-sm">Collegamento</h3>
-              {l?.ok ? (
+              <h3 className="cassa-display text-sm">Casella Gmail</h3>
+              {!c?.gmail ? (
+                <Riga ok={false} testo="Credenziali Gmail assenti — via non configurata (non è un problema se usi solo il webhook)" />
+              ) : dati.gmail?.ok ? (
                 <>
-                  <Riga ok testo={<>Casella letta: <span className="font-medium">{l.casella}</span></>} />
+                  <Riga ok testo={<>Casella letta: <span className="font-medium">{dati.gmail.casella}</span></>} />
                   <Riga
-                    ok={(l.trovate ?? 0) > 0}
+                    ok={(dati.gmail.trovate ?? 0) > 0}
                     testo={
-                      (l.trovate ?? 0) > 0
-                        ? <>Trovate <span className="cassa-numeric">{l.trovate}</span> mail dai due gestionali negli ultimi {l.finestraGiorni} giorni</>
-                        : <>Nessuna mail dai due gestionali negli ultimi {l.finestraGiorni} giorni: controlla che le notifiche siano attive in TheFork e Restoo</>
+                      (dati.gmail.trovate ?? 0) > 0
+                        ? <>Trovate <span className="cassa-numeric">{dati.gmail.trovate}</span> mail dai due gestionali negli ultimi {dati.gmail.finestraGiorni} giorni</>
+                        : <>Nessuna mail dai due gestionali negli ultimi {dati.gmail.finestraGiorni} giorni</>
                     }
                   />
-                  {!!l.anteprime?.length && (
+                  {!!dati.gmail.anteprime?.length && (
                     <ul className="mt-1 space-y-1 rounded-md border border-border p-2">
-                      {l.anteprime.map((a, i) => (
+                      {dati.gmail.anteprime.map((a, i) => (
                         <li key={i} className="flex items-start gap-2 text-xs">
                           <Mail className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
                           <span className="min-w-0 flex-1 break-words">
@@ -139,36 +184,17 @@ export function PrenotazioniDiagnosticaDialog({
                   )}
                 </>
               ) : (
-                <Riga ok={false} testo={l?.motivo ?? 'Collegamento non riuscito'} />
+                <Riga ok={false} testo={dati.gmail?.motivo ?? 'Collegamento non riuscito'} />
               )}
-            </section>
-
-            <section className="space-y-1.5">
-              <h3 className="cassa-display text-sm">Cosa è entrato finora</h3>
               <Riga
-                ok={(r?.mailLavorate ?? 0) > 0}
+                ok={dati.canali.gmail.mailLavorate > 0}
                 testo={
-                  (r?.mailLavorate ?? 0) > 0
-                    ? <><span className="cassa-numeric">{r?.mailLavorate}</span> mail lavorate · <span className="cassa-numeric">{r?.prenotazioniDaMail}</span> prenotazioni entrate da mail</>
-                    : <>Nessuna mail ancora lavorata: la sincronizzazione non è mai stata eseguita</>
+                  dati.canali.gmail.mailLavorate > 0
+                    ? <><span className="cassa-numeric">{dati.canali.gmail.mailLavorate}</span> mail lavorate finora</>
+                    : 'Nessuna mail ancora lavorata dal polling'
                 }
               />
-              {!!r?.ultime.length && (
-                <ul className="mt-1 space-y-1 rounded-md border border-border p-2">
-                  {r.ultime.map((u, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs">
-                      {u.esito === 'errore'
-                        ? <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
-                        : <Mail className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />}
-                      <span className="min-w-0 flex-1 break-words">
-                        <span className="font-medium">{u.oggetto}</span>
-                        <span className="text-muted-foreground"> · {u.esito}</span>
-                        {u.errore && <span className="text-destructive"> · {u.errore}</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ListaLog righe={dati.canali.gmail.ultime} />
             </section>
           </div>
         )}
