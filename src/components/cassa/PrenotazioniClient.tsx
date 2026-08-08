@@ -302,14 +302,18 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     const giorni = [...new Set(voci.map(v => v.voce.data))]
     const { data: esistenti } = await supabase
       .from('prenotazioni')
-      .select('id, restaurant_id, data, nome, cognome')
+      .select('id, restaurant_id, data, nome, cognome, persone')
       .in('restaurant_id', restaurants.map(r => r.id))
       .in('data', giorni)
       .neq('stato', 'eliminata')
 
-    const mappaEsistenti = new Map<string, string>()
-    for (const e of (esistenti ?? []) as { id: string; restaurant_id: string; data: string; nome: string; cognome: string | null }[]) {
-      mappaEsistenti.set(`${e.restaurant_id}|${e.data}|${chiaveCliente(e.nome, e.cognome)}`, e.id)
+    // Stesso giorno e stesso cliente ma PAX diversi non è un doppione: è
+    // una modifica coperti arrivata dopo che la prenotazione era già
+    // stata completata — chiuderla in automatico perderebbe quel dato,
+    // quindi resta visibile in coda perché il manager la controlli.
+    const mappaEsistenti = new Map<string, { id: string; persone: number }>()
+    for (const e of (esistenti ?? []) as { id: string; restaurant_id: string; data: string; nome: string; cognome: string | null; persone: number }[]) {
+      mappaEsistenti.set(`${e.restaurant_id}|${e.data}|${chiaveCliente(e.nome, e.cognome)}`, { id: e.id, persone: e.persone })
     }
 
     const risolte: { logId: string; prenotazioneId: string }[] = []
@@ -317,7 +321,10 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
       const trovata = mappaEsistenti.get(
         `${v.voce.restaurant_id}|${v.voce.data}|${chiaveCliente(v.voce.nome, v.voce.cognome)}`
       )
-      if (trovata) { risolte.push({ logId: v.logId, prenotazioneId: trovata }); return false }
+      if (trovata && trovata.persone === v.voce.persone) {
+        risolte.push({ logId: v.logId, prenotazioneId: trovata.id })
+        return false
+      }
       return true
     })
 

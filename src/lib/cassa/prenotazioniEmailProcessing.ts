@@ -155,14 +155,89 @@ export async function lavoraMail(
     ? letta.note
     : ['⚠ Coperti non letti dalla notifica: da verificare', letta.note].filter(Boolean).join(' — ')
 
-  // TheFork non scrive l'orario da nessuna parte in questo tipo di
-  // notifica — nemmeno nel link, che porta solo alla pagina del GIORNO.
-  // Senza saperlo non si può nemmeno dedurre il servizio (pranzo/cena
-  // dipende dall'ora): indovinarlo rischierebbe di piazzare la
-  // prenotazione nel servizio sbagliato, invisibile a chi gestisce
-  // quello giusto — peggio che non mostrarla affatto. Resta "incompleta":
-  // compare nella coda della tab Prenotazioni con tutto ciò che si sa
-  // già, pronta perché il manager aggiunga solo l'orario mancante.
+  // Aggancio a una prenotazione già in agenda: prima per riferimento del
+  // gestionale (il più affidabile), poi — sempre, anche quando il primo
+  // ha trovato qualcosa oppure no — per giorno + nome (e cognome, se
+  // noto), SENZA pretendere che l'origine coincida. Pretenderlo sembrava
+  // più sicuro ma in pratica faceva perdere cancellazioni e modifiche
+  // vere: una prenotazione importata da file prima che l'import
+  // distinguesse TheFork/Restoo resta con origine 'import' per sempre,
+  // e una mail di TheFork che la cancella o la modifica non la troverebbe
+  // mai se il confronto pretendesse anche origine = 'thefork'. Prima di
+  // decidere se manca l'orario, apposta: una notifica di modifica o
+  // cancellazione riguarda quasi sempre qualcosa già in agenda e spesso
+  // non riporta affatto l'orario — se la prenotazione esiste già, quel
+  // dato non serve indovinarlo, c'è già scritto in agenda.
+  let esistenteId: string | null = null
+
+  if (letta.riferimento) {
+    const { data } = await admin
+      .from('prenotazioni')
+      .select('id')
+      .eq('restaurant_id', abbinamento.restaurant_id)
+      .eq('origine', origine)
+      .eq('riferimento_esterno', letta.riferimento)
+      .maybeSingle()
+    esistenteId = data?.id ?? null
+  }
+
+  if (!esistenteId) {
+    let query = admin
+      .from('prenotazioni')
+      .select('id')
+      .eq('restaurant_id', abbinamento.restaurant_id)
+      .eq('data', letta.data)
+      .ilike('nome', letta.nome)
+      .neq('stato', 'eliminata')
+    if (letta.cognome) query = query.ilike('cognome', letta.cognome)
+    const { data } = await query.limit(1)
+    esistenteId = data?.[0]?.id ?? null
+  }
+
+  if (letta.evento === 'cancellazione') {
+    if (!esistenteId) return { esito: 'ignorata', evento: letta.evento }
+    await admin.from('prenotazioni').update({ stato: 'eliminata' }).eq('id', esistenteId)
+    return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
+  }
+
+  // Se la prenotazione esiste già ma questa mail non porta un orario
+  // nuovo (le notifiche di modifica di TheFork non lo scrivono quasi
+  // mai), si aggiornano solo i campi che la mail conosce davvero — orario
+  // e servizio restano quelli già in agenda, non vanno né indovinati né
+  // azzerati. È il caso reale che mandava in coda una semplice modifica
+  // coperti di una prenotazione già confermata, invece di aggiornarla.
+  if (esistenteId) {
+    const campi: Record<string, unknown> = {
+      insegna:             abbinamento.codice,
+      riferimento_esterno: letta.riferimento,
+      nome:                letta.nome,
+      cognome:             letta.cognome,
+      persone,
+      bambini,
+      sconto_percentuale:  letta.sconto_percentuale,
+      telefono:            letta.telefono,
+      email:               letta.email,
+      note,
+    }
+    if (letta.orario) {
+      const orarioNoto = normalizzaOrario(letta.orario)
+      campi.orario = orarioNoto
+      campi.servizio = servizioDaOrario(orarioNoto)
+    }
+    // Una modifica non deve resuscitare né retrocedere lo stato di sala
+    // (seduta/no show) deciso dal personale: si aggiornano solo i dati
+    // della prenotazione.
+    await admin.from('prenotazioni').update(campi).eq('id', esistenteId)
+    return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
+  }
+
+  // Nessuna prenotazione già in agenda: se questa mail non porta
+  // l'orario non si può nemmeno dedurre il servizio (pranzo/cena dipende
+  // dall'ora), e indovinarlo rischierebbe di piazzare la prenotazione nel
+  // servizio sbagliato, invisibile a chi gestisce quello giusto — peggio
+  // che non mostrarla affatto. Resta "incompleta": compare nella coda
+  // della tab Prenotazioni con tutto ciò che si sa già, pronta perché il
+  // manager aggiunga solo l'orario mancante.
   if (!letta.orario) {
     return {
       esito: 'incompleta',
@@ -197,40 +272,6 @@ export async function lavoraMail(
 
   const orario = normalizzaOrario(letta.orario)
 
-  // Aggancio a una prenotazione già in agenda: prima per riferimento del
-  // gestionale (l'unico davvero affidabile), poi — quando la mail non ne
-  // riporta uno — per nome + giorno, che è il criterio con cui il
-  // personale stesso riconoscerebbe la stessa prenotazione.
-  let esistenteId: string | null = null
-
-  if (letta.riferimento) {
-    const { data } = await admin
-      .from('prenotazioni')
-      .select('id')
-      .eq('restaurant_id', abbinamento.restaurant_id)
-      .eq('origine', origine)
-      .eq('riferimento_esterno', letta.riferimento)
-      .maybeSingle()
-    esistenteId = data?.id ?? null
-  } else {
-    const { data } = await admin
-      .from('prenotazioni')
-      .select('id')
-      .eq('restaurant_id', abbinamento.restaurant_id)
-      .eq('origine', origine)
-      .eq('data', letta.data)
-      .ilike('nome', letta.nome)
-      .neq('stato', 'eliminata')
-      .limit(1)
-    esistenteId = data?.[0]?.id ?? null
-  }
-
-  if (letta.evento === 'cancellazione') {
-    if (!esistenteId) return { esito: 'ignorata', evento: letta.evento }
-    await admin.from('prenotazioni').update({ stato: 'eliminata' }).eq('id', esistenteId)
-    return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
-  }
-
   const campi = {
     restaurant_id:       abbinamento.restaurant_id,
     insegna:             abbinamento.codice,
@@ -247,14 +288,6 @@ export async function lavoraMail(
     telefono:            letta.telefono,
     email:               letta.email,
     note,
-  }
-
-  if (esistenteId) {
-    // Una modifica non deve resuscitare né retrocedere lo stato di sala
-    // (seduta/no show) deciso dal personale: si aggiornano solo i dati
-    // della prenotazione.
-    await admin.from('prenotazioni').update(campi).eq('id', esistenteId)
-    return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
   }
 
   const { data: creata, error } = await admin
