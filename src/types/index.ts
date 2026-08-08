@@ -477,6 +477,10 @@ export interface Prenotazione {
   // quando è arrivata via mail) o create prima che questi campi esistessero.
   stato_modificato_da_nome:  string | null
   stato_modificato_da_ruolo: string | null
+  // Tavolo per un passante: seduto subito senza prenotazione vera, solo
+  // il numero di persone. Non cliccabile in agenda, si rimuove solo
+  // cancellandolo.
+  passante:             boolean
   created_at:           string
   updated_at:           string
 }

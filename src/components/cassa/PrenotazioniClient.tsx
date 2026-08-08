@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, RefreshCw, Upload,
-  Armchair, Phone, Eye, CheckCircle2, Info, Clock, StickyNote, RotateCcw, User,
+  Armchair, Phone, Eye, CheckCircle2, Info, Clock, StickyNote, RotateCcw, User, UserPlus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -16,6 +16,7 @@ import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDia
 import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
 import { PrenotazioniImportDialog } from '@/components/cassa/PrenotazioniImportDialog'
 import { PrenotazioniRiepilogoCodaDialog, type VoceCoda } from '@/components/cassa/PrenotazioniRiepilogoCodaDialog'
+import { PassanteDialog } from '@/components/cassa/PassanteDialog'
 import {
   costruisciFasce, contaCoperti, formatPax, nomeCompleto, normalizzaOrario,
   dettaglioBambini, FASCE,
@@ -116,16 +117,48 @@ function Sezione({
 
 // ── Riga prenotazione ────────────────────────────────────────────────
 function RigaPrenotazione({
-  p, etichettaInsegna, espansa, onEspandi, onStato, onAzioneRapida, onDettagli,
+  p, etichettaInsegna, espansa, onEspandi, onStato, onAzioneRapida, onDettagli, onEliminaPassante,
 }: {
-  p:                Prenotazione
-  etichettaInsegna: string | null
-  espansa:          boolean
-  onEspandi:        () => void
-  onStato:          () => void
-  onAzioneRapida:   () => void
-  onDettagli:       () => void
+  p:                  Prenotazione
+  etichettaInsegna:   string | null
+  espansa:            boolean
+  onEspandi:          () => void
+  onStato:            () => void
+  onAzioneRapida:     () => void
+  onDettagli:         () => void
+  // Solo per un passante (p.passante === true): l'unica interazione che
+  // ha, al posto di tutto il resto — non è una prenotazione, non si
+  // espande, non torna "confermata".
+  onEliminaPassante?: () => void
 }) {
+  // Un passante non è una prenotazione vera: niente orario, insegna,
+  // sconto o note da mostrare, niente scheda da aprire. L'icona a
+  // sinistra dice comunque lo stato (seduto/cancellato, stessi colori di
+  // sempre) ma il tocco fa un'unica cosa — cancellarlo — finché non lo è
+  // già.
+  if (p.passante) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex items-center gap-3 p-3">
+          <button
+            type="button"
+            onClick={p.stato === 'eliminata' ? undefined : onEliminaPassante}
+            disabled={p.stato === 'eliminata'}
+            aria-label={p.stato === 'eliminata' ? 'Passante cancellato' : 'Elimina passante'}
+            className="disabled:cursor-default"
+          >
+            <StatoIcona stato={p.stato} origine={p.origine} scontoPercentuale={null} />
+          </button>
+          <div className="min-w-0 flex-1 font-medium leading-tight">Passante</div>
+          <div className="shrink-0 text-right leading-none">
+            <span className="cassa-numeric text-lg font-semibold">{formatPax(p)}</span>
+            <span className="ml-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">pax</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Da confermata l'azione ovvia è far sedere il cliente; da seduta
   // l'unica utile è tornare indietro (tavolo liberato per sbaglio); da
   // cancellata l'unica sensata è ripristinarla — "Seduta" sarebbe
@@ -258,6 +291,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   const [formSeq, setFormSeq] = useState(0)
   const [importAperto, setImportAperto] = useState(false)
   const [riepilogoAperto, setRiepilogoAperto] = useState(false)
+  const [passanteAperto, setPassanteAperto] = useState(false)
   const [codaVoci, setCodaVoci] = useState<VoceCoda[]>([])
 
   const [sincronizzando, setSincronizzando] = useState(false)
@@ -452,6 +486,45 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     // tolte dall'elenco.
     setGiornata(prev => prev.map(x => (x.id === p.id ? { ...x, ...campi } : x)))
     setEspansa(null)
+  }
+
+  // Il tavolo entra già seduto: un passante non prenota, arriva e basta.
+  // Nessun nome, nessun orario da scegliere — quello scritto è solo
+  // "adesso", non organizza nulla (la sezione Sedute non è divisa per
+  // fasce come Confermate).
+  async function aggiungiPassante(persone: number) {
+    const supabase = createClient()
+    const { error } = await supabase.from('prenotazioni').insert({
+      restaurant_id: restaurantId,
+      insegna: insegneLocale[0]?.codice ?? null,
+      origine: 'manuale',
+      data,
+      orario: formatInTimeZone(new Date(), TZ, 'HH:mm'),
+      servizio,
+      nome: 'Passante',
+      cognome: null,
+      persone,
+      bambini: 0,
+      sconto_percentuale: null,
+      telefono: null,
+      email: null,
+      note: null,
+      stato: 'seduta',
+      seduta_at: new Date().toISOString(),
+      passante: true,
+      stato_modificato_da_nome:  currentUser.fullName,
+      stato_modificato_da_ruolo: currentUser.role,
+    })
+    if (error) throw new Error(error.message)
+    await carica()
+  }
+
+  // Unica azione possibile su un passante: cancellarlo (stesso percorso
+  // delle altre prenotazioni — stato 'eliminata', non una riga cancellata
+  // dal database — così resta comunque nella sezione Cancellate).
+  function eliminaPassante(p: Prenotazione) {
+    if (!window.confirm(`Eliminare il tavolo da ${p.persone} passanti?`)) return
+    cambiaStato(p, 'eliminata').catch(err => setAvviso(err instanceof Error ? err.message : 'Eliminazione non riuscita'))
   }
 
   async function sincronizza() {
@@ -765,6 +838,16 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
             aperta={aperte.sedute}
             onToggle={() => setAperte(a => ({ ...a, sedute: !a.sedute }))}
           >
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full border-dashed"
+              onClick={() => setPassanteAperto(true)}
+            >
+              <UserPlus className="h-4 w-4" /> Passante
+            </Button>
+
             {sedute.length === 0
               ? <p className="px-1 text-sm text-muted-foreground">Nessun tavolo seduto.</p>
               : sedute.map(p => (
@@ -777,6 +860,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
                     onStato={() => setStatoTarget(p)}
                     onAzioneRapida={() => cambiaStato(p, 'confermata')}
                     onDettagli={() => apriDettagli(p)}
+                    onEliminaPassante={() => eliminaPassante(p)}
                   />
                 ))}
           </Sezione>
@@ -861,6 +945,8 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         onCompleta={completaDaCoda}
         onCambiato={caricaCoda}
       />
+
+      <PassanteDialog open={passanteAperto} onOpenChange={setPassanteAperto} onConferma={aggiungiPassante} />
     </div>
   )
 }
