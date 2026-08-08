@@ -56,8 +56,12 @@ interface RestaurantOption { id: string; name: string }
 interface InsegnaOption { id: string; restaurant_id: string; codice: string; etichetta: string }
 
 interface Props {
-  restaurants: RestaurantOption[]
-  insegne:     InsegnaOption[]
+  restaurants:    RestaurantOption[]
+  insegne:        InsegnaOption[]
+  // Risolta lato server dalla pagina quando l'URL porta ?completa=<id
+  // log> (il link della notifica push per una voce in coda): arriva già
+  // pronta, non richiede una query dal client dopo l'idratazione.
+  bozzaIniziale?: BozzaCoda | null
 }
 
 function oggiRoma(): string {
@@ -208,7 +212,7 @@ function RigaPrenotazione({
   )
 }
 
-export function PrenotazioniClient({ restaurants, insegne }: Props) {
+export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale }: Props) {
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? '')
   const [data, setData] = useState(oggiRoma)
   const [servizio, setServizio] = useState<PrenotazioneServizio>(servizioCorrente)
@@ -426,13 +430,24 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
     try {
       const res = await fetch('/api/cassa/prenotazioni/sync', { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Sincronizzazione non riuscita')
-      const parti = [
-        json.importate > 0 && `${json.importate} aggiornate`,
-        json.incomplete > 0 && `${json.incomplete} da completare (manca l'orario)`,
-      ].filter(Boolean)
-      setAvviso(parti.length > 0 ? `${parti.join(', ')}.` : 'Nessuna nuova prenotazione nella casella.')
-      await carica()
+      // La casella Gmail è un ripiego che qui non è mai stato configurato
+      // — l'ingresso vero è il webhook in tempo reale — quindi risponde
+      // sempre 503 "Casella mail non configurata". Non è un errore da
+      // mostrare: il tasto deve comunque fare il suo lavoro, ricaricando
+      // agenda e coda da quanto già arrivato. Un problema vero (es. chiave
+      // AI mancante) resta segnalato come prima.
+      if (res.ok) {
+        const parti = [
+          json.importate > 0 && `${json.importate} aggiornate`,
+          json.incomplete > 0 && `${json.incomplete} da completare (manca l'orario)`,
+        ].filter(Boolean)
+        setAvviso(parti.length > 0 ? `${parti.join(', ')}.` : 'Nessuna nuova prenotazione nella casella.')
+      } else if (json.error !== 'Casella mail non configurata') {
+        throw new Error(json.error ?? 'Sincronizzazione non riuscita')
+      } else {
+        setAvviso('Aggiornato.')
+      }
+      await Promise.all([carica(), caricaCoda()])
     } catch (err) {
       setAvviso(err instanceof Error ? err.message : 'Sincronizzazione non riuscita')
     } finally {
@@ -478,32 +493,24 @@ export function PrenotazioniClient({ restaurants, insegne }: Props) {
   // route /api/cassa/prenotazioni/webhook e /sync lo costruiscono come
   // ?completa=<id log> — e apra subito il modulo di completamento di
   // QUELLA prenotazione, pronto per scrivere l'orario (il servizio si
-  // deduce da solo, non va scelto a parte). Lettura diretta dell'URL
-  // invece di useSearchParams: un solo controllo all'apertura, non serve
-  // reagire alla navigazione.
+  // deduce da solo, non va scelto a parte).
+  //
+  // La voce arriva già risolta da bozzaIniziale (letta dalla pagina lato
+  // server, nella STESSA richiesta che carica la pagina): niente query
+  // in più da fare qui dopo l'idratazione, che è quanto rendeva lenta
+  // l'apertura toccando la notifica — specialmente aprendo l'app da
+  // fredda, con un giro di rete client→server evitato del tutto.
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    const logId = params.get('completa')
-    if (!logId) return
-
-    const url = new URL(window.location.href)
-    url.searchParams.delete('completa')
-    window.history.replaceState({}, '', url)
-
-    const supabase = createClient()
-    supabase
-      .from('prenotazioni_email_log')
-      .select('id, payload')
-      .eq('id', logId)
-      .eq('esito', 'incompleta')
-      .maybeSingle()
-      .then(({ data }) => {
-        const parziale = (data?.payload as { parziale?: BozzaCoda | null } | null)?.parziale
-        if (data && parziale) completaDaCoda({ ...parziale, logId: data.id })
-      })
+    if (!bozzaIniziale) return
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('completa')
+      window.history.replaceState({}, '', url)
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    completaDaCoda(bozzaIniziale)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [bozzaIniziale])
 
   if (restaurants.length === 0) {
     return (

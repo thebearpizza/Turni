@@ -1,8 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { PrenotazioniClient } from '@/components/cassa/PrenotazioniClient'
+import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
+import type { BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
 
-export default async function PrenotazioniPage() {
+export default async function PrenotazioniPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ completa?: string }>
+}) {
+  const { completa: completaLogId } = await searchParams
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -25,6 +33,24 @@ export default async function PrenotazioniPage() {
     if (r) perLocale.set(r.id, r)
   }
 
+  // Il link della notifica push per una prenotazione in coda porta qui
+  // con ?completa=<id log>: risolverlo già lato server (nella stessa
+  // richiesta che carica la pagina, non in una chiamata a parte dopo
+  // l'idratazione) è ciò che fa aprire subito la scheda invece di restare
+  // ferma mentre il client va a cercarla — specialmente sentito aprendo
+  // l'app da fredda da una notifica.
+  let bozzaIniziale: BozzaCoda | null = null
+  if (completaLogId) {
+    const { data: log } = await supabase
+      .from('prenotazioni_email_log')
+      .select('id, payload')
+      .eq('id', completaLogId)
+      .eq('esito', 'incompleta')
+      .maybeSingle()
+    const parziale = (log?.payload as { parziale?: DatiParziali | null } | null)?.parziale
+    if (log && parziale) bozzaIniziale = { ...parziale, logId: log.id }
+  }
+
   return (
     <PrenotazioniClient
       restaurants={[...perLocale.values()].sort((a, b) => a.name.localeCompare(b.name))}
@@ -34,6 +60,7 @@ export default async function PrenotazioniPage() {
         codice: i.codice,
         etichetta: i.etichetta,
       }))}
+      bozzaIniziale={bozzaIniziale}
     />
   )
 }
