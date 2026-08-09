@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo, type FatturaEstratta } from '@/lib/cassa/fattureExtraction'
-import { verificaData, verificaQuadratura, verificaIvaStimata, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
+import { verificaData, verificaQuadratura, verificaIvaStimata, verificaTotaleDaFallback, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import { trovaFornitoreSimile } from '@/lib/cassa/fornitoriMatching'
 import type { VerificaSospetta, ArticoloTipologia } from '@/types'
@@ -108,6 +108,7 @@ async function risolviFattura(
     verificaData(estratta.data),
     verificaQuadratura(totaleNetto, totaleIva, totaleLordo),
     verificaIvaStimata(estratta.iva_stimata),
+    verificaTotaleDaFallback(estratta.totale_da_fallback),
   ].filter((v): v is VerificaSospetta => v !== null)
 
   // ── Matching articoli (solo se ha_articoli) ──

@@ -147,6 +147,13 @@ const PaginaEstrattaSchema = z.object({
   articoli: z.array(ArticoloEstrattoSchema).describe(
     'Righe di prodotto presenti su QUESTA pagina. Array vuoto se la pagina non contiene una tabella di articoli (es. pagina di sole condizioni contrattuali, o bolletta a corpo).'
   ),
+  totale_documento: z.number().nullable().describe(
+    "Il totale finale del documento, se su QUESTA pagina è scritto esplicitamente un importo conclusivo (es. accanto a 'TOTALE', " +
+    "'TOTALE €', 'TOTALE DOCUMENTO', 'TOTALE FATTURA', anche scritto a mano) — indipendentemente dal fatto che la pagina riporti " +
+    "anche una tabella articoli o un riepilogo IVA. Leggilo SEMPRE quando è presente, anche su documenti informali senza alcuna " +
+    "tabella prodotti (es. un documento di trasporto scritto a mano con solo quantità/descrizione e un totale finale): è " +
+    "l'unico modo di recuperare un importo su un documento del genere. null se questa pagina non riporta alcun totale finale."
+  ),
 })
 
 export interface FatturaEstratta {
@@ -161,6 +168,12 @@ export interface FatturaEstratta {
   // articoli per aliquota_iva stimata — un numero plausibile, non un
   // dato letto, da segnalare come tale invece di presentarlo come certo.
   iva_stimata: boolean
+  // true quando né un riepilogo IVA stampato né articoli erano
+  // disponibili per ricostruire i totali, e iva_dettaglio contiene
+  // un'unica riga di ripiego (aliquota 0, iva 0, imponibile = totale
+  // letto) presa dal totale finale scritto sul documento — es. un
+  // documento di trasporto compilato a mano senza tabella prodotti.
+  totale_da_fallback: boolean
   articoli: z.infer<typeof ArticoloEstrattoSchema>[]
 }
 
@@ -197,6 +210,8 @@ Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che �
 Il nome di ogni articolo è il dato più importante di tutti: finisce in un catalogo prezzi e viene confrontato automaticamente con le fatture successive dello stesso fornitore, quindi anche un piccolo errore di trascrizione (una lettera sbagliata, un'abbreviazione sciolta o accorciata diversamente, uno spazio in più o in meno) crea un articolo duplicato invece di riconoscere quello giusto. Trascrivi il nome carattere per carattere, esattamente come stampato — non correggere refusi apparenti, non espandere abbreviazioni, non "ripulire" il testo. Presta particolare attenzione ai caratteri che si confondono facilmente: 0 (zero) vs O (lettera), 1 (uno) vs l (elle) vs I (i maiuscola), numeri e lettere accentate italiane (à è é ì ò ù). Se il testo è sfocato o troppo piccolo per essere certi al 100%, scegli comunque la lettura più fedele possibile ai tratti visibili, invece di sostituirla con una parola "che avrebbe senso".
 
 Se questa pagina riporta un elenco di articoli, leggi la tabella riga per riga dall'alto verso il basso, con calma, senza saltarne o unirne due insieme anche se il testo è piccolo o poco nitido. Non includere fra gli articoli le righe che sono chiaramente un totale, uno sconto, una nota o un'intestazione di colonna: sono articoli solo le righe di prodotto vero e proprio. Se la pagina non contiene alcuna tabella di prodotti (per esempio riporta solo condizioni contrattuali, o è una bolletta a corpo), restituisci semplicemente un elenco articoli vuoto.
+
+Cerca sempre anche un importo finale conclusivo (di solito vicino alla parola "TOTALE", anche scritto a mano) e riportalo in totale_documento, indipendentemente da cos'altro hai trovato sulla pagina: capita che un documento — per esempio un documento di trasporto compilato a mano — non abbia affatto una tabella prodotti strutturata né un riepilogo IVA, ma riporti comunque un totale finale leggibile.
 
 Non inventare mai un numero di documento o una partita IVA che non siano scritti su questa pagina.`,
           },
@@ -251,7 +266,17 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   // un prezzo, non lasciamo i totali a zero: li ricostruiamo dalle
   // aliquote stimate per ciascun articolo (vedi calcolaIvaDaArticoli).
   const ivaStimata = ivaStampata.length === 0 && articoli.length > 0
-  const ivaDettaglio = ivaStimata ? calcolaIvaDaArticoli(articoli) : ivaStampata
+  const ivaDaArticoli = ivaStimata ? calcolaIvaDaArticoli(articoli) : ivaStampata
+
+  // Ultima rete: né riepilogo IVA né articoli da cui derivare un totale,
+  // ma un importo finale è comunque leggibile sul documento (stesso
+  // criterio "ultima pagina che ce l'ha" usato sopra per l'IVA stampata,
+  // coerente sulle fatture multipagina). Senza dettaglio IVA il totale
+  // letto finisce come imponibile a aliquota 0 — non è un dato IVA
+  // inventato, solo il modo di non perdere un totale reale.
+  const totaleDocumento = [...pagine].reverse().find(p => p.totale_documento != null)?.totale_documento ?? null
+  const totaleDaFallback = ivaDaArticoli.length === 0 && totaleDocumento != null
+  const ivaDettaglio = totaleDaFallback ? [{ aliquota: 0, imponibile: totaleDocumento, iva: 0 }] : ivaDaArticoli
 
   return {
     data: primoValorizzato(pagine.map(p => p.data)),
@@ -266,6 +291,7 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
     ha_articoli: articoli.length > 0,
     iva_dettaglio: ivaDettaglio,
     iva_stimata: ivaStimata,
+    totale_da_fallback: totaleDaFallback,
     articoli,
   }
 }

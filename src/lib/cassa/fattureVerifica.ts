@@ -45,6 +45,18 @@ export function verificaIvaStimata(ivaStimata: boolean): VerificaSospetta | null
   }
 }
 
+// Né riepilogo IVA stampato né articoli da cui ricostruirlo: Netto/Lordo
+// vengono dal totale finale letto direttamente sul documento (vedi
+// totale_da_fallback in fattureExtraction.ts), senza alcuna ripartizione
+// per aliquota — tipico di un documento di trasporto compilato a mano.
+export function verificaTotaleDaFallback(totaleDaFallback: boolean): VerificaSospetta | null {
+  if (!totaleDaFallback) return null
+  return {
+    campo: 'totale_lordo',
+    messaggio: 'Nessun riepilogo IVA né tabella articoli trovati: il totale è quello letto direttamente sul documento, senza ripartizione IVA — verifica prima di salvare.',
+  }
+}
+
 // Prezzo unitario di un articolo che si scosta oltre una soglia
 // dall'ultimo prezzo noto per lo stesso articolo+fornitore.
 export function verificaPrezzoArticolo(
