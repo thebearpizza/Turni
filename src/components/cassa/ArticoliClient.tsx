@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,7 @@ interface ArticoloRiga {
 }
 
 export function ArticoliClient({ fornitori }: Props) {
+  const [ricerca, setRicerca] = useState('')
   const [fornitoreFiltro, setFornitoreFiltro] = useState<string>('')
   const [tipologiaFiltro, setTipologiaFiltro] = useState<ArticoloTipologia | ''>('')
   const [righe, setRighe] = useState<ArticoloRiga[]>([])
@@ -95,6 +97,10 @@ export function ArticoliClient({ fornitori }: Props) {
 
   useEffect(() => { load() }, [load])
 
+  const righeFiltrate = ricerca.trim()
+    ? righe.filter(r => r.nome_articolo.toLowerCase().includes(ricerca.trim().toLowerCase()))
+    : righe
+
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
@@ -108,7 +114,15 @@ export function ArticoliClient({ fornitori }: Props) {
   return (
     <div className="space-y-4">
       <Card className="cassa-perforated-top">
-        <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-1.5">
+            <Label>Cerca</Label>
+            <Input
+              value={ricerca}
+              onChange={e => setRicerca(e.target.value)}
+              placeholder="Nome articolo…"
+            />
+          </div>
           <div className="space-y-1.5">
             <Label>Fornitore</Label>
             <Select value={fornitoreFiltro || '__tutti__'} onValueChange={v => setFornitoreFiltro(v === '__tutti__' ? '' : v)}>
@@ -145,11 +159,11 @@ export function ArticoliClient({ fornitori }: Props) {
                 </div>
               ))}
             </div>
-          ) : righe.length === 0 ? (
+          ) : righeFiltrate.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessun articolo trovato.</p>
           ) : (
             <div className="divide-y divide-border">
-              {righe.map(r => {
+              {righeFiltrate.map(r => {
                 const prezzoRecente = r.storico.at(-1)?.prezzo ?? null
                 const aperto = espanso === r.id
                 return (
