@@ -32,15 +32,10 @@ interface Props {
 // autocomplete sulle voci storiche e controllo duplicati semantici via AI
 // prima di salvare una voce mai vista.
 export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: Props) {
-  const locked = chiusura.stato === 'confermata'
-  // Un manager può aggiungere/eliminare spese anche su una chiusura già
-  // confermata (la RLS di cassa_spese lo consente senza condizioni su
-  // stato per un manager — cassa_spese_manager_all — a differenza del
-  // cassiere, per cui la stessa RLS richiede stato <> 'confermata': le sue
-  // modifiche a una chiusura già confermata passano dall'approvazione,
-  // vedi QuadraturaFase). Il form/i tasti elimina restano quindi visibili
-  // per un manager anche a chiusura confermata.
-  const modificabile = !locked || role === 'manager'
+  // Sia manager che cassiere possono aggiungere/eliminare spese anche su
+  // una chiusura già confermata (RLS cassa_spese_manager_all e
+  // cassa_spese_cassiere_* — a differenza dei campi di quadratura, le
+  // spese non passano da un'approvazione, vedi QuadraturaFase).
 
   const [categorie, setCategorie] = useState<CassaCategoria[]>([])
   const [spese, setSpese] = useState<CassaSpesa[]>([])
@@ -183,69 +178,61 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
         {role === 'manager' && <CategorieManagerDialog ownerId={ownerId} onChange={loadCategorie} />}
       </CardHeader>
       <CardContent className="space-y-4">
-        {locked && !modificabile && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
-            Questa chiusura è già stata confermata: solo un manager può modificarne le spese.
-          </p>
-        )}
-
-        {modificabile && (
-          <div className="space-y-3 border border-border rounded-lg p-3">
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
-              <div className="relative space-y-1.5">
-                <Label>Voce di spesa</Label>
-                <Input
-                  value={nome}
-                  onChange={e => { setNome(e.target.value); setShowSuggestions(true) }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                  placeholder="Es. Trasporto merci"
-                />
-                {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-48 overflow-y-auto">
-                    {suggestions.map(s => (
-                      <button
-                        type="button"
-                        key={s.nome_spesa}
-                        onMouseDown={() => pickSuggestion(s)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-accent"
-                      >
-                        <span>{s.nome_spesa}</span>
-                        {s.categoria_nome && <span className="text-xs text-muted-foreground">{s.categoria_nome}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1.5 sm:w-48">
-                <Label>Importo</Label>
-                <CurrencyInput value={importo} onChange={setImporto} className="cassa-numeric" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Categoria</Label>
-              <Select value={categoriaId} onValueChange={setCategoriaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona una categoria" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categorie.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+        <div className="space-y-3 border border-border rounded-lg p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+            <div className="relative space-y-1.5">
+              <Label>Voce di spesa</Label>
+              <Input
+                value={nome}
+                onChange={e => { setNome(e.target.value); setShowSuggestions(true) }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                placeholder="Es. Trasporto merci"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-48 overflow-y-auto">
+                  {suggestions.map(s => (
+                    <button
+                      type="button"
+                      key={s.nome_spesa}
+                      onMouseDown={() => pickSuggestion(s)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-accent"
+                    >
+                      <span>{s.nome_spesa}</span>
+                      {s.categoria_nome && <span className="text-xs text-muted-foreground">{s.categoria_nome}</span>}
+                    </button>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              )}
             </div>
-
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-            <div className="flex justify-end">
-              <Button type="button" onClick={handleAddSpesa} disabled={saving || checking}>
-                {checking ? 'Verifica…' : saving ? 'Salvataggio…' : 'Aggiungi spesa'}
-              </Button>
+            <div className="space-y-1.5 sm:w-48">
+              <Label>Importo</Label>
+              <CurrencyInput value={importo} onChange={setImporto} className="cassa-numeric" />
             </div>
           </div>
-        )}
+
+          <div className="space-y-1.5">
+            <Label>Categoria</Label>
+            <Select value={categoriaId} onValueChange={setCategoriaId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleziona una categoria" />
+              </SelectTrigger>
+              <SelectContent>
+                {categorie.map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {formError && <p className="text-sm text-destructive">{formError}</p>}
+
+          <div className="flex justify-end">
+            <Button type="button" onClick={handleAddSpesa} disabled={saving || checking}>
+              {checking ? 'Verifica…' : saving ? 'Salvataggio…' : 'Aggiungi spesa'}
+            </Button>
+          </div>
+        </div>
 
         <div className="space-y-2">
           {loadingSpese && Array.from({ length: 3 }).map((_, i) => (
@@ -270,11 +257,9 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
-                  {modificabile && (
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDeleteSpesa(s.id)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDeleteSpesa(s.id)}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               </div>
             )
