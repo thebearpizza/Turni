@@ -144,7 +144,7 @@ export function preparaImport(opts: {
         ? `Già in agenda alle ${normalizzaOrario(gia.orario)}`
         : 'Già in agenda'
     } else if (vistiNelFile.has(chiave)) {
-      duplicato = 'Ripetuta due volte nel file'
+      duplicato = 'Ripetuta più volte in questo import'
     } else {
       vistiNelFile.add(chiave)
     }

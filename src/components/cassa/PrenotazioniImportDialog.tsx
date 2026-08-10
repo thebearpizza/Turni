@@ -70,7 +70,7 @@ interface Props {
 export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onImportate }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [fonte, setFonte] = useState<'thefork' | 'restoo'>('thefork')
-  const [nomeFile, setNomeFile] = useState<string | null>(null)
+  const [nomiFile, setNomiFile] = useState<string[]>([])
   const [leggendo, setLeggendo] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [righe, setRighe] = useState<RigaLetta[] | null>(null)
@@ -90,13 +90,17 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
 
   function reset() {
     setFonte('thefork')
-    setNomeFile(null); setRighe(null); setVerifica(null); setScartate(0)
+    setNomiFile([]); setRighe(null); setVerifica(null); setScartate(0)
     setEscluse(new Set()); setErrore(null); setCodaSenzaRiscontro([]); setFileCompleto(false)
     if (inputRef.current) inputRef.current.value = ''
   }
 
-  async function leggi(file: File) {
-    setNomeFile(file.name)
+  // Più file in un colpo solo: un libro visite spesso viene esportato a
+  // pezzi (uno per iniziale, uno per servizio...) — letti insieme invece
+  // che uno alla volta, i doppioni e la coda si controllano sull'intero
+  // insieme invece che file per file.
+  async function leggi(files: File[]) {
+    setNomiFile(files.map(f => f.name))
     setLeggendo(true)
     setErrore(null)
     setRighe(null)
@@ -104,7 +108,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
 
     try {
       const form = new FormData()
-      form.append('file', file)
+      files.forEach(f => form.append('file', f))
       form.append('restaurant_id', restaurantId)
       form.append('fonte', fonte)
       const res = await fetch('/api/cassa/prenotazioni/importa', { method: 'POST', body: form })
@@ -195,8 +199,9 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
-          Carica l&apos;esportazione del libro visite (Excel, CSV o PDF). Le colonne vengono
-          riconosciute automaticamente: controlla l&apos;anteprima prima di confermare.
+          Carica l&apos;esportazione del libro visite (Excel, CSV o PDF) — anche più file insieme,
+          se è diviso in più parti. Le colonne vengono riconosciute automaticamente: controlla
+          l&apos;anteprima prima di confermare.
         </p>
 
         {/* Va dichiarata: non si indovina dal contenuto del file, e decide
@@ -235,11 +240,11 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
             disabled={leggendo || salvando}
           />
           <span>
-            Questo file copre tutte le prenotazioni attive dei giorni che contiene
+            Questo import copre tutte le prenotazioni attive dei giorni che contiene
             <span className="block text-xs text-muted-foreground">
-              Lascia deselezionato se il libro visite è diviso in più file: altrimenti una
-              prenotazione attiva ma finita in un altro file rischia di essere segnalata come
-              cancellata per sbaglio.
+              Lascia deselezionato se il libro visite è diviso in più file e non li carichi tutti
+              insieme: altrimenti una prenotazione attiva ma non ancora caricata rischia di
+              essere segnalata come cancellata per sbaglio.
             </span>
           </span>
         </label>
@@ -247,21 +252,24 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         <input
           ref={inputRef}
           type="file"
+          multiple
           accept=".xlsx,.xls,.csv,.txt,.pdf,image/*"
           className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) leggi(f) }}
+          onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) leggi(Array.from(fs)) }}
         />
 
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" onClick={() => inputRef.current?.click()} disabled={leggendo || salvando}>
             <Upload className="h-4 w-4" /> Scegli file
           </Button>
-          {nomeFile && <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{nomeFile}</span>}
+          {nomiFile.length > 0 && (
+            <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{nomiFile.join(', ')}</span>
+          )}
         </div>
 
         {leggendo && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Lettura del file in corso…
+            <Loader2 className="h-4 w-4 animate-spin" /> Lettura in corso…
           </p>
         )}
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
-import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
+import { interpretaImport, aiConfigurata, type RigaImportata } from '@/lib/cassa/prenotazioniParsing'
 import { type Insegna } from '@/lib/cassa/prenotazioniLocali'
 import { preparaImport, type PrenotazioneEsistente, type VoceCoda } from '@/lib/cassa/prenotazioniImport'
 import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
@@ -51,6 +51,16 @@ async function foglioInTesto(file: File): Promise<string> {
   return righe.join('\n').slice(0, 60_000)
 }
 
+// Somma i totali dichiarati di più file solo se OGNUNO li dichiara: un
+// totale parziale (solo alcuni file lo riportano) sommato ai calcolati su
+// TUTTI i file darebbe una quadratura falsata — es. file 1 dichiara "15
+// prenotazioni" e basta, file 2 non dichiara nulla ma ne contiene altre
+// 12: sommare solo il 15 farebbe sembrare la lettura sbagliata quando non
+// lo è. Meglio dire "verifica non disponibile" che una verifica finta.
+function sommaSeTuttiPresenti(valori: (number | null)[]): number | null {
+  return valori.every((v): v is number => v != null) ? valori.reduce((tot, v) => tot + v, 0) : null
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -64,11 +74,11 @@ export async function POST(request: Request) {
   }
 
   const form = await request.formData()
-  const file = form.get('file')
+  const files = form.getAll('file').filter((f): f is File => f instanceof File)
   const restaurantId = form.get('restaurant_id')
   const fonte = form.get('fonte')
 
-  if (!(file instanceof File)) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
+  if (files.length === 0) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
   if (typeof restaurantId !== 'string' || !restaurantId) {
     return NextResponse.json({ error: 'Ristorante mancante' }, { status: 400 })
   }
@@ -90,21 +100,30 @@ export async function POST(request: Request) {
     .maybeSingle()
   if (!locale) return NextResponse.json({ error: 'Ristorante non gestito' }, { status: 403 })
 
-  const tabellare = TIPI_TABELLARI.includes(file.type) || /\.(xlsx|xls|csv|txt)$/i.test(file.name)
-
-  let letto
+  // Un file per volta al modello, in parallelo — stesso motivo delle
+  // pagine di una fattura multipagina: il collo di bottiglia è la
+  // generazione (un elenco prenotazioni lungo), quindi in sequenza
+  // rischierebbe di sforare il tempo massimo della funzione.
+  let letture
   try {
-    letto = tabellare
-      ? await interpretaImport({
-          testo: await foglioInTesto(file),
-          nomeFile: file.name,
-          annoDiRiferimento: new Date().getFullYear(),
-        })
-      : await interpretaImport({
-          documento: { buffer: await file.arrayBuffer(), mediaType: file.type || 'application/pdf' },
-          nomeFile: file.name,
-          annoDiRiferimento: new Date().getFullYear(),
-        })
+    letture = await Promise.all(files.map(async file => {
+      const tabellare = TIPI_TABELLARI.includes(file.type) || /\.(xlsx|xls|csv|txt)$/i.test(file.name)
+      try {
+        return tabellare
+          ? await interpretaImport({
+              testo: await foglioInTesto(file),
+              nomeFile: file.name,
+              annoDiRiferimento: new Date().getFullYear(),
+            })
+          : await interpretaImport({
+              documento: { buffer: await file.arrayBuffer(), mediaType: file.type || 'application/pdf' },
+              nomeFile: file.name,
+              annoDiRiferimento: new Date().getFullYear(),
+            })
+      } catch (err) {
+        throw new Error(`"${file.name}": ${err instanceof Error ? err.message : 'lettura non riuscita'}`)
+      }
+    }))
   } catch (err) {
     console.error('[cassa/prenotazioni] Import fallito:', err)
     return NextResponse.json(
@@ -113,10 +132,20 @@ export async function POST(request: Request) {
     )
   }
 
+  // Righe di tutti i file uniti in un solo elenco: doppioni e coda si
+  // controllano sull'insieme, non file per file — altrimenti la stessa
+  // prenotazione spezzata su più file (o presente due volte fra i file)
+  // non verrebbe mai riconosciuta come tale.
+  const righe: RigaImportata[] = letture.flatMap(l => l.prenotazioni)
+  // Sommati solo se OGNI file dichiara il proprio totale — vedi
+  // sommaSeTuttiPresenti.
+  const paxDichiarati = sommaSeTuttiPresenti(letture.map(l => l.totale_pax_dichiarato))
+  const righeDichiarate = sommaSeTuttiPresenti(letture.map(l => l.totale_prenotazioni_dichiarato))
+
   // Il giorno lo si conosce solo dopo la lettura: si interrogano le
   // prenotazioni già in agenda per quelle date, così l'anteprima può
   // segnalare i doppioni invece di crearli.
-  const giorni = [...new Set(letto.prenotazioni.map(r => r.data).filter(Boolean))] as string[]
+  const giorni = [...new Set(righe.map(r => r.data).filter(Boolean))] as string[]
   const { data: esistenti } = giorni.length
     ? await supabase
         .from('prenotazioni')
@@ -145,9 +174,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json(
     preparaImport({
-      righe:           letto.prenotazioni,
-      paxDichiarati:   letto.totale_pax_dichiarato,
-      righeDichiarate: letto.totale_prenotazioni_dichiarato,
+      righe,
+      paxDichiarati,
+      righeDichiarate,
       restaurantId,
       // A differenza delle mail, qui il locale l'ha scelto il manager nel
       // selettore: un export riguarda un locale solo, quindi le righe che
