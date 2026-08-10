@@ -3,6 +3,7 @@ import { interpretaEmail, type EmailPrenotazione } from '@/lib/cassa/prenotazion
 import { servizioDaOrario, normalizzaOrario } from '@/lib/cassa/prenotazioniAgenda'
 import { abbinaInsegna, localeDaIgnorare, type Insegna, type LocaleIgnorato } from '@/lib/cassa/prenotazioniLocali'
 import { estraiDaLinkTheFork } from '@/lib/cassa/prenotazioniTheForkLink'
+import { chiaveCliente } from '@/lib/cassa/prenotazioniImport'
 
 // Cosa fare con UNA mail di notifica, indipendentemente da come è
 // arrivata — letta a intervalli da una casella Gmail o consegnata subito
@@ -80,6 +81,42 @@ export interface EsitoMail {
 }
 
 export type AdminClient = ReturnType<typeof createAdminClient>
+
+// Una mail di cancellazione può riguardare una prenotazione mai arrivata
+// in agenda perché ferma in coda (esito 'incompleta': mancava l'orario) —
+// senza questa ricerca la cancellazione la ignora e basta (nulla da
+// eliminare in prenotazioni), e la voce di coda resta ad aspettare per
+// sempre un orario che non arriverà mai, dato che una notifica futura
+// non la riguarderà più. Stesso criterio a due livelli già usato sopra
+// per `esistenteId`: prima il riferimento del gestionale (il più
+// affidabile), poi giorno + cliente.
+async function trovaVoceInCoda(
+  admin: AdminClient,
+  restaurantId: string,
+  riferimento: string | null,
+  data: string,
+  nome: string,
+  cognome: string | null
+): Promise<string | null> {
+  const { data: righe } = await admin
+    .from('prenotazioni_email_log')
+    .select('id, payload')
+    .eq('esito', 'incompleta')
+    .eq('payload->parziale->>restaurant_id', restaurantId)
+
+  const voci = (righe ?? [])
+    .map(r => ({ id: r.id as string, parziale: (r.payload as { parziale?: DatiParziali } | null)?.parziale }))
+    .filter((v): v is { id: string; parziale: DatiParziali } => !!v.parziale)
+
+  if (riferimento) {
+    const perRiferimento = voci.find(v => v.parziale.riferimento_esterno === riferimento)
+    if (perRiferimento) return perRiferimento.id
+  }
+
+  const chiave = chiaveCliente(nome, cognome)
+  const perCliente = voci.find(v => v.parziale.data === data && chiaveCliente(v.parziale.nome, v.parziale.cognome) === chiave)
+  return perCliente?.id ?? null
+}
 
 export async function lavoraMail(
   admin: AdminClient,
@@ -195,9 +232,16 @@ export async function lavoraMail(
   }
 
   if (letta.evento === 'cancellazione') {
-    if (!esistenteId) return { esito: 'ignorata', evento: letta.evento }
-    await admin.from('prenotazioni').update({ stato: 'eliminata' }).eq('id', esistenteId)
-    return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
+    if (esistenteId) {
+      await admin.from('prenotazioni').update({ stato: 'eliminata' }).eq('id', esistenteId)
+      return { esito: 'importata', evento: letta.evento, prenotazione_id: esistenteId }
+    }
+    // Non ancora in agenda: potrebbe essere proprio la prenotazione ferma
+    // in coda che questa mail sta cancellando — niente da eliminare in
+    // prenotazioni, ma la voce di coda va comunque chiusa.
+    const codaId = await trovaVoceInCoda(admin, abbinamento.restaurant_id, letta.riferimento, letta.data, letta.nome, letta.cognome)
+    if (codaId) await admin.from('prenotazioni_email_log').update({ esito: 'ignorata' }).eq('id', codaId)
+    return { esito: 'ignorata', evento: letta.evento }
   }
 
   // Se la prenotazione esiste già ma questa mail non porta un orario
