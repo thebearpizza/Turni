@@ -257,7 +257,12 @@ export function PresenzeClient({
           ? ps.map(p => p.id === saved.id ? saved : p)
           : ps.filter(p => p.id !== saved.id))
       } else if (matchesMonth && matchesRest) {
-        setPresenze(ps => [saved, ...ps])
+        // Dedupe per id: il canale realtime (sotto) può notificare
+        // l'inserimento prima che questo aggiornamento ottimistico si
+        // applichi, altrimenti la stessa presenza comparirebbe due volte.
+        setPresenze(ps => ps.some(p => p.id === saved.id)
+          ? ps.map(p => p.id === saved.id ? saved : p)
+          : [saved, ...ps])
       }
 
       closeForm()

@@ -172,7 +172,12 @@ export function BachecaClient({
       .single()
 
     if (data) {
-      setBulletins(bs => [data, ...bs])
+      // Dedupe per id: il canale realtime (sopra) può notificare
+      // l'inserimento prima che questo aggiornamento ottimistico si
+      // applichi, altrimenti lo stesso comunicato comparirebbe due volte.
+      setBulletins(bs => bs.some(b => b.id === data.id)
+        ? bs.map(b => b.id === data.id ? data : b)
+        : [data, ...bs])
       setReadCounts(prev => ({ ...prev, [data.id]: 0 }))
       // Fire-and-forget: invia notifica push agli utenti target
       fetch('/api/push/send', {

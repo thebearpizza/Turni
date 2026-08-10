@@ -165,7 +165,12 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
         .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
         .single()
       if (error) { setSaveError(error.message); setSaving(false); return }
-      if (data) setAbsences(as => [data, ...as])
+      // Dedupe per id: il canale realtime (sopra) ricarica l'intera lista
+      // e può arrivare prima che questo aggiornamento ottimistico si
+      // applichi, altrimenti la stessa assenza comparirebbe due volte.
+      if (data) setAbsences(as => as.some(a => a.id === data.id)
+        ? as.map(a => a.id === data.id ? data : a)
+        : [data, ...as])
     }
 
     setShowForm(false)
