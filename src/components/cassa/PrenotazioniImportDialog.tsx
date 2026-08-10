@@ -48,6 +48,18 @@ interface Verifica {
   confrontoDisponibile: boolean
 }
 
+// Voce in coda il cui giorno compare in questo export ma che nessuna riga
+// importata ha completato: probabilmente cancellata prima di ricevere un
+// orario, non semplicemente in attesa di un file più recente — un futuro
+// export di prenotazioni attive non la conterrebbe comunque mai.
+interface VoceCodaOrfana {
+  logId:   string
+  nome:    string
+  cognome: string | null
+  data:    string
+  persone: number
+}
+
 interface Props {
   open:         boolean
   onOpenChange: (open: boolean) => void
@@ -66,11 +78,13 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
   const [scartate, setScartate] = useState(0)
   const [escluse, setEscluse] = useState<Set<number>>(new Set())
   const [errore, setErrore] = useState<string | null>(null)
+  const [codaSenzaRiscontro, setCodaSenzaRiscontro] = useState<VoceCodaOrfana[]>([])
+  const [ignorandoId, setIgnorandoId] = useState<string | null>(null)
 
   function reset() {
     setFonte('thefork')
     setNomeFile(null); setRighe(null); setVerifica(null); setScartate(0)
-    setEscluse(new Set()); setErrore(null)
+    setEscluse(new Set()); setErrore(null); setCodaSenzaRiscontro([])
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -94,6 +108,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
       setRighe(lette)
       setVerifica(json.verifica as Verifica)
       setScartate(json.scartate as number)
+      setCodaSenzaRiscontro((json.codaSenzaRiscontro ?? []) as VoceCodaOrfana[])
       // Doppioni e righe con coperti illeggibili partono deselezionati:
       // importarli è una scelta da fare, non il comportamento di default.
       setEscluse(new Set(lette.flatMap((r, i) => (r.duplicato || r.avviso ? [i] : []))))
@@ -102,6 +117,16 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
     } finally {
       setLeggendo(false)
     }
+  }
+
+  // Stessa identica azione del tasto "Ignora" nel riepilogo coda: non
+  // cancella nulla, segna solo la notifica come non più da gestire.
+  async function ignoraCoda(logId: string) {
+    setIgnorandoId(logId)
+    const supabase = createClient()
+    await supabase.from('prenotazioni_email_log').update({ esito: 'ignorata' }).eq('id', logId)
+    setCodaSenzaRiscontro(prev => prev.filter(v => v.logId !== logId))
+    setIgnorandoId(null)
   }
 
   async function conferma() {
@@ -317,6 +342,40 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {codaSenzaRiscontro.length > 0 && (
+          <div className="space-y-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))]">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="cassa-numeric">{codaSenzaRiscontro.length}</span> in coda ma non in questo export
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Aspettavano solo l&apos;orario ma non risultano più tra le prenotazioni attive: probabilmente cancellate prima di riceverne uno.
+            </p>
+            <div className="space-y-1">
+              {codaSenzaRiscontro.map(v => (
+                <div key={v.logId} className="flex items-center justify-between gap-2 rounded bg-background/60 px-2 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{[v.nome, v.cognome].filter(Boolean).join(' ')}</span>
+                    <span className="text-muted-foreground">
+                      {' '}· <span className="cassa-numeric">{v.data}</span> · <span className="cassa-numeric">{v.persone}</span> coperti
+                    </span>
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 shrink-0 px-2"
+                    disabled={ignorandoId === v.logId || salvando}
+                    onClick={() => ignoraCoda(v.logId)}
+                  >
+                    {ignorandoId === v.logId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Ignora'}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

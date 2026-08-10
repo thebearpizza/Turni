@@ -65,6 +65,23 @@ export interface Verifica {
   confrontoDisponibile: boolean
 }
 
+// Una voce di coda il cui giorno compare nell'export ma che nessuna riga
+// importata ha completato: se il file contiene almeno una prenotazione
+// per quel giorno lo si tratta come l'elenco vero di ciò che è ancora
+// attivo — quindi questa è quasi certamente una prenotazione cancellata
+// prima di ricevere un orario (mai più trovabile in un futuro export,
+// che per definizione lista solo le prenotazioni ancora attive), non
+// una che aspetta semplicemente un file più recente. Segnalata, non
+// chiusa in automatico: un export incompleto per quel giorno la
+// farebbe sparire a torto.
+export interface VoceCodaOrfana {
+  logId:   string
+  nome:    string
+  cognome: string | null
+  data:    string
+  persone: number
+}
+
 // Chiave di confronto per i doppioni: stesso giorno e stesso cliente.
 // Volutamente NON include l'orario — reimportare un export dopo che una
 // prenotazione è stata spostata deve riconoscerla come la stessa, non
@@ -93,7 +110,7 @@ export function preparaImport(opts: {
   // Gestionale da cui viene il file: lo dichiara il manager scegliendo
   // il tasto di caricamento, non si indovina dal contenuto.
   fonte:            DatiParziali['origine']
-}): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica } {
+}): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica; codaSenzaRiscontro: VoceCodaOrfana[] } {
   const insegnaDefault = insegnaPrincipale(opts.insegne)?.codice ?? null
 
   const complete = opts.righe.filter(r => r.nome && r.data && r.orario)
@@ -168,6 +185,12 @@ export function preparaImport(opts: {
   const quadraPax   = opts.paxDichiarati == null || opts.paxDichiarati === paxCalcolati
   const quadraRighe = opts.righeDichiarate == null || opts.righeDichiarate === prenotazioni.length
 
+  const giorniCoperti = new Set(prenotazioni.map(p => p.data))
+  const logIdAbbinati = new Set(prenotazioni.map(p => p.completaLogId).filter((id): id is string => id !== null))
+  const codaSenzaRiscontro: VoceCodaOrfana[] = opts.coda
+    .filter(v => giorniCoperti.has(v.parziale.data) && !logIdAbbinati.has(v.logId))
+    .map(v => ({ logId: v.logId, nome: v.parziale.nome, cognome: v.parziale.cognome, data: v.parziale.data, persone: v.parziale.persone }))
+
   return {
     prenotazioni,
     scartate: opts.righe.length - complete.length,
@@ -182,5 +205,6 @@ export function preparaImport(opts: {
       // verificata.
       confrontoDisponibile: opts.paxDichiarati != null || opts.righeDichiarate != null,
     },
+    codaSenzaRiscontro,
   }
 }
