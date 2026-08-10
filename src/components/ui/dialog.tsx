@@ -42,22 +42,35 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    // Di default NESSUN dialog si chiude per un click/tocco fuori dal
+    // contenuto — resta comunque chiudibile con Esc, la X o un bottone
+    // Annulla, tutti espliciti. Un form perde altrimenti tutti i dati
+    // inseriti per un click "vagante": capita spesso perché il box è
+    // centrato con una transform (righe sotto) e si riposiziona sullo
+    // schermo quando il contenuto cambia altezza mentre si digita (es.
+    // una riga di riepilogo che compare/scompare) — il click successivo,
+    // puntato dove il box era un attimo prima, atterra sull'overlay.
+    // Chi vuole il comportamento classico (dialog di sola visualizzazione,
+    // senza nulla da perdere) lo dichiara esplicitamente qui.
+    closeOnOutsideInteract?: boolean
+  }
+>(({ className, children, onPointerDownOutside, onInteractOutside, closeOnOutsideInteract = false, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
       onPointerDownOutside={(e) => {
-        // Keep the dialog open when the pointer-down happens inside a Radix
-        // popper layer (Select / Popover / Dropdown / Calendar). Clicking an
-        // option in a portalled popper would otherwise count as an "outside"
-        // interaction and tear down the form, losing the user's input.
-        if (isInsideRadixPopper(e)) e.preventDefault()
+        // Bloccato di default; fa eccezione solo un dialog che ha dichiarato
+        // closeOnOutsideInteract — e anche lì, mai quando il pointer-down è
+        // dentro un layer popper di Radix (Select/Popover/Dropdown/Calendar):
+        // altrimenti scegliere un'opzione in un popper portato fuori dal
+        // dialog conterebbe come interazione "esterna".
+        if (!closeOnOutsideInteract || isInsideRadixPopper(e)) e.preventDefault()
         onPointerDownOutside?.(e)
       }}
       onInteractOutside={(e) => {
-        if (isInsideRadixPopper(e)) e.preventDefault()
+        if (!closeOnOutsideInteract || isInsideRadixPopper(e)) e.preventDefault()
         onInteractOutside?.(e)
       }}
       className={cn(
