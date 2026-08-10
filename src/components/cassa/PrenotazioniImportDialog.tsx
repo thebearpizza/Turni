@@ -80,11 +80,18 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
   const [errore, setErrore] = useState<string | null>(null)
   const [codaSenzaRiscontro, setCodaSenzaRiscontro] = useState<VoceCodaOrfana[]>([])
   const [ignorandoId, setIgnorandoId] = useState<string | null>(null)
+  // Disattivata di default: se il libro visite è diviso in più file (es.
+  // per iniziale del cognome, non per data), un giorno può avere alcune
+  // prenotazioni in questo file e altre in un altro ancora da caricare —
+  // trattare questo file come "tutto ciò che è attivo per quei giorni"
+  // segnalerebbe come cancellate prenotazioni che sono semplicemente in
+  // un file diverso. Va dichiarato apposta, non indovinato dal contenuto.
+  const [fileCompleto, setFileCompleto] = useState(false)
 
   function reset() {
     setFonte('thefork')
     setNomeFile(null); setRighe(null); setVerifica(null); setScartate(0)
-    setEscluse(new Set()); setErrore(null); setCodaSenzaRiscontro([])
+    setEscluse(new Set()); setErrore(null); setCodaSenzaRiscontro([]); setFileCompleto(false)
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -219,6 +226,24 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
           </div>
         </div>
 
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1 shrink-0"
+            checked={fileCompleto}
+            onChange={e => setFileCompleto(e.target.checked)}
+            disabled={leggendo || salvando}
+          />
+          <span>
+            Questo file copre tutte le prenotazioni attive dei giorni che contiene
+            <span className="block text-xs text-muted-foreground">
+              Lascia deselezionato se il libro visite è diviso in più file: altrimenti una
+              prenotazione attiva ma finita in un altro file rischia di essere segnalata come
+              cancellata per sbaglio.
+            </span>
+          </span>
+        </label>
+
         <input
           ref={inputRef}
           type="file"
@@ -345,7 +370,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
           </div>
         )}
 
-        {codaSenzaRiscontro.length > 0 && (
+        {fileCompleto && codaSenzaRiscontro.length > 0 && (
           <div className="space-y-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))]">
               <AlertTriangle className="h-4 w-4 shrink-0" />
