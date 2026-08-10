@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import {
@@ -118,6 +118,13 @@ export function TurniManagerClient({
 
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  // `saving` (state) arriva a schermo con un giro di re-render: due click
+  // ravvicinati sul bottone — es. un salvataggio percepito come lento che
+  // spinge a ricliccare — possono passare entrambi prima che il bottone
+  // risulti visivamente disabilitato, creando due volte gli stessi turni.
+  // Un ref è letto/scritto in modo sincrono, immune a quel ritardo: la
+  // guardia in handleSave() lo controlla PRIMA di qualunque await.
+  const savingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [editingTurn, setEditingTurn] = useState<Turn | null>(null)
 
@@ -409,41 +416,113 @@ export function TurniManagerClient({
   }
 
   async function handleSave() {
-    if (!fUserId) return
+    // Guardia sincrona (ref, non state): un secondo click arrivato prima
+    // che il bottone risulti visivamente disabilitato non deve avviare un
+    // secondo salvataggio in parallelo — altrimenti gli stessi turni
+    // vengono creati due volte, ciascun Promise.all con la sua serie di
+    // insert distinti (non un problema di merge/realtime, quello dedupe
+    // già correttamente per id: qui il doppio insert è reale).
+    if (!fUserId || savingRef.current) return
+    savingRef.current = true
+    try {
+      if (multiDayMode) {
+        if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
+          setError('Completa tutte le fasce del turno spezzato di questo giorno prima di salvare, oppure rimuovile.')
+          return
+        }
+        const finalQueue = commitCurrentDayIfValid(multiDayQueue)
+        if (finalQueue.length === 0) {
+          setError('Compila almeno un giorno prima di salvare.')
+          return
+        }
+        setSaving(true)
+        setError(null)
+        try {
+          const selected = staff.find(s => s.id === fUserId)
+          const restaurant_id = selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? ''
+          const department = (selected?.department ?? currentDepartment) as Department | null
+          const creates: Promise<Turn>[] = []
+          for (const e of finalQueue) {
+            const shared = {
+              user_id:       fUserId,
+              restaurant_id,
+              department,
+              date:          e.date,
+              is_rest_day:   e.is_rest_day,
+              notes:         e.notes || null,
+            }
+            creates.push(createTurn({ ...shared, start_time: e.start_time, end_time: e.end_time, is_extraordinary: e.is_extraordinary }))
+            for (const seg of e.splitSegments) {
+              creates.push(createTurn({ ...shared, start_time: seg.start, end_time: seg.end, is_extraordinary: e.is_extraordinary }))
+            }
+          }
+          const created = await Promise.all(creates)
+          setTurns(prev => [...prev, ...created])
+          resetForm()
+          setShowForm(false)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Errore sconosciuto')
+        } finally {
+          setSaving(false)
+        }
+        return
+      }
 
-    if (multiDayMode) {
-      if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
-        setError('Completa tutte le fasce del turno spezzato di questo giorno prima di salvare, oppure rimuovile.')
+      if (!fIsRestDay && (!fStart || !fEnd)) return
+      if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
+
+      // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
+      const canHaveSplit = !fIsRestDay && !editingTurn
+      if (canHaveSplit && hasIncompleteSplit(fSplitSegments)) {
+        setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
         return
       }
-      const finalQueue = commitCurrentDayIfValid(multiDayQueue)
-      if (finalQueue.length === 0) {
-        setError('Compila almeno un giorno prima di salvare.')
-        return
-      }
+
       setSaving(true)
       setError(null)
       try {
         const selected = staff.find(s => s.id === fUserId)
-        const restaurant_id = selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? ''
-        const department = (selected?.department ?? currentDepartment) as Department | null
-        const creates: Promise<Turn>[] = []
-        for (const e of finalQueue) {
-          const shared = {
-            user_id:       fUserId,
-            restaurant_id,
-            department,
-            date:          e.date,
-            is_rest_day:   e.is_rest_day,
-            notes:         e.notes || null,
+        const baseFields = {
+          user_id:          fUserId,
+          restaurant_id:    selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? '',
+          department:       (selected?.department ?? currentDepartment) as Department | null,
+          start_time:       fIsRestDay ? '00:00' : fStart,
+          end_time:         fIsRestDay ? '00:00' : fEnd,
+          is_extraordinary: fIsRestDay ? false : fExtraordinary,
+          is_rest_day:      fIsRestDay,
+          notes:            fNotes.trim() || null,
+        }
+
+        if (bulkMode) {
+          const payload: BulkTurnInput = {
+            ...baseFields,
+            start_date:   fDate,
+            end_date:     fEndDate,
+            days_of_week: fDaysOfWeek,
           }
-          creates.push(createTurn({ ...shared, start_time: e.start_time, end_time: e.end_time, is_extraordinary: e.is_extraordinary }))
-          for (const seg of e.splitSegments) {
-            creates.push(createTurn({ ...shared, start_time: seg.start, end_time: seg.end, is_extraordinary: e.is_extraordinary }))
+          // Fascia principale + eventuali fasce spezzate, ciascuna ripetuta
+          // sull'intero range/giorni scelti — una createTurnsBulk per fascia,
+          // stesso schema della creazione singola.
+          const created = await Promise.all([
+            createTurnsBulk(payload),
+            ...validSplitSegments.map(s => createTurnsBulk({ ...payload, start_time: s.start, end_time: s.end })),
+          ])
+          setTurns(prev => [...prev, ...created.flat()])
+        } else {
+          const payload: TurnInput = { ...baseFields, date: fDate }
+          if (editingTurn) {
+            const updated = await updateTurn(editingTurn.id, payload)
+            setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
+          } else {
+            // Fascia principale + eventuali fasce spezzate, create insieme
+            // in un solo Salva (stesso dipendente/data/ristorante/reparto).
+            const created = await Promise.all([
+              createTurn(payload),
+              ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
+            ])
+            setTurns(prev => [...prev, ...created])
           }
         }
-        const created = await Promise.all(creates)
-        setTurns(prev => [...prev, ...created])
         resetForm()
         setShowForm(false)
       } catch (err) {
@@ -451,70 +530,8 @@ export function TurniManagerClient({
       } finally {
         setSaving(false)
       }
-      return
-    }
-
-    if (!fIsRestDay && (!fStart || !fEnd)) return
-    if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
-
-    // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
-    const canHaveSplit = !fIsRestDay && !editingTurn
-    if (canHaveSplit && hasIncompleteSplit(fSplitSegments)) {
-      setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
-      return
-    }
-
-    setSaving(true)
-    setError(null)
-    try {
-      const selected = staff.find(s => s.id === fUserId)
-      const baseFields = {
-        user_id:          fUserId,
-        restaurant_id:    selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? '',
-        department:       (selected?.department ?? currentDepartment) as Department | null,
-        start_time:       fIsRestDay ? '00:00' : fStart,
-        end_time:         fIsRestDay ? '00:00' : fEnd,
-        is_extraordinary: fIsRestDay ? false : fExtraordinary,
-        is_rest_day:      fIsRestDay,
-        notes:            fNotes.trim() || null,
-      }
-
-      if (bulkMode) {
-        const payload: BulkTurnInput = {
-          ...baseFields,
-          start_date:   fDate,
-          end_date:     fEndDate,
-          days_of_week: fDaysOfWeek,
-        }
-        // Fascia principale + eventuali fasce spezzate, ciascuna ripetuta
-        // sull'intero range/giorni scelti — una createTurnsBulk per fascia,
-        // stesso schema della creazione singola.
-        const created = await Promise.all([
-          createTurnsBulk(payload),
-          ...validSplitSegments.map(s => createTurnsBulk({ ...payload, start_time: s.start, end_time: s.end })),
-        ])
-        setTurns(prev => [...prev, ...created.flat()])
-      } else {
-        const payload: TurnInput = { ...baseFields, date: fDate }
-        if (editingTurn) {
-          const updated = await updateTurn(editingTurn.id, payload)
-          setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
-        } else {
-          // Fascia principale + eventuali fasce spezzate, create insieme
-          // in un solo Salva (stesso dipendente/data/ristorante/reparto).
-          const created = await Promise.all([
-            createTurn(payload),
-            ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
-          ])
-          setTurns(prev => [...prev, ...created])
-        }
-      }
-      resetForm()
-      setShowForm(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
     } finally {
-      setSaving(false)
+      savingRef.current = false
     }
   }
 
