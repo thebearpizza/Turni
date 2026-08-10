@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, addDays, addWeeks, format, parseISO } from 'date-fns'
+import { startOfWeek, addDays, addWeeks, format, parseISO, eachDayOfInterval, getDay } from 'date-fns'
 import { it } from 'date-fns/locale'
 import type { Turn, Department, StandardShift, AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
 import { AiScheduleDialog } from './AiScheduleDialog'
@@ -129,6 +129,10 @@ export function TurniManagerClient({
   const [fDaysOfWeek, setFDaysOfWeek] = useState<number[]>([])
   const [fStart, setFStart] = useState('')
   const [fEnd, setFEnd] = useState('')
+  // Niente più un toggle in form: resta a false per ogni turno nuovo (singolo,
+  // multi-giorno o bulk). In modifica riparte dal valore già in DB (openEdit)
+  // e viaggia inalterato nel salvataggio, così un turno già straordinario non
+  // perde l'evidenziazione se lo si modifica per altro (es. solo le note).
   const [fExtraordinary, setFExtraordinary] = useState(false)
   const [fIsRestDay, setFIsRestDay] = useState(false)
   const [fNotes, setFNotes] = useState('')
@@ -393,6 +397,17 @@ export function TurniManagerClient({
     setFDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
   }
 
+  // Giorni della settimana compresi in un range di date (estremi inclusi):
+  // chi sceglie inizio/fine parte già con tutti i giorni coperti dal range
+  // preselezionati, invece di doverli ricomporre uno a uno — su un range di
+  // 7 o più giorni sono comunque tutti presenti, per costruzione.
+  function weekdaysInRange(start: string, end: string): number[] {
+    const s = new Date(`${start}T00:00:00`)
+    const e = new Date(`${end}T00:00:00`)
+    if (e < s) return []
+    return [...new Set(eachDayOfInterval({ start: s, end: e }).map(d => getDay(d)))]
+  }
+
   async function handleSave() {
     if (!fUserId) return
 
@@ -443,7 +458,7 @@ export function TurniManagerClient({
     if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
 
     // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
-    const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
+    const canHaveSplit = !fIsRestDay && !editingTurn
     if (canHaveSplit && hasIncompleteSplit(fSplitSegments)) {
       setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
       return
@@ -471,8 +486,14 @@ export function TurniManagerClient({
           end_date:     fEndDate,
           days_of_week: fDaysOfWeek,
         }
-        const created = await createTurnsBulk(payload)
-        setTurns(prev => [...prev, ...created])
+        // Fascia principale + eventuali fasce spezzate, ciascuna ripetuta
+        // sull'intero range/giorni scelti — una createTurnsBulk per fascia,
+        // stesso schema della creazione singola.
+        const created = await Promise.all([
+          createTurnsBulk(payload),
+          ...validSplitSegments.map(s => createTurnsBulk({ ...payload, start_time: s.start, end_time: s.end })),
+        ])
+        setTurns(prev => [...prev, ...created.flat()])
       } else {
         const payload: TurnInput = { ...baseFields, date: fDate }
         if (editingTurn) {
@@ -481,10 +502,9 @@ export function TurniManagerClient({
         } else {
           // Fascia principale + eventuali fasce spezzate, create insieme
           // in un solo Salva (stesso dipendente/data/ristorante/reparto).
-          const validSegments = fSplitSegments.filter(s => s.start && s.end)
           const created = await Promise.all([
             createTurn(payload),
-            ...validSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
+            ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
           ])
           setTurns(prev => [...prev, ...created])
         }
@@ -563,8 +583,8 @@ export function TurniManagerClient({
     }
   }
 
-  // Turno spezzato disponibile in creazione (singola o multi-giorno), non in bulk/modifica
-  const canHaveSplit = !fIsRestDay && !bulkMode && !editingTurn
+  // Turno spezzato disponibile in creazione: singola, multi-giorno o bulk — non in modifica
+  const canHaveSplit = !fIsRestDay && !editingTurn
   const validSplitSegments = fSplitSegments.filter(s => s.start && s.end)
   const totalShiftMinutes = fStart && fEnd
     ? segmentMinutes(fStart, fEnd) + validSplitSegments.reduce((sum, s) => sum + segmentMinutes(s.start, s.end), 0)
@@ -886,11 +906,27 @@ export function TurniManagerClient({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Data inizio *</Label>
-                    <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
+                    <Input
+                      type="date"
+                      value={fDate}
+                      onChange={e => {
+                        const v = e.target.value
+                        setFDate(v)
+                        if (v && fEndDate) setFDaysOfWeek(weekdaysInRange(v, fEndDate))
+                      }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Data fine *</Label>
-                    <Input type="date" value={fEndDate} onChange={e => setFEndDate(e.target.value)} />
+                    <Input
+                      type="date"
+                      value={fEndDate}
+                      onChange={e => {
+                        const v = e.target.value
+                        setFEndDate(v)
+                        if (fDate && v) setFDaysOfWeek(weekdaysInRange(fDate, v))
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -981,7 +1017,7 @@ export function TurniManagerClient({
                   </p>
                 )}
 
-                {/* Turno spezzato — solo in creazione singola (non bulk, non modifica) */}
+                {/* Turno spezzato — in creazione singola, multi-giorno o bulk (non in modifica) */}
                 {canHaveSplit && (
                   <div className="space-y-3">
                     {fSplitSegments.map((seg, idx) => (
@@ -1021,15 +1057,6 @@ export function TurniManagerClient({
                     </Button>
                   </div>
                 )}
-
-                {/* Extraordinary toggle */}
-                <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
-                  <div>
-                    <Label className="text-sm">Turno Straordinario</Label>
-                    <p className="text-xs text-muted-foreground">Evidenziato in arancione nel calendario</p>
-                  </div>
-                  <Switch checked={fExtraordinary} onCheckedChange={setFExtraordinary} />
-                </div>
               </>
             )}
 
