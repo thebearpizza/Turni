@@ -77,6 +77,24 @@ function hasIncompleteSplit(segments: { start: string; end: string }[]): boolean
   return segments.some(s => (s.start && !s.end) || (!s.start && s.end))
 }
 
+// Aggiunge o aggiorna righe per id — mai una semplice concat. Il canale
+// realtime (sotto) fa il proprio giro di rete in parallelo a ogni
+// createTurn/createTurnsBulk, e spesso arriva PRIMA che l'update
+// ottimistico locale si applichi (soprattutto con molte righe create in
+// una volta, come in "Più Giorni" o Inserimento Multiplo): concatenare
+// alla cieca in quel caso fa comparire lo stesso turno due volte in
+// agenda — solo nello stato del browser, mai nel database (il vincolo di
+// unicità lo impedisce comunque lì) — finché non si ricarica la pagina,
+// che riparte da un fetch pulito e fa sparire il "doppione" fantasma.
+function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
+  let next = prev
+  for (const t of incoming) {
+    const idx = next.findIndex(x => x.id === t.id)
+    next = idx >= 0 ? next.map((x, i) => (i === idx ? t : x)) : [...next, t]
+  }
+  return next
+}
+
 // Intestazione e colonna dipendente condividono lo stesso trattamento
 // neutro (bg-card + bordo) della Timeline Giornaliera sotto, invece di un
 // blocco colorato a sé stante — stesso linguaggio visivo in tutta la pagina.
@@ -198,12 +216,7 @@ export function TurniManagerClient({
               .eq('id', rec.id)
               .single()
             if (!data) return
-            setTurns(prev => {
-              const exists = prev.some(t => t.id === data.id)
-              return exists
-                ? prev.map(t => t.id === data.id ? data as unknown as Turn : t)
-                : [...prev, data as unknown as Turn]
-            })
+            setTurns(prev => mergeTurns(prev, [data as unknown as Turn]))
           } else if (payload.eventType === 'DELETE') {
             const deletedId = (payload.old as { id: string }).id
             setTurns(prev => prev.filter(t => t.id !== deletedId))
@@ -460,7 +473,7 @@ export function TurniManagerClient({
           // vincolo di unicità (protezione anti-doppione): niente da
           // aggiungere allo stato locale, non un errore da mostrare.
           const created = await Promise.all(creates)
-          setTurns(prev => [...prev, ...created.filter((t): t is Turn => t !== null)])
+          setTurns(prev => mergeTurns(prev, created.filter((t): t is Turn => t !== null)))
           resetForm()
           setShowForm(false)
         } catch (err) {
@@ -510,7 +523,7 @@ export function TurniManagerClient({
             createTurnsBulk(payload),
             ...validSplitSegments.map(s => createTurnsBulk({ ...payload, start_time: s.start, end_time: s.end })),
           ])
-          setTurns(prev => [...prev, ...created.flat()])
+          setTurns(prev => mergeTurns(prev, created.flat()))
         } else {
           const payload: TurnInput = { ...baseFields, date: fDate }
           if (editingTurn) {
@@ -524,7 +537,7 @@ export function TurniManagerClient({
               createTurn(payload),
               ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
             ])
-            setTurns(prev => [...prev, ...created.filter((t): t is Turn => t !== null)])
+            setTurns(prev => mergeTurns(prev, created.filter((t): t is Turn => t !== null)))
           }
         }
         resetForm()
