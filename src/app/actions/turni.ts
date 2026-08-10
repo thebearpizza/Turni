@@ -92,7 +92,14 @@ function assertWithinScope(profile: CallerProfile, target: { restaurant_id: stri
   throw new Error('Non autorizzato')
 }
 
-export async function createTurn(input: TurnInput): Promise<Turn> {
+// null quando il turno non è stato creato perché ne esiste già uno
+// identico (stesso dipendente, stesso giorno, stesso orario — vincolo
+// turns_no_duplicate_shift): non un errore, è la protezione anti-doppione
+// che funziona. Il chiamante lo tratta come "niente da aggiungere", non
+// da segnalare — un secondo click sfuggito alla guardia lato client (o
+// qualunque altra causa futura) non deve produrre un turno in più né un
+// messaggio d'errore, semplicemente non succede nulla di visibile.
+export async function createTurn(input: TurnInput): Promise<Turn | null> {
   const { supabase, user, profile } = await getCaller()
 
   assertWithinScope(profile, { restaurant_id: input.restaurant_id, department: input.department })
@@ -108,7 +115,7 @@ export async function createTurn(input: TurnInput): Promise<Turn> {
 
   const { data, error } = await supabase
     .from('turns')
-    .insert({
+    .upsert({
       user_id:          input.user_id,
       restaurant_id:    input.restaurant_id,
       department:       input.department,
@@ -119,14 +126,14 @@ export async function createTurn(input: TurnInput): Promise<Turn> {
       is_rest_day:      input.is_rest_day ?? false,
       notes:            input.notes ?? null,
       created_by:       user.id,
-    })
+    }, { onConflict: 'user_id,date,start_time,end_time', ignoreDuplicates: true })
     .select('*, profile:profiles!user_id(id, full_name)')
-    .single()
+    .maybeSingle()
 
   if (error) throw new Error(error.message)
 
   revalidatePath('/turni')
-  return data as unknown as Turn
+  return data as unknown as Turn | null
 }
 
 export async function updateTurn(id: string, input: TurnInput): Promise<Turn> {
@@ -161,7 +168,15 @@ export async function updateTurn(id: string, input: TurnInput): Promise<Turn> {
     .select('*, profile:profiles!user_id(id, full_name)')
     .single()
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    // A differenza di createTurn (dove il doppione va ignorato in
+    // silenzio), qui è una modifica esplicita: chi la fa deve sapere
+    // perché non è andata a buon fine, non vederla sparire nel nulla.
+    if (error.code === '23505') {
+      throw new Error('Esiste già un turno identico per questo dipendente in questo giorno e orario.')
+    }
+    throw new Error(error.message)
+  }
 
   revalidatePath('/turni')
   return data as unknown as Turn
@@ -224,9 +239,14 @@ export async function createTurnsBulk(input: BulkTurnInput): Promise<Turn[]> {
     created_by:       user.id,
   }))
 
+  // upsert + ignoreDuplicates invece di insert: se una data del range
+  // coincide con un turno già esistente (stesso dipendente, stesso
+  // orario), quella riga viene scartata in silenzio invece di far
+  // fallire l'intero inserimento massivo — le altre date valide restano
+  // create normalmente.
   const { data, error } = await supabase
     .from('turns')
-    .insert(rows)
+    .upsert(rows, { onConflict: 'user_id,date,start_time,end_time', ignoreDuplicates: true })
     .select('*, profile:profiles!user_id(id, full_name)')
 
   if (error) throw new Error(error.message)
@@ -388,11 +408,21 @@ export async function populateFromStandard(startDate: string, endDate: string): 
     }
   }
 
+  let created = 0
   if (rows.length) {
-    const { error } = await supabase.from('turns').insert(rows)
+    // upsert + ignoreDuplicates: il dedupe sopra (existingKeys) copre già i
+    // casi noti, ma non è la stessa chiave del vincolo di unicità del DB
+    // (qui manca end_time) — questa è la rete di sicurezza finale, che
+    // scarta in silenzio invece di far fallire l'intero batch.
+    const { data: inserted, error } = await supabase
+      .from('turns')
+      .upsert(rows, { onConflict: 'user_id,date,start_time,end_time', ignoreDuplicates: true })
+      .select('id')
     if (error) throw new Error(error.message)
+    created = inserted?.length ?? 0
+    skipped += rows.length - created
   }
 
   revalidatePath('/turni')
-  return { created: rows.length, skipped }
+  return { created, skipped }
 }

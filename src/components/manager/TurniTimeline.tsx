@@ -373,8 +373,10 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
             is_rest_day: false,
             notes: null,
           } satisfies TurnInput)
-          // Il turno appena creato resta visibile subito, senza aspettare il realtime
-          setExtraTurns(prev => [...prev, created])
+          // null = turno identico già esistente, scartato in silenzio dal
+          // vincolo di unicità — niente da mostrare, non un errore.
+          // Altrimenti resta visibile subito, senza aspettare il realtime.
+          if (created) setExtraTurns(prev => [...prev, created])
         }
       } catch (err) {
         setDragError(err instanceof Error ? err.message : 'Errore durante il salvataggio del turno')

@@ -441,7 +441,7 @@ export function TurniManagerClient({
           const selected = staff.find(s => s.id === fUserId)
           const restaurant_id = selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? ''
           const department = (selected?.department ?? currentDepartment) as Department | null
-          const creates: Promise<Turn>[] = []
+          const creates: Promise<Turn | null>[] = []
           for (const e of finalQueue) {
             const shared = {
               user_id:       fUserId,
@@ -456,8 +456,11 @@ export function TurniManagerClient({
               creates.push(createTurn({ ...shared, start_time: seg.start, end_time: seg.end, is_extraordinary: e.is_extraordinary }))
             }
           }
+          // null = turno identico già esistente, scartato in silenzio dal
+          // vincolo di unicità (protezione anti-doppione): niente da
+          // aggiungere allo stato locale, non un errore da mostrare.
           const created = await Promise.all(creates)
-          setTurns(prev => [...prev, ...created])
+          setTurns(prev => [...prev, ...created.filter((t): t is Turn => t !== null)])
           resetForm()
           setShowForm(false)
         } catch (err) {
@@ -516,11 +519,12 @@ export function TurniManagerClient({
           } else {
             // Fascia principale + eventuali fasce spezzate, create insieme
             // in un solo Salva (stesso dipendente/data/ristorante/reparto).
+            // null = doppione scartato in silenzio dal vincolo di unicità.
             const created = await Promise.all([
               createTurn(payload),
               ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
             ])
-            setTurns(prev => [...prev, ...created])
+            setTurns(prev => [...prev, ...created.filter((t): t is Turn => t !== null)])
           }
         }
         resetForm()
