@@ -97,7 +97,12 @@ export function chiaveCliente(nome: string, cognome: string | null | undefined):
 }
 
 export function preparaImport(opts: {
-  righe:            RigaImportata[]
+  // Ogni riga porta già con sé la fonte vera del proprio file (thefork o
+  // restoo): un unico import può caricare file di entrambi i gestionali
+  // insieme, quindi la fonte non può più essere un valore unico per
+  // l'intera chiamata — va dichiarata riga per riga da chi la costruisce
+  // (la route, in base a quale dei due selettori file l'ha ricevuta).
+  righe:            (RigaImportata & { fonte: DatiParziali['origine'] })[]
   paxDichiarati:    number | null
   righeDichiarate:  number | null
   restaurantId:     string
@@ -107,9 +112,6 @@ export function preparaImport(opts: {
   // l'export importato ne contiene una (stesso giorno, stesso cliente),
   // questa riga la completa invece di generarne una seconda.
   coda:             VoceCoda[]
-  // Gestionale da cui viene il file: lo dichiara il manager scegliendo
-  // il tasto di caricamento, non si indovina dal contenuto.
-  fonte:            DatiParziali['origine']
 }): { prenotazioni: RigaPreparata[]; scartate: number; verifica: Verifica; codaSenzaRiscontro: VoceCodaOrfana[] } {
   const insegnaDefault = insegnaPrincipale(opts.insegne)?.codice ?? null
 
@@ -158,7 +160,7 @@ export function preparaImport(opts: {
     return {
       restaurant_id:      opts.restaurantId,
       insegna:            abbinaInsegna(opts.insegne, r.locale)?.codice ?? insegnaDefault,
-      origine:            daCoda?.parziale.origine ?? opts.fonte,
+      origine:            daCoda?.parziale.origine ?? r.fonte,
       riferimento_esterno: daCoda?.parziale.riferimento_esterno ?? null,
       data:               r.data!,
       orario,

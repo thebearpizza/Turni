@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { createClient } from '@/lib/supabase/server'
-import { interpretaImport, aiConfigurata, type RigaImportata } from '@/lib/cassa/prenotazioniParsing'
+import { interpretaImport, aiConfigurata } from '@/lib/cassa/prenotazioniParsing'
 import { type Insegna } from '@/lib/cassa/prenotazioniLocali'
 import { preparaImport, type PrenotazioneEsistente, type VoceCoda } from '@/lib/cassa/prenotazioniImport'
 import type { DatiParziali } from '@/lib/cassa/prenotazioniEmailProcessing'
@@ -74,16 +74,24 @@ export async function POST(request: Request) {
   }
 
   const form = await request.formData()
-  const files = form.getAll('file').filter((f): f is File => f instanceof File)
+  // Due campi separati invece di un'unica fonte globale: un import può
+  // contenere file di entrambi i gestionali insieme (es. per coprire lo
+  // stesso giorno da entrambe le fonti prima di dichiararlo "completo"),
+  // e ogni riga deve ereditare l'origine vera del PROPRIO file — non
+  // quella scelta per l'intero caricamento, altrimenti le prenotazioni
+  // Restoo finirebbero etichettate TheFork (icona sbagliata in agenda) o
+  // viceversa.
+  const filesTheFork = form.getAll('file_thefork').filter((f): f is File => f instanceof File)
+  const filesRestoo = form.getAll('file_restoo').filter((f): f is File => f instanceof File)
   const restaurantId = form.get('restaurant_id')
-  const fonte = form.get('fonte')
 
-  if (files.length === 0) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
+  const entries = [
+    ...filesTheFork.map(file => ({ file, fonte: 'thefork' as const })),
+    ...filesRestoo.map(file => ({ file, fonte: 'restoo' as const })),
+  ]
+  if (entries.length === 0) return NextResponse.json({ error: 'File mancante' }, { status: 400 })
   if (typeof restaurantId !== 'string' || !restaurantId) {
     return NextResponse.json({ error: 'Ristorante mancante' }, { status: 400 })
-  }
-  if (fonte !== 'thefork' && fonte !== 'restoo') {
-    return NextResponse.json({ error: 'Gestionale di provenienza mancante' }, { status: 400 })
   }
 
   // Il SELECT passa da RLS: se il manager non gestisce questo locale non
@@ -106,10 +114,10 @@ export async function POST(request: Request) {
   // rischierebbe di sforare il tempo massimo della funzione.
   let letture
   try {
-    letture = await Promise.all(files.map(async file => {
+    letture = await Promise.all(entries.map(async ({ file, fonte }) => {
       const tabellare = TIPI_TABELLARI.includes(file.type) || /\.(xlsx|xls|csv|txt)$/i.test(file.name)
       try {
-        return tabellare
+        const letto = tabellare
           ? await interpretaImport({
               testo: await foglioInTesto(file),
               nomeFile: file.name,
@@ -120,6 +128,7 @@ export async function POST(request: Request) {
               nomeFile: file.name,
               annoDiRiferimento: new Date().getFullYear(),
             })
+        return { letto, fonte }
       } catch (err) {
         throw new Error(`"${file.name}": ${err instanceof Error ? err.message : 'lettura non riuscita'}`)
       }
@@ -132,15 +141,16 @@ export async function POST(request: Request) {
     )
   }
 
-  // Righe di tutti i file uniti in un solo elenco: doppioni e coda si
-  // controllano sull'insieme, non file per file — altrimenti la stessa
-  // prenotazione spezzata su più file (o presente due volte fra i file)
-  // non verrebbe mai riconosciuta come tale.
-  const righe: RigaImportata[] = letture.flatMap(l => l.prenotazioni)
+  // Righe di tutti i file uniti in un solo elenco, ciascuna con la fonte
+  // vera del proprio file: doppioni e coda si controllano sull'insieme,
+  // non file per file — altrimenti la stessa prenotazione spezzata su più
+  // file (o presente due volte fra i file) non verrebbe mai riconosciuta
+  // come tale.
+  const righe = letture.flatMap(l => l.letto.prenotazioni.map(r => ({ ...r, fonte: l.fonte })))
   // Sommati solo se OGNI file dichiara il proprio totale — vedi
   // sommaSeTuttiPresenti.
-  const paxDichiarati = sommaSeTuttiPresenti(letture.map(l => l.totale_pax_dichiarato))
-  const righeDichiarate = sommaSeTuttiPresenti(letture.map(l => l.totale_prenotazioni_dichiarato))
+  const paxDichiarati = sommaSeTuttiPresenti(letture.map(l => l.letto.totale_pax_dichiarato))
+  const righeDichiarate = sommaSeTuttiPresenti(letture.map(l => l.letto.totale_prenotazioni_dichiarato))
 
   // Il giorno lo si conosce solo dopo la lettura: si interrogano le
   // prenotazioni già in agenda per quelle date, così l'anteprima può
@@ -184,7 +194,6 @@ export async function POST(request: Request) {
       insegne:         (insegne ?? []) as Insegna[],
       esistenti:       (esistenti ?? []) as PrenotazioneEsistente[],
       coda,
-      fonte,
     })
   )
 }

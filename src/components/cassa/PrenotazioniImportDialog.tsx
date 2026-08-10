@@ -68,9 +68,16 @@ interface Props {
 }
 
 export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onImportate }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [fonte, setFonte] = useState<'thefork' | 'restoo'>('thefork')
-  const [nomiFile, setNomiFile] = useState<string[]>([])
+  const inputTheForkRef = useRef<HTMLInputElement>(null)
+  const inputRestooRef = useRef<HTMLInputElement>(null)
+  // Due selezioni indipendenti invece di un'unica fonte globale: un
+  // import può contenere file di entrambi i gestionali insieme (es. per
+  // coprire davvero tutte le prenotazioni attive di un giorno, non solo
+  // quelle di uno dei due), e ogni riga deve portare l'origine vera del
+  // proprio file — altrimenti le prenotazioni Restoo finirebbero
+  // etichettate TheFork (icona sbagliata in agenda) o viceversa.
+  const [fileTheFork, setFileTheFork] = useState<File[]>([])
+  const [fileRestoo, setFileRestoo] = useState<File[]>([])
   const [leggendo, setLeggendo] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [righe, setRighe] = useState<RigaLetta[] | null>(null)
@@ -89,18 +96,22 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
   const [fileCompleto, setFileCompleto] = useState(false)
 
   function reset() {
-    setFonte('thefork')
-    setNomiFile([]); setRighe(null); setVerifica(null); setScartate(0)
+    setFileTheFork([]); setFileRestoo([])
+    setRighe(null); setVerifica(null); setScartate(0)
     setEscluse(new Set()); setErrore(null); setCodaSenzaRiscontro([]); setFileCompleto(false)
-    if (inputRef.current) inputRef.current.value = ''
+    if (inputTheForkRef.current) inputTheForkRef.current.value = ''
+    if (inputRestooRef.current) inputRestooRef.current.value = ''
   }
 
-  // Più file in un colpo solo: un libro visite spesso viene esportato a
-  // pezzi (uno per iniziale, uno per servizio...) — letti insieme invece
-  // che uno alla volta, i doppioni e la coda si controllano sull'intero
-  // insieme invece che file per file.
-  async function leggi(files: File[]) {
-    setNomiFile(files.map(f => f.name))
+  // Più file in un colpo solo, anche di entrambi i gestionali insieme: un
+  // libro visite spesso viene esportato a pezzi (uno per iniziale, uno per
+  // servizio...) — letti insieme invece che uno alla volta, i doppioni e
+  // la coda si controllano sull'intero insieme invece che file per file.
+  // Riceve entrambe le liste esplicitamente (non dallo stato dei due
+  // selettori) per evitare di leggere un valore non ancora aggiornato
+  // quando viene chiamata dall'onChange di uno dei due input.
+  async function leggi(theforkFiles: File[], restooFiles: File[]) {
+    if (theforkFiles.length === 0 && restooFiles.length === 0) return
     setLeggendo(true)
     setErrore(null)
     setRighe(null)
@@ -108,9 +119,9 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
 
     try {
       const form = new FormData()
-      files.forEach(f => form.append('file', f))
+      theforkFiles.forEach(f => form.append('file_thefork', f))
+      restooFiles.forEach(f => form.append('file_restoo', f))
       form.append('restaurant_id', restaurantId)
-      form.append('fonte', fonte)
       const res = await fetch('/api/cassa/prenotazioni/importa', { method: 'POST', body: form })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Lettura non riuscita')
@@ -199,37 +210,81 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
-          Carica l&apos;esportazione del libro visite (Excel, CSV o PDF) — anche più file insieme,
-          se è diviso in più parti. Le colonne vengono riconosciute automaticamente: controlla
-          l&apos;anteprima prima di confermare.
+          Carica l&apos;esportazione del libro visite (Excel, CSV o PDF) per ciascun gestionale —
+          anche più file insieme, se è diviso in più parti. Le colonne vengono riconosciute
+          automaticamente: controlla l&apos;anteprima prima di confermare.
         </p>
 
-        {/* Va dichiarata: non si indovina dal contenuto del file, e decide
-            l'icona (F/R) con cui la prenotazione comparirà in agenda —
-            la stessa delle prenotazioni arrivate via mail. */}
-        <div className="space-y-1.5">
-          <p className="text-sm font-medium">File esportato da</p>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant={fonte === 'thefork' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setFonte('thefork')}
-              disabled={leggendo || salvando}
-            >
-              TheFork
-            </Button>
-            <Button
-              type="button"
-              variant={fonte === 'restoo' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setFonte('restoo')}
-              disabled={leggendo || salvando}
-            >
-              Restoo
-            </Button>
+        {/* Un selettore per gestionale, non un unico toggle: ogni file
+            porta l'icona (F/R) del proprio gestionale in agenda, e un
+            import può contenere file di entrambi insieme. */}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">File TheFork</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => inputTheForkRef.current?.click()}
+                disabled={leggendo || salvando}
+              >
+                <Upload className="h-4 w-4" /> Scegli file
+              </Button>
+              {fileTheFork.length > 0 && (
+                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {fileTheFork.map(f => f.name).join(', ')}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">File Restoo</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => inputRestooRef.current?.click()}
+                disabled={leggendo || salvando}
+              >
+                <Upload className="h-4 w-4" /> Scegli file
+              </Button>
+              {fileRestoo.length > 0 && (
+                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {fileRestoo.map(f => f.name).join(', ')}
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
+        <input
+          ref={inputTheForkRef}
+          type="file"
+          multiple
+          accept=".xlsx,.xls,.csv,.txt,.pdf,image/*"
+          className="hidden"
+          onChange={e => {
+            const fs = e.target.files
+            if (!fs || fs.length === 0) return
+            const list = Array.from(fs)
+            setFileTheFork(list)
+            leggi(list, fileRestoo)
+          }}
+        />
+        <input
+          ref={inputRestooRef}
+          type="file"
+          multiple
+          accept=".xlsx,.xls,.csv,.txt,.pdf,image/*"
+          className="hidden"
+          onChange={e => {
+            const fs = e.target.files
+            if (!fs || fs.length === 0) return
+            const list = Array.from(fs)
+            setFileRestoo(list)
+            leggi(fileTheFork, list)
+          }}
+        />
 
         <label className="flex items-start gap-2 text-sm">
           <input
@@ -248,24 +303,6 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
             </span>
           </span>
         </label>
-
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept=".xlsx,.xls,.csv,.txt,.pdf,image/*"
-          className="hidden"
-          onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) leggi(Array.from(fs)) }}
-        />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => inputRef.current?.click()} disabled={leggendo || salvando}>
-            <Upload className="h-4 w-4" /> Scegli file
-          </Button>
-          {nomiFile.length > 0 && (
-            <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{nomiFile.join(', ')}</span>
-          )}
-        </div>
 
         {leggendo && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
