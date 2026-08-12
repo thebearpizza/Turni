@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -13,6 +14,7 @@ type Toast = { text: string; type: 'success' | 'info' }
 
 export function OfflineSyncProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null)
+  const router = useRouter()
 
   function flash(text: string, type: Toast['type'] = 'success') {
     setToast({ text, type })
@@ -25,6 +27,7 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
     if (queue.length === 0) return
 
     let synced = 0
+    let failed = 0
 
     for (const item of queue) {
       try {
@@ -42,11 +45,20 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
               frozenAt:  p.frozenAt,
             }),
           })
-          // 409 = open shift already exists — consider it handled
+          // 409 = open shift already esistente — considerato già gestito.
           if (res.ok || res.status === 409) {
             await clearOfflineItem(item.id)
             synced++
+          } else if (res.status !== 408 && res.status !== 429 && res.status < 500) {
+            // Errore definitivo (es. "nessun turno aperto trovato" per
+            // un'uscita, o il ristorante non esiste più): riprovare non
+            // lo risolverebbe, e lasciarlo in coda è pericoloso — al primo
+            // turno futuro frozenAt verrebbe scritto lì come check_out.
+            // Meglio scartarlo e avvisare, che chiudere un turno sbagliato.
+            await clearOfflineItem(item.id)
+            failed++
           }
+          // 408/429/5xx: temporaneo, resta in coda per il prossimo giro.
         } else if (item.type === 'ods-toggle') {
           const p       = item.payload as OdsTogglePayload
           const supabase = createClient()
@@ -69,8 +81,22 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
       }
     }
 
-    if (synced > 0) flash('Dati offline sincronizzati con successo!')
-  }, [])
+    if (synced > 0) {
+      flash('Dati offline sincronizzati con successo!')
+      // Lo stato di EmployeeHomeClient (presenza offline "provvisoria",
+      // liste ODS) va riletto dal server: senza refresh resterebbe
+      // agganciato ai dati ottimistici mostrati mentre si era offline.
+      router.refresh()
+    }
+    if (failed > 0) {
+      flash(
+        failed === 1
+          ? 'Una timbratura salvata offline non è stata sincronizzata: verificala con il manager.'
+          : `${failed} timbrature salvate offline non sono state sincronizzate: verificale con il manager.`,
+        'info'
+      )
+    }
+  }, [router])
 
   useEffect(() => {
     // Flush any queue left from a previous session on first mount

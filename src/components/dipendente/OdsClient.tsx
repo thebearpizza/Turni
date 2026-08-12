@@ -11,17 +11,6 @@ import type { OdsTask, OdsTaskType } from '@/types'
 
 const TZ = 'Europe/Rome'
 
-// Un TypeError generico può derivare da un bug tanto quanto da una richiesta
-// fallita per assenza di rete. Solo il secondo caso deve attivare la coda
-// offline: i browser usano un messaggio riconoscibile per gli errori di rete
-// veri ("Failed to fetch" su Chrome/Edge, "NetworkError..." su Firefox,
-// "Load failed" su Safari).
-function isNetworkError(err: unknown): boolean {
-  if (!(err instanceof TypeError)) return false
-  const msg = err.message.toLowerCase()
-  return msg.includes('fetch') || msg.includes('network') || msg.includes('load failed')
-}
-
 const FILTERS: { key: 'tutte' | OdsTaskType; label: string }[] = [
   { key: 'tutte',         label: 'Tutte' },
   { key: 'quotidiana',    label: 'Quotidiane' },
@@ -98,16 +87,20 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
       return next
     })
 
-    try {
-      const supabase = createClient()
-      if (wasCompleted) {
-        await supabase.from('ods_completions').delete().eq('task_id', taskId).eq('user_id', userId)
-      } else {
-        await supabase.from('ods_completions').insert({ task_id: taskId, user_id: userId })
-      }
-    } catch (err) {
-      if (isNetworkError(err)) {
-        // Network down — save to IndexedDB queue with the frozen timestamp
+    // supabase-js non lancia mai eccezioni sugli errori di rete o di RLS:
+    // il client PostgREST le trasforma sempre in un { error } risolto (vedi
+    // node_modules/@supabase/postgrest-js). Un try/catch qui non
+    // scatterebbe mai — bisogna leggere il valore restituito.
+    const supabase = createClient()
+    const { error } = wasCompleted
+      ? await supabase.from('ods_completions').delete().eq('task_id', taskId).eq('user_id', userId)
+      : await supabase.from('ods_completions').insert({ task_id: taskId, user_id: userId })
+
+    if (error) {
+      // status 0 = la richiesta non ha nemmeno raggiunto il server: è
+      // l'unico modo affidabile per riconoscere un vero errore di rete
+      // (offline) da un errore applicativo/RLS con questo client.
+      if (!navigator.onLine || (error as { status?: number }).status === 0) {
         await saveToOfflineQueue('ods-toggle', {
           task_id:  taskId,
           user_id:  userId,
@@ -116,7 +109,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
         }).catch(() => {})
         setOfflineMsg('Sei offline. Salvato sul dispositivo, si aggiornerà automaticamente.')
       } else {
-        // Server/auth error — revert optimistic update
+        // Errore applicativo (es. RLS): annulla l'aggiornamento ottimistico.
         setCompleted(prev => {
           const next = new Set(prev)
           wasCompleted ? next.add(taskId) : next.delete(taskId)

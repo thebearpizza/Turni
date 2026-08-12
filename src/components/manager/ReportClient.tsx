@@ -144,6 +144,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   ), [isManager, selectedRestaurants, restaurants, currentRestaurantId])
 
   async function downloadReport(type: 'presenze' | 'ore') {
+    if (loading) return
     const targets = currentTargets()
     if (targets.length === 0) return
 
@@ -519,8 +520,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Report Excel</h1>
-        <p className="text-muted-foreground text-sm mt-1">Esporta presenze e ore lavorate</p>
+        <h1 className="text-xl font-semibold tracking-tight">Report Excel</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">Esporta presenze e ore lavorate</p>
       </div>
 
       <div className="space-y-6 max-w-lg">
@@ -559,7 +560,10 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
         )}
 
         <div className={`grid gap-4 ${canSeeHours ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('presenze')}>
+          <Card
+            className={`cursor-pointer hover:border-primary transition-colors ${loading ? 'pointer-events-none opacity-60' : ''}`}
+            onClick={() => downloadReport('presenze')}
+          >
             <CardContent className="pt-6 pb-5 text-center">
               <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-emerald-500" />
               <p className="font-medium text-sm">Report Presenze</p>
@@ -571,7 +575,10 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
           </Card>
 
           {canSeeHours && (
-            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('ore')}>
+            <Card
+              className={`cursor-pointer hover:border-primary transition-colors ${loading ? 'pointer-events-none opacity-60' : ''}`}
+              onClick={() => downloadReport('ore')}
+            >
               <CardContent className="pt-6 pb-5 text-center">
                 <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-blue-500" />
                 <p className="font-medium text-sm">Report Ore</p>

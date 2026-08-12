@@ -88,7 +88,7 @@ export default async function DashboardPage() {
         { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-blue-600',    href: '/dipendenti' },
         { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-emerald-600', href: '/presenze'   },
         { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-red-600',     href: '/assenze'    },
-        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/assenze'    },
+        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/approvazioni' },
       ]
 
   return (

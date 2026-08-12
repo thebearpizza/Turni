@@ -165,6 +165,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Nessun turno aperto trovato' }, { status: 404 })
     }
 
+    // Un'uscita in coda offline arrivata in ritardo (rigiocata dopo che il
+    // turno di allora si è già chiuso da solo) potrebbe altrimenti finire
+    // scritta su un turno completamente diverso aperto nel frattempo.
+    if (Date.parse(nowUtc) <= Date.parse(openAttendance.check_in)) {
+      // 400, non 409: deve finire nel ramo "errore definitivo, scarta e
+      // avvisa" lato client, non in quello "già gestito, ignora in
+      // silenzio" riservato al vero 409 di doppio invio.
+      return NextResponse.json({ error: 'Uscita precedente all\'ingresso di questo turno' }, { status: 400 })
+    }
+
     const { data: attendance, error } = await supabase
       .from('attendances')
       .update({ check_out: nowUtc })

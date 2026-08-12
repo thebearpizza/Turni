@@ -15,9 +15,10 @@ interface Props {
   fullName: string
   canViewHours: boolean
   restaurants: Pick<Restaurant, 'id' | 'name'>[]
+  initialManagerId: string | null
 }
 
-export function ConsultantDashboard({ userId, fullName, canViewHours, restaurants }: Props) {
+export function ConsultantDashboard({ userId, fullName, canViewHours, restaurants, initialManagerId }: Props) {
   const [tab, setTab] = useState<Tab>('report')
   const router = useRouter()
 
@@ -79,7 +80,7 @@ export function ConsultantDashboard({ userId, fullName, canViewHours, restaurant
         )}
         {tab === 'messaggi' && (
           <div className="p-4 lg:p-6">
-            <ConsultantInbox userId={userId} />
+            <ConsultantInbox userId={userId} initialManagerId={initialManagerId} />
           </div>
         )}
       </div>

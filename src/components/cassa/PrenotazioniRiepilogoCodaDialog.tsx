@@ -53,12 +53,20 @@ interface Props {
 export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, restaurants, insegne, onCompleta, onCambiato }: Props) {
   const [giorno, setGiorno] = useState(oggiRoma)
   const [inCorso, setInCorso] = useState<string | null>(null)
+  // Scartare una voce non si annulla: nessuna vista la rimette in coda.
+  // Va confermato, come ogni altra cancellazione definitiva in Cassa.
+  const [daIgnorare, setDaIgnorare] = useState<VoceCoda | null>(null)
+  const [erroreIgnora, setErroreIgnora] = useState<string | null>(null)
 
-  async function ignora(logId: string) {
-    setInCorso(logId)
+  async function confermaIgnora() {
+    if (!daIgnorare) return
+    setInCorso(daIgnorare.logId)
+    setErroreIgnora(null)
     const supabase = createClient()
-    await supabase.from('prenotazioni_email_log').update({ esito: 'ignorata' }).eq('id', logId)
+    const { error } = await supabase.from('prenotazioni_email_log').update({ esito: 'ignorata' }).eq('id', daIgnorare.logId)
     setInCorso(null)
+    if (error) { setErroreIgnora(error.message); return }
+    setDaIgnorare(null)
     onCambiato()
   }
 
@@ -100,6 +108,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
@@ -185,7 +194,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
                   </Button>
                   <button
                     type="button"
-                    onClick={() => ignora(logId)}
+                    onClick={() => { setErroreIgnora(null); setDaIgnorare({ logId, voce }) }}
                     disabled={inCorso === logId}
                     aria-label="Ignora questa prenotazione"
                     className="rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
@@ -205,5 +214,29 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={!!daIgnorare} onOpenChange={open => { if (!open) { setDaIgnorare(null); setErroreIgnora(null) } }}>
+      <DialogContent className="cassa-perforated-top">
+        <DialogHeader>
+          <DialogTitle className="cassa-display text-lg">Ignorare questa prenotazione?</DialogTitle>
+        </DialogHeader>
+        {daIgnorare && (
+          <p className="text-sm text-muted-foreground">
+            {[daIgnorare.voce.nome, daIgnorare.voce.cognome].filter(Boolean).join(' ')} · {daIgnorare.voce.persone} pax
+            {' '}— uscirà dalla coda e non sarà più recuperabile. L&apos;operazione non è reversibile.
+          </p>
+        )}
+        {erroreIgnora && <p className="text-sm text-destructive">Errore: {erroreIgnora}</p>}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => { setDaIgnorare(null); setErroreIgnora(null) }} disabled={!!inCorso}>
+            Annulla
+          </Button>
+          <Button type="button" variant="destructive" onClick={confermaIgnora} disabled={!!inCorso}>
+            {inCorso ? <><Loader2 className="h-4 w-4 animate-spin" /> Ignoro…</> : 'Ignora'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

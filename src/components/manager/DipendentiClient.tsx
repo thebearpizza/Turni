@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
+import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -241,7 +242,12 @@ export function DipendentiClient({
   async function handleDelete(id: string) {
     if (!confirm('Eliminare questo utente? Questa azione è irreversibile.')) return
     const res = await fetch(`/api/users?id=${id}`, { method: 'DELETE' })
-    if (res.ok) setDipendenti(ds => ds.filter(d => d.id !== id))
+    if (!res.ok) {
+      const e = await res.json().catch(() => null)
+      toast({ title: 'Eliminazione non riuscita', description: e?.error ?? undefined, variant: 'destructive' })
+      return
+    }
+    setDipendenti(ds => ds.filter(d => d.id !== id))
   }
 
   const filtered = dipendenti.filter(d =>
@@ -269,12 +275,12 @@ export function DipendentiClient({
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Dipendenti</h1>
-          <p className="text-muted-foreground text-sm mt-1">{dipendenti.length} utenti</p>
+          <h1 className="text-xl font-semibold tracking-tight">Dipendenti</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">{dipendenti.length} utenti</p>
         </div>
         {canManageUsers && (
           <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-            <Plus className="w-4 h-4" /> Nuovo
+            <Plus className="w-4 h-4" /> Nuovo Utente
           </Button>
         )}
       </div>
@@ -352,13 +358,19 @@ export function DipendentiClient({
                       </DropdownMenuItem>
                     )}
 
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => handleDelete(d.id)}
-                      className="text-destructive focus:text-destructive dark:text-red-400 dark:focus:text-red-300 dark:focus:bg-red-500/10"
-                    >
-                      <Trash2 className="w-4 h-4" /> Elimina
-                    </DropdownMenuItem>
+                    {/* Un manager è l'unico che l'API lascia eliminare — la
+                        voce non ha senso mostrarla se verrebbe rifiutata */}
+                    {!(d.role === 'manager' && !isManager) && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => handleDelete(d.id)}
+                          className="text-destructive focus:text-destructive dark:text-red-400 dark:focus:text-red-300 dark:focus:bg-red-500/10"
+                        >
+                          <Trash2 className="w-4 h-4" /> Elimina
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}

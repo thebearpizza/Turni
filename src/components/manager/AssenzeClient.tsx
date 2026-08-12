@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -132,6 +133,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
 
   async function handleSave() {
     if (!canEdit) { showUnauthorized(); return }
+    if (endDate < startDate) { setSaveError('La data di fine non può precedere la data di inizio'); return }
     setSaving(true)
     setSaveError(null)
     const supabase = createClient()
@@ -181,7 +183,11 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
     if (!canEdit) { showUnauthorized(); return }
     if (!confirm('Eliminare questa assenza?')) return
     const supabase = createClient()
-    await supabase.from('absences').delete().eq('id', id)
+    const { error } = await supabase.from('absences').delete().eq('id', id)
+    if (error) {
+      toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' })
+      return
+    }
     setAbsences(as => as.filter(a => a.id !== id))
   }
 
@@ -197,10 +203,10 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Assenze</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Assenze</h1>
         {canEdit && (
           <Button onClick={openCreate} size="sm">
-            <Plus className="w-4 h-4" /> Nuova
+            <Plus className="w-4 h-4" /> Nuova Assenza
           </Button>
         )}
       </div>
@@ -305,7 +311,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={saving || (!editing && !userId) || !startDate || !endDate}>
+            <Button onClick={handleSave} disabled={saving || (!editing && !userId) || !startDate || !endDate || endDate < startDate}>
               {saving ? <>Salvataggio<LoadingDots /></> : 'Salva'}
             </Button>
           </DialogFooter>

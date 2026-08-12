@@ -20,13 +20,18 @@ function fmtDate(iso: string | null) {
 
 interface Props {
   userId: string
+  // Manager di riferimento risolto dal server (dai ristoranti assegnati al
+  // consulente): senza, un consulente la cui casella è ancora vuota non
+  // avrebbe alcun destinatario per il primo messaggio.
+  initialManagerId?: string | null
 }
 
-export function ConsultantInbox({ userId }: Props) {
+export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
   const [messages, setMessages]       = useState<ConsultantMessage[]>([])
   const [loading, setLoading]         = useState(true)
+  const [loadError, setLoadError]     = useState(false)
   const [expandedId, setExpandedId]   = useState<string | null>(null)
-  const [managerId, setManagerId]     = useState<string | null>(null)
+  const [managerId, setManagerId]     = useState<string | null>(initialManagerId)
 
   // Compose state
   const [showCompose, setShowCompose] = useState(false)
@@ -38,8 +43,9 @@ export function ConsultantInbox({ userId }: Props) {
   const [replyToMsg, setReplyToMsg]   = useState<ConsultantMessage | null>(null)
 
   const loadMessages = useCallback(async () => {
+    setLoadError(false)
     const res = await fetch(`/api/consultant-messages?consultantId=${userId}`)
-    if (!res.ok) return
+    if (!res.ok) { setLoading(false); setLoadError(true); return }
     const data: ConsultantMessage[] = await res.json()
     setMessages(data)
     if (data.length > 0) setManagerId(data[0].manager_id)
@@ -76,7 +82,24 @@ export function ConsultantInbox({ userId }: Props) {
     return () => { supabase.removeChannel(channel) }
   }, [userId])
 
+  // La lista mostra un solo livello di annidamento (messaggi in cima,
+  // risposte indentate sotto): rispondere a una risposta deve quindi
+  // agganciarsi sempre alla radice della conversazione, altrimenti quel
+  // messaggio finirebbe con un reply_to_id che punta a un elemento non in
+  // cima alla lista e non verrebbe mai disegnato.
+  function rootOf(msg: ConsultantMessage): ConsultantMessage {
+    let current = msg
+    while (current.reply_to_id) {
+      const parent = messages.find(m => m.id === current.reply_to_id)
+      if (!parent) break
+      current = parent
+    }
+    return current
+  }
+
   function handleReply(msg: ConsultantMessage) {
+    // Il banner "In risposta a" mostra il messaggio su cui si è premuto
+    // Rispondi (per contesto), ma reply_to_id salvato è quello della radice.
     setReplyToMsg(msg)
     setShowCompose(true)
     setMsgTitle(prev => prev.trim() ? prev : `Re: ${msg.title}`)
@@ -169,7 +192,7 @@ export function ConsultantInbox({ userId }: Props) {
           title: msgTitle,
           body: msgBody,
           attachments,
-          reply_to_id: replyToMsg?.id ?? null,
+          reply_to_id: replyToMsg ? rootOf(replyToMsg).id : null,
         }),
       })
       if (!res.ok) {
@@ -183,6 +206,15 @@ export function ConsultantInbox({ userId }: Props) {
     } finally {
       setSending(false)
     }
+  }
+
+  if (loadError) {
+    return (
+      <div className="max-w-2xl space-y-3">
+        <p className="text-sm text-destructive">Impossibile caricare i messaggi.</p>
+        <Button size="sm" variant="outline" onClick={() => { setLoading(true); loadMessages() }}>Riprova</Button>
+      </div>
+    )
   }
 
   if (loading) {

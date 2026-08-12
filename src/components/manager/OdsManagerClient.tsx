@@ -3,12 +3,15 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { createOdsTask } from '@/app/actions/ods'
+import { useAccountStatus } from '@/contexts/AccountStatusContext'
+import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, User, Users, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -49,6 +52,7 @@ export function OdsManagerClient({
   currentUserId, currentUserRole, currentDepartment, currentRestaurantId,
   currentIsDirettore = false,
 }: Props) {
+  const { isPending } = useAccountStatus()
   const isManager = currentUserRole === 'manager'
   // Direttore (capo_servizio): operates across all departments of its restaurant.
   const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
@@ -59,15 +63,19 @@ export function OdsManagerClient({
   const [deptFilter, setDeptFilter]   = useState<string>('tutti')
   const [restFilter, setRestFilter]   = useState<string>('tutti')
 
-  // Mark ODS notifications as read when this page is mounted
+  // Mark ODS notifications as read when this page is mounted — scoped to
+  // this user and to ODS links only, altrimenti azzera anche notifiche di
+  // altre sezioni (es. richieste di assenza) senza che siano state viste.
   useEffect(() => {
     const supabase = createClient()
     supabase
       .from('notifications')
       .update({ read_at: new Date().toISOString() })
+      .eq('user_id', currentUserId)
       .is('read_at', null)
+      .like('link', '%/ods%')
       .then(() => {})
-  }, [])
+  }, [currentUserId])
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving]     = useState(false)
 
@@ -101,13 +109,13 @@ export function OdsManagerClient({
     ? tasksByRestaurant
     : tasksByRestaurant.filter(t => t.department === deptFilter)
 
-  // Staff scoped to selected restaurant (for the create form).
+  // Staff scoped to the selected department (for the create form).
   // A direttore can assign to anyone in the currently-selected department.
-  const scopedStaff = isDirettore
+  // NB: lo staff arriva dalla page senza restaurant_id, quindi qui non si
+  // può ancora escludere il personale di altri locali — solo il reparto.
+  const scopedStaff = isDirettore || !currentDepartment
     ? (fDept ? staff.filter(s => s.department === fDept) : staff)
-    : fRestaurantId
-      ? staff.filter(s => !currentDepartment || s.department === fDept || s.department === currentDepartment)
-      : staff
+    : staff.filter(s => s.department === fDept || s.department === currentDepartment)
 
   function resetForm() {
     setFTitle('')
@@ -139,6 +147,11 @@ export function OdsManagerClient({
       setShowForm(false)
     } catch (err) {
       console.error('Errore creazione ODS:', err)
+      toast({
+        title: 'Creazione non riuscita',
+        description: err instanceof Error ? err.message : 'Riprova più tardi',
+        variant: 'destructive',
+      })
     } finally {
       setSaving(false)
     }
@@ -147,7 +160,11 @@ export function OdsManagerClient({
   async function handleDelete(id: string) {
     if (!confirm('Eliminare questo ordine di servizio?')) return
     const supabase = createClient()
-    await supabase.from('ods_tasks').delete().eq('id', id)
+    const { error } = await supabase.from('ods_tasks').delete().eq('id', id)
+    if (error) {
+      toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' })
+      return
+    }
     setTasks(prev => prev.filter(t => t.id !== id))
   }
 
@@ -163,7 +180,12 @@ export function OdsManagerClient({
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-semibold tracking-tight">Ordini di Servizio</h1>
-        <Button size="sm" onClick={() => { resetForm(); setShowForm(true) }}>
+        <Button
+          size="sm"
+          onClick={() => { resetForm(); setShowForm(true) }}
+          disabled={isPending}
+          title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}
+        >
           <Plus className="w-4 h-4" /> Nuovo Ordine
         </Button>
       </div>
@@ -207,13 +229,11 @@ export function OdsManagerClient({
 
       {/* Task list */}
       {filteredTasks.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="py-14 text-center text-muted-foreground text-sm border border-border rounded-md"
-        >
-          Nessun ordine di servizio
-        </motion.div>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            Nessun ordine di servizio
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-2">
           <AnimatePresence initial={false}>

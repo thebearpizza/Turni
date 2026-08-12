@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Badge } from '@/components/ui/badge'
 import { Clock, Trash2, AlertTriangle, Plus } from 'lucide-react'
 import { LoadingDots } from '@/components/shared/LoadingDots'
-import { formatInTimeZone } from 'date-fns-tz'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { LiveShiftCounter } from './LiveShiftCounter'
@@ -19,6 +19,22 @@ import type { Attendance, Restaurant, AbsenceType } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
 
 const TZ = 'Europe/Rome'
+
+// Confini del mese calcolati sulla mezzanotte di Roma, non su quella UTC —
+// altrimenti in ora legale (UTC+2) la finestra risulta spostata di 2 ore e
+// le timbrature della prima/ultima notte del mese finiscono nel mese sbagliato.
+function monthBoundsUtc(month: string) {
+  const [year, m] = month.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, m, 0)).getUTCDate()
+  const startStr = `${month}-01`
+  const endStr = `${month}-${String(lastDay).padStart(2, '0')}`
+  return {
+    start: fromZonedTime(`${startStr}T00:00:00`, TZ),
+    end: fromZonedTime(`${endStr}T23:59:59`, TZ),
+    startStr,
+    endStr,
+  }
+}
 
 // Absence badge colors matching AssenzeClient
 const ABSENCE_BADGE: Record<string, string> = {
@@ -107,10 +123,8 @@ export function PresenzeClient({
 
           const rec = payload.new as { id: string; check_in: string; restaurant_id: string | null }
 
-          const [y, m] = monthRef.current.split('-').map(Number)
-          const monthStart = new Date(Date.UTC(y, m - 1, 1))
-          const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
-          const checkIn    = new Date(rec.check_in)
+          const { start: monthStart, end: monthEnd } = monthBoundsUtc(monthRef.current)
+          const checkIn = new Date(rec.check_in)
           if (checkIn < monthStart || checkIn > monthEnd) return
 
           if (restaurantRef.current !== 'all' && rec.restaurant_id !== restaurantRef.current) return
@@ -142,11 +156,9 @@ export function PresenzeClient({
   // Load presenze + absences for the given month / restaurant filter
   const loadData = useCallback(async (month: string, restaurantId: string) => {
     setLoading(true)
-    const [year, m] = month.split('-').map(Number)
-    const startIso = new Date(Date.UTC(year, m - 1, 1)).toISOString()
-    const endIso   = new Date(Date.UTC(year, m, 0, 23, 59, 59)).toISOString()
-    const monthStart = `${month}-01`
-    const monthEnd   = `${month}-${String(new Date(Date.UTC(year, m, 0)).getDate()).padStart(2, '0')}`
+    const { start, end, startStr: monthStart, endStr: monthEnd } = monthBoundsUtc(month)
+    const startIso = start.toISOString()
+    const endIso   = end.toISOString()
 
     const supabase = createClient()
     let presQ = supabase
@@ -243,9 +255,7 @@ export function PresenzeClient({
       }
 
       const saved = data.attendance as AttendanceRow
-      const [y, m] = selectedMonth.split('-').map(Number)
-      const monthStart = new Date(Date.UTC(y, m - 1, 1))
-      const monthEnd   = new Date(Date.UTC(y, m, 0, 23, 59, 59))
+      const { start: monthStart, end: monthEnd } = monthBoundsUtc(selectedMonth)
       const checkInDate = new Date(saved.check_in)
       const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
       const matchesRest  = selectedRestaurant === 'all' || saved.restaurant_id === selectedRestaurant
@@ -415,8 +425,8 @@ export function PresenzeClient({
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
-            <Button onClick={openCreate} size="sm" className="h-8 rounded-sm px-3 text-xs gap-1.5">
-              <Plus className="w-3.5 h-3.5" />
+            <Button onClick={openCreate} size="sm">
+              <Plus className="w-4 h-4" />
               Aggiungi Presenza
             </Button>
           )}

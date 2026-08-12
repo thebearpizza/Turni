@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
+import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TimeInput } from '@/components/ui/time-input'
@@ -46,6 +47,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
   const [closingDays, setClosingDays] = useState<number[]>([])
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // ── ShiftSlots dialog ─────────────────────────────────────────────────
   const [slotsRestaurant, setSlotsRestaurant] = useState<Restaurant | null>(null)
@@ -76,6 +78,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setEditing(null)
     setName(''); setAddress(''); setLatitude(''); setLongitude('')
     setClosingDays([])
+    setSaveError(null)
     setShowForm(true)
   }
 
@@ -86,30 +89,34 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     setLatitude(r.latitude != null ? String(r.latitude) : '')
     setLongitude(r.longitude != null ? String(r.longitude) : '')
     setClosingDays(r.closing_days ?? [])
+    setSaveError(null)
     setShowForm(true)
   }
 
   async function handleSave() {
     setLoading(true)
+    setSaveError(null)
     const supabase = createClient()
     const lat = latitude !== '' ? parseFloat(latitude) : null
     const lng = longitude !== '' ? parseFloat(longitude) : null
 
     if (editing) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('restaurants')
         .update({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays })
         .eq('id', editing.id)
         .select()
         .single()
+      if (error) { setSaveError(error.message); setLoading(false); return }
       if (data) setRestaurants(rs => rs.map(r => r.id === data.id ? data : r))
     } else {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('restaurants')
         .insert({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays, owner_id: user?.id ?? null })
         .select()
         .single()
+      if (error) { setSaveError(error.message); setLoading(false); return }
       if (data) setRestaurants(rs => [...rs, data])
     }
 
@@ -121,7 +128,12 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     if (!confirm('Eliminare questo ristorante?')) return
     setDeleting(id)
     const supabase = createClient()
-    await supabase.from('restaurants').delete().eq('id', id)
+    const { error } = await supabase.from('restaurants').delete().eq('id', id)
+    if (error) {
+      toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' })
+      setDeleting(null)
+      return
+    }
     setRestaurants(rs => rs.filter(r => r.id !== id))
     setDeleting(null)
   }
@@ -224,7 +236,11 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
 
   async function handleDeleteSlot(id: string) {
     const supabase = createClient()
-    await supabase.from('shift_slots').delete().eq('id', id)
+    const { error } = await supabase.from('shift_slots').delete().eq('id', id)
+    if (error) {
+      setSlotError(error.message)
+      return
+    }
     setSlots(prev => prev.filter(s => s.id !== id))
     if (editingSlot?.id === id) cancelEditSlot()
   }
@@ -240,11 +256,11 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Ristoranti</h1>
-          <p className="text-muted-foreground text-sm mt-1">{restaurants.length} ristoranti</p>
+          <h1 className="text-xl font-semibold tracking-tight">Ristoranti</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">{restaurants.length} ristoranti</p>
         </div>
         <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-          <Plus className="w-4 h-4" /> Aggiungi
+          <Plus className="w-4 h-4" /> Nuovo Ristorante
         </Button>
       </div>
 
@@ -352,6 +368,9 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
               </div>
             </div>
           </div>
+          {saveError && (
+            <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{saveError}</p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button onClick={handleSave} disabled={loading || !name.trim()}>
@@ -421,18 +440,18 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                           }
                         </td>
                         <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center">
-                          <div className="flex items-center justify-center gap-0.5">
+                          <div className="flex items-center justify-center gap-2">
                             <Button
                               variant="ghost" size="icon"
                               onClick={() => startEditSlot(s)}
-                              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                              className="text-muted-foreground hover:text-foreground"
                             >
-                              <Pencil className="w-3 h-3" />
+                              <Pencil className="w-3.5 h-3.5" />
                             </Button>
                             <Button
                               variant="ghost" size="icon"
                               onClick={() => handleDeleteSlot(s.id)}
-                              className="text-destructive hover:text-destructive h-6 w-6"
+                              className="text-destructive hover:text-destructive"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>

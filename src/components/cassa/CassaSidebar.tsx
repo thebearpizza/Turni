@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -8,8 +8,8 @@ import { cn } from '@/lib/utils'
 import { PushTestButton } from '@/components/shared/PushTestButton'
 import { NotificationBell } from '@/components/shared/NotificationBell'
 
-// Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
-// nessuna logica di business (niente badge, niente realtime).
+// Sidebar sul modello di ManagerSidebar — stesso pattern di badge/realtime
+// dove serve (notifiche, richieste di modifica in attesa).
 //
 // Due elenchi separati (non un unico navItems filtrato per ruolo): manager
 // e cassiere non vogliono solo un sottoinsieme diverso di voci, ma un
@@ -49,13 +49,16 @@ interface SidebarContentProps {
   pathname: string
   items: typeof managerNavItems
   showNotifiche: boolean
+  // Richieste di modifica chiusura in attesa: solo il manager la vede
+  // (unico ruolo con la voce Approvazioni), 0 altrimenti.
+  modificheInAttesa: number
   onNavigate: () => void
   onLogout: () => void
 }
 
 // Componente a livello di modulo (non ricreato ad ogni render) condiviso
 // tra la sidebar desktop e il drawer mobile.
-function SidebarContent({ pathname, items, showNotifiche, onNavigate, onLogout }: SidebarContentProps) {
+function SidebarContent({ pathname, items, showNotifiche, modificheInAttesa, onNavigate, onLogout }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       <div className="cassa-perforated-top p-6 border-b border-border flex items-start justify-between gap-2">
@@ -81,6 +84,11 @@ function SidebarContent({ pathname, items, showNotifiche, onNavigate, onLogout }
           >
             <Icon className="w-4 h-4 shrink-0" />
             <span className="flex-1">{label}</span>
+            {href === '/cassa/approvazioni' && modificheInAttesa > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {modificheInAttesa > 9 ? '9+' : modificheInAttesa}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
@@ -105,6 +113,7 @@ interface Props {
 
 export function CassaSidebar({ role }: Props) {
   const [open, setOpen] = useState(false)
+  const [modificheInAttesa, setModificheInAttesa] = useState(0)
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
@@ -112,6 +121,33 @@ export function CassaSidebar({ role }: Props) {
     role === 'manager'  ? managerNavItems :
     role === 'cassiere' ? cassiereNavItems :
     role === 'hostess'  ? hostessNavItems  : direttoreNavItems
+
+  // Richieste di modifica in attesa, con realtime: la voce Approvazioni
+  // non aveva finora alcun segnale, il manager doveva andare a
+  // controllare a mano (vedi audit) — stesso pattern del badge ODS di
+  // ManagerSidebar. La RLS di cassa_chiusure_modifiche_select restituisce
+  // solo le richieste dei locali che il manager gestisce.
+  useEffect(() => {
+    if (role !== 'manager') return
+    const supabase = createClient()
+
+    async function fetchCount() {
+      const { count } = await supabase
+        .from('cassa_chiusure_modifiche')
+        .select('id', { count: 'exact', head: true })
+        .eq('stato', 'in_attesa')
+      setModificheInAttesa(count ?? 0)
+    }
+
+    fetchCount()
+
+    const channel = supabase
+      .channel('sidebar_modifiche_in_attesa')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure_modifiche' }, fetchCount)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [role])
 
   async function handleLogout() {
     const supabase = createClient()
@@ -123,7 +159,7 @@ export function CassaSidebar({ role }: Props) {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} onNavigate={closeDrawer} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} modificheInAttesa={modificheInAttesa} onNavigate={closeDrawer} onLogout={handleLogout} />
       </aside>
 
       {/* Mobile header + drawer */}
@@ -152,7 +188,7 @@ export function CassaSidebar({ role }: Props) {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} onNavigate={closeDrawer} onLogout={handleLogout} />
+            <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} modificheInAttesa={modificheInAttesa} onNavigate={closeDrawer} onLogout={handleLogout} />
           </aside>
         </div>
       )}

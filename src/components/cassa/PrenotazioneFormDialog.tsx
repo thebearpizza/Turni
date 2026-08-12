@@ -28,6 +28,11 @@ interface Props {
   onOpenChange:  (open: boolean) => void
   restaurantId:  string
   insegne:       InsegnaOption[]
+  // Insegna da preselezionare quando non se ne sceglie una: NON deve
+  // essere dedotta qui dal primo elemento di `insegne` (quello è solo
+  // l'ordine alfabetico della select, non l'insegna principale del
+  // locale) — arriva già decisa da chi monta il dialog.
+  insegnaDefault?: string | null
   // In creazione: giorno e orario della fascia da cui si è premuto "+".
   iniziale:      { data: string; orario: string } | null
   // In modifica: la prenotazione da aprire. Vale anche come "Dettagli",
@@ -108,13 +113,13 @@ function campiDaBozza(b: BozzaCoda, insegnaDefault: string): Campi {
 // un effetto di sincronizzazione rischierebbe di sovrascrivere il testo
 // appena scritto.
 export function PrenotazioneFormDialog({
-  open, onOpenChange, restaurantId, insegne, iniziale, prenotazione, bozza, onSalvata,
+  open, onOpenChange, restaurantId, insegne, insegnaDefault, iniziale, prenotazione, bozza, onSalvata,
 }: Props) {
-  const insegnaDefault = insegne[0]?.codice ?? ''
+  const defaultEffettivo = insegnaDefault ?? insegne[0]?.codice ?? ''
   const [campi, setCampi] = useState<Campi>(() =>
     prenotazione ? campiDa(prenotazione)
-    : bozza ? campiDaBozza(bozza, insegnaDefault)
-    : campiVuoti(iniziale, insegnaDefault)
+    : bozza ? campiDaBozza(bozza, defaultEffettivo)
+    : campiVuoti(iniziale, defaultEffettivo)
   )
   const [salvando, setSalvando] = useState(false)
   const [errore, setErrore] = useState<string | null>(null)

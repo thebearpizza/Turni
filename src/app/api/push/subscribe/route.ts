@@ -13,6 +13,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Subscription non valida' }, { status: 400 })
   }
 
+  // Un browser/device riusa lo stesso endpoint per ogni utente che vi fa
+  // login: se un utente precedente non si è disiscritto correttamente al
+  // logout, la sua riga per questo endpoint andrebbe rimossa qui, altrimenti
+  // le notifiche continuerebbero ad arrivargli sullo stesso dispositivo.
+  await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint).neq('user_id', user.id)
+
   const { error } = await supabase
     .from('push_subscriptions')
     .upsert({

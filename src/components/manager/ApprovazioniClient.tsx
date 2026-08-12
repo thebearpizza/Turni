@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Check, X, CalendarX } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 import type { Absence, AbsenceType } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
 import { createClient } from '@/lib/supabase/client'
@@ -82,6 +83,13 @@ export function ApprovazioniClient({ initialRequests }: Props) {
       setRequests(rs => rs.filter(r => r.id !== id))
       // Re-render server components on this page (FallbackApprovalSection)
       router.refresh()
+    } else {
+      const e = await res.json().catch(() => null)
+      toast({
+        title: action === 'approve' ? 'Approvazione non riuscita' : 'Rifiuto non riuscito',
+        description: e?.error ?? undefined,
+        variant: 'destructive',
+      })
     }
     setProcessing(null)
   }
@@ -90,8 +98,8 @@ export function ApprovazioniClient({ initialRequests }: Props) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Approvazioni</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="text-xl font-semibold tracking-tight">Approvazioni</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
             {requests.length} richieste in attesa
           </p>
         </div>
@@ -132,18 +140,18 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                       size="sm"
                       onClick={() => handleAction(r.id, 'approve')}
                       disabled={processing === r.id}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      aria-label="Approva"
                     >
-                      <Check className="w-4 h-4" />
+                      <Check className="w-4 h-4" /> Approva
                     </Button>
                     <Button
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
                       onClick={() => handleAction(r.id, 'reject')}
                       disabled={processing === r.id}
-                      className="text-destructive hover:text-destructive border-destructive/30 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 dark:border-red-500/30"
+                      aria-label="Rifiuta"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-4 h-4" /> Rifiuta
                     </Button>
                   </div>
                 </div>

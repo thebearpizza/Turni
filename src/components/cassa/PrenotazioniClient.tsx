@@ -81,6 +81,12 @@ function servizioCorrente(): PrenotazioneServizio {
   return formatInTimeZone(new Date(), TZ, 'HH:mm') < '17:00' ? 'pranzo' : 'cena'
 }
 
+// Le uniche sezioni che contano ai fini di "il servizio è vuoto/pieno":
+// cancellate e no show non occupano un tavolo.
+function attiva(p: Prenotazione): boolean {
+  return p.stato === 'confermata' || p.stato === 'seduta'
+}
+
 function etichettaGiorno(data: string): string {
   const label = format(parseISO(data), 'EEE, d MMM', { locale: it })
   return label.charAt(0).toUpperCase() + label.slice(1)
@@ -301,6 +307,27 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     () => insegne.filter(i => i.restaurant_id === restaurantId),
     [insegne, restaurantId]
   )
+  // Insegna a cui attribuire una prenotazione quando non se ne sceglie
+  // una — NON la prima dell'elenco (quella è solo l'ordine alfabetico:
+  // per Porto Rotondo sarebbe sempre "Benthos", anche per un cliente di
+  // Crunch!). La colonna `principale` non arriva nella prop `insegne`
+  // (la pagina non la seleziona), quindi si interroga qui.
+  const [insegnaPrincipale, setInsegnaPrincipale] = useState<string | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!restaurantId) { setInsegnaPrincipale(null); return }
+    let annullato = false
+    const supabase = createClient()
+    supabase
+      .from('prenotazioni_insegne')
+      .select('codice')
+      .eq('restaurant_id', restaurantId)
+      .eq('principale', true)
+      .maybeSingle()
+      .then(({ data }) => { if (!annullato) setInsegnaPrincipale(data?.codice ?? null) })
+    return () => { annullato = true }
+  }, [restaurantId])
+  const insegnaDefaultLocale = insegnaPrincipale ?? insegneLocale[0]?.codice ?? null
   // Sempre visibile quando c'è: Crunch! e Benthos condividono la stessa
   // agenda, quindi da quale delle due arriva il cliente è informazione di
   // servizio, non un dettaglio.
@@ -330,6 +357,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     setCaricamento(false)
   }, [restaurantId, data])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCaricamento(true); carica() }, [carica])
 
   // Tutte le prenotazioni "in coda" (nome e data noti, manca solo
@@ -403,6 +431,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     }
   }, [restaurants])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { caricaCoda() }, [caricaCoda])
 
   // Le prenotazioni arrivano anche da fuori app (il cron che legge la
@@ -433,8 +462,10 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   // che trasforma "non vedo niente" in "stai guardando il servizio
   // sbagliato".
   const altroServizio: PrenotazioneServizio = servizio === 'cena' ? 'pranzo' : 'cena'
+  // Solo gli stati "vivi": cancellate e no show stanno in sezioni chiuse
+  // di default e non sono ciò per cui vale la pena mandare al servizio.
   const nAltroServizio = useMemo(
-    () => giornata.filter(p => p.servizio === altroServizio).length,
+    () => giornata.filter(p => p.servizio === altroServizio && attiva(p)).length,
     [giornata, altroServizio]
   )
 
@@ -460,7 +491,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     let crunch = 0
     let restoo = 0
     for (const p of prenotazioni) {
-      if (p.stato !== 'confermata' && p.stato !== 'seduta') continue
+      if (!attiva(p)) continue
       if (p.origine === 'restoo' || p.origine === 'manuale') restoo += p.persone
       else if (p.insegna === 'benthos') benthos += p.persone
       else if (p.insegna === 'crunch') crunch += p.persone
@@ -495,16 +526,20 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   // Il tavolo entra già seduto: un passante non prenota, arriva e basta.
   // Nessun nome, nessun orario da scegliere — quello scritto è solo
   // "adesso", non organizza nulla (la sezione Sedute non è divisa per
-  // fasce come Confermate).
+  // fasce come Confermate). Data e servizio sono sempre quelli di ADESSO,
+  // non quelli dell'agenda che si sta guardando in questo momento: un
+  // passante arrivato mentre si controlla un altro giorno/servizio non
+  // deve finire lì.
   async function aggiungiPassante(persone: number) {
+    const orario = formatInTimeZone(new Date(), TZ, 'HH:mm')
     const supabase = createClient()
     const { error } = await supabase.from('prenotazioni').insert({
       restaurant_id: restaurantId,
-      insegna: insegneLocale[0]?.codice ?? null,
+      insegna: insegnaDefaultLocale,
       origine: 'manuale',
-      data,
-      orario: formatInTimeZone(new Date(), TZ, 'HH:mm'),
-      servizio,
+      data: oggiRoma(),
+      orario,
+      servizio: servizioCorrente(),
       nome: 'Passante',
       cognome: null,
       persone,
@@ -539,25 +574,29 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
       const json = await res.json()
       // La casella Gmail è un ripiego che qui non è mai stato configurato
       // — l'ingresso vero è il webhook in tempo reale — quindi risponde
-      // sempre 503 "Casella mail non configurata". Non è un errore da
-      // mostrare: il tasto deve comunque fare il suo lavoro, ricaricando
-      // agenda e coda da quanto già arrivato. Un problema vero (es. chiave
-      // AI mancante) resta segnalato come prima.
+      // sempre 503 "Casella mail non configurata". La route inoltre
+      // risponde 403 all'hostess (solo il manager può leggere la
+      // casella). Nessuno dei due è un errore da mostrare: il tasto deve
+      // comunque fare il suo lavoro, ricaricando agenda e coda da quanto
+      // già arrivato via webhook. Un problema vero (es. chiave AI
+      // mancante) resta segnalato come prima.
       if (res.ok) {
         const parti = [
           json.importate > 0 && `${json.importate} aggiornate`,
           json.incomplete > 0 && `${json.incomplete} da completare (manca l'orario)`,
         ].filter(Boolean)
         setAvviso(parti.length > 0 ? `${parti.join(', ')}.` : 'Nessuna nuova prenotazione nella casella.')
-      } else if (json.error !== 'Casella mail non configurata') {
-        throw new Error(json.error ?? 'Sincronizzazione non riuscita')
-      } else {
+      } else if (json.error === 'Casella mail non configurata' || res.status === 403) {
         setAvviso('Aggiornato.')
+      } else {
+        setAvviso(json.error ?? 'Sincronizzazione non riuscita')
       }
-      await Promise.all([carica(), caricaCoda()])
     } catch (err) {
       setAvviso(err instanceof Error ? err.message : 'Sincronizzazione non riuscita')
     } finally {
+      // Sempre, indipendentemente da come è andata la sync: l'agenda va
+      // ricaricata anche quando la casella non si è potuta leggere.
+      await Promise.all([carica(), caricaCoda()])
       setSincronizzando(false)
     }
   }
@@ -733,9 +772,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         <Button type="button" className="flex-1" onClick={() => apriNuova(FASCE[servizio].inizio)}>
           <Plus className="h-4 w-4" /> Prenotazione
         </Button>
-        <Button type="button" variant="outline" className="flex-1" onClick={() => setImportAperto(true)}>
-          <Upload className="h-4 w-4" /> Importa
-        </Button>
+        {/* La route di import richiede il ruolo manager: la hostess che
+            la aprisse otterrebbe solo "Non autorizzato" dopo aver già
+            scelto e letto il file. */}
+        {currentUser.role === 'manager' && (
+          <Button type="button" variant="outline" className="flex-1" onClick={() => setImportAperto(true)}>
+            <Upload className="h-4 w-4" /> Importa
+          </Button>
+        )}
         {data !== oggiRoma() && (
           <Button type="button" variant="outline" className="flex-1" onClick={() => setData(oggiRoma())}>
             Oggi
@@ -746,7 +790,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
       {avviso && <p className="text-sm text-muted-foreground">{avviso}</p>}
       {errore && <p className="text-sm text-destructive">Errore nel caricamento: {errore}</p>}
 
-      {!caricamento && prenotazioni.length === 0 && nAltroServizio > 0 && (
+      {!caricamento && confermate.length + sedute.length === 0 && nAltroServizio > 0 && (
         <button
           type="button"
           onClick={() => setServizio(altroServizio)}
@@ -851,6 +895,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
             >
               <UserPlus className="h-4 w-4" /> Passante
             </Button>
+            {/* Il passante si registra sempre su adesso, mai sul giorno
+                che si sta guardando: qui lo si sta guardando ma non è
+                oggi, quindi conviene dirlo prima che tocchi il tasto. */}
+            {data !== oggiRoma() && (
+              <p className="px-1 text-xs text-muted-foreground">
+                Verrà registrato su oggi, non sul {etichettaGiorno(data).toLowerCase()} che stai guardando.
+              </p>
+            )}
 
             {sedute.length === 0
               ? <p className="px-1 text-sm text-muted-foreground">Nessun tavolo seduto.</p>
@@ -927,6 +979,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         onOpenChange={setFormAperto}
         restaurantId={restaurantId}
         insegne={insegneLocale}
+        insegnaDefault={insegnaDefaultLocale}
         iniziale={formIniziale}
         prenotazione={formPrenotazione}
         bozza={formBozza}
