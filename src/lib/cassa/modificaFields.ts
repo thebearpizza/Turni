@@ -17,16 +17,23 @@ export const MODIFICA_ALLOWED_FIELDS = [
 
 export type ModificaField = typeof MODIFICA_ALLOWED_FIELDS[number]
 
-export function sanitizeModificaPayload(input: unknown): Record<ModificaField, number> | null {
+// Solo i campi che il cassiere ha davvero cambiato, non "l'intero form come
+// lo vedeva": una richiesta di modifica propone SOLO le chiavi presenti nel
+// payload, non deve più contenerle tutte e 8. Applicare in approvazione solo
+// i campi presenti evita di sovrascrivere correzioni fatte nel frattempo dal
+// manager su campi che il cassiere non intendeva toccare.
+export function sanitizeModificaPayload(input: unknown): Partial<Record<ModificaField, number>> | null {
   if (!input || typeof input !== 'object') return null
   const source = input as Record<string, unknown>
-  const result = {} as Record<ModificaField, number>
+  const result: Partial<Record<ModificaField, number>> = {}
 
   for (const key of MODIFICA_ALLOWED_FIELDS) {
+    if (!(key in source)) continue
     const value = source[key]
     if (typeof value !== 'number' || !Number.isFinite(value)) return null
     result[key] = value
   }
 
+  if (Object.keys(result).length === 0) return null
   return result
 }

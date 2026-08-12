@@ -74,6 +74,29 @@ export function QuadraturaFase({
     }
   }
 
+  // Solo i campi che il cassiere ha davvero cambiato rispetto alla riga
+  // attuale: una richiesta di modifica non è "come mi risultava tutto il
+  // form", ma "questo campo va corretto" — se contenesse anche gli altri
+  // 7 campi letti a inizio compilazione, approvarla sovrascriverebbe in
+  // blocco eventuali correzioni fatte nel frattempo dal manager su campi
+  // che il cassiere non intendeva affatto toccare.
+  function buildChangedPayload() {
+    const full = buildPayload()
+    const baseline: Record<string, number> = {
+      fondo_cassa_iniziale: chiusura.fondo_cassa_iniziale,
+      entrate_contanti: chiusura.entrate_contanti,
+      entrate_pos: chiusura.entrate_pos,
+      entrate_bonifico: chiusura.entrate_bonifico,
+      coperti: chiusura.coperti,
+      incasso_asporto: chiusura.incasso_asporto,
+      fondo_cassa_finale: chiusura.fondo_cassa_finale,
+      contanti_per_banca: chiusura.contanti_per_banca,
+    }
+    return Object.fromEntries(
+      Object.entries(full).filter(([key, value]) => value !== baseline[key])
+    )
+  }
+
   async function handleSubmit() {
     if (!contantiPerBancaTouched) return
     setSaving(true)
@@ -108,11 +131,17 @@ export function QuadraturaFase({
     }
 
     // Chiusura già confermata + cassiere: richiesta di modifica in attesa di approvazione.
+    const changed = buildChangedPayload()
+    if (Object.keys(changed).length === 0) {
+      setSaving(false)
+      setError('Nessun campo è stato modificato.')
+      return
+    }
     try {
       const res = await fetch('/api/cassa/richiedi-modifica', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chiusura_id: chiusura.id, payload: buildPayload() }),
+        body: JSON.stringify({ chiusura_id: chiusura.id, payload: changed }),
       })
       const result = await res.json()
       setSaving(false)

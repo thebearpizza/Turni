@@ -14,6 +14,11 @@ interface Props {
   selected: string[]
   onChange: (ids: string[]) => void
   className?: string
+  // La semantica di "selezione vuota" cambia da un chiamante all'altro
+  // (in Analisi vuoto = tutti; in Progressivo Buste vuoto = nessuno,
+  // bisogna sceglierne almeno uno): l'etichetta deve rifletterla, non
+  // dare per scontato "tutti".
+  emptyLabel?: string
 }
 
 // Selettore multiplo dei ristoranti. Usa Popover (non DropdownMenu): un
@@ -23,13 +28,13 @@ interface Props {
 // chiudersi proprio per questo disallineamento (semantica "menu" invece
 // di "pannello"), il Popover si chiude in modo affidabile con un solo tap
 // fuori o sul pulsante "Chiudi".
-export function RestaurantMultiSelect({ restaurants, selected, onChange, className }: Props) {
+export function RestaurantMultiSelect({ restaurants, selected, onChange, className, emptyLabel = 'Tutti i ristoranti' }: Props) {
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter(r => r !== id) : [...selected, id])
   }
 
   const label = selected.length === 0
-    ? 'Tutti i ristoranti'
+    ? emptyLabel
     : selected.length === 1
       ? (restaurants.find(r => r.id === selected[0])?.name ?? '1 selezionato')
       : `${selected.length} ristoranti selezionati`

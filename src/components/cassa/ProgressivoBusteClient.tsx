@@ -141,7 +141,7 @@ export function ProgressivoBusteClient({ restaurants }: Props) {
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2">
             <Label>Locali</Label>
-            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
+            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} emptyLabel="Seleziona i locali" />
             {selectedRestaurants.length === 0 && (
               <p className="text-xs text-muted-foreground">Seleziona almeno un locale per continuare.</p>
             )}

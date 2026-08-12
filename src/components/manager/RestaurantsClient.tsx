@@ -117,7 +117,27 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
         .select()
         .single()
       if (error) { setSaveError(error.message); setLoading(false); return }
-      if (data) setRestaurants(rs => [...rs, data])
+      if (data) {
+        setRestaurants(rs => [...rs, data])
+        // Un manager con scope limitato (managed_restaurant_ids non nullo)
+        // deve poter gestire subito il ristorante appena creato: senza
+        // aggiungerlo al proprio scope resterebbe fuori dalla propria
+        // gestione, invisibile ai propri report. Solo il proprietario della
+        // piattaforma (managed_restaurant_ids null) non ne ha bisogno: vede
+        // già tutto.
+        const { data: myProfile } = await supabase
+          .from('profiles')
+          .select('managed_restaurant_ids')
+          .eq('id', user!.id)
+          .single()
+        const managed = myProfile?.managed_restaurant_ids as string[] | null
+        if (managed !== null) {
+          await supabase
+            .from('profiles')
+            .update({ managed_restaurant_ids: [...(managed ?? []), data.id] })
+            .eq('id', user!.id)
+        }
+      }
     }
 
     setShowForm(false)

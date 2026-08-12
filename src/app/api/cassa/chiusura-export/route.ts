@@ -452,10 +452,16 @@ async function buildPdf(chiusura: any, restaurantName: string, dataLabel: string
   // internamente (RENDER_SCALE) per restare nitida anche stampata.
   async function drawChartImage(title: string, asset: ChartAsset) {
     const img = await doc.embedPng(asset.buffer)
-    ensureSpace(30 + asset.height)
+    // Il grafico "Spese per categoria" cresce in larghezza con il numero di
+    // categorie (fino a 8) e può superare lo spazio utile della pagina:
+    // ridimensionare in proporzione invece di lasciarlo tagliare dal bordo.
+    const scale = Math.min(1, CONTENT_W / asset.width)
+    const drawW = asset.width * scale
+    const drawH = asset.height * scale
+    ensureSpace(30 + drawH)
     sectionTitle(title)
-    page.drawImage(img, { x: MARGIN, y: y - asset.height, width: asset.width, height: asset.height })
-    y -= asset.height + 16
+    page.drawImage(img, { x: MARGIN, y: y - drawH, width: drawW, height: drawH })
+    y -= drawH + 16
   }
 
   drawHeader()
