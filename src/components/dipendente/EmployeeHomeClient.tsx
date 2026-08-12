@@ -146,14 +146,40 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     } catch (err) {
       if (isNetworkError(err)) {
         // Network unavailable — persist to IndexedDB queue with the frozen timestamp
-        await saveToOfflineQueue('clock-in', {
-          qr_secret: qrSecret,
-          type:      attendance ? 'out' : 'in',
-          latitude:  userCoordsRef.current?.latitude  ?? null,
-          longitude: userCoordsRef.current?.longitude ?? null,
-          accuracy:  userCoordsRef.current?.accuracy  ?? null,
-          frozenAt,
-        }).catch(() => {})
+        try {
+          await saveToOfflineQueue('clock-in', {
+            qr_secret: qrSecret,
+            type:      attendance ? 'out' : 'in',
+            latitude:  userCoordsRef.current?.latitude  ?? null,
+            longitude: userCoordsRef.current?.longitude ?? null,
+            accuracy:  userCoordsRef.current?.accuracy  ?? null,
+            frozenAt,
+          })
+        } catch {
+          setMessage({ text: 'Impossibile salvare la timbratura offline. Riprova.', type: 'error' })
+          return
+        }
+        // Rispecchia lo stato che avrebbe la timbratura online, così il
+        // pulsante propone subito 'Scansiona Uscita' e il cronometro parte —
+        // altrimenti, restando offline, un secondo tocco manderebbe in coda
+        // un'altra entrata invece dell'uscita.
+        if (attendance) {
+          setAttendance(null)
+        } else {
+          setAttendance({
+            id: `offline-${frozenAt}`,
+            user_id: userId,
+            restaurant_id: profile.restaurant?.id ?? null,
+            check_in: frozenAt,
+            check_out: null,
+            is_split_shift: false,
+            notes: null,
+            fallback_photo_path: null,
+            needs_manager_approval: false,
+            created_at: frozenAt,
+            updated_at: frozenAt,
+          })
+        }
         setMessage({
           text: 'Sei offline. Timbratura salvata sul dispositivo, si aggiornerà automaticamente.',
           type: 'success',
@@ -164,7 +190,7 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [attendance, router])
+  }, [attendance, router, userId, profile.restaurant?.id])
 
   async function handleFallbackPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const photo = e.target.files?.[0]
@@ -202,6 +228,25 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
   }
 
   async function handleLogout() {
+    // Su un dispositivo condiviso, una subscription push lasciata attiva
+    // continuerebbe a ricevere le notifiche destinate a questo utente anche
+    // dopo che un collega ha fatto login sullo stesso device.
+    try {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        if (sub) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          })
+          await sub.unsubscribe()
+        }
+      }
+    } catch {
+      // Non bloccare il logout se la disiscrizione push fallisce
+    }
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')

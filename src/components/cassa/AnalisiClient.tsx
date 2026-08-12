@@ -22,6 +22,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { FileText, FileSpreadsheet, Download } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
 
@@ -118,21 +119,38 @@ interface SpesaRow {
   restaurant_name: string
 }
 
+// Con centinaia di chiusure l'elenco di id in querystring (.in(...)) supera
+// i limiti di URI del gateway Supabase: si spezza in blocchi da CHUNK_SIZE.
+const CHUNK_SIZE = 150
+
+interface FetchSpeseResult {
+  righe: SpesaRow[]
+  error: boolean
+}
+
 // chiusuraInfoById: data + locale della chiusura per ogni id, dalle righe
 // già caricate — evita una join aggiuntiva solo per popolare il trend nel
 // tempo e il drill-down per nome_spesa/locale nella ciambella categorie.
 async function fetchSpese(
   supabase: ReturnType<typeof createClient>,
   chiusure: Riga[]
-): Promise<SpesaRow[]> {
-  if (chiusure.length === 0) return []
+): Promise<FetchSpeseResult> {
+  if (chiusure.length === 0) return { righe: [], error: false }
   const chiusuraInfoById = new Map(chiusure.map(r => [r.id, r]))
-  const { data } = await supabase
+  const ids = chiusure.map(r => r.id)
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE))
+
+  const risposte = await Promise.all(chunks.map(chunk => supabase
     .from('cassa_spese')
     .select('importo, nome_spesa, chiusura_id, categoria:cassa_categorie(nome)')
-    .in('chiusura_id', chiusure.map(r => r.id))
+    .in('chiusura_id', chunk)
+  ))
 
-  return ((data ?? []) as unknown as Array<{ importo: number; nome_spesa: string; chiusura_id: string; categoria: { nome: string } | null }>).map(s => {
+  const error = risposte.some(r => r.error)
+  const data = risposte.flatMap(r => r.data ?? [])
+
+  const righe = (data as unknown as Array<{ importo: number; nome_spesa: string; chiusura_id: string; categoria: { nome: string } | null }>).map(s => {
     const chiusura = chiusuraInfoById.get(s.chiusura_id)
     return {
       importo: s.importo,
@@ -143,6 +161,7 @@ async function fetchSpese(
       restaurant_name: chiusura?.restaurant_name ?? '—',
     }
   })
+  return { righe, error }
 }
 
 export function AnalisiClient({ restaurants }: Props) {
@@ -163,6 +182,7 @@ export function AnalisiClient({ restaurants }: Props) {
   const [righePrecedenti, setRighePrecedenti] = useState<Riga[]>([])
   const [righePeriodoPrecedente, setRighePeriodoPrecedente] = useState<Riga[] | null>(null)
   const [spese, setSpese] = useState<SpesaRow[]>([])
+  const [speseError, setSpeseError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
 
@@ -214,12 +234,25 @@ export function AnalisiClient({ restaurants }: Props) {
     setRighe(current)
 
     const speseData = await fetchSpese(supabase, current)
-    if (requestId.current === myRequest) setSpese(speseData)
+    if (requestId.current === myRequest) {
+      setSpese(speseData.righe)
+      setSpeseError(speseData.error)
+      if (speseData.error) {
+        toast({ title: 'Impossibile caricare le spese del periodo', variant: 'destructive' })
+      }
+    }
 
     // Periodo precedente equivalente (stessa durata, immediatamente prima)
     // per la variazione % nella riga KPI — indipendente dal confronto
     // anno-su-anno qui sotto, che riguarda invece il grafico andamento.
-    const durationDays = differenceInCalendarDays(new Date(`${end}T12:00:00Z`), new Date(`${start}T12:00:00Z`)) + 1
+    // Il periodo corrente va troncato a oggi: altrimenti, con un range in
+    // corso (es. il mese corrente all'11 del mese), durationDays userebbe
+    // la durata nominale intera (31 giorni) contro gli ~11 giorni di dati
+    // realmente coperti da `righe`, e il confronto risulterebbe sempre
+    // sbilanciato a sfavore del periodo corrente.
+    const todayStr = fmtDate(new Date(formatInTimeZone(new Date(), TZ, "yyyy-MM-dd'T'12:00:00")))
+    const effectiveEnd = end > todayStr ? todayStr : end
+    const durationDays = differenceInCalendarDays(new Date(`${effectiveEnd}T12:00:00Z`), new Date(`${start}T12:00:00Z`)) + 1
     const kpiPrevEnd = fmtDate(subDays(new Date(`${start}T12:00:00Z`), 1))
     const kpiPrevStart = fmtDate(subDays(new Date(`${start}T12:00:00Z`), durationDays))
     const kpiPrevious = await fetchRighe(supabase, targets, kpiPrevStart, kpiPrevEnd)
@@ -399,7 +432,11 @@ export function AnalisiClient({ restaurants }: Props) {
         <Card className="cassa-perforated-top">
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
-            <CategorieBreakdownChart spese={spese} multiRestaurant={targets.length > 1} />
+            {speseError ? (
+              <p className="text-sm text-cassa-negative">Caricamento delle spese non riuscito. Riprova.</p>
+            ) : (
+              <CategorieBreakdownChart spese={spese} multiRestaurant={targets.length > 1} />
+            )}
           </CardContent>
         </Card>
       )}
@@ -408,7 +445,11 @@ export function AnalisiClient({ restaurants }: Props) {
         <Card className="cassa-perforated-top">
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Spese per categoria nel tempo</Label>
-            <CategorieTrendChart spese={spese} />
+            {speseError ? (
+              <p className="text-sm text-cassa-negative">Caricamento delle spese non riuscito. Riprova.</p>
+            ) : (
+              <CategorieTrendChart spese={spese} />
+            )}
           </CardContent>
         </Card>
       )}

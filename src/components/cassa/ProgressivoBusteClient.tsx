@@ -78,16 +78,23 @@ async function fetchProgressivo(
 // filtrati — la vista che serve per controllare le buste di versamento.
 export function ProgressivoBusteClient({ restaurants }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
+  // Settimana corrente di default e "nessuna selezione = tutti i locali",
+  // coerente con le altre viste Cassa (Analisi, Lista Chiusure, Fatture):
+  // la pagina mostra già dati utili alla prima apertura.
+  const [customStart, setCustomStart] = useState(() => settimanaRange().start)
+  const [customEnd, setCustomEnd] = useState(() => settimanaRange().end)
   const [righe, setRighe] = useState<RigaLocale[]>([])
   const [loading, setLoading] = useState(false)
   const [espanso, setEspanso] = useState<string | null>(null)
 
   const settimana = useMemo(() => settimanaRange(), [])
   const periodoScelto = !!customStart && !!customEnd
-  const pronto = selectedRestaurants.length > 0 && periodoScelto
-  const selectedRestaurantsKey = useMemo(() => JSON.stringify(selectedRestaurants), [selectedRestaurants])
+  const targets = useMemo(
+    () => selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id),
+    [selectedRestaurants, restaurants]
+  )
+  const pronto = targets.length > 0 && periodoScelto
+  const targetsKey = useMemo(() => JSON.stringify(targets), [targets])
 
   const requestId = useRef(0)
 
@@ -96,10 +103,10 @@ export function ProgressivoBusteClient({ restaurants }: Props) {
     const myRequest = ++requestId.current
     setLoading(true)
     const supabase = createClient()
-    const dati = await fetchProgressivo(supabase, selectedRestaurants, customStart, customEnd)
+    const dati = await fetchProgressivo(supabase, targets, customStart, customEnd)
     if (requestId.current !== myRequest) return
 
-    const nuoveRighe = selectedRestaurants.map(id => {
+    const nuoveRighe = targets.map(id => {
       const giorni = dati
         .filter(d => d.restaurant_id === id)
         .map(d => ({ data: d.data, contanti_per_banca: d.contanti_per_banca }))
@@ -113,7 +120,7 @@ export function ProgressivoBusteClient({ restaurants }: Props) {
     setRighe(nuoveRighe)
     setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pronto, selectedRestaurantsKey, customStart, customEnd])
+  }, [pronto, targetsKey, customStart, customEnd])
 
   useEffect(() => { load() }, [load])
 

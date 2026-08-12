@@ -1,10 +1,14 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { LoadingDots } from '@/components/shared/LoadingDots'
-import { X, CheckCircle2 } from 'lucide-react'
-import type { AbsenceType } from '@/types'
+import { CheckCircle2 } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
+import type { Absence, AbsenceType, AbsenceStatus } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
 
 interface Props {
@@ -13,15 +17,19 @@ interface Props {
   onClose: () => void
 }
 
-/* Classe condivisa per tutti i form field single-line — simmetria assoluta h-10
- * NB: `appearance-none` + `box-border` + `min-w-0` sono necessari per evitare che
- * <input type="date"> erediti la larghezza intrinseca del placeholder iOS Safari
- * e sbordi rispetto al contenitore. */
-const fieldCls =
-  'block w-full min-w-0 h-10 box-border appearance-none bg-background border border-input rounded-md px-3 text-foreground text-base ' +
-  'focus:outline-none focus:ring-1 focus:ring-ring transition-colors'
-
 const labelCls = 'text-muted-foreground text-xs font-medium uppercase tracking-wide mb-2 block'
+
+const statusLabels: Record<AbsenceStatus, string> = {
+  pending: 'In attesa',
+  approved: 'Approvata',
+  rejected: 'Rifiutata',
+}
+
+const statusBadgeClass: Record<AbsenceStatus, string> = {
+  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  rejected: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400',
+}
 
 /* Dipendenti non possono inserire "Assenza Ingiustificata" — solo il manager la assegna */
 const DIPENDENTE_TYPES: AbsenceType[] = ['ferie', 'malattia', 'riposo']
@@ -35,11 +43,35 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Lock body scroll while dialog is open; restore on unmount
+  const [myAbsences, setMyAbsences] = useState<Absence[]>([])
+
+  const loadMyAbsences = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('absences')
+      .select('*')
+      .eq('user_id', userId)
+      .order('start_date', { ascending: false })
+      .limit(5)
+    if (data) setMyAbsences(data as Absence[])
+  }, [userId])
+
+  useEffect(() => { loadMyAbsences() }, [loadMyAbsences])
+
+  // Realtime — se il manager approva/rifiuta mentre il dipendente ha il
+  // pannello aperto, il badge di stato si aggiorna senza dover riaprire.
   useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
-  }, [])
+    const supabase = createClient()
+    const channel = supabase
+      .channel('rt-my-absences')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'absences', filter: `user_id=eq.${userId}` },
+        () => { loadMyAbsences() }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [userId, loadMyAbsences])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -67,38 +99,38 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+    <Dialog open onOpenChange={open => { if (!open) onClose() }}>
+      <DialogContent className="top-auto bottom-0 left-1/2 translate-x-[-50%] translate-y-0 max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-t-md rounded-b-none sm:rounded-lg data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom">
+        <DialogHeader>
+          <DialogTitle>Richiedi Assenza</DialogTitle>
+        </DialogHeader>
 
-      <div
-        className="relative w-full max-w-lg bg-card border-t border-border rounded-t-md overflow-hidden"
-        onClick={e => e.stopPropagation()}
-        onTouchMove={e => e.stopPropagation()}
-      >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-border" />
-        </div>
-
-        <div className="px-5 pb-10">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-foreground text-lg font-semibold tracking-tight">Richiedi Assenza</h2>
-            <button
-              onClick={onClose}
-              className="w-10 h-10 rounded-md bg-card border border-border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+        {done ? (
+          <div className="py-8 flex flex-col items-center gap-3 text-center">
+            <CheckCircle2 className="w-12 h-12 text-emerald-600 dark:text-emerald-400" />
+            <p className="text-foreground font-semibold text-lg">Richiesta inviata!</p>
+            <p className="text-muted-foreground text-sm">Il manager riceverà la tua richiesta</p>
           </div>
+        ) : (
+          <>
+            {myAbsences.length > 0 && (
+              <div className="space-y-1.5">
+                <p className={labelCls}>Le mie richieste recenti</p>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {myAbsences.map(a => (
+                    <div key={a.id} className="flex items-center justify-between gap-2 text-xs bg-muted/40 border border-border rounded-sm px-2.5 py-1.5">
+                      <span className="text-foreground">
+                        {ABSENCE_LABELS[a.type]} · {formatDate(a.start_date)} → {formatDate(a.end_date)}
+                      </span>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded-full font-medium ${statusBadgeClass[a.status]}`}>
+                        {statusLabels[a.status]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {done ? (
-            <div className="py-8 flex flex-col items-center gap-3 text-center">
-              <CheckCircle2 className="w-12 h-12 text-emerald-600 dark:text-emerald-400" />
-              <p className="text-foreground font-semibold text-lg">Richiesta inviata!</p>
-              <p className="text-muted-foreground text-sm">Il manager riceverà la tua richiesta</p>
-            </div>
-          ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Tipo */}
               <div>
@@ -118,25 +150,25 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
               {/* Dal */}
               <div>
                 <label className={labelCls}>Dal</label>
-                <input
+                <Input
                   type="date"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
                   required
-                  className={fieldCls}
+                  className="h-10"
                 />
               </div>
 
               {/* Al */}
               <div>
                 <label className={labelCls}>Al</label>
-                <input
+                <Input
                   type="date"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
                   required
                   min={startDate}
-                  className={fieldCls}
+                  className="h-10"
                 />
               </div>
 
@@ -160,18 +192,19 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
                 </p>
               )}
 
-              {/* Submit — touch target h-14 mobile */}
-              <button
-                type="submit"
-                disabled={loading || !startDate || !endDate}
-                className="w-full h-14 rounded-md bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground font-semibold text-base transition-colors active:scale-[0.98]"
-              >
-                {loading ? <>Invio in corso<LoadingDots /></> : 'Invia Richiesta'}
-              </button>
+              <DialogFooter>
+                <Button
+                  type="submit"
+                  disabled={loading || !startDate || !endDate}
+                  className="w-full h-14 text-base font-semibold active:scale-[0.98]"
+                >
+                  {loading ? <>Invio in corso<LoadingDots /></> : 'Invia Richiesta'}
+                </Button>
+              </DialogFooter>
             </form>
-          )}
-        </div>
-      </div>
-    </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }

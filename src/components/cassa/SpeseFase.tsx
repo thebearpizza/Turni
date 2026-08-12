@@ -54,6 +54,10 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
   const [checking, setChecking] = useState(false)
   const [confirmMatch, setConfirmMatch] = useState<{ nome: string; categoriaId: string | null } | null>(null)
 
+  const [spesaDaEliminare, setSpesaDaEliminare] = useState<CassaSpesa | null>(null)
+  const [eliminandoSpesa, setEliminandoSpesa] = useState(false)
+  const [deleteSpesaError, setDeleteSpesaError] = useState<string | null>(null)
+
   async function loadCategorie() {
     const supabase = createClient()
     const { data } = await supabase.from('cassa_categorie').select('*').eq('owner_id', ownerId).order('nome')
@@ -165,10 +169,17 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
     await insertSpesa(trimmed, categoriaId || null)
   }
 
-  async function handleDeleteSpesa(id: string) {
+  async function confermaEliminaSpesa() {
+    if (!spesaDaEliminare) return
+    const id = spesaDaEliminare.id
+    setEliminandoSpesa(true)
+    setDeleteSpesaError(null)
     const supabase = createClient()
-    await supabase.from('cassa_spese').delete().eq('id', id)
+    const { error } = await supabase.from('cassa_spese').delete().eq('id', id)
+    setEliminandoSpesa(false)
+    if (error) { setDeleteSpesaError(error.message); return }
     setSpese(prev => prev.filter(s => s.id !== id))
+    setSpesaDaEliminare(null)
   }
 
   return (
@@ -240,7 +251,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
               <Skeleton className="h-4 w-40" />
               <div className="flex items-center gap-3">
                 <Skeleton className="h-4 w-14" />
-                <Skeleton className="h-7 w-7 rounded-md" />
+                <Skeleton className="h-8 w-8 rounded-md" />
               </div>
             </div>
           ))}
@@ -257,8 +268,8 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDeleteSpesa(s.id)}>
-                    <Trash2 className="w-3.5 h-3.5" />
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSpesaDaEliminare(s)}>
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
@@ -278,14 +289,17 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
       </CardContent>
 
       <Dialog open={!!confirmMatch} onOpenChange={o => { if (!o) setConfirmMatch(null) }}>
-        <DialogContent>
+        <DialogContent className="cassa cassa-perforated-top">
           <DialogHeader>
-            <DialogTitle>Voce simile trovata</DialogTitle>
+            <DialogTitle className="cassa-display text-lg">Voce simile trovata</DialogTitle>
             <DialogDescription>
               Intendevi &laquo;{confirmMatch?.nome}&raquo;? Sembra la stessa voce di spesa già usata in passato.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setConfirmMatch(null)}>
+              Annulla
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -306,6 +320,29 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
               }}
             >
               Usa &laquo;{confirmMatch?.nome}&raquo;
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!spesaDaEliminare} onOpenChange={o => { if (!o) { setSpesaDaEliminare(null); setDeleteSpesaError(null) } }}>
+        <DialogContent className="cassa cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Eliminare questa spesa?</DialogTitle>
+          </DialogHeader>
+          {spesaDaEliminare && (
+            <p className="text-sm text-muted-foreground">
+              {spesaDaEliminare.nome_spesa} · € {spesaDaEliminare.importo.toFixed(2)}
+              {' '}— l&apos;operazione non è reversibile.
+            </p>
+          )}
+          {deleteSpesaError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteSpesaError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setSpesaDaEliminare(null); setDeleteSpesaError(null) }} disabled={eliminandoSpesa}>
+              Annulla
+            </Button>
+            <Button type="button" variant="destructive" onClick={confermaEliminaSpesa} disabled={eliminandoSpesa}>
+              {eliminandoSpesa ? 'Eliminazione…' : 'Elimina'}
             </Button>
           </DialogFooter>
         </DialogContent>

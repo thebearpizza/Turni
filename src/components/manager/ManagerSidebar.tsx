@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { NotificationBell } from '@/components/shared/NotificationBell'
 import { useBadging } from '@/hooks/useBadging'
 import type { Profile } from '@/types'
 import { ROLE_LABELS } from '@/types'
@@ -132,9 +133,12 @@ export function ManagerSidebar({ profile }: Props) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border">
-        <h1 className="text-xl font-bold">inTurno</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
+      <div className="p-6 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">inTurno</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
+        </div>
+        {profile.role === 'manager' && <NotificationBell />}
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -223,6 +227,7 @@ export function ManagerSidebar({ profile }: Props) {
             )}
           </Link>
         )}
+        {profile.role === 'manager' && <NotificationBell />}
       </div>
 
       {open && (

@@ -42,13 +42,18 @@ function variance(curr: number, prev: number): number | null {
   return ((curr - prev) / Math.abs(prev)) * 100
 }
 
-function VarianceBadge({ value }: { value: number | null }) {
+// direzioneBuona: quale verso della variazione è un miglioramento per
+// quella metrica ('su' per entrate/margine, 'giu' per spese). Decide il
+// colore del badge indipendentemente dalla freccia, che segue sempre il
+// segno della variazione.
+function VarianceBadge({ value, direzioneBuona }: { value: number | null; direzioneBuona: 'su' | 'giu' }) {
   if (value === null) return null
   const isUp = value >= 0
+  const isGood = direzioneBuona === 'su' ? isUp : !isUp
   return (
     <span className={cn(
       'cassa-numeric inline-flex items-center gap-0.5 text-xs font-medium',
-      isUp ? 'text-cassa-positive' : 'text-cassa-negative'
+      isGood ? 'text-cassa-positive' : 'text-cassa-negative'
     )}>
       {isUp ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
       {Math.abs(value).toFixed(0)}%
@@ -61,10 +66,13 @@ export function AnalisiKpiRow({ righe, righePeriodoPrecedente }: Props) {
   const previous = useMemo(() => righePeriodoPrecedente ? aggregate(righePeriodoPrecedente) : null, [righePeriodoPrecedente])
 
   const tiles = [
-    { label: 'Totale Entrate', value: current.totaleEntrate, prev: previous?.totaleEntrate, tone: 'neutral' as const },
-    { label: 'Totale Spese', value: current.totaleSpese, prev: previous?.totaleSpese, tone: 'neutral' as const },
-    { label: 'Margine Operativo', value: current.margineOperativo, prev: previous?.margineOperativo, tone: 'signed' as const },
-    { label: 'Differenza Cumulata', value: current.differenzaCumulata, prev: previous?.differenzaCumulata, tone: 'signed' as const },
+    { label: 'Totale Entrate', value: current.totaleEntrate, prev: previous?.totaleEntrate, tone: 'neutral' as const, direzioneBuona: 'su' as const, useAbs: false },
+    { label: 'Totale Spese', value: current.totaleSpese, prev: previous?.totaleSpese, tone: 'neutral' as const, direzioneBuona: 'giu' as const, useAbs: false },
+    { label: 'Margine Operativo', value: current.margineOperativo, prev: previous?.margineOperativo, tone: 'signed' as const, direzioneBuona: 'su' as const, useAbs: false },
+    // Differenza Cumulata: un ammanco o un'eccedenza che si allontana da
+    // zero è un peggioramento in entrambi i versi, quindi il confronto usa
+    // il valore assoluto (avvicinarsi a zero = buono) invece del segno.
+    { label: 'Differenza Cumulata', value: current.differenzaCumulata, prev: previous?.differenzaCumulata, tone: 'signed' as const, direzioneBuona: 'giu' as const, useAbs: true },
   ]
 
   return (
@@ -82,7 +90,12 @@ export function AnalisiKpiRow({ righe, righePeriodoPrecedente }: Props) {
                 )}>
                   {t.value < 0 ? '−' : ''}€ {Math.abs(t.value).toFixed(2)}
                 </p>
-                {t.prev !== undefined && <VarianceBadge value={variance(t.value, t.prev)} />}
+                {t.prev !== undefined && (
+                  <VarianceBadge
+                    value={t.useAbs ? variance(Math.abs(t.value), Math.abs(t.prev)) : variance(t.value, t.prev)}
+                    direzioneBuona={t.direzioneBuona}
+                  />
+                )}
               </div>
             </CardContent>
           </Card>

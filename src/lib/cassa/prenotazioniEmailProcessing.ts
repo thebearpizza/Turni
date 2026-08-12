@@ -219,16 +219,39 @@ export async function lavoraMail(
   }
 
   if (!esistenteId) {
+    // Insegna abbinata sempre nel filtro: due prenotazioni dello stesso
+    // cliente lo stesso giorno ma per Crunch! e Benthos sono due tavoli
+    // diversi, non un doppione da scegliere a caso.
     let query = admin
       .from('prenotazioni')
-      .select('id')
+      .select('id, orario')
       .eq('restaurant_id', abbinamento.restaurant_id)
+      .eq('insegna', abbinamento.codice)
       .eq('data', letta.data)
       .ilike('nome', letta.nome)
       .neq('stato', 'eliminata')
     if (letta.cognome) query = query.ilike('cognome', letta.cognome)
-    const { data } = await query.limit(1)
-    esistenteId = data?.[0]?.id ?? null
+    const { data: candidate } = await query.order('orario')
+    const righe = candidate ?? []
+
+    if (righe.length === 1) {
+      esistenteId = righe[0].id
+    } else if (righe.length > 1 && letta.orario) {
+      const servizioNoto = servizioDaOrario(letta.orario)
+      const filtrate = righe.filter(r => servizioDaOrario(r.orario) === servizioNoto)
+      if (filtrate.length === 1) esistenteId = filtrate[0].id
+    }
+
+    // Ambiguità non risolta (o mail senza orario per disambiguare): meglio
+    // non toccare nulla che modificare/cancellare la prenotazione sbagliata
+    // — una cancellata per errore non si recupera.
+    if (righe.length > 1 && !esistenteId) {
+      return {
+        esito: 'errore',
+        evento: letta.evento,
+        errore: `Più prenotazioni di ${letta.nome}${letta.cognome ? ' ' + letta.cognome : ''} il ${letta.data}: aggancio ambiguo, nessuna modificata`,
+      }
+    }
   }
 
   if (letta.evento === 'cancellazione') {

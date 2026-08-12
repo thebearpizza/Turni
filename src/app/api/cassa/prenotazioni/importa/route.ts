@@ -159,10 +159,9 @@ export async function POST(request: Request) {
   const { data: esistenti } = giorni.length
     ? await supabase
         .from('prenotazioni')
-        .select('data, orario, nome, cognome')
+        .select('data, orario, nome, cognome, stato')
         .eq('restaurant_id', restaurantId)
         .in('data', giorni)
-        .neq('stato', 'eliminata')
     : { data: [] }
 
   // Prenotazioni in coda (mail arrivate senza orario) dello stesso

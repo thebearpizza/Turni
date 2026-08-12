@@ -15,6 +15,7 @@ export interface PrenotazioneEsistente {
   orario:  string
   nome:    string
   cognome: string | null
+  stato:   PrenotazioneStato
 }
 
 // Una voce in coda di completamento (esito 'incompleta' in
@@ -142,9 +143,15 @@ export function preparaImport(opts: {
 
     const gia = inAgenda.get(chiave)
     if (gia) {
-      duplicato = normalizzaOrario(gia.orario) !== orario
-        ? `Già in agenda alle ${normalizzaOrario(gia.orario)}`
-        : 'Già in agenda'
+      // Una riga cancellata a mano non è un doppione qualunque: se
+      // l'export la contiene ancora è perché il gestionale non sa della
+      // disdetta, non perché sia stata rifatta — va segnalata comunque,
+      // ma senza spuntarla di default come le altre.
+      duplicato = gia.stato === 'eliminata'
+        ? 'Già in agenda, ma cancellata'
+        : normalizzaOrario(gia.orario) !== orario
+          ? `Già in agenda alle ${normalizzaOrario(gia.orario)}`
+          : 'Già in agenda'
     } else if (vistiNelFile.has(chiave)) {
       duplicato = 'Ripetuta più volte in questo import'
     } else {

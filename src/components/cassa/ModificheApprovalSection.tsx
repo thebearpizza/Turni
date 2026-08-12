@@ -1,7 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ShieldAlert, Check, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/client'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 
@@ -16,6 +17,12 @@ const FIELD_LABELS: Record<string, string> = {
   incasso_asporto: 'Incasso Asporto',
   fondo_cassa_finale: 'Fondo Cassa Finale',
   contanti_per_banca: 'Contanti per Banca',
+}
+
+const PAYLOAD_FIELDS = Object.keys(FIELD_LABELS)
+
+function formatValue(key: string, value: number): string {
+  return key === 'coperti' ? String(value) : `€ ${value.toFixed(2)}`
 }
 
 export interface PendingModifica {
@@ -35,6 +42,30 @@ export function ModificheApprovalSection({ initialPending }: Props) {
   const [pending, setPending] = useState(initialPending)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [action, setAction] = useState<'approve' | 'reject' | null>(null)
+  // Valori attuali della chiusura per ciascuna richiesta, per mostrare
+  // "attuale → nuovo" invece della sola fotografia proposta dal cassiere:
+  // altrimenti il manager approva alla cieca, senza sapere cosa sta
+  // davvero cambiando.
+  const [attuali, setAttuali] = useState<Record<string, Record<string, number>>>({})
+
+  useEffect(() => {
+    const chiusuraIds = [...new Set(pending.map(p => p.chiusura_id))]
+    if (chiusuraIds.length === 0) return
+    const supabase = createClient()
+    supabase
+      .from('cassa_chiusure')
+      .select(`id, ${PAYLOAD_FIELDS.join(', ')}`)
+      .in('id', chiusuraIds)
+      .then(({ data }) => {
+        const map: Record<string, Record<string, number>> = {}
+        for (const row of (data ?? []) as unknown as Array<Record<string, number | string>>) {
+          map[row.id as string] = Object.fromEntries(
+            PAYLOAD_FIELDS.map(f => [f, Number(row[f] ?? 0)])
+          )
+        }
+        setAttuali(map)
+      })
+  }, [pending])
 
   async function handleAction(modificaId: string, act: 'approve' | 'reject') {
     setLoadingId(modificaId)
@@ -108,14 +139,23 @@ export function ModificheApprovalSection({ initialPending }: Props) {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                {Object.entries(item.payload).map(([key, value]) => (
-                  <div key={key} className="rounded-md border border-border px-2 py-1.5">
-                    <p className="text-muted-foreground">{FIELD_LABELS[key] ?? key}</p>
-                    <p className="cassa-numeric whitespace-nowrap font-medium">
-                      {key === 'coperti' ? value : `€ ${Number(value).toFixed(2)}`}
-                    </p>
-                  </div>
-                ))}
+                {Object.entries(item.payload).map(([key, value]) => {
+                  const attuale = attuali[item.chiusura_id]?.[key]
+                  const cambiato = attuale !== undefined && attuale !== Number(value)
+                  return (
+                    <div key={key} className="rounded-md border border-border px-2 py-1.5">
+                      <p className="text-muted-foreground">{FIELD_LABELS[key] ?? key}</p>
+                      {cambiato && (
+                        <p className="text-muted-foreground/70 line-through cassa-numeric whitespace-nowrap">
+                          {formatValue(key, attuale)}
+                        </p>
+                      )}
+                      <p className="cassa-numeric whitespace-nowrap font-medium">
+                        {formatValue(key, Number(value))}
+                      </p>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )

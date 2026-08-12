@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Fraunces } from 'next/font/google'
 import { ThemeProvider } from '@/components/shared/ThemeProvider'
 import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
+import { Toaster } from '@/components/shared/Toaster'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'] })
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <OfflineSyncProvider>
             {children}
           </OfflineSyncProvider>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

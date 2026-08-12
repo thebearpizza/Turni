@@ -251,28 +251,32 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="Visualizza PDF"
-                        disabled={busy}
-                        onClick={() => handleView(r, 'pdf')}
-                      >
-                        <FileText className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="Visualizza Excel"
-                        disabled={busy}
-                        onClick={() => handleView(r, 'xlsx')}
-                      >
-                        <FileSpreadsheet className="w-4 h-4" />
-                      </Button>
+                      {role === 'manager' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Visualizza PDF"
+                          disabled={busy}
+                          onClick={() => handleView(r, 'pdf')}
+                        >
+                          <FileText className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {role === 'manager' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Visualizza Excel"
+                          disabled={busy}
+                          onClick={() => handleView(r, 'xlsx')}
+                        >
+                          <FileSpreadsheet className="w-4 h-4" />
+                        </Button>
+                      )}
                       {role === 'manager' && (
                         <Button
                           type="button"

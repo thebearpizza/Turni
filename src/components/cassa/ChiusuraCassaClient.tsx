@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -100,6 +100,14 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const [bozzeInSospeso, setBozzeInSospeso] = useState<Bozza[]>([])
+  // Non-null solo quando il fondo iniziale è stato precompilato in
+  // automatico dal fondo finale della chiusura precedente (il "riporto") —
+  // a differenza del valore digitato dall'operatore, quello va protetto da
+  // modifiche accidentali. Slegato dal valore corrente del campo apposta:
+  // un riporto resta un riporto anche se è 0, e un valore digitato resta
+  // editabile anche appena diventa diverso da zero (vedi fondoInizialeEditabile sotto).
+  const [fondoRiportato, setFondoRiportato] = useState<number | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Cambiare ristorante è sempre "vai a un'altra chiusura" — a differenza
   // di cambiare solo la data (vedi sotto), qui è corretto azzerare la
@@ -107,6 +115,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   function selectRestaurant(id: string) {
     setRestaurantIdRaw(id)
     setExisting(null)
+    setFields(emptyFields())
+    setFondoRiportato(null)
+    setTouched(new Set())
   }
 
   // Bozze (stato 'in_verifica') su uno qualsiasi dei ristoranti visibili a
@@ -189,8 +200,15 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
   }
 
+  // Scarta il risultato di un caricamento superato da uno più recente —
+  // senza questa guardia, cambiare ristorante due volte in rapida
+  // successione può far vincere la risposta più lenta e lasciare a
+  // schermo (ed eventualmente salvare) la chiusura sbagliata.
+  const loadRequestId = useRef(0)
+
   const loadChiusura = useCallback(async () => {
     if (!restaurantId || !date) return
+    const myRequest = ++loadRequestId.current
     setLoading(true)
     const supabase = createClient()
 
@@ -200,6 +218,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       .eq('restaurant_id', restaurantId)
       .eq('data', date)
       .maybeSingle()
+
+    if (loadRequestId.current !== myRequest) return
 
     if (row) {
       setExisting(row)
@@ -218,6 +238,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       // compilati (altrimenti riaprire una chiusura per modificarla
       // bloccherebbe "Avanti" finché non si ritoccano tutti i campi).
       setTouched(new Set(ALL_FIELDS))
+      // Il fondo iniziale di una chiusura già salvata non è (più) un
+      // riporto automatico da proteggere: va lasciato correggibile.
+      setFondoRiportato(null)
       setLoading(false)
       return
     }
@@ -237,7 +260,10 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       .limit(1)
       .maybeSingle()
 
+    if (loadRequestId.current !== myRequest) return
+
     setFields({ ...emptyFields(), fondoCassaIniziale: prev?.fondo_cassa_finale ?? 0 })
+    setFondoRiportato(prev ? prev.fondo_cassa_finale : null)
     setLoading(false)
   }, [restaurantId, date])
 
@@ -281,8 +307,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     ? null
     : (totaleEntrate - fields.incassoAsporto) / fields.coperti
 
-  const fondoIniziale_editabile = fields.fondoCassaIniziale === 0
-  const fase1RequiredFields = fondoIniziale_editabile ? [...FASE1_FIELDS, 'fondoCassaIniziale'] : FASE1_FIELDS
+  const fondoInizialeEditabile = fondoRiportato === null
+  const fase1RequiredFields = fondoInizialeEditabile ? [...FASE1_FIELDS, 'fondoCassaIniziale'] : FASE1_FIELDS
   const fase1Complete = fase1RequiredFields.every(f => touched.has(f))
   const isConfermata = existing?.stato === 'confermata'
   // Bozza (nuova o non ancora confermata): Fase 1 salva incrementalmente.
@@ -294,6 +320,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   async function handleAvanti() {
     if (!restaurantId || !date || !fase1Complete) return
+    setSaveError(null)
 
     // Una chiusura già confermata è un record "ufficiale": correggerne
     // la data (a differenza delle altre correzioni Fase 1, che passano
@@ -301,7 +328,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     // campo è comunque disabilitato per il cassiere in quel caso, qui è
     // solo una seconda barriera.
     if (dataCorretta && isConfermata && role !== 'manager') {
-      alert('Solo un manager può correggere la data di una chiusura già confermata.')
+      setSaveError('Solo un manager può correggere la data di una chiusura già confermata.')
       return
     }
 
@@ -317,7 +344,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           .single()
         setSaving(false)
         if (error || !data) {
-          alert(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+          setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
           return
         }
         setExisting(data)
@@ -349,13 +376,17 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     // data è stata corretta, un upsert per chiave naturale cercherebbe
     // o creerebbe un'altra riga invece di correggere quella su cui si
     // sta lavorando, lasciando indietro un doppione con i dati vecchi.
+    // Sul ramo update il restaurant_id salvato è quello del record già
+    // caricato (existing), non lo stato del selettore: se nel frattempo
+    // il selettore fosse passato a un altro ristorante, non deve spostare
+    // sotto quello la chiusura su cui si sta davvero lavorando.
     const { data, error } = existing
-      ? await supabase.from('cassa_chiusure').update(basePayload).eq('id', existing.id).select().single()
+      ? await supabase.from('cassa_chiusure').update({ ...basePayload, restaurant_id: existing.restaurant_id }).eq('id', existing.id).select().single()
       : await supabase.from('cassa_chiusure').upsert({ ...basePayload, stato: 'in_verifica' as const, created_by: userId }, { onConflict: 'restaurant_id,data' }).select().single()
 
     setSaving(false)
     if (error || !data) {
-      alert(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+      setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
       return
     }
     setExisting(data)
@@ -526,7 +557,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               <CurrencyInput
                 value={fields.fondoCassaIniziale}
                 onChange={v => { setFields(f => ({ ...f, fondoCassaIniziale: v })); markTouched('fondoCassaIniziale') }}
-                readOnly={!fondoIniziale_editabile}
+                readOnly={!fondoInizialeEditabile}
                 className="cassa-numeric"
               />
             </div>
@@ -601,6 +632,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 Compila tutti i campi contrassegnati con <span className="text-cassa-copper">*</span> per continuare (anche con valore 0, se corretto).
               </p>
             )}
+
+            {saveError && <p className="text-sm text-destructive">{saveError}</p>}
 
             <div className="flex justify-between pt-2">
               <Button type="button" variant="outline" onClick={() => router.back()} disabled={saving}>Annulla</Button>

@@ -5,7 +5,7 @@ import type { MouseHandlerDataParam } from 'recharts/types/synchronisation/types
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
-import { format, startOfWeek, startOfMonth } from 'date-fns'
+import { format, startOfWeek, startOfMonth, subYears } from 'date-fns'
 import { it } from 'date-fns/locale'
 
 interface Riga {
@@ -48,6 +48,17 @@ function bucketKey(dateStr: string, granularity: Granularity): { key: string; la
   }
   const monthStart = startOfMonth(d)
   return { key: format(monthStart, 'yyyy-MM'), label: format(monthStart, 'MMM yyyy', { locale: it }) }
+}
+
+// Chiave del bucket un anno prima, per agganciare il periodo di confronto
+// per data invece che per posizione nell'array (i due periodi possono avere
+// un numero diverso di bucket, es. giorni di chiusura del locale diversi).
+function keyOneYearBefore(key: string, granularity: Granularity): string {
+  if (granularity === 'mese') {
+    const [y, m] = key.split('-')
+    return `${Number(y) - 1}-${m}`
+  }
+  return format(subYears(new Date(`${key}T12:00:00Z`), 1), 'yyyy-MM-dd')
 }
 
 function toBuckets(righe: Riga[], granularity: Granularity): Bucket[] {
@@ -94,13 +105,13 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
     const current = toBuckets(righe, granularity)
     if (!hasCompare) return current
 
-    // Confronto anno su anno: i due periodi hanno intervalli di date diverse
-    // (stesso range, un anno prima), quindi si allineano per posizione nel
-    // periodo (stesso n-esimo giorno/settimana/mese) invece che per data
-    // assoluta — approssimazione ragionevole quando i due periodi hanno la
-    // stessa durata, che è sempre il caso qui (stesso preset, anno -1).
+    // Confronto anno su anno: i due periodi possono avere un numero diverso
+    // di bucket (giorni di chiusura del locale diversi, festività mobili),
+    // quindi si allineano per data (bucket corrente meno un anno) invece
+    // che per posizione nell'array.
     const previous = toBuckets(righePrecedenti!, granularity)
-    return current.map((b, i) => ({ ...b, entratePrecedente: previous[i]?.entrate ?? null }))
+    const previousByKey = new Map(previous.map(b => [b.key, b]))
+    return current.map(b => ({ ...b, entratePrecedente: previousByKey.get(keyOneYearBefore(b.key, granularity))?.entrate ?? null }))
   }, [righe, righePrecedenti, granularity, hasCompare])
 
   // Punto attivo (hover, tap o scrub col dito): di default l'ultimo della

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, FileText, Package, Banknote, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PushTestButton } from '@/components/shared/PushTestButton'
+import { NotificationBell } from '@/components/shared/NotificationBell'
 
 // Sidebar minimale sul modello di ManagerSidebar — solo navigazione,
 // nessuna logica di business (niente badge, niente realtime).
@@ -47,18 +48,22 @@ const direttoreNavItems = [
 interface SidebarContentProps {
   pathname: string
   items: typeof managerNavItems
+  showNotifiche: boolean
   onNavigate: () => void
   onLogout: () => void
 }
 
 // Componente a livello di modulo (non ricreato ad ogni render) condiviso
 // tra la sidebar desktop e il drawer mobile.
-function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarContentProps) {
+function SidebarContent({ pathname, items, showNotifiche, onNavigate, onLogout }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
-      <div className="cassa-perforated-top p-6 border-b border-border">
-        <h1 className="cassa-display text-2xl">Cassa</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Gestione cassa</p>
+      <div className="cassa-perforated-top p-6 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <h1 className="cassa-display text-2xl">Cassa</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Gestione cassa</p>
+        </div>
+        {showNotifiche && <NotificationBell />}
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -118,7 +123,7 @@ export function CassaSidebar({ role }: Props) {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} onNavigate={closeDrawer} onLogout={handleLogout} />
       </aside>
 
       {/* Mobile header + drawer */}
@@ -147,7 +152,7 @@ export function CassaSidebar({ role }: Props) {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
+            <SidebarContent pathname={pathname} items={items} showNotifiche={role === 'cassiere'} onNavigate={closeDrawer} onLogout={handleLogout} />
           </aside>
         </div>
       )}

@@ -25,11 +25,16 @@ export async function POST(request: Request) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, managed_restaurant_ids, consultant_restaurant_ids, can_view_hours')
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.role === 'dipendente') {
+  // Allow-list stretta: solo chi ha davvero titolo a vedere presenze/ore di
+  // uno staff. dipendente, cassiere e hostess non hanno alcuna funzione di
+  // supervisione — bloccarli qui, non solo a livello di routing, perché
+  // questa API viene chiamata direttamente (fetch), non solo attraverso una
+  // pagina protetta.
+  if (!profile || !['manager', 'capo_servizio', 'consulente_lavoro'].includes(profile.role)) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
 
@@ -39,10 +44,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
   }
 
-  // Capo servizio può accedere solo al proprio ristorante
-  const allowedIds = profile.role === 'capo_servizio' && profile.restaurant_id
-    ? restaurantIds.filter((id: string) => id === profile.restaurant_id)
-    : restaurantIds
+  // Un consulente del lavoro senza can_view_hours vede solo le presenze
+  // (chi c'è, chi manca), mai il dettaglio delle ore lavorate.
+  if (profile.role === 'consulente_lavoro' && type === 'ore' && !profile.can_view_hours) {
+    return NextResponse.json({ error: 'Non autorizzato a visualizzare le ore lavorate' }, { status: 403 })
+  }
+
+  // Ogni ruolo vede solo i ristoranti che gli competono davvero — mai
+  // l'elenco grezzo arrivato dal client:
+  //  - capo_servizio: solo il proprio ristorante;
+  //  - consulente_lavoro: solo i ristoranti a cui è stato assegnato;
+  //  - manager: i ristoranti che gestisce (managed_restaurant_ids), oppure
+  //    tutti se è il proprietario della piattaforma (null).
+  const allowedIds: string[] =
+    profile.role === 'capo_servizio'
+      ? (profile.restaurant_id ? restaurantIds.filter((id: string) => id === profile.restaurant_id) : [])
+    : profile.role === 'consulente_lavoro'
+      ? restaurantIds.filter((id: string) => (profile.consultant_restaurant_ids ?? []).includes(id))
+    : profile.managed_restaurant_ids === null
+      ? restaurantIds
+      : restaurantIds.filter((id: string) => profile.managed_restaurant_ids!.includes(id))
+
+  if (allowedIds.length === 0) {
+    return NextResponse.json({ error: 'Nessun ristorante autorizzato per questa richiesta' }, { status: 403 })
+  }
 
   const [year, monthNum] = month.split('-').map(Number)
   const daysInMonth = getDaysInMonth(new Date(year, monthNum - 1))
