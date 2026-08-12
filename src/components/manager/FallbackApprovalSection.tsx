@@ -1,8 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldAlert, Check, X, Image as ImageIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ShieldAlert, Image as ImageIcon } from 'lucide-react'
+import { ApproveRejectButtons } from '@/components/manager/ApproveRejectButtons'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 
@@ -115,26 +115,11 @@ export function FallbackApprovalSection({ initialPending }: Props) {
                   </button>
                 ))}
 
-                <Button
-                  size="sm"
-                  className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm"
-                  onClick={() => handleAction(item.id, 'approve')}
+                <ApproveRejectButtons
+                  onApprove={() => handleAction(item.id, 'approve')}
+                  onReject={() => handleAction(item.id, 'reject')}
                   disabled={isWorking}
-                >
-                  <Check className="w-3.5 h-3.5 mr-1" />
-                  Approva
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="h-8 px-3 text-xs rounded-sm"
-                  onClick={() => handleAction(item.id, 'reject')}
-                  disabled={isWorking}
-                >
-                  <X className="w-3.5 h-3.5 mr-1" />
-                  Rifiuta
-                </Button>
+                />
               </div>
             </div>
           )

@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from 'react'
 import { approveAccount, rejectAccount } from '@/app/actions/adminActions'
-import { Button } from '@/components/ui/button'
+import { ApproveRejectButtons } from '@/components/manager/ApproveRejectButtons'
 import { formatDistanceToNow } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { UserCheck, UserX, Clock, Loader2 } from 'lucide-react'
+import { UserCheck, Clock } from 'lucide-react'
 
 interface PendingAccount {
   id: string
@@ -81,33 +81,13 @@ export function AccountPendentiClient({ initialAccounts }: { initialAccounts: Pe
                 {formatDistanceToNow(new Date(account.created_at), { addSuffix: true, locale: it })}
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                size="sm"
-                className="gap-1.5"
-                disabled={isLoading}
-                onClick={() => handleApprove(account.id)}
-              >
-                {isLoading && action === 'approve'
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <UserCheck className="w-3.5 h-3.5" />
-                }
-                Approva
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
-                disabled={isLoading}
-                onClick={() => handleReject(account.id)}
-              >
-                {isLoading && action === 'reject'
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <UserX className="w-3.5 h-3.5" />
-                }
-                Rifiuta
-              </Button>
-            </div>
+            <ApproveRejectButtons
+              onApprove={() => handleApprove(account.id)}
+              onReject={() => handleReject(account.id)}
+              disabled={isLoading}
+              approving={isLoading && action === 'approve'}
+              rejecting={isLoading && action === 'reject'}
+            />
           </div>
         )
       })}

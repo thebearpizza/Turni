@@ -143,7 +143,7 @@ export function ProgressivoBusteClient({ restaurants }: Props) {
             <Label>Locali</Label>
             <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} emptyLabel="Seleziona i locali" />
             {selectedRestaurants.length === 0 && (
-              <p className="text-xs text-muted-foreground">Seleziona almeno un locale per continuare.</p>
+              <p className="text-xs text-muted-foreground">Nessuna selezione: verranno mostrati tutti i locali.</p>
             )}
           </div>
 

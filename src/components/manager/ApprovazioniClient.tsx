@@ -1,9 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Check, X, CalendarX } from 'lucide-react'
+import { ApproveRejectButtons } from '@/components/manager/ApproveRejectButtons'
+import { CalendarX } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import type { Absence, AbsenceType } from '@/types'
@@ -135,25 +135,11 @@ export function ApprovazioniClient({ initialRequests }: Props) {
                       <p className="text-sm mt-2 text-foreground/80 bg-muted rounded px-3 py-2">{r.notes}</p>
                     )}
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      onClick={() => handleAction(r.id, 'approve')}
-                      disabled={processing === r.id}
-                      aria-label="Approva"
-                    >
-                      <Check className="w-4 h-4" /> Approva
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleAction(r.id, 'reject')}
-                      disabled={processing === r.id}
-                      aria-label="Rifiuta"
-                    >
-                      <X className="w-4 h-4" /> Rifiuta
-                    </Button>
-                  </div>
+                  <ApproveRejectButtons
+                    onApprove={() => handleAction(r.id, 'approve')}
+                    onReject={() => handleAction(r.id, 'reject')}
+                    disabled={processing === r.id}
+                  />
                 </div>
               </CardContent>
             </Card>
