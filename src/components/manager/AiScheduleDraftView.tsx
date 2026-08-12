@@ -122,9 +122,22 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
     turnsByUserDate[key].push(t)
   }
 
-  // Staff con almeno un turno nella bozza (o presenti nello staff)
+  // Staff con almeno un turno nella bozza: unione fra lo staff nello scope
+  // del capo servizio e i profili dei jolly di altro reparto — questi ultimi
+  // sono assenti da `staff` (che arriva già filtrato per reparto) ma la loro
+  // anagrafica è comunque inclusa nella bozza tramite la join profile:profiles.
+  // Senza questa unione le loro righe restavano invisibili pur venendo
+  // pubblicate alla conferma.
+  const draftProfiles = new Map<string, { id: string; full_name: string; department: string | null }>()
+  for (const s of staff) draftProfiles.set(s.id, s)
+  for (const t of turns) {
+    if (!draftProfiles.has(t.user_id) && t.profile) {
+      draftProfiles.set(t.user_id, { id: t.profile.id, full_name: t.profile.full_name, department: t.original_department })
+    }
+  }
+  const staffIds = new Set(staff.map(s => s.id))
   const draftUserIds = new Set(turns.map(t => t.user_id))
-  const gridStaff = staff.filter(s => draftUserIds.has(s.id))
+  const gridStaff = Array.from(draftProfiles.values()).filter(s => draftUserIds.has(s.id))
 
   const activeWarnings: AiScheduleWarning[] = draft.warnings ?? []
   const pendingCount = turns.filter(t => t.status !== 'rejected').length
@@ -216,7 +229,9 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
                 <td className={tdNameCls}>
                   {member.full_name}
                   {member.department && (
-                    <span className="block text-[10px] font-normal text-muted-foreground">{member.department}</span>
+                    <span className="block text-[10px] font-normal text-muted-foreground">
+                      {member.department}{!staffIds.has(member.id) ? ' · jolly da altro reparto' : ''}
+                    </span>
                   )}
                 </td>
                 {weekDays.map(day => {

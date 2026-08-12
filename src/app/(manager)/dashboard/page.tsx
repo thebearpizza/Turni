@@ -214,7 +214,7 @@ async function FallbackPendingSection({
   const supabase = await createClient()
   let query = supabase
     .from('attendances')
-    .select('id, user_id, check_in, check_out, fallback_photo_path, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
+    .select('id, user_id, check_in, check_out, fallback_photo_path_in, fallback_photo_path_out, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
     .eq('needs_manager_approval', true)
     .order('check_in', { ascending: false })
 

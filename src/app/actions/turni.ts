@@ -2,8 +2,18 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { eachDayOfInterval, getDay, format } from 'date-fns'
+import { eachDayOfInterval, getDay, format, parseISO, addDays } from 'date-fns'
+import { it } from 'date-fns/locale'
+import { notificaTurniDipendenti } from '@/lib/turniNotifiche'
 import type { Department, Turn } from '@/types'
+
+// Etichetta breve del turno per titolo/messaggio delle notifiche push.
+function turnDateLabel(dateStr: string): string {
+  return format(parseISO(`${dateStr}T00:00:00`), 'EEE d/MM', { locale: it })
+}
+function turnTimeLabel(isRestDay: boolean | undefined, start: string, end: string): string {
+  return isRestDay ? 'Riposo' : `${start.slice(0, 5)}-${end.slice(0, 5)}`
+}
 
 export interface TurnInput {
   user_id:          string
@@ -132,6 +142,17 @@ export async function createTurn(input: TurnInput): Promise<Turn | null> {
 
   if (error) throw new Error(error.message)
 
+  // null = doppione scartato in silenzio (vedi commento sopra): niente da
+  // notificare. Altrimenti avvisa il dipendente del nuovo turno assegnato —
+  // stesso meccanismo già usato dalla bozza IA (confirmAiDraft).
+  if (data) {
+    await notificaTurniDipendenti(
+      [input.user_id],
+      `Nuovo turno — ${turnDateLabel(input.date)}`,
+      turnTimeLabel(input.is_rest_day, input.start_time, input.end_time),
+    )
+  }
+
   revalidatePath('/turni')
   return data as unknown as Turn | null
 }
@@ -178,12 +199,26 @@ export async function updateTurn(id: string, input: TurnInput): Promise<Turn> {
     throw new Error(error.message)
   }
 
+  await notificaTurniDipendenti(
+    [input.user_id],
+    `Turno aggiornato — ${turnDateLabel(input.date)}`,
+    turnTimeLabel(input.is_rest_day, input.start_time, input.end_time),
+  )
+
   revalidatePath('/turni')
   return data as unknown as Turn
 }
 
 export async function deleteTurn(id: string): Promise<void> {
   const { supabase } = await getCaller()
+
+  // Letto prima della delete: dopo non ci sarebbe più modo di sapere a chi
+  // appartenesse il turno per notificarlo.
+  const { data: existing } = await supabase
+    .from('turns')
+    .select('user_id, date, start_time, end_time, is_rest_day')
+    .eq('id', id)
+    .maybeSingle()
 
   // RLS enforces the manager/direttore/capo_servizio scoping on DELETE
   const { error } = await supabase
@@ -192,6 +227,14 @@ export async function deleteTurn(id: string): Promise<void> {
     .eq('id', id)
 
   if (error) throw new Error(error.message)
+
+  if (existing) {
+    await notificaTurniDipendenti(
+      [existing.user_id],
+      `Turno eliminato — ${turnDateLabel(existing.date)}`,
+      turnTimeLabel(existing.is_rest_day, existing.start_time, existing.end_time),
+    )
+  }
 
   revalidatePath('/turni')
 }
@@ -250,6 +293,15 @@ export async function createTurnsBulk(input: BulkTurnInput): Promise<Turn[]> {
     .select('*, profile:profiles!user_id(id, full_name)')
 
   if (error) throw new Error(error.message)
+
+  // Un'unica notifica per il dipendente, non una per ogni data creata.
+  if (data?.length) {
+    await notificaTurniDipendenti(
+      [input.user_id],
+      'Nuovi turni assegnati',
+      `${data.length} turni creati dal ${turnDateLabel(input.start_date)} al ${turnDateLabel(input.end_date)}`,
+    )
+  }
 
   revalidatePath('/turni')
   return data as unknown as Turn[]
@@ -357,7 +409,7 @@ export async function populateFromStandard(startDate: string, endDate: string): 
   // non per utente+data, altrimenti il secondo segmento verrebbe scartato.
   let existingQuery = supabase
     .from('turns')
-    .select('user_id, date, start_time')
+    .select('user_id, date, start_time, is_rest_day')
     .gte('date', startDate)
     .lte('date', endDate)
   if (profile.role === 'capo_servizio') {
@@ -370,6 +422,11 @@ export async function populateFromStandard(startDate: string, endDate: string): 
   if (existingError) throw new Error(existingError.message)
 
   const existingKeys = new Set((existingTurns ?? []).map(t => `${t.user_id}|${t.date}|${t.start_time.slice(0, 5)}`))
+  // Un riposo è salvato come 00:00–00:00: la sua chiave (che include l'ora)
+  // non coinciderebbe mai con quella di un turno standard. Questo secondo
+  // insieme, per sola coppia utente+data, evita che "Turni Fissi" crei un
+  // turno di lavoro in un giorno già segnato come riposo.
+  const restDayKeys = new Set((existingTurns ?? []).filter(t => t.is_rest_day).map(t => `${t.user_id}|${t.date}`))
 
   const dates = eachDayOfInterval({ start, end })
 
@@ -390,7 +447,7 @@ export async function populateFromStandard(startDate: string, endDate: string): 
       if (getDay(d) !== shift.day_of_week) continue
       const dateStr = format(d, 'yyyy-MM-dd')
       const key = `${shift.user_id}|${dateStr}|${shift.start_time.slice(0, 5)}`
-      if (existingKeys.has(key)) {
+      if (existingKeys.has(key) || restDayKeys.has(`${shift.user_id}|${dateStr}`)) {
         skipped++
         continue
       }
@@ -425,4 +482,55 @@ export async function populateFromStandard(startDate: string, endDate: string): 
 
   revalidatePath('/turni')
   return { created, skipped }
+}
+
+// ── Copia settimana ───────────────────────────────────────────────────
+// Duplica i turni (lavoro e riposi) della settimana sorgente sulla
+// settimana di destinazione, mantenendo lo stesso giorno della settimana.
+// upsert + ignoreDuplicates: ripetibile senza rischio di doppioni se parte
+// della destinazione è già stata pianificata.
+export async function copyWeek(sourceWeekStart: string, targetWeekStart: string): Promise<{ created: number; skipped: number }> {
+  const { supabase, user, profile } = await getCaller()
+
+  const source = new Date(`${sourceWeekStart}T00:00:00`)
+  const target = new Date(`${targetWeekStart}T00:00:00`)
+  const dayOffset = Math.round((target.getTime() - source.getTime()) / 86_400_000)
+
+  let sourceQuery = supabase
+    .from('turns')
+    .select('user_id, restaurant_id, department, date, start_time, end_time, is_extraordinary, is_rest_day, notes')
+    .gte('date', sourceWeekStart)
+    .lte('date', format(addDays(source, 6), 'yyyy-MM-dd'))
+  if (profile.role === 'capo_servizio') {
+    sourceQuery = sourceQuery.eq('restaurant_id', profile.restaurant_id)
+    if (!profile.is_direttore) {
+      sourceQuery = sourceQuery.eq('department', profile.department)
+    }
+  }
+  const { data: sourceTurns, error: sourceError } = await sourceQuery
+  if (sourceError) throw new Error(sourceError.message)
+  if (!sourceTurns?.length) return { created: 0, skipped: 0 }
+
+  const rows = sourceTurns.map(t => ({
+    user_id:          t.user_id,
+    restaurant_id:    t.restaurant_id,
+    department:       t.department,
+    date:             format(addDays(parseISO(`${t.date}T00:00:00`), dayOffset), 'yyyy-MM-dd'),
+    start_time:       t.start_time,
+    end_time:         t.end_time,
+    is_extraordinary: t.is_extraordinary,
+    is_rest_day:      t.is_rest_day,
+    notes:            t.notes,
+    created_by:       user.id,
+  }))
+
+  const { data: inserted, error } = await supabase
+    .from('turns')
+    .upsert(rows, { onConflict: 'user_id,date,start_time,end_time', ignoreDuplicates: true })
+    .select('id')
+  if (error) throw new Error(error.message)
+
+  const created = inserted?.length ?? 0
+  revalidatePath('/turni')
+  return { created, skipped: rows.length - created }
 }

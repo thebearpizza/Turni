@@ -13,7 +13,7 @@ export async function PUT(request: Request) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, managed_restaurant_ids')
     .eq('id', caller.id)
     .single()
 
@@ -37,7 +37,7 @@ export async function PUT(request: Request) {
 
   const { data: targetProfile } = await admin
     .from('profiles')
-    .select('role, full_name')
+    .select('role, full_name, restaurant_id, consultant_restaurant_ids')
     .eq('id', targetId)
     .single()
 
@@ -49,6 +49,20 @@ export async function PUT(request: Request) {
       { error: 'Non puoi modificare la password di un altro Manager' },
       { status: 403 }
     )
+  }
+
+  // Un manager gestisce solo gli utenti dei propri ristoranti — un
+  // consulente del lavoro condiviso fra più aziende non deve poter avere
+  // la password reimpostata da un manager che non è "suo".
+  // managed_restaurant_ids null = proprietario della piattaforma, vede tutto.
+  const managedIds = callerProfile.managed_restaurant_ids as string[] | null
+  if (managedIds !== null) {
+    const targetInScope = targetProfile.role === 'consulente_lavoro'
+      ? (targetProfile.consultant_restaurant_ids ?? []).some((id: string) => managedIds.includes(id))
+      : targetProfile.restaurant_id !== null && managedIds.includes(targetProfile.restaurant_id)
+    if (!targetInScope) {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+    }
   }
 
   // ── Update password via Admin API (never exposed client-side) ──────────

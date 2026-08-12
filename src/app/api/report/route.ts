@@ -169,29 +169,29 @@ export async function POST(request: Request) {
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${month}-${String(day).padStart(2, '0')}`
 
-        // Controlla assenza
-        const absence = absences?.find(a =>
-          a.user_id === emp.id &&
-          a.start_date <= dateStr &&
-          a.end_date >= dateStr
-        )
-
-        if (absence) {
-          const code = ABSENCE_CODES[absence.type as AbsenceType]
-          if (type === 'presenze') {
-            row.push(code)
-          } else {
-            row.push('')
-          }
-          continue
-        }
-
-        // Tutte le sessioni di questo dipendente in questo giorno (Rome time)
+        // Tutte le sessioni di questo dipendente in questo giorno (Rome time).
+        // Le timbrature vincono sempre su un'eventuale assenza approvata: un
+        // riposo registrato non deve far sparire ore davvero lavorate (es.
+        // un cambio turno dell'ultimo minuto), l'assenza è solo il ripiego
+        // quando non risulta nessuna timbratura.
         const daySessions = attendances?.filter(a => {
           if (a.user_id !== emp.id) return false
           const dayRome = formatInTimeZone(new Date(a.check_in), TZ, 'yyyy-MM-dd')
           return dayRome === dateStr
         }) ?? []
+
+        if (daySessions.length === 0) {
+          const absence = absences?.find(a =>
+            a.user_id === emp.id &&
+            a.start_date <= dateStr &&
+            a.end_date >= dateStr
+          )
+          if (absence) {
+            const code = ABSENCE_CODES[absence.type as AbsenceType]
+            row.push(type === 'presenze' ? code : '')
+            continue
+          }
+        }
 
         if (daySessions.length > 0) {
           const hasOpen = daySessions.some(a => !a.check_out)

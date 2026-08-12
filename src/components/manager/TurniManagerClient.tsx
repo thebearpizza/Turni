@@ -2,11 +2,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
+import { toast } from '@/hooks/use-toast'
 import {
   createTurn, updateTurn, deleteTurn, createTurnsBulk,
-  upsertStandardShift, deleteStandardShift, populateFromStandard,
+  upsertStandardShift, deleteStandardShift, populateFromStandard, copyWeek,
   type TurnInput, type BulkTurnInput,
 } from '@/app/actions/turni'
+import { scopeTurnsQuery, type ScopeProfile } from '@/lib/turniScope'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, X, Sparkles } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, Copy, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, addDays, addWeeks, format, parseISO, eachDayOfInterval, getDay } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -121,7 +123,7 @@ const WEEK_DAY_OPTIONS = [
 
 export function TurniManagerClient({
   initialTurns, initialStandardShifts, staff, restaurants,
-  currentUserRole, currentDepartment, currentRestaurantId,
+  currentUserId, currentUserRole, currentDepartment, currentRestaurantId,
   currentIsDirettore,
 }: Props) {
   const { isPending } = useAccountStatus()
@@ -180,6 +182,8 @@ export function TurniManagerClient({
   const [sEnd, setSEnd] = useState('')
   const [sSaving, setSSaving] = useState(false)
   const [sError, setSError] = useState<string | null>(null)
+  const [populating, setPopulating] = useState(false)
+  const [copyingWeek, setCopyingWeek] = useState(false)
 
   // AI Schedule
   const [showAiDialog, setShowAiDialog] = useState(false)
@@ -233,6 +237,42 @@ export function TurniManagerClient({
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const weekStartStr = format(weekStart, 'yyyy-MM-dd')
   const weekEndStr = format(addDays(weekStart, 6), 'yyyy-MM-dd')
+
+  // Il fetch server-side iniziale (vedi turni/page.tsx) copre solo la
+  // settimana corrente ±1: navigando oltre, quella settimana va richiesta
+  // al volo — altrimenti la griglia risulterebbe vuota per le settimane non
+  // coperte dal caricamento iniziale, invece di scaricare l'intera storia
+  // dei turni ad ogni apertura della pagina.
+  const [loadedWeeks, setLoadedWeeks] = useState<Set<string>>(() => {
+    const base = startOfWeek(new Date(), { weekStartsOn: 1 })
+    return new Set([-1, 0, 1].map(o => format(addWeeks(base, o), 'yyyy-MM-dd')))
+  })
+
+  useEffect(() => {
+    if (loadedWeeks.has(weekStartStr)) return
+    let cancelled = false
+    async function loadWeek() {
+      const supabase = createClient()
+      const scopeProfile: ScopeProfile = {
+        role:          currentUserRole,
+        restaurant_id: currentRestaurantId,
+        department:    currentDepartment,
+        is_direttore:  currentIsDirettore,
+      }
+      let q = supabase
+        .from('turns')
+        .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
+        .gte('date', weekStartStr)
+        .lte('date', weekEndStr)
+      q = scopeTurnsQuery(q, scopeProfile, currentUserId)
+      const { data } = await q
+      if (cancelled) return
+      setLoadedWeeks(prev => new Set(prev).add(weekStartStr))
+      if (data?.length) setTurns(prev => mergeTurns(prev, data as unknown as Turn[]))
+    }
+    loadWeek()
+    return () => { cancelled = true }
+  }, [weekStartStr, weekEndStr, currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, loadedWeeks])
 
   const turnsByRestaurant = (isManager && restFilter !== 'tutti')
     ? turns.filter(t => t.restaurant_id === restFilter)
@@ -617,6 +657,34 @@ export function TurniManagerClient({
     }
   }
 
+  // Applica i Turni Fissi alla settimana visualizzata — prima l'unico modo
+  // per farlo era aggiungere (o ricreare) un turno fisso, effetto
+  // collaterale non scopribile dall'interfaccia.
+  async function handlePopulateWeek() {
+    setPopulating(true)
+    try {
+      const { created, skipped } = await populateFromStandard(weekStartStr, weekEndStr)
+      toast({ title: 'Turni Fissi applicati', description: `${created} turni creati, ${skipped} già presenti o in riposo.` })
+    } catch (err) {
+      toast({ title: 'Errore', description: err instanceof Error ? err.message : 'Errore sconosciuto', variant: 'destructive' })
+    } finally {
+      setPopulating(false)
+    }
+  }
+
+  async function handleCopyPreviousWeek() {
+    setCopyingWeek(true)
+    try {
+      const prevWeekStartStr = format(addDays(weekStart, -7), 'yyyy-MM-dd')
+      const { created, skipped } = await copyWeek(prevWeekStartStr, weekStartStr)
+      toast({ title: 'Settimana precedente copiata', description: `${created} turni creati, ${skipped} già presenti.` })
+    } catch (err) {
+      toast({ title: 'Errore', description: err instanceof Error ? err.message : 'Errore sconosciuto', variant: 'destructive' })
+    } finally {
+      setCopyingWeek(false)
+    }
+  }
+
   // Turno spezzato disponibile in creazione: singola, multi-giorno o bulk — non in modifica
   const canHaveSplit = !fIsRestDay && !editingTurn
   const validSplitSegments = fSplitSegments.filter(s => s.start && s.end)
@@ -642,6 +710,22 @@ export function TurniManagerClient({
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi
+          </Button>
+          <Button
+            size="sm" variant="outline"
+            onClick={handlePopulateWeek}
+            disabled={isPending || populating}
+            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Genera i turni della settimana visualizzata dai Turni Fissi'}
+          >
+            <CalendarRange className="w-4 h-4" /> {populating ? 'Popolo…' : 'Popola Settimana'}
+          </Button>
+          <Button
+            size="sm" variant="outline"
+            onClick={handleCopyPreviousWeek}
+            disabled={isPending || copyingWeek}
+            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Copia i turni della settimana precedente su questa'}
+          >
+            <Copy className="w-4 h-4" /> {copyingWeek ? 'Copio…' : 'Copia Sett. Prec.'}
           </Button>
           <Button
             size="sm" variant="outline"
@@ -681,7 +765,7 @@ export function TurniManagerClient({
             onClick={() => setDeptFilter([])}
             className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
               deptFilter.length === 0
-                ? 'bg-foreground text-background border-foreground'
+                ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
             }`}
           >
@@ -693,7 +777,7 @@ export function TurniManagerClient({
               onClick={() => toggleDeptFilter(dept)}
               className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
                 deptFilter.includes(dept)
-                  ? 'bg-foreground text-background border-foreground'
+                  ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
               }`}
             >

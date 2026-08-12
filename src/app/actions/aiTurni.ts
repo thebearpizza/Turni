@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { startOfWeek, addDays, format, getDay, differenceInMinutes } from 'date-fns'
-import { fromZonedTime } from 'date-fns-tz'
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz'
+import { notificaTurniDipendenti } from '@/lib/turniNotifiche'
 import type {
   Department, Profile, Turn, ShiftSlot,
   AiScheduleDraft, AiScheduleDraftTurn,
@@ -114,8 +115,8 @@ async function learnFromAttendance(
     .from('attendances')
     .select('user_id, check_in, check_out, restaurant_id')
     .eq('restaurant_id', restaurantId)
-    .gte('check_in', eightWeeksAgo)
-    .lt('check_in', weekStart)
+    .gte('check_in', fromZonedTime(`${eightWeeksAgo}T00:00:00`, TZ).toISOString())
+    .lt('check_in', fromZonedTime(`${weekStart}T00:00:00`, TZ).toISOString())
     .not('check_out', 'is', null)
 
   const patterns = new Map<string, AttendancePattern>()
@@ -155,14 +156,18 @@ async function learnFromAttendance(
     const checkIn  = sorted[0].check_in
     const checkOut = sorted[sorted.length - 1].check_out!
 
-    const startMin = timeToMinutes(checkIn.slice(11, 16))
-    const endMin   = timeToMinutes(checkOut.slice(11, 16))
+    // Le presenze sono scritte in UTC (computeAttendanceIso + toISOString);
+    // vanno riportate al fuso di Roma prima di estrarne l'ora, altrimenti i
+    // pattern appresi risultano spostati di 1-2 ore (a seconda di ora
+    // legale/solare) rispetto agli orari reali di apertura.
+    const startMin = timeToMinutes(formatInTimeZone(new Date(checkIn), TZ, 'HH:mm'))
+    const endMin   = timeToMinutes(formatInTimeZone(new Date(checkOut), TZ, 'HH:mm'))
 
     if (sorted.length >= 2) {
       // Spezzato: due sessioni nella stessa giornata
       stats.splitCount++
-      const midEnd   = timeToMinutes(sorted[0].check_out!.slice(11, 16))
-      const midStart = timeToMinutes(sorted[1].check_in.slice(11, 16))
+      const midEnd   = timeToMinutes(formatInTimeZone(new Date(sorted[0].check_out!), TZ, 'HH:mm'))
+      const midStart = timeToMinutes(formatInTimeZone(new Date(sorted[1].check_in), TZ, 'HH:mm'))
       stats.splitGaps.push(midStart - midEnd)
       stats.morningStarts.push(startMin)
       stats.morningEnds.push(midEnd)
@@ -206,8 +211,8 @@ async function learnFromAttendance(
     if (!dept || !r.check_out) continue
     if (!slotCounts[dept]) slotCounts[dept] = new Array(48).fill(0)
 
-    const startMin = timeToMinutes(r.check_in.slice(11, 16))
-    const endMin   = timeToMinutes(r.check_out.slice(11, 16))
+    const startMin = timeToMinutes(formatInTimeZone(new Date(r.check_in), TZ, 'HH:mm'))
+    const endMin   = timeToMinutes(formatInTimeZone(new Date(r.check_out), TZ, 'HH:mm'))
 
     for (let s = Math.floor(startMin / SLOT_MIN); s < Math.min(48, Math.ceil(endMin / SLOT_MIN)); s++) {
       slotCounts[dept][s]++
@@ -436,8 +441,17 @@ function buildSchedule(params: {
           const alreadyInSlot = result.filter(
             t => t.date === dateStr && t.department === dept && !t.is_rest_day
           )
+          // Esclude chi è già assegnato PROPRIO a questo slot (altrimenti lo
+          // straordinario duplica esattamente il turno che quella persona ha
+          // appena ricevuto: stesso user_id/date/start_time/end_time) e chi
+          // ha comunque già, in un altro slot dello stesso giorno, un turno
+          // con lo stesso orario di inizio/fine di quello che si sta coprendo.
           const extraCandidates = employees
-            .filter(e => alreadyInSlot.some(t => t.user_id === e.id))
+            .filter(e =>
+              alreadyInSlot.some(t => t.user_id === e.id) &&
+              !assignedThisSlot.includes(e.id) &&
+              !alreadyInSlot.some(t => t.user_id === e.id && t.start_time === slot.start_time && t.end_time === slot.end_time)
+            )
             .sort((a, b) => (weeklyMinutes[a.id] ?? 0) - (weeklyMinutes[b.id] ?? 0))
 
           if (extraCandidates.length > 0) {
@@ -484,7 +498,8 @@ function buildSchedule(params: {
   for (const emp of employees) {
     if (emp.department && !depts.includes(emp.department)) continue
 
-    const alreadyRestDays = result.filter(t => t.user_id === emp.id && t.is_rest_day).length
+    const alreadyRestDays = result.filter(t => t.user_id === emp.id && t.is_rest_day).length +
+      existingTurns.filter(t => t.user_id === emp.id && t.is_rest_day).length
     const neededRest = emp.weekly_rest_days - alreadyRestDays
     if (neededRest <= 0) continue
 
@@ -501,6 +516,11 @@ function buildSchedule(params: {
         const ds = format(d, 'yyyy-MM-dd')
         return !absenceSet.has(`${emp.id}|${ds}`) &&
           !workedDays.includes(ds) &&
+          // In modalità 'integrate' existingKey contiene anche i turni reali
+          // già a DB: un giorno con un turno esistente (lavoro o riposo) non
+          // va mai riproposto come riposo, altrimenti duplica o contraddice
+          // quanto già pianificato manualmente.
+          !existingKey.has(`${emp.id}|${ds}`) &&
           !result.some(t => t.user_id === emp.id && t.date === ds && t.is_rest_day)
       })
 
@@ -661,28 +681,8 @@ export async function confirmAiDraft(draftId: string): Promise<{ created: number
     throw new Error('Non autorizzato')
   }
 
-  // Se modalità 'replace': elimina i turni esistenti nella settimana/scope
-  if (draft.existing_turns_mode === 'replace') {
-    let delQuery = supabase
-      .from('turns')
-      .delete()
-      .eq('restaurant_id', draft.restaurant_id)
-      .gte('date', draft.week_start)
-      .lte('date', format(addDays(parseRomeDate(draft.week_start), 6), 'yyyy-MM-dd'))
-
-    if (draft.department_scope?.length) {
-      delQuery = delQuery.in('department', draft.department_scope)
-    }
-    await delQuery
-  }
-
   // Inserisci solo i turni non rifiutati
   const validTurns = (draft.turns as AiScheduleDraftTurn[]).filter(t => t.status !== 'rejected')
-
-  if (!validTurns.length) {
-    await supabase.from('ai_schedule_drafts').update({ status: 'confirmed' }).eq('id', draftId)
-    return { created: 0 }
-  }
 
   // Usa admin client per bypassare RLS sui jolly cross-dept
   const adminClient = createAdminClient(
@@ -703,38 +703,45 @@ export async function confirmAiDraft(draftId: string): Promise<{ created: number
     created_by:       user.id,
   }))
 
-  const { error } = await adminClient.from('turns').insert(rows)
-  if (error) throw new Error(error.message)
+  let created = 0
+  if (draft.existing_turns_mode === 'replace') {
+    // Cancellazione + inserimento nella stessa transazione (RPC atomica, vedi
+    // supabase/migrations/20260812_confirm_ai_draft_replace_atomic.sql): se
+    // l'insert fallisce (es. un doppione generato dall'algoritmo) Postgres fa
+    // rollback anche della delete, invece di lasciare la settimana svuotata.
+    const weekEnd = format(addDays(parseRomeDate(draft.week_start), 6), 'yyyy-MM-dd')
+    const { data, error } = await adminClient.rpc('confirm_ai_draft_replace', {
+      p_restaurant_id:    draft.restaurant_id,
+      p_week_start:       draft.week_start,
+      p_week_end:         weekEnd,
+      p_department_scope: draft.department_scope?.length ? draft.department_scope : null,
+      p_rows:             rows,
+    })
+    if (error) throw new Error(error.message)
+    created = data?.length ?? rows.length
+  } else if (rows.length) {
+    const { error } = await adminClient.from('turns').insert(rows)
+    if (error) throw new Error(error.message)
+    created = rows.length
+  }
 
   // Marca bozza confermata
   await supabase.from('ai_schedule_drafts').update({ status: 'confirmed' }).eq('id', draftId)
 
-  // Push notification a tutti i dipendenti coinvolti
-  const userIds = [...new Set(validTurns.map(t => t.user_id))]
-  const { data: subs } = await supabase
-    .from('push_subscriptions')
-    .select('*')
-    .in('user_id', userIds)
-
-  if (subs?.length) {
-    const weekLabel = format(parseRomeDate(draft.week_start), "d MMM")
-    const endLabel  = format(addDays(parseRomeDate(draft.week_start), 6), "d MMM yyyy")
-
-    // Fire-and-forget tramite API push interna
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/push/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_ids: userIds,
-        title: 'Nuovi turni pubblicati',
-        body:  `I turni della settimana ${weekLabel}–${endLabel} sono stati pubblicati.`,
-        url:   '/home/miei-turni',
-      }),
-    }).catch(err => console.error('[confirmAiDraft] invio notifica push fallito:', err))
+  // Push + notifica in-app a tutti i dipendenti coinvolti — stessa funzione
+  // condivisa usata per i turni creati/modificati a mano (vedi actions/turni.ts).
+  if (validTurns.length) {
+    const weekLabel = format(parseRomeDate(draft.week_start), 'd MMM')
+    const endLabel  = format(addDays(parseRomeDate(draft.week_start), 6), 'd MMM yyyy')
+    await notificaTurniDipendenti(
+      validTurns.map(t => t.user_id),
+      'Nuovi turni pubblicati',
+      `I turni della settimana ${weekLabel}–${endLabel} sono stati pubblicati.`,
+    )
   }
 
   revalidatePath('/turni')
-  return { created: rows.length }
+  return { created }
 }
 
 export async function discardAiDraft(draftId: string): Promise<void> {

@@ -36,10 +36,10 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
-  // Load the attendance to get the photo path and verify restaurant scope
+  // Load the attendance to get the photo paths and verify restaurant scope
   const { data: attendance } = await admin
     .from('attendances')
-    .select('id, restaurant_id, fallback_photo_path, needs_manager_approval')
+    .select('id, restaurant_id, check_out, fallback_photo_path_in, fallback_photo_path_out, needs_manager_approval')
     .eq('id', attendanceId)
     .single()
 
@@ -55,40 +55,60 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
 
-  const photoPath = attendance.fallback_photo_path as string | null
+  const photoIn  = attendance.fallback_photo_path_in as string | null
+  const photoOut = attendance.fallback_photo_path_out as string | null
+  const toRemove: string[] = []
 
   if (action === 'approve') {
-    // Clear the approval flag and wipe the photo reference
+    // Clear the approval flag and wipe both photo references
     const { error } = await admin
       .from('attendances')
       .update({
-        needs_manager_approval: false,
-        fallback_photo_path:    null,
+        needs_manager_approval:  false,
+        fallback_photo_path_in:  null,
+        fallback_photo_path_out: null,
       })
       .eq('id', attendanceId)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Delete the physical file from storage to free space
-    if (photoPath) {
-      await admin.storage.from(BUCKET).remove([photoPath])
-    }
+    if (photoIn)  toRemove.push(photoIn)
+    if (photoOut) toRemove.push(photoOut)
+    if (toRemove.length) await admin.storage.from(BUCKET).remove(toRemove)
 
     revalidatePath('/dashboard')
     revalidatePath('/presenze')
     revalidatePath('/approvazioni')
     return NextResponse.json({ success: true, action: 'approved' })
   } else {
-    // reject — delete the whole attendance row first, then the file
-    const { error } = await admin
-      .from('attendances')
-      .delete()
-      .eq('id', attendanceId)
+    // reject — se c'è un'uscita registrata, la presenza esisteva già prima
+    // (magari un ingresso regolare via QR): annullare solo l'uscita in
+    // discussione, mai l'intera riga. La riga si cancella per intero solo
+    // quando non c'è ancora un'uscita, cioè il fallback riguardava
+    // l'ingresso stesso.
+    if (attendance.check_out) {
+      const { error } = await admin
+        .from('attendances')
+        .update({
+          check_out:               null,
+          fallback_photo_path_out: null,
+          needs_manager_approval:  !!photoIn,
+        })
+        .eq('id', attendanceId)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (photoOut) await admin.storage.from(BUCKET).remove([photoOut])
+    } else {
+      const { error } = await admin
+        .from('attendances')
+        .delete()
+        .eq('id', attendanceId)
 
-    if (photoPath) {
-      await admin.storage.from(BUCKET).remove([photoPath])
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+      if (photoIn)  toRemove.push(photoIn)
+      if (photoOut) toRemove.push(photoOut)
+      if (toRemove.length) await admin.storage.from(BUCKET).remove(toRemove)
     }
 
     revalidatePath('/dashboard')

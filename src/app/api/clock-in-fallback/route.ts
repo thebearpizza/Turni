@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         user_id:                user.id,
         restaurant_id:          profile.restaurant_id,
         check_in:               nowUtc,
-        fallback_photo_path:    storagePath,
+        fallback_photo_path_in: storagePath,
         needs_manager_approval: true,
       })
       .select()
@@ -107,9 +107,9 @@ export async function POST(request: Request) {
     const { data: attendance, error } = await supabase
       .from('attendances')
       .update({
-        check_out:              nowUtc,
-        fallback_photo_path:    storagePath,
-        needs_manager_approval: true,
+        check_out:               nowUtc,
+        fallback_photo_path_out: storagePath,
+        needs_manager_approval:  true,
       })
       .eq('id', openAttendance.id)
       .select()

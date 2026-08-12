@@ -83,8 +83,22 @@ export async function POST(request: Request) {
     }
   }
 
-  // If the client sent a frozen timestamp (offline replay), honour it; otherwise use server clock.
-  const nowUtc = (typeof frozenAt === 'string' && frozenAt) ? frozenAt : new Date().toISOString()
+  // If the client sent a frozen timestamp (offline replay), honour it only
+  // within a plausible window: non nel futuro (con un margine per il clock
+  // skew) e non più vecchio di quanto la coda offline possa davvero
+  // accumulare. Fuori da quella finestra è sospetto (un client che manda
+  // un orario a piacere) più che un vero replay — si usa l'orologio del
+  // server, che chi timbra non controlla.
+  const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000
+  const MAX_OFFLINE_AGE_MS = 48 * 60 * 60 * 1000
+  let nowUtc = new Date().toISOString()
+  if (typeof frozenAt === 'string' && frozenAt) {
+    const frozenMs = Date.parse(frozenAt)
+    const deltaMs = Date.now() - frozenMs
+    if (!Number.isNaN(frozenMs) && deltaMs >= -MAX_CLOCK_SKEW_MS && deltaMs <= MAX_OFFLINE_AGE_MS) {
+      nowUtc = frozenAt
+    }
+  }
 
   if (type === 'in') {
     // Close any shift the employee forgot to timbrare l'uscita on (open >16h)

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo, type FatturaEstratta } from '@/lib/cassa/fattureExtraction'
-import { verificaData, verificaQuadratura, verificaIvaStimata, verificaTotaleDaFallback, verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
+import { verificaData, verificaIvaStimata, verificaTotaleDaFallback, verificaPrezzoArticolo, TOLLERANZA_QUADRATURA } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import { trovaFornitoreSimile } from '@/lib/cassa/fornitoriMatching'
 import type { VerificaSospetta, ArticoloTipologia } from '@/types'
@@ -103,10 +103,27 @@ async function risolviFattura(
   const totaleIva = estratta.iva_dettaglio.reduce((s, r) => s + r.iva, 0)
   const totaleLordo = totaleNetto + totaleIva
 
+  // Quando il riepilogo IVA è stato letto direttamente in fattura (non
+  // stimato dagli articoli — in quel caso coincidono per costruzione) e
+  // c'è anche una tabella articoli, le due basi DEVONO combaciare: il
+  // trigger fatture_recompute_totali scrive come netto la somma delle
+  // righe articolo, non l'imponibile del riepilogo mostrato in revisione
+  // — una riga saltata dall'OCR, uno sconto non a riga o un prezzo
+  // corretto a mano farebbero salvare un totale diverso da quello appena
+  // confermato dall'utente, senza alcun avviso.
+  const sommaArticoli = estratta.articoli.reduce((s, a) => s + a.prezzo_riga, 0)
+  const quadraturaArticoli: VerificaSospetta | null =
+    estratta.ha_articoli && !estratta.iva_stimata && Math.abs(sommaArticoli - totaleNetto) > TOLLERANZA_QUADRATURA
+      ? {
+          campo: 'totale_lordo',
+          messaggio: `La somma delle righe articolo (€ ${sommaArticoli.toFixed(2)}) non torna con l'imponibile del riepilogo IVA (€ ${totaleNetto.toFixed(2)}): il totale salvato rifletterà la somma degli articoli.`,
+        }
+      : null
+
   // ── Verifiche sui campi sospetti (Task 2) — solo segnalazione, non bloccano ──
   const verificheFattura: VerificaSospetta[] = [
     verificaData(estratta.data),
-    verificaQuadratura(totaleNetto, totaleIva, totaleLordo),
+    quadraturaArticoli,
     verificaIvaStimata(estratta.iva_stimata),
     verificaTotaleDaFallback(estratta.totale_da_fallback),
   ].filter((v): v is VerificaSospetta => v !== null)
@@ -126,22 +143,28 @@ async function risolviFattura(
 
     const daAbbinare = estratta.articoli.filter(a => !mappaturaByTesto.has(a.nome))
 
-    let esitiMatch: Awaited<ReturnType<typeof matchArticoli>> = []
-    let nomeById = new Map<string, string>()
-    if (daAbbinare.length > 0) {
-      const { data: catalogo } = await supabase
-        .from('catalogo_articoli')
-        .select('id, nome_articolo')
-        .eq('owner_id', restaurant.owner_id)
-        .eq('fornitore_id', fornitore.id)
+    // Nomi del catalogo per il fornitore — servono non solo al matching ma
+    // anche per mostrare in revisione A QUALE articolo un match ('chiaro',
+    // 'auto_mappato' o 'ambiguo') è stato abbinato, quindi si recuperano
+    // sempre, non solo quando c'è qualcosa da abbinare ex novo.
+    const { data: catalogo } = await supabase
+      .from('catalogo_articoli')
+      .select('id, nome_articolo')
+      .eq('owner_id', restaurant.owner_id)
+      .eq('fornitore_id', fornitore.id)
+    const nomeById = new Map((catalogo ?? []).map(c => [c.id, c.nome_articolo]))
 
+    let esitiMatch: Awaited<ReturnType<typeof matchArticoli>> = []
+    if (daAbbinare.length > 0) {
       const candidati: CandidatoArticolo[] = (catalogo ?? []).map(c => ({ id: c.id, nome_articolo: c.nome_articolo }))
-      nomeById = new Map(candidati.map(c => [c.id, c.nome_articolo]))
       esitiMatch = await matchArticoli(daAbbinare.map(a => a.nome), candidati)
 
       // I match "chiaro" si ricordano subito — non serve chiedere di nuovo
       // per la stessa identica dicitura in futuro (la conferma esplicita
       // dell'utente serve solo per i casi ambigui/nuovi, gestita a parte).
+      // Restano comunque correggibili in revisione ("Non è questo"): se
+      // l'utente la smentisce, il salvataggio la sovrascrive con quella
+      // giusta (stessa upsert, stessa chiave testo_estratto+fornitore).
       const daMemorizzare = esitiMatch.filter(e => e.esito === 'chiaro' && e.catalogo_articolo_id)
       if (daMemorizzare.length > 0) {
         await supabase.from('articoli_mappature_testo').upsert(
@@ -170,7 +193,7 @@ async function risolviFattura(
         return {
           testo_estratto: a.nome, quantita: a.quantita, prezzo_riga: a.prezzo_riga,
           unita_misura: a.unita_misura, tipologia_suggerita: a.tipologia_suggerita,
-          esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: null,
+          esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: nomeById.get(mappato) ?? null,
           sospetto: verificaPrezzoArticolo(a.nome, prezzoUnitario, ultimoPrezzo),
         }
       }
@@ -186,9 +209,10 @@ async function risolviFattura(
         tipologia_suggerita: a.tipologia_suggerita,
         esito: match?.esito ?? 'nuovo',
         catalogo_articolo_id: match?.catalogo_articolo_id ?? null,
-        // Solo per 'ambiguo': il nome del candidato suggerito, da mostrare
-        // nella conferma ("È lo stesso articolo di 'X'?").
-        candidato_nome: match?.esito === 'ambiguo' && match.catalogo_articolo_id ? nomeById.get(match.catalogo_articolo_id) ?? null : null,
+        // Nome dell'articolo di catalogo abbinato ('chiaro'/'ambiguo'), da
+        // mostrare in revisione — per 'ambiguo' è anche il testo della
+        // domanda di conferma ("È lo stesso articolo di 'X'?").
+        candidato_nome: (match?.esito === 'ambiguo' || match?.esito === 'chiaro') && match.catalogo_articolo_id ? nomeById.get(match.catalogo_articolo_id) ?? null : null,
         sospetto,
       }
     }))

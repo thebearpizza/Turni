@@ -66,7 +66,8 @@ export interface Attendance {
   check_out: string | null
   is_split_shift: boolean
   notes: string | null
-  fallback_photo_path: string | null
+  fallback_photo_path_in: string | null
+  fallback_photo_path_out: string | null
   needs_manager_approval: boolean
   created_at: string
   updated_at: string

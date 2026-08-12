@@ -222,6 +222,26 @@ export async function PATCH(request: Request) {
     }
     restaurant_id = caller.restaurant_id
     is_direttore = false
+  } else if (caller.managed_restaurant_ids !== null) {
+    // Manager non platform-owner: confinato ai propri ristoranti, sia per
+    // il profilo target sia per i valori che sta scrivendo — altrimenti un
+    // consulente condiviso fra più aziende potrebbe essere riassegnato a
+    // un ristorante che non compete al chiamante.
+    const managed = caller.managed_restaurant_ids
+    const targetInScope = targetBefore && (
+      targetBefore.role === 'consulente_lavoro'
+        ? true // un consulente non ha restaurant_id proprio: lo scope si valuta sui consultant_restaurant_ids sotto
+        : targetBefore.restaurant_id !== null && managed.includes(targetBefore.restaurant_id)
+    )
+    if (!targetInScope) {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+    }
+    if (role !== 'consulente_lavoro' && restaurant_id && !managed.includes(restaurant_id)) {
+      return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
+    }
+    if (role === 'consulente_lavoro' && !consultant_restaurant_ids.every(rid => managed.includes(rid))) {
+      return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
+    }
   }
   const isDirettore = role === 'capo_servizio' ? is_direttore === true : false
 
@@ -283,11 +303,29 @@ export async function DELETE(request: Request) {
 
   const admin = createAdminClient()
 
+  const { data: target } = await admin
+    .from('profiles').select('role, restaurant_id, consultant_restaurant_ids').eq('id', id).single()
+  if (!target) return NextResponse.json({ error: 'Utente non trovato' }, { status: 404 })
+
   // Direttore: can only delete users within its own restaurant, never managers.
   if (caller.role !== 'manager') {
-    const { data: target } = await admin
-      .from('profiles').select('role, restaurant_id').eq('id', id).single()
-    if (!target || target.restaurant_id !== caller.restaurant_id || target.role === 'manager') {
+    if (target.restaurant_id !== caller.restaurant_id || target.role === 'manager') {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+    }
+  } else if (caller.managed_restaurant_ids !== null) {
+    const managed = caller.managed_restaurant_ids
+    if (target.role === 'consulente_lavoro') {
+      // Un consulente condiviso fra più aziende: il manager può togliere
+      // solo i PROPRI ristoranti dall'elenco, non cancellare l'account di
+      // chi lavora ancora anche per un'altra azienda su questa piattaforma.
+      const remaining = (target.consultant_restaurant_ids ?? []).filter((rid: string) => !managed.includes(rid))
+      if (remaining.length > 0) {
+        const { error: updErr } = await admin
+          .from('profiles').update({ consultant_restaurant_ids: remaining }).eq('id', id)
+        if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
+        return NextResponse.json({ success: true })
+      }
+    } else if (target.restaurant_id === null || !managed.includes(target.restaurant_id)) {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
     }
   }

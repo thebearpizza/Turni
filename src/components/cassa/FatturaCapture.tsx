@@ -140,6 +140,18 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   const [prezziModificati, setPrezziModificati] = useState<Map<number, number>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
+  // Data/numero documento corretti a mano in revisione — l'OCR può non
+  // leggerli affatto (es. un DDT compilato a mano), e senza un modo di
+  // inserirli qui la fattura non sarebbe più salvabile (salva/route.ts
+  // li richiede entrambi). null finché l'utente non tocca il campo: si
+  // parte dal valore letto dall'AI.
+  const [dataEditata, setDataEditata] = useState<string | null>(null)
+  const [numeroDocEditato, setNumeroDocEditato] = useState<string | null>(null)
+  // Testo_estratto degli articoli 'chiaro'/'auto_mappato' che l'utente ha
+  // smentito in revisione ("Non è questo") — riportati allo stato non
+  // risolto, verranno salvati come nuovo articolo invece dell'abbinamento
+  // sbagliato dell'AI (vedi risoltoInfo).
+  const [rifiutati, setRifiutati] = useState<Set<string>>(new Set())
   // Salvataggio (o presa visione di un doppione) della fattura corrente
   // in corso — passa da una richiesta di rete, senza questo stato il
   // tasto "Salva fattura" non darebbe nessun segnale durante l'attesa.
@@ -284,6 +296,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
 
   function risoltoInfo(a: ArticoloEstratto): { catalogoArticoloId: string; sospetto: VerificaSospetta | null } | null {
     if (a.esito === 'auto_mappato' || a.esito === 'chiaro') {
+      if (rifiutati.has(a.testo_estratto)) return null
       return a.catalogo_articolo_id ? { catalogoArticoloId: a.catalogo_articolo_id, sospetto: a.sospetto } : null
     }
     return resolved.get(a.testo_estratto) ?? null
@@ -302,6 +315,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   }
 
   const articoli = current?.articoli ?? []
+  const dataEffettiva = (dataEditata ?? current?.fattura?.data ?? '').trim()
+  const numeroDocEffettivo = (numeroDocEditato ?? current?.fattura?.numero_documento ?? '').trim()
+  const testataCompleta = !!dataEffettiva && !!numeroDocEffettivo
   const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
   // Nessun articolo blocca più il salvataggio in attesa di una decisione:
   // un 'ambiguo' non confermato si salva come nuovo articolo (i default
@@ -316,6 +332,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // conclusa: fornitore, articoli e testo_estratto possono essere
   // completamente diversi sulla prossima), oppure chiude se era l'ultima.
   function avanti() {
+    // Un doppione non ha (né avrà mai) una riga fatture che referenzi
+    // queste foto: senza pulirle qui restano per sempre nel bucket, non
+    // raggiungibili da nessun'altra parte dell'app.
+    if (current?.duplicato && current.foto_paths.length > 0) {
+      createClient().storage.from('fatture_foto').remove(current.foto_paths).catch(() => {})
+    }
     if (ultimaDelBatch) { onFinished(); return }
     setCurrentIndex(i => i + 1)
     setResolved(new Map())
@@ -323,7 +345,23 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     setPrezziModificati(new Map())
     setConfirmingIndex(null)
     setCategoriaDiretta('')
+    setDataEditata(null)
+    setNumeroDocEditato(null)
+    setRifiutati(new Set())
     setError(null)
+  }
+
+  // Annulla dalla revisione (fattura corrente o doppione): le foto di
+  // questa fattura e di quelle non ancora raggiunte nel batch sono già
+  // su storage ma non verranno mai salvate — le fatture precedenti del
+  // batch sono già state gestite (salvate, o ripulite se doppioni) da
+  // avanti(), quindi non rientrano qui.
+  function annullaRevisione() {
+    const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
+    if (daRimuovere.length > 0) {
+      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
+    }
+    onCancel()
   }
 
   async function handleConferma() {
@@ -333,7 +371,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
       avanti()
       return
     }
-    if (!current.fattura || !tuttiRisolti) return
+    if (!current.fattura || !tuttiRisolti || !testataCompleta) return
 
     const verificheArticoli = articoli
       .map(a => risoltoInfo(a)?.sospetto)
@@ -345,8 +383,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
       await onComplete({
         foto_paths: current.foto_paths,
         fornitore: current.fornitore,
-        data: current.fattura.data,
-        numero_documento: current.fattura.numero_documento,
+        data: dataEffettiva,
+        numero_documento: numeroDocEffettivo,
         ha_articoli: current.fattura.ha_articoli,
         categoria_spesa_diretta_id: richiedeCategoriaDiretta ? categoriaDiretta : null,
         iva_dettaglio: current.fattura.iva_dettaglio,
@@ -385,7 +423,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
             </div>
           </div>
           <div className="flex justify-between pt-2">
-            <Button type="button" variant="outline" onClick={onCancel}>Annulla</Button>
+            <Button type="button" variant="outline" onClick={annullaRevisione}>Annulla</Button>
             <Button type="button" onClick={avanti}>{ultimaDelBatch ? 'Chiudi' : 'Fattura successiva'}</Button>
           </div>
         </div>
@@ -399,10 +437,22 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
         <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
           <div><span className="text-muted-foreground">Fornitore</span> <strong>{current.fornitore.nome}</strong>{current.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</div>
-          <p>
-            <span className={cn('text-muted-foreground', verificheFattura.some(v => v.campo === 'data') && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</span>{' '}
-            <span className="cassa-numeric">{current.fattura.data}</span> · <span className="text-muted-foreground">Documento</span> <span className="cassa-numeric">{current.fattura.numero_documento}</span>
-          </p>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="space-y-1">
+              <Label className={cn('text-xs font-normal', (verificheFattura.some(v => v.campo === 'data') || !dataEffettiva) && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</Label>
+              <Input type="date" value={dataEffettiva} onChange={e => setDataEditata(e.target.value)} className="h-8 cassa-numeric" />
+            </div>
+            <div className="space-y-1">
+              <Label className={cn('text-xs font-normal', !numeroDocEffettivo && 'text-amber-600 dark:text-amber-400 font-medium')}>Documento</Label>
+              <Input value={numeroDocEffettivo} onChange={e => setNumeroDocEditato(e.target.value)} className="h-8 cassa-numeric" placeholder="Numero documento" />
+            </div>
+          </div>
+          {!testataCompleta && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {!dataEffettiva && !numeroDocEffettivo ? 'Inserisci data e numero documento per poter salvare.' : !dataEffettiva ? 'Inserisci la data per poter salvare.' : 'Inserisci il numero documento per poter salvare.'}
+            </p>
+          )}
           <p className="cassa-numeric">
             <span className="text-muted-foreground font-sans">Netto</span> € {current.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {current.fattura.totale_iva.toFixed(2)} ·{' '}
             <span className={cn('font-sans', verificheFattura.some(v => v.campo === 'totale_lordo') ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>Lordo</span> € {current.fattura.totale_lordo.toFixed(2)}
@@ -471,9 +521,22 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                     />
                   ) : info ? (
                     <div className="space-y-1.5">
-                      <Badge variant="secondary">
-                        {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">
+                          {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
+                        </Badge>
+                        {a.candidato_nome && <span className="text-xs text-muted-foreground truncate">{a.candidato_nome}</span>}
+                        {(a.esito === 'auto_mappato' || a.esito === 'chiaro') && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setRifiutati(prev => new Set(prev).add(a.testo_estratto))}
+                          >
+                            Non è questo
+                          </Button>
+                        )}
+                      </div>
                       {info.sospetto && !prezzoModificato && (
                         <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
@@ -515,8 +578,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <div className="flex justify-between pt-2">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Annulla</Button>
-          <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti || saving}>
+          <Button type="button" variant="outline" onClick={annullaRevisione} disabled={saving}>Annulla</Button>
+          <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti || !testataCompleta || saving}>
             {saving
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</>
               : ultimaDelBatch ? 'Salva fattura' : 'Salva e continua'}

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
@@ -55,11 +55,32 @@ export function AiScheduleDialog({
     setSelectedDepts(prev =>
       prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]
     )
+    clearExistingCheck()
+  }
+
+  // Stessa regola usata sia per il controllo dei turni esistenti sia per la
+  // generazione vera: null solo quando manager/direttore hanno tutti i
+  // reparti selezionati (= nessuno scope). Per un capo servizio non
+  // direttore selectedDepts è sempre [currentDept], mai vuoto.
+  function computeScope(): Department[] | null {
+    return (isManager || isDirettore) && selectedDepts.length === DEPARTMENTS.length
+      ? null
+      : selectedDepts
   }
 
   // ── Turni esistenti ───────────────────────────────────────────────────
   const [existingCount, setExistingCount] = useState<number | null>(null)
   const [existingMode, setExistingMode] = useState<ExistingMode>(null)
+
+  // Il conteggio/la scelta integrate-o-replace valgono solo per la
+  // combinazione settimana+reparti su cui sono stati calcolati: cambiandola
+  // vanno azzerati esplicitamente ad ogni punto che la modifica (frecce
+  // settimana, toggle reparto), altrimenti il pannello ambra mostra dati di
+  // un'altra settimana e la guardia su existingMode resta sbloccata per errore.
+  function clearExistingCheck() {
+    setExistingCount(null)
+    setExistingMode(null)
+  }
 
   // ── Chiusure straordinarie ────────────────────────────────────────────
   const [showClosures, setShowClosures] = useState(false)
@@ -95,9 +116,7 @@ export function AiScheduleDialog({
     setError(null)
     if (step === 'params') {
       // Controlla turni esistenti
-      const scope = (isManager || isDirettore) && selectedDepts.length < DEPARTMENTS.length
-        ? selectedDepts : null
-      const count = await checkExistingTurns(restaurantId, weekStartStr, scope)
+      const count = await checkExistingTurns(restaurantId, weekStartStr, computeScope())
       setExistingCount(count)
       if (count > 0 && existingMode === null) {
         // Mostra la scelta integrate/replace prima di andare avanti
@@ -112,12 +131,10 @@ export function AiScheduleDialog({
   async function handleGenerate() {
     setStep('generating')
     try {
-      const scope = (isManager || isDirettore) && selectedDepts.length === DEPARTMENTS.length
-        ? null : selectedDepts
       const draft = await generateAiSchedule({
         restaurantId,
         weekStart: weekStartStr,
-        departmentScope: scope,
+        departmentScope: computeScope(),
         existingTurnsMode: existingMode ?? 'integrate',
         extraordinaryClosures: closures,
         notes: notes.trim() || undefined,
@@ -161,12 +178,12 @@ export function AiScheduleDialog({
               <Label>Settimana</Label>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="icon" className="h-8 w-8"
-                  onClick={() => setWeekOffset(w => w - 1)}>
+                  onClick={() => { setWeekOffset(w => w - 1); clearExistingCheck() }}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
                 <span className="flex-1 text-center text-sm font-medium">{weekLabel}</span>
                 <Button variant="outline" size="icon" className="h-8 w-8"
-                  onClick={() => setWeekOffset(w => w + 1)}>
+                  onClick={() => { setWeekOffset(w => w + 1); clearExistingCheck() }}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

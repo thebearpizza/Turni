@@ -367,7 +367,7 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       </Card>
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
+        <DialogContent className="cassa cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">
               {captureMode === 'scan' ? 'Scansiona documento' : 'Carica fattura'}
@@ -405,7 +405,7 @@ export function FattureClient({ role, restaurants, categorieDirette }: Props) {
       />
 
       <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
-        <DialogContent className="cassa-perforated-top">
+        <DialogContent className="cassa cassa-perforated-top">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">Eliminare questa fattura?</DialogTitle>
           </DialogHeader>

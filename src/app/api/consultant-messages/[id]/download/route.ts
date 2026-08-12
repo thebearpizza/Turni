@@ -19,7 +19,7 @@ export async function POST(
 
   const { data: msg, error: fetchErr } = await supabase
     .from('consultant_messages')
-    .select('manager_id, consultant_id, sent_by_manager')
+    .select('manager_id, consultant_id, sent_by_manager, downloaded_at, attachments')
     .eq('id', id)
     .single()
 
@@ -30,15 +30,27 @@ export async function POST(
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
 
-  // Only set downloaded_at if the caller is the recipient
+  // Il path richiesto deve essere davvero uno degli allegati di QUESTO
+  // messaggio: senza questo controllo, un partecipante alla conversazione
+  // potrebbe passare il path di un file caricato altrove.
+  const attachments = (msg.attachments ?? []) as Array<{ name: string; path: string }>
+  if (!attachments.some(a => a.path === path)) {
+    return NextResponse.json({ error: 'Allegato non trovato in questo messaggio' }, { status: 404 })
+  }
+
+  // Only set downloaded_at if the caller is the recipient, e solo la prima
+  // volta: un secondo download non deve spostare in avanti la data del
+  // primo accesso.
   const isRecipient =
     (msg.sent_by_manager && user.id === msg.consultant_id) ||
     (!msg.sent_by_manager && user.id === msg.manager_id)
 
-  if (isRecipient) {
+  let downloadedAt = msg.downloaded_at as string | null
+  if (isRecipient && !downloadedAt) {
+    downloadedAt = new Date().toISOString()
     await supabase
       .from('consultant_messages')
-      .update({ downloaded_at: new Date().toISOString() })
+      .update({ downloaded_at: downloadedAt })
       .eq('id', id)
   }
 
@@ -52,5 +64,5 @@ export async function POST(
     return NextResponse.json({ error: 'Impossibile generare il link di download' }, { status: 500 })
   }
 
-  return NextResponse.json({ signedUrl: signedData.signedUrl })
+  return NextResponse.json({ signedUrl: signedData.signedUrl, downloaded_at: downloadedAt })
 }

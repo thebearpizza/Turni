@@ -129,7 +129,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
   // (flash). L'override tiene la fascia dove l'utente l'ha lasciata e viene
   // rimosso quando i dati veri arrivano; i turni creati col drag vivono in
   // `extraTurns` finché non compaiono nel prop.
-  const [overrides, setOverrides] = useState<Record<string, { start_time: string; end_time: string }>>({})
+  const [overrides, setOverrides] = useState<Record<string, { start_time: string; end_time: string; date?: string }>>({})
   const [extraTurns, setExtraTurns] = useState<Turn[]>([])
 
   useEffect(() => {
@@ -137,6 +137,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
       const stale = Object.keys(prev).filter(id => {
         const t = turns.find(x => x.id === id)
         return t && t.start_time.slice(0, 5) === prev[id].start_time && t.end_time.slice(0, 5) === prev[id].end_time
+          && (!prev[id].date || t.date === prev[id].date)
       })
       if (stale.length === 0) return prev
       const next = { ...prev }
@@ -343,13 +344,21 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
       try {
         if (finalDrag.mode === 'resize' || finalDrag.mode === 'move') {
           const { turn, previewStart, previewEnd } = finalDrag
+          // previewStart può superare 1440 (mezzanotte) quando si trascina un
+          // turno oltre la fine del giorno: senza questo, minutesToHHMM lo
+          // riduce modulo 24h e il turno viene salvato sulla stessa data,
+          // saltando all'inizio del giorno invece di passare al successivo.
+          const dayShift = Math.floor(previewStart / 1440)
+          const newDate = dayShift !== 0
+            ? format(addDays(parseISO(`${turn.date}T00:00:00`), dayShift), 'yyyy-MM-dd')
+            : turn.date
           const newStart = minutesToHHMM(previewStart)
           const newEnd = minutesToHHMM(previewEnd)
           await updateTurn(turn.id, {
             user_id: turn.user_id,
             restaurant_id: turn.restaurant_id,
             department: turn.department,
-            date: turn.date,
+            date: newDate,
             start_time: newStart,
             end_time: newEnd,
             is_extraordinary: turn.is_extraordinary,
@@ -359,7 +368,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
           // Override ottimistico PRIMA di sganciare l'anteprima congelata:
           // React applica i due set nello stesso render, quindi la fascia
           // non torna mai alla posizione vecchia in attesa del realtime.
-          setOverrides(prev => ({ ...prev, [turn.id]: { start_time: newStart, end_time: newEnd } }))
+          setOverrides(prev => ({ ...prev, [turn.id]: { start_time: newStart, end_time: newEnd, date: newDate } }))
         } else {
           const { member, date: dayDate, previewStart, previewEnd } = finalDrag
           const created = await createTurn({

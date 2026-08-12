@@ -14,7 +14,8 @@ export interface PendingItem {
   user_id: string
   check_in: string
   check_out: string | null
-  fallback_photo_path: string
+  fallback_photo_path_in: string | null
+  fallback_photo_path_out: string | null
   restaurant_id: string | null
   profile?: { full_name: string } | null
   restaurant?: { name: string } | null
@@ -43,13 +44,13 @@ export function FallbackApprovalSection({ initialPending }: Props) {
     setLoadingId(null)
   }
 
-  async function handlePreview(item: PendingItem) {
-    if (previewLoadId === item.id) return
-    setPreviewLoadId(item.id)
+  async function handlePreview(itemId: string, path: string) {
+    if (previewLoadId === itemId) return
+    setPreviewLoadId(itemId)
     const supabase = createClient()
     const { data } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(item.fallback_photo_path, 300)
+      .createSignedUrl(path, 300)
     if (data?.signedUrl) setPreviewUrl(data.signedUrl)
     setPreviewLoadId(null)
   }
@@ -71,6 +72,13 @@ export function FallbackApprovalSection({ initialPending }: Props) {
           const isWorking    = loadingId === item.id
           const isLoadingPrev = previewLoadId === item.id
           const checkIn  = formatInTimeZone(new Date(item.check_in), TZ, 'dd/MM/yyyy HH:mm', { locale: it })
+          // Un turno può avere entrambe le prove (ingresso e uscita entrambi
+          // in emergenza): mostrarle come due link distinti invece di uno
+          // solo, altrimenti il manager vede solo l'ultima caricata.
+          const photos = [
+            item.fallback_photo_path_in  && { path: item.fallback_photo_path_in,  label: 'Vedi foto ingresso' },
+            item.fallback_photo_path_out && { path: item.fallback_photo_path_out, label: item.fallback_photo_path_in ? 'Vedi foto uscita' : 'Vedi foto' },
+          ].filter((p): p is { path: string; label: string } => !!p)
           const checkOut = item.check_out
             ? formatInTimeZone(new Date(item.check_out), TZ, 'HH:mm', { locale: it })
             : null
@@ -95,14 +103,17 @@ export function FallbackApprovalSection({ initialPending }: Props) {
 
               {/* Azioni — wrap automatico su mobile */}
               <div className="flex flex-wrap items-center gap-2 md:shrink-0">
-                <button
-                  onClick={() => handlePreview(item)}
-                  disabled={isLoadingPrev}
-                  className="flex items-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  {isLoadingPrev ? 'Caricamento...' : 'Vedi foto'}
-                </button>
+                {photos.map(p => (
+                  <button
+                    key={p.path}
+                    onClick={() => handlePreview(item.id, p.path)}
+                    disabled={isLoadingPrev}
+                    className="flex items-center gap-1.5 text-xs text-primary hover:underline disabled:opacity-50"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    {isLoadingPrev ? 'Caricamento...' : p.label}
+                  </button>
+                ))}
 
                 <Button
                   size="sm"

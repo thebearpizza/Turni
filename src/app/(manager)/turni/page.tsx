@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { TurniManagerClient } from '@/components/manager/TurniManagerClient'
 import { scopeTurnsQuery, scopeStaffQuery, type ScopeProfile } from '@/lib/turniScope'
+import { startOfWeek, addDays, format } from 'date-fns'
 
 export default async function TurniPage() {
   const supabase = await createClient()
@@ -19,10 +20,23 @@ export default async function TurniPage() {
     is_direttore:  profile?.is_direttore ?? false,
   }
 
+  // Il caricamento iniziale copre solo la settimana corrente ±1: senza
+  // limite di date, la query scarica ogni turno mai creato nello scope del
+  // ruolo — con locali attivi da mesi si superano le 1000 righe di default
+  // di Supabase, e a sparire sono proprio le settimane future che si stanno
+  // pianificando (l'ordinamento crescente le mette in fondo, dove il limite
+  // taglia). Le settimane oltre questo intervallo vengono richieste al volo
+  // dal client quando si naviga (vedi TurniManagerClient).
+  const todayWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
+  const initialRangeStart = format(addDays(todayWeekStart, -7), 'yyyy-MM-dd')
+  const initialRangeEnd = format(addDays(todayWeekStart, 13), 'yyyy-MM-dd')
+
   // ── Query Scoping (RBAC) — vedi src/lib/turniScope.ts ──────────────
   let turnsQuery = supabase
     .from('turns')
     .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
+    .gte('date', initialRangeStart)
+    .lte('date', initialRangeEnd)
     .order('date', { ascending: true })
     .order('start_time', { ascending: true })
   turnsQuery = scopeTurnsQuery(turnsQuery, scopeProfile, user!.id)
