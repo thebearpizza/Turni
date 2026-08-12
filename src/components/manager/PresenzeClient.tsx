@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { TimeInput } from '@/components/ui/time-input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
@@ -81,7 +82,7 @@ export function PresenzeClient({
   const [presenze, setPresenze]   = useState(initialPresenze)
   const [absences, setAbsences]   = useState(initialAbsences)
   const [selectedMonth, setSelectedMonth]     = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
-  const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
+  const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'tutti')
   const [loading, setLoading]     = useState(false)
   const [isLive, setIsLive]       = useState(false)
 
@@ -127,7 +128,7 @@ export function PresenzeClient({
           const checkIn = new Date(rec.check_in)
           if (checkIn < monthStart || checkIn > monthEnd) return
 
-          if (restaurantRef.current !== 'all' && rec.restaurant_id !== restaurantRef.current) return
+          if (restaurantRef.current !== 'tutti' && rec.restaurant_id !== restaurantRef.current) return
 
           const { data } = await supabase
             .from('attendances')
@@ -175,7 +176,7 @@ export function PresenzeClient({
       .lte('start_date', monthEnd)
       .gte('end_date', monthStart)
 
-    if (restaurantId !== 'all') {
+    if (restaurantId !== 'tutti') {
       presQ = presQ.eq('restaurant_id', restaurantId)
       absQ  = absQ.eq('restaurant_id', restaurantId)
     }
@@ -258,7 +259,7 @@ export function PresenzeClient({
       const { start: monthStart, end: monthEnd } = monthBoundsUtc(selectedMonth)
       const checkInDate = new Date(saved.check_in)
       const matchesMonth = checkInDate >= monthStart && checkInDate <= monthEnd
-      const matchesRest  = selectedRestaurant === 'all' || saved.restaurant_id === selectedRestaurant
+      const matchesRest  = selectedRestaurant === 'tutti' || saved.restaurant_id === selectedRestaurant
 
       if (editing) {
         // Se la modifica sposta la presenza fuori dal mese/ristorante
@@ -450,17 +451,11 @@ export function PresenzeClient({
           className="w-auto"
         />
         {isManager && (
-          <Select value={selectedRestaurant} onValueChange={handleRestaurantChange}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Tutti i ristoranti" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tutti i ristoranti</SelectItem>
-              {restaurants.map(r => (
-                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RestaurantFilter
+            restaurants={restaurants}
+            value={selectedRestaurant}
+            onChange={handleRestaurantChange}
+          />
         )}
       </div>
 

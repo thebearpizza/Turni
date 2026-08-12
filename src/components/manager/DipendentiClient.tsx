@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -101,7 +102,7 @@ export function DipendentiClient({
   // ── Restaurant filter (manager only, URL-based — SSR-friendly) ─────────
   function handleRestaurantFilter(value: string) {
     const params = new URLSearchParams()
-    if (value !== 'all') params.set('restaurant_id', value)
+    if (value !== 'tutti') params.set('restaurant_id', value)
     const qs = params.toString()
     router.push(qs ? `${pathname}?${qs}` : pathname)
   }
@@ -294,20 +295,11 @@ export function DipendentiClient({
         />
         {/* Restaurant filter — manager only. Capo servizio is locked server-side. */}
         {isManager && (
-          <Select
-            value={currentRestaurantFilter ?? 'all'}
-            onValueChange={handleRestaurantFilter}
-          >
-            <SelectTrigger className="sm:w-56">
-              <SelectValue placeholder="Tutti i ristoranti" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tutti i ristoranti</SelectItem>
-              {restaurants.map(r => (
-                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RestaurantFilter
+            restaurants={restaurants}
+            value={currentRestaurantFilter ?? 'tutti'}
+            onChange={handleRestaurantFilter}
+          />
         )}
       </div>
 

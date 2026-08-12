@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -55,7 +56,7 @@ interface Props {
 export function AssenzeClient({ initialAbsences, restaurants, dipendenti, currentUserRole, currentRestaurantId, isDirectore }: Props) {
   const [absences, setAbsences] = useState(initialAbsences)
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
-  const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'all')
+  const [selectedRestaurant, setSelectedRestaurant] = useState(currentRestaurantId ?? 'tutti')
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<typeof initialAbsences[0] | null>(null)
@@ -84,7 +85,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
       .gte('end_date', start)
       .order('start_date', { ascending: false })
 
-    if (restaurantId !== 'all') query = query.eq('restaurant_id', restaurantId)
+    if (restaurantId !== 'tutti') query = query.eq('restaurant_id', restaurantId)
 
     const { data, error } = await query
     if (error) console.error('[assenze] loadAbsences error:', error.message)
@@ -219,13 +220,11 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
           className="w-auto"
         />
         {isManager && (
-          <Select value={selectedRestaurant} onValueChange={v => { setSelectedRestaurant(v); loadAbsences(selectedMonth, v) }}>
-            <SelectTrigger className="w-48"><SelectValue placeholder="Tutti i ristoranti" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tutti i ristoranti</SelectItem>
-              {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <RestaurantFilter
+            restaurants={restaurants}
+            value={selectedRestaurant}
+            onChange={v => { setSelectedRestaurant(v); loadAbsences(selectedMonth, v) }}
+          />
         )}
       </div>
 

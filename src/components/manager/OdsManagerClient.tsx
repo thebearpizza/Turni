@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, User, Users, Check } from 'lucide-react'
@@ -193,20 +194,11 @@ export function OdsManagerClient({
       {/* Restaurant filter — manager only */}
       {isManager && restaurants.length > 0 && (
         <div className="mb-4">
-          <Select
+          <RestaurantFilter
+            restaurants={restaurants}
             value={restFilter}
-            onValueChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
-          >
-            <SelectTrigger className="h-8 w-56 text-xs rounded-sm">
-              <SelectValue placeholder="Tutti i ristoranti" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutti">Tutti i ristoranti</SelectItem>
-              {restaurants.map(r => (
-                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
+          />
         </div>
       )}
 

@@ -543,10 +543,10 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                 <button
                   key={r.id}
                   onClick={() => toggleRestaurant(r.id)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
                     selectedRestaurants.includes(r.id)
                       ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border text-foreground hover:bg-accent'
+                      : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
                   }`}
                 >
                   {r.name}

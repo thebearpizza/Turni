@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
 import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, Copy, X, Sparkles } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, addDays, addWeeks, format, parseISO, eachDayOfInterval, getDay } from 'date-fns'
@@ -744,17 +745,11 @@ export function TurniManagerClient({
       {/* Restaurant filter — manager only */}
       {isManager && restaurants.length > 0 && (
         <div className="mb-4">
-          <Select value={restFilter} onValueChange={v => { setRestFilter(v); setDeptFilter([]) }}>
-            <SelectTrigger className="h-8 w-56 text-xs rounded-sm">
-              <SelectValue placeholder="Tutti i ristoranti" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tutti">Tutti i ristoranti</SelectItem>
-              {restaurants.map(r => (
-                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RestaurantFilter
+            restaurants={restaurants}
+            value={restFilter}
+            onChange={v => { setRestFilter(v); setDeptFilter([]) }}
+          />
         </div>
       )}
 
