@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -22,33 +22,36 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<AppNotification[]>([])
   const router = useRouter()
+  // Un solo client per istanza invece di uno nuovo ad ogni chiamata, e un
+  // nome di canale unico: la campanella è montata in più punti insieme
+  // (sidebar desktop e intestazione mobile) e due canali con lo stesso nome
+  // si disturbano a vicenda — rimuovendone uno si chiude anche l'altro.
+  const supabase = useMemo(() => createClient(), [])
+  const instanceId = useId()
 
   const unread = items.filter(n => !n.read_at).length
 
   const fetchAll = useCallback(async () => {
-    const supabase = createClient()
     const { data } = await supabase
       .from('notifications')
       .select('id, user_id, title, message, link, read_at, created_at')
       .order('created_at', { ascending: false })
       .limit(20)
     setItems((data ?? []) as AppNotification[])
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
     fetchAll()
-    const supabase = createClient()
     const channel = supabase
-      .channel('notification_bell')
+      .channel(`notification_bell:${instanceId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, fetchAll)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [fetchAll])
+  }, [fetchAll, supabase, instanceId])
 
   async function handleClick(n: AppNotification) {
     setOpen(false)
     if (!n.read_at) {
-      const supabase = createClient()
       await supabase.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', n.id)
       setItems(prev => prev.map(it => it.id === n.id ? { ...it, read_at: new Date().toISOString() } : it))
     }
@@ -56,7 +59,6 @@ export function NotificationBell() {
   }
 
   async function markAllRead() {
-    const supabase = createClient()
     const now = new Date().toISOString()
     await supabase.from('notifications').update({ read_at: now }).is('read_at', null)
     setItems(prev => prev.map(it => it.read_at ? it : { ...it, read_at: now }))

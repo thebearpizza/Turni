@@ -44,6 +44,97 @@ interface Props {
   profile: Profile & { restaurant?: { id: string; name: string } | null }
 }
 
+interface SidebarContentProps {
+  profile: Profile & { restaurant?: { id: string; name: string } | null }
+  pathname: string
+  visibleItems: typeof navItems
+  unreadBulletins: number
+  unreadOds: number
+  pendingCount: number
+  isPlatformOwner: boolean
+  onNavigate: () => void
+  onLogout: () => void
+}
+
+// Componente a livello di modulo, NON ridefinito ad ogni render: se vive
+// dentro ManagerSidebar, React lo considera un tipo diverso ad ogni render
+// e smonta/rimonta l'intero sottoalbero. Con la campanella delle notifiche
+// qui dentro (che apre una connessione realtime al mount) quel rimontaggio
+// continuo apriva e chiudeva WebSocket a raffica, fino a far crashare la
+// pagina su mobile. Stesso schema già usato in CassaSidebar.
+function SidebarContent({
+  profile, pathname, visibleItems, unreadBulletins, unreadOds,
+  pendingCount, isPlatformOwner, onNavigate, onLogout,
+}: SidebarContentProps) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-6 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">inTurno</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
+        </div>
+        {profile.role === 'manager' && <NotificationBell />}
+      </div>
+
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        {visibleItems.map(({ href, icon: Icon, label }) => (
+          <Link
+            key={href}
+            href={href}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+              pathname === href || pathname.startsWith(href + '/')
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+            )}
+          >
+            <Icon className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{label}</span>
+            {href === '/bacheca' && profile.role === 'capo_servizio' && unreadBulletins > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadBulletins > 9 ? '9+' : unreadBulletins}
+              </span>
+            )}
+            {href === '/ods' && profile.role === 'capo_servizio' && unreadOds > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadOds > 9 ? '9+' : unreadOds}
+              </span>
+            )}
+            {href === '/account-pendenti' && isPlatformOwner && pendingCount > 0 && (
+              <span className="ml-auto w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {pendingCount > 9 ? '9+' : pendingCount}
+              </span>
+            )}
+          </Link>
+        ))}
+      </nav>
+
+      <div className="p-4 border-t border-border">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+            {profile.full_name[0]?.toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{profile.full_name}</p>
+            <p className="text-xs text-muted-foreground">{ROLE_LABELS[profile.role]}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Esci
+          </button>
+          <ThemeToggle />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ManagerSidebar({ profile }: Props) {
   const [open, setOpen] = useState(false)
   const [unreadBulletins, setUnreadBulletins] = useState(0)
@@ -131,79 +222,18 @@ export function ManagerSidebar({ profile }: Props) {
     router.push('/login')
   }
 
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b border-border flex items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold">inTurno</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Turni, Presenze e ODS</p>
-        </div>
-        {profile.role === 'manager' && <NotificationBell />}
-      </div>
-
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {visibleItems.map(({ href, icon: Icon, label }) => (
-          <Link
-            key={href}
-            href={href}
-            onClick={() => setOpen(false)}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(href + '/')
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            )}
-          >
-            <Icon className="w-4 h-4 shrink-0" />
-            <span className="flex-1">{label}</span>
-            {href === '/bacheca' && profile.role === 'capo_servizio' && unreadBulletins > 0 && (
-              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                {unreadBulletins > 9 ? '9+' : unreadBulletins}
-              </span>
-            )}
-            {href === '/ods' && profile.role === 'capo_servizio' && unreadOds > 0 && (
-              <span className="ml-auto w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                {unreadOds > 9 ? '9+' : unreadOds}
-              </span>
-            )}
-            {href === '/account-pendenti' && isPlatformOwner && pendingCount > 0 && (
-              <span className="ml-auto w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                {pendingCount > 9 ? '9+' : pendingCount}
-              </span>
-            )}
-          </Link>
-        ))}
-      </nav>
-
-      <div className="p-4 border-t border-border">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
-            {profile.full_name[0]?.toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{profile.full_name}</p>
-            <p className="text-xs text-muted-foreground">{ROLE_LABELS[profile.role]}</p>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Esci
-          </button>
-          <ThemeToggle />
-        </div>
-      </div>
-    </div>
-  )
+  const sidebarProps = {
+    profile, pathname, visibleItems, unreadBulletins, unreadOds,
+    pendingCount, isPlatformOwner,
+    onNavigate: () => setOpen(false),
+    onLogout: handleLogout,
+  }
 
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent />
+        <SidebarContent {...sidebarProps} />
       </aside>
 
       {/* Mobile header + drawer */}
@@ -243,7 +273,7 @@ export function ManagerSidebar({ profile }: Props) {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent />
+            <SidebarContent {...sidebarProps} />
           </aside>
         </div>
       )}
