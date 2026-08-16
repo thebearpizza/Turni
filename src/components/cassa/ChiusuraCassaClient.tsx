@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { X, Loader2 } from 'lucide-react'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
+import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import type { CassaChiusura } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -344,7 +345,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           .single()
         setSaving(false)
         if (error || !data) {
-          setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+          setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : friendlySaveError(error))
           return
         }
         setExisting(data)

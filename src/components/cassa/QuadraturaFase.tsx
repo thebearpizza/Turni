@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { cn } from '@/lib/utils'
 import { notificaChiusuraConfermata } from '@/app/actions/cassa'
+import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import type { CassaChiusura } from '@/types'
 
 interface Fields {
@@ -119,7 +120,7 @@ export function QuadraturaFase({
 
       setSaving(false)
       if (err || !data) {
-        setError(`Errore nel salvataggio: ${err?.message ?? 'sconosciuto'}`)
+        setError(friendlySaveError(err))
         return
       }
       onSaved(data as CassaChiusura)

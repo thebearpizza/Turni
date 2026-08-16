@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Fraunces } from 'next/font/google'
 import { ThemeProvider } from '@/components/shared/ThemeProvider'
 import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
+import { SessionGuardian } from '@/components/shared/SessionGuardian'
 import { Toaster } from '@/components/shared/Toaster'
 import './globals.css'
 
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="it" suppressHydrationWarning>
       <body className={`${geist.className} ${geistMono.variable} ${fraunces.variable} antialiased overflow-x-hidden w-full max-w-full`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <SessionGuardian />
           <OfflineSyncProvider>
             {children}
           </OfflineSyncProvider>

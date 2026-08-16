@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 // Must match the domain used in /api/users POST to generate fake-email accounts.
 const FAKE_DOMAIN = 'struttura.local'
@@ -21,6 +21,8 @@ export function LoginForm() {
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessioneScaduta = searchParams.get('sessione_scaduta') === '1'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -45,6 +47,11 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {sessioneScaduta && (
+        <p className="text-sm text-center text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+          La sessione è scaduta. Accedi di nuovo per continuare.
+        </p>
+      )}
       <div className="space-y-2">
         <Label htmlFor="credential">Username</Label>
         <Input

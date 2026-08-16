@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import Image from 'next/image'
 import { LoginForm } from '@/components/shared/LoginForm'
 
@@ -24,7 +25,9 @@ export default function LoginPage() {
 
         {/* Glassmorphism card — dark: white/3; light: black/3 */}
         <div className="bg-black/[0.03] dark:bg-white/[0.03] backdrop-blur-md border border-black/10 dark:border-white/10 rounded-2xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-          <LoginForm />
+          <Suspense fallback={null}>
+            <LoginForm />
+          </Suspense>
         </div>
 
         <p className="text-center text-muted-foreground/50 text-xs mt-6">

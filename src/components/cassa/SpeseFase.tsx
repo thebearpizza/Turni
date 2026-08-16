@@ -10,6 +10,7 @@ import { CurrencyInput } from '@/components/ui/currency-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategorieManagerDialog } from '@/components/cassa/CategorieManagerDialog'
+import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import { Trash2 } from 'lucide-react'
 import type { CassaChiusura, CassaCategoria, CassaSpesa } from '@/types'
 
@@ -126,7 +127,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
     setSaving(false)
 
     if (error || !data) {
-      setFormError(`Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
+      setFormError(friendlySaveError(error))
       return
     }
     setSpese(prev => [...prev, data as CassaSpesa])
@@ -177,7 +178,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
     const supabase = createClient()
     const { error } = await supabase.from('cassa_spese').delete().eq('id', id)
     setEliminandoSpesa(false)
-    if (error) { setDeleteSpesaError(error.message); return }
+    if (error) { setDeleteSpesaError(friendlySaveError(error)); return }
     setSpese(prev => prev.filter(s => s.id !== id))
     setSpesaDaEliminare(null)
   }
