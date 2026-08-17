@@ -38,7 +38,14 @@ async function risolviFattura(
   supabase: SupabaseServerClient,
   restaurant: { id: string; owner_id: string },
   estratta: FatturaEstratta,
-  fotoPathsGruppo: string[]
+  fotoPathsGruppo: string[],
+  // Presente solo per una ri-scansione (Fatture → Visualizza →
+  // Ri-scansiona): esclude la fattura stessa dal controllo doppioni,
+  // altrimenti si ritroverebbe sempre "duplicata" di se stessa quando
+  // fornitore e numero documento letti coincidono con quelli già a
+  // sistema (il caso più comune, visto che si sta rileggendo lo stesso
+  // identico documento).
+  excludeFatturaId?: string
 ) {
   // ── Risoluzione fornitore: match su partita IVA, poi su nome (anche solo
   // simile — trovaFornitoreSimile normalizza forma societaria/punteggiatura
@@ -83,12 +90,13 @@ async function risolviFattura(
   }
 
   // ── Blocco doppione: stesso fornitore + stesso numero documento già a sistema ──
-  const { data: doppione } = await supabase
+  let doppioneQuery = supabase
     .from('fatture')
     .select('id, restaurant_id, data')
     .eq('fornitore_id', fornitore.id)
     .eq('numero_documento', estratta.numero_documento.trim())
-    .maybeSingle()
+  if (excludeFatturaId) doppioneQuery = doppioneQuery.neq('id', excludeFatturaId)
+  const { data: doppione } = await doppioneQuery.maybeSingle()
 
   if (doppione) {
     return {
@@ -264,6 +272,11 @@ export async function POST(request: Request) {
   const body = await request.json()
   const restaurantId = body?.restaurant_id as string | undefined
   const fotoPaths = body?.foto_paths as string[] | undefined
+  // Presente solo per una ri-scansione: le foto sono quelle GIÀ della
+  // fattura esistente, non "nuove" — su nessun errore qui sotto vanno
+  // rimosse da storage, altrimenti la fattura esistente perderebbe per
+  // sempre i suoi documenti originali.
+  const excludeFatturaId = body?.exclude_fattura_id as string | undefined
   if (!restaurantId) return NextResponse.json({ error: 'Locale mancante' }, { status: 400 })
   if (!fotoPaths?.length) return NextResponse.json({ error: 'Nessuna foto ricevuta' }, { status: 400 })
   // Ogni percorso deve appartenere al locale dichiarato — altrimenti un
@@ -291,7 +304,7 @@ export async function POST(request: Request) {
   try {
     fatture = await estraiFatture(fotoBuffers)
   } catch (err) {
-    await supabase.storage.from(BUCKET).remove(fotoPaths)
+    if (!excludeFatturaId) await supabase.storage.from(BUCKET).remove(fotoPaths)
     console.error('Errore estrazione fattura:', err instanceof Error ? err.message : err)
 
     if (err instanceof EstrazioneTimeoutError) {
@@ -324,11 +337,11 @@ export async function POST(request: Request) {
   try {
     const risultati = []
     for (const { fattura: estratta, indiciFoto } of fatture) {
-      risultati.push(await risolviFattura(supabase, restaurant, estratta, indiciFoto.map(i => fotoPaths[i])))
+      risultati.push(await risolviFattura(supabase, restaurant, estratta, indiciFoto.map(i => fotoPaths[i]), excludeFatturaId))
     }
     return NextResponse.json({ fatture: risultati })
   } catch (err) {
-    await supabase.storage.from(BUCKET).remove(fotoPaths)
+    if (!excludeFatturaId) await supabase.storage.from(BUCKET).remove(fotoPaths)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Errore nella registrazione della fattura' }, { status: 500 })
   }
 }

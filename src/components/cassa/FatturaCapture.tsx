@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/compressImage'
 import { DocumentScanner } from '@/components/cassa/DocumentScanner'
@@ -107,6 +107,14 @@ interface Props {
   // state salvate (o, per un doppione, riconosciute come tali).
   onFinished: () => void
   onCancel: () => void
+  // Ri-scansione di una fattura già salvata (Fatture → Visualizza →
+  // Ri-scansiona): invece di far scegliere pagine nuove, riparte
+  // direttamente dalle foto già su storage di quella fattura e salta
+  // alla revisione. In questa modalità il componente non deve MAI
+  // toccare lo storage delle foto (né per un doppione né annullando):
+  // appartengono già alla fattura esistente, a differenza del flusso
+  // normale dove restano "orfane" finché non si salva.
+  rescan?: { fatturaId: string; fotoPaths: string[] }
 }
 
 // Cattura multi-pagina + pipeline di estrazione/matching (Task 1). Non
@@ -115,10 +123,10 @@ interface Props {
 // Un caricamento può contenere più fatture distinte insieme (anche di
 // fornitori diversi): l'estrazione le separa già, qui si rivedono e
 // salvano una alla volta con uno stepper "Fattura N di M".
-export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onFinished, onCancel }: Props) {
+export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onFinished, onCancel, rescan }: Props) {
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
-  const [status, setStatus] = useState<'capturing' | 'processing' | 'review'>('capturing')
+  const [status, setStatus] = useState<'capturing' | 'processing' | 'review'>(rescan ? 'processing' : 'capturing')
   // Solo per il messaggio mostrato durante 'processing' — il caricamento
   // foto è rapido, la lettura AI no, distinguerli evita che un'attesa
   // lunga sembri bloccata sul passo sbagliato.
@@ -159,6 +167,41 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // Foto appena scattata, in attesa del ritaglio prospettico: finché è
   // valorizzata lo scanner prende il posto della griglia delle pagine.
   const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
+
+  const rescanAvviata = useRef(false)
+  useEffect(() => {
+    if (!rescan || rescanAvviata.current) return
+    rescanAvviata.current = true
+    avviaRiscansione(rescan.fotoPaths, rescan.fatturaId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rescan])
+
+  async function avviaRiscansione(fotoPaths: string[], fatturaId: string) {
+    setFaseElaborazione('lettura')
+    setError(null)
+    try {
+      const res = await fetch('/api/cassa/fatture/estrai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths, exclude_fattura_id: fatturaId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        setError(
+          data?.error ??
+          (res.status === 504
+            ? 'La lettura ha superato il tempo massimo. Riprova più tardi.'
+            : `Errore nella lettura della fattura (codice ${res.status}).`)
+        )
+        return
+      }
+      setResults(data.fatture ?? [])
+      setCurrentIndex(0)
+      setStatus('review')
+    } catch {
+      setError('Errore di rete, riprova')
+    }
+  }
 
   async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -334,8 +377,10 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   function avanti() {
     // Un doppione non ha (né avrà mai) una riga fatture che referenzi
     // queste foto: senza pulirle qui restano per sempre nel bucket, non
-    // raggiungibili da nessun'altra parte dell'app.
-    if (current?.duplicato && current.foto_paths.length > 0) {
+    // raggiungibili da nessun'altra parte dell'app. Non vale per una
+    // ri-scansione: le foto sono già quelle della fattura esistente,
+    // vanno preservate qualunque sia l'esito.
+    if (!rescan && current?.duplicato && current.foto_paths.length > 0) {
       createClient().storage.from('fatture_foto').remove(current.foto_paths).catch(() => {})
     }
     if (ultimaDelBatch) { onFinished(); return }
@@ -355,11 +400,14 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // questa fattura e di quelle non ancora raggiunte nel batch sono già
   // su storage ma non verranno mai salvate — le fatture precedenti del
   // batch sono già state gestite (salvate, o ripulite se doppioni) da
-  // avanti(), quindi non rientrano qui.
+  // avanti(), quindi non rientrano qui. In una ri-scansione le foto sono
+  // invece quelle della fattura esistente: annullare non deve toccarle.
   function annullaRevisione() {
-    const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
-    if (daRimuovere.length > 0) {
-      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
+    if (!rescan) {
+      const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
+      if (daRimuovere.length > 0) {
+        createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
+      }
     }
     onCancel()
   }
@@ -584,6 +632,26 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
               ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</>
               : ultimaDelBatch ? 'Salva fattura' : 'Salva e continua'}
           </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // In ri-scansione non c'è mai una griglia di pagine da mostrare: si
+  // parte già in 'processing' e si arriva o alla revisione sopra, o qui
+  // (in attesa, o con un errore) — mai alla schermata di cattura sotto,
+  // pensata per foto ancora da scegliere/caricare.
+  if (rescan && status !== 'review') {
+    return (
+      <div className="space-y-4">
+        {status === 'processing' && !error && (
+          <p className="text-sm text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Lettura del documento in corso, può richiedere qualche decina di secondi…
+          </p>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end pt-2">
+          <Button type="button" variant="outline" onClick={onCancel}>{error ? 'Chiudi' : 'Annulla'}</Button>
         </div>
       </div>
     )

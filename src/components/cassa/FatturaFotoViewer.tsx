@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Loader2, FileText } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Loader2, FileText, RotateCw } from 'lucide-react'
 
 const BUCKET = 'fatture_foto'
 
@@ -11,6 +12,10 @@ interface Props {
   onOpenChange: (open: boolean) => void
   fotoPaths: string[]
   title: string
+  // Presente solo quando la fattura è ancora modificabile (Fatture, non
+  // usato altrove): rilegge le stesse foto da capo, per quando la prima
+  // lettura ha sbagliato fornitore, importi o articoli.
+  onRescan?: () => void
 }
 
 // Foto originali di una fattura, una sotto l'altra (Task 3) — stessa
@@ -18,7 +23,7 @@ interface Props {
 // (CassaFileViewer), ma qui niente da generare lato server: solo URL
 // firmati sul bucket privato fatture_foto, come già fatto per le foto di
 // timbratura fallback.
-export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title }: Props) {
+export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onRescan }: Props) {
   const [urls, setUrls] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,6 +50,12 @@ export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title }: Prop
         <DialogHeader>
           <DialogTitle className="cassa-display text-lg">{title}</DialogTitle>
         </DialogHeader>
+
+        {onRescan && fotoPaths.length > 0 && (
+          <Button type="button" variant="outline" size="sm" className="self-end" onClick={onRescan}>
+            <RotateCw className="w-3.5 h-3.5" /> Ri-scansiona documento
+          </Button>
+        )}
 
         <div className="flex-1 space-y-3 overflow-y-auto">
           {error && <p className="text-sm text-destructive">Errore nel caricamento delle foto: {error}</p>}

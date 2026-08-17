@@ -105,6 +105,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
   const [uploadRestaurantId, setUploadRestaurantId] = useState(restaurants[0]?.id ?? '')
   const [captureMode, setCaptureMode] = useState<'file' | 'scan'>('scan')
   const [viewer, setViewer] = useState<Riga | null>(null)
+  const [rescanTarget, setRescanTarget] = useState<Riga | null>(null)
 
   function openUpload(mode: 'file' | 'scan') {
     // Se il filtro locali è su un solo ristorante, precompila quello nel
@@ -271,6 +272,24 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
     load()
   }
 
+  // Ri-scansione (Visualizza → Ri-scansiona): sostituisce i dati della
+  // fattura esistente invece di crearne una nuova — stesse foto, stesso
+  // id, stesso motivo per cui /sostituisci esiste come route separata da
+  // /salva invece di riusarla con un flag.
+  async function handleRescanComplete(fattura: FatturaRisolta) {
+    if (!rescanTarget) return
+    const res = await fetch('/api/cassa/fatture/sostituisci', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fattura_id: rescanTarget.id, restaurant_id: rescanTarget.restaurant_id, ...fattura }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
+    }
+    load()
+  }
+
   // Modifica anagrafica di una fattura già caricata (fornitore, numero
   // documento, data, categoria per le spese dirette) — non gli articoli
   // né i totali, che restano ricalcolati dal trigger su fatture_articoli/
@@ -318,7 +337,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
       })
       if (fornitoreErr) {
         setEditSaving(false)
-        setEditError(friendlySaveError(fornitoreErr))
+        setEditError(fornitoreErr.code === '23505' ? 'Esiste già una fattura con questo numero per il nuovo fornitore.' : friendlySaveError(fornitoreErr))
         return
       }
     }
@@ -563,7 +582,27 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
         onOpenChange={open => { if (!open) setViewer(null) }}
         fotoPaths={viewer?.foto_paths ?? []}
         title={viewer ? `${viewer.fornitore_nome} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
+        onRescan={viewer ? () => { setRescanTarget(viewer); setViewer(null) } : undefined}
       />
+
+      <Dialog open={!!rescanTarget} onOpenChange={open => { if (!open) setRescanTarget(null) }}>
+        <DialogContent className="cassa cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Ri-scansiona documento</DialogTitle>
+          </DialogHeader>
+          {rescanTarget && (
+            <FatturaCapture
+              restaurantId={rescanTarget.restaurant_id}
+              categorieDirette={categorieDirette}
+              initialMode="file"
+              rescan={{ fatturaId: rescanTarget.id, fotoPaths: rescanTarget.foto_paths }}
+              onComplete={handleRescanComplete}
+              onFinished={() => setRescanTarget(null)}
+              onCancel={() => setRescanTarget(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
         <DialogContent className="cassa cassa-perforated-top">
