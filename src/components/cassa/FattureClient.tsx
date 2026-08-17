@@ -482,8 +482,8 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium">Fornitore</th>
-                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Data</th>
+                    <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-3 pl-1 font-medium max-w-28 sm:max-w-56">Fornitore</th>
+                    <th className="py-2 pr-4 pl-3 font-medium whitespace-nowrap">Data</th>
                     <th className="py-2 pr-4 font-medium whitespace-nowrap">Doc.</th>
                     <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Netto</th>
                     <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">IVA</th>
@@ -503,13 +503,13 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                     ).sort((a, b) => b[0] - a[0])
                     return (
                       <tr key={r.id} className="border-b border-border last:border-0">
-                        <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium max-w-56 truncate" title={r.fornitore_nome}>
+                        <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-3 pl-1 font-medium max-w-28 sm:max-w-56 whitespace-normal break-words align-top">
                           {r.fornitore_nome}
                         </td>
-                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap">{dataLabel}</td>
-                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap text-muted-foreground">{r.numero_documento}</td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {r.totale_netto.toFixed(2)}</td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">
+                        <td className="cassa-numeric py-2 pr-4 pl-3 whitespace-nowrap align-top">{dataLabel}</td>
+                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap text-muted-foreground align-top">{r.numero_documento}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">€ {r.totale_netto.toFixed(2)}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">
                           {ivaPerAliquota.length > 0 ? (
                             <div className="space-y-0.5">
                               {ivaPerAliquota.map(([aliquota, iva]) => (
@@ -522,11 +522,11 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                             <>€ {r.totale_iva.toFixed(2)}</>
                           )}
                         </td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium">€ {r.totale_lordo.toFixed(2)}</td>
-                        <td className="py-2 pr-4 whitespace-nowrap">
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">€ {r.totale_lordo.toFixed(2)}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap align-top">
                           <Badge variant="secondary">{r.ha_articoli ? 'articoli' : r.categoria_diretta_nome ?? 'spesa diretta'}</Badge>
                         </td>
-                        <td className="py-2">
+                        <td className="py-2 align-top">
                           <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                             <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
                               <Eye className="w-4 h-4" />
