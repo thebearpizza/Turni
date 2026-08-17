@@ -643,7 +643,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Dialog>
 
       <Dialog open={!!drill} onOpenChange={open => { if (!open) setDrill(null) }}>
-        <DialogContent className="cassa cassa-perforated-top max-h-[80vh] overflow-y-auto">
+        <DialogContent className="cassa cassa-perforated-top max-h-[80vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">{drill ? DRILL_LABELS[drill] : ''}</DialogTitle>
           </DialogHeader>
@@ -653,14 +653,14 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
             ) : (
               <div className="divide-y divide-border">
                 {fatturePerCategoriaDiretta[drill].map(r => (
-                  <div key={r.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div key={r.id} className="flex items-start justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{r.fornitore_nome}</p>
+                      <p className="text-sm font-medium break-words">{r.fornitore_nome}</p>
                       <p className="text-xs text-muted-foreground">
                         Doc. {r.numero_documento} · {formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
                       </p>
                     </div>
-                    <p className="cassa-numeric text-sm font-medium shrink-0">€ {r.totale_netto.toFixed(2)}</p>
+                    <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {r.totale_netto.toFixed(2)}</p>
                   </div>
                 ))}
               </div>
@@ -671,14 +671,14 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
             ) : (
               <div className="divide-y divide-border">
                 {prodottiPerTipologia[drill].map(p => (
-                  <div key={`${p.nome}::${p.fornitore}`} className="flex items-center justify-between gap-3 py-2.5">
+                  <div key={`${p.nome}::${p.fornitore}`} className="flex items-start justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{p.nome}</p>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-sm font-medium break-words">{p.nome}</p>
+                      <p className="text-xs text-muted-foreground break-words">
                         {p.fornitore} · {p.quantita % 1 === 0 ? p.quantita : p.quantita.toFixed(2)}{p.unita ? ` ${p.unita}` : ''}
                       </p>
                     </div>
-                    <p className="cassa-numeric text-sm font-medium shrink-0">€ {p.totale.toFixed(2)}</p>
+                    <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {p.totale.toFixed(2)}</p>
                   </div>
                 ))}
               </div>
