@@ -25,10 +25,10 @@ export async function POST(request: Request) {
   const body = await request.json()
   const {
     fattura_id, restaurant_id, fornitore, numero_documento, data, ha_articoli,
-    categoria_spesa_diretta_id, verifiche_sospette, iva_dettaglio, articoli,
+    categoria_spesa_diretta_id, verifiche_sospette, iva_dettaglio, articoli, foto_paths,
   } = body ?? {}
 
-  if (!fattura_id || !restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio)) {
+  if (!fattura_id || !restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio) || !Array.isArray(foto_paths) || foto_paths.length === 0) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
   }
   if (!ha_articoli && !categoria_spesa_diretta_id) {
@@ -111,6 +111,7 @@ export async function POST(request: Request) {
     p_verifiche_sospette: verifiche_sospette ?? [],
     p_iva_dettaglio: iva_dettaglio,
     p_articoli: risolti,
+    p_foto_paths: foto_paths,
   })
 
   if (error) {

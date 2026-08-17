@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Camera, Upload, X, Loader2, AlertTriangle, FileText } from 'lucide-react'
+import { Camera, Upload, X, Loader2, AlertTriangle, FileText, Crop } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta } from '@/types'
 
@@ -108,12 +108,17 @@ interface Props {
   onFinished: () => void
   onCancel: () => void
   // Ri-scansione di una fattura già salvata (Fatture → Visualizza →
-  // Ri-scansiona): invece di far scegliere pagine nuove, riparte
-  // direttamente dalle foto già su storage di quella fattura e salta
-  // alla revisione. In questa modalità il componente non deve MAI
-  // toccare lo storage delle foto (né per un doppione né annullando):
-  // appartengono già alla fattura esistente, a differenza del flusso
-  // normale dove restano "orfane" finché non si salva.
+  // Ri-scansiona): precompila la griglia pagine scaricando le foto già
+  // su storage di quella fattura, invece di partire vuota — i
+  // collaboratori non sempre le ritagliano bene, quindi restano
+  // modificabili come una normale cattura (rimuovi, ri-ritaglia,
+  // aggiungine di nuove) prima di rileggerle. Da qui in poi il
+  // componente si comporta esattamente come il flusso normale: le foto
+  // mostrate sono copie scaricate in memoria, non ancora ricaricate su
+  // storage, quindi le stesse regole di pulizia (doppione, annulla)
+  // restano valide invariate. Solo /estrai riceve in più l'id della
+  // fattura da escludere dal controllo doppioni (altrimenti risulterebbe
+  // sempre duplicata di se stessa).
   rescan?: { fatturaId: string; fotoPaths: string[] }
 }
 
@@ -167,39 +172,37 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // Foto appena scattata, in attesa del ritaglio prospettico: finché è
   // valorizzata lo scanner prende il posto della griglia delle pagine.
   const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
+  // Non null quando lo scanner sta ri-ritagliando una pagina GIÀ in
+  // griglia (invece di aggiungerne una nuova): l'indice dice a
+  // confermaRitaglio se sostituire quella pagina o accodarne una.
+  const [ritagliaIndice, setRitagliaIndice] = useState<number | null>(null)
 
-  const rescanAvviata = useRef(false)
+  const rescanCaricato = useRef(false)
   useEffect(() => {
-    if (!rescan || rescanAvviata.current) return
-    rescanAvviata.current = true
-    avviaRiscansione(rescan.fotoPaths, rescan.fatturaId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!rescan || rescanCaricato.current) return
+    rescanCaricato.current = true
+    caricaFotoEsistenti(rescan.fotoPaths)
   }, [rescan])
 
-  async function avviaRiscansione(fotoPaths: string[], fatturaId: string) {
-    setFaseElaborazione('lettura')
-    setError(null)
+  // Precompila la griglia scaricando le foto già su storage della
+  // fattura — da qui in poi sono normalissime pagine locali, non ancora
+  // ricaricate: possono essere rimosse, ri-ritagliate o affiancate da
+  // altre prima di "Elabora", esattamente come una cattura da zero.
+  async function caricaFotoEsistenti(fotoPaths: string[]) {
+    const supabase = createClient()
     try {
-      const res = await fetch('/api/cassa/fatture/estrai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths, exclude_fattura_id: fatturaId }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data) {
-        setError(
-          data?.error ??
-          (res.status === 504
-            ? 'La lettura ha superato il tempo massimo. Riprova più tardi.'
-            : `Errore nella lettura della fattura (codice ${res.status}).`)
-        )
-        return
+      for (const path of fotoPaths) {
+        const { data: blob, error: downloadErr } = await supabase.storage.from('fatture_foto').download(path)
+        if (downloadErr || !blob) throw downloadErr ?? new Error('Foto non trovata')
+        const ext = path.split('.').pop() ?? 'jpg'
+        const file = new File([blob], `pagina-esistente.${ext}`, { type: blob.type || 'image/jpeg' })
+        setPages(prev => [...prev, file])
+        setPreviews(prev => [...prev, URL.createObjectURL(file)])
       }
-      setResults(data.fatture ?? [])
-      setCurrentIndex(0)
-      setStatus('review')
-    } catch {
-      setError('Errore di rete, riprova')
+      setStatus('capturing')
+    } catch (err) {
+      setError(err instanceof Error ? `Errore nel recupero delle foto esistenti: ${err.message}` : 'Errore nel recupero delle foto esistenti')
+      setStatus('capturing')
     }
   }
 
@@ -232,6 +235,30 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     }
     setPages(prev => [...prev, compressed])
     setPreviews(prev => [...prev, URL.createObjectURL(compressed)])
+  }
+
+  // Ri-ritaglia una pagina già in griglia (tipicamente una foto esistente
+  // di una ri-scansione, mal ritagliata dal collaboratore) invece di
+  // accodarne una nuova: stessa posizione, stesso indice, solo l'immagine
+  // cambia.
+  function ricroppaPagina(i: number) {
+    setRitagliaIndice(i)
+    setDaRitagliare(pages[i])
+  }
+
+  async function sostituisciPagina(i: number, file: File) {
+    setDaRitagliare(null)
+    setRitagliaIndice(null)
+    let compressed = file
+    if (file.type.startsWith('image/')) {
+      try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
+    }
+    setPages(prev => prev.map((p, idx) => idx === i ? compressed : p))
+    setPreviews(prev => prev.map((src, idx) => {
+      if (idx !== i) return src
+      URL.revokeObjectURL(src)
+      return URL.createObjectURL(compressed)
+    }))
   }
 
   function removePage(i: number) {
@@ -280,7 +307,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
       const res = await fetch('/api/cassa/fatture/estrai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths }),
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths, exclude_fattura_id: rescan?.fatturaId }),
       })
 
       // Una funzione terminata dalla piattaforma (timeout) risponde con
@@ -377,10 +404,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   function avanti() {
     // Un doppione non ha (né avrà mai) una riga fatture che referenzi
     // queste foto: senza pulirle qui restano per sempre nel bucket, non
-    // raggiungibili da nessun'altra parte dell'app. Non vale per una
-    // ri-scansione: le foto sono già quelle della fattura esistente,
-    // vanno preservate qualunque sia l'esito.
-    if (!rescan && current?.duplicato && current.foto_paths.length > 0) {
+    // raggiungibili da nessun'altra parte dell'app. Vale anche in
+    // ri-scansione: current.foto_paths qui sono SEMPRE quelle appena
+    // ricaricate da handleElabora, mai le originali della fattura (che
+    // restano intoccate finché il salvataggio non le sostituisce).
+    if (current?.duplicato && current.foto_paths.length > 0) {
       createClient().storage.from('fatture_foto').remove(current.foto_paths).catch(() => {})
     }
     if (ultimaDelBatch) { onFinished(); return }
@@ -400,14 +428,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   // questa fattura e di quelle non ancora raggiunte nel batch sono già
   // su storage ma non verranno mai salvate — le fatture precedenti del
   // batch sono già state gestite (salvate, o ripulite se doppioni) da
-  // avanti(), quindi non rientrano qui. In una ri-scansione le foto sono
-  // invece quelle della fattura esistente: annullare non deve toccarle.
+  // avanti(), quindi non rientrano qui. Vale anche in ri-scansione, per
+  // lo stesso motivo di avanti() sopra.
   function annullaRevisione() {
-    if (!rescan) {
-      const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
-      if (daRimuovere.length > 0) {
-        createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
-      }
+    const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
+    if (daRimuovere.length > 0) {
+      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
     }
     onCancel()
   }
@@ -637,38 +663,23 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     )
   }
 
-  // In ri-scansione non c'è mai una griglia di pagine da mostrare: si
-  // parte già in 'processing' e si arriva o alla revisione sopra, o qui
-  // (in attesa, o con un errore) — mai alla schermata di cattura sotto,
-  // pensata per foto ancora da scegliere/caricare.
-  if (rescan && status !== 'review') {
-    return (
-      <div className="space-y-4">
-        {status === 'processing' && !error && (
-          <p className="text-sm text-muted-foreground flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" /> Lettura del documento in corso, può richiedere qualche decina di secondi…
-          </p>
-        )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end pt-2">
-          <Button type="button" variant="outline" onClick={onCancel}>{error ? 'Chiudi' : 'Annulla'}</Button>
-        </div>
-      </div>
-    )
-  }
-
   if (daRitagliare) {
     return (
       <DocumentScanner
         file={daRitagliare}
-        onConfirm={aggiungiPagina}
-        onCancel={() => setDaRitagliare(null)}
+        onConfirm={file => ritagliaIndice !== null ? sostituisciPagina(ritagliaIndice, file) : aggiungiPagina(file)}
+        onCancel={() => { setDaRitagliare(null); setRitagliaIndice(null) }}
       />
     )
   }
 
   return (
     <div className="space-y-4">
+      {rescan && (
+        <p className="text-xs text-muted-foreground">
+          Foto già caricate — ritagliale di nuovo (icona di ritaglio su ogni foto) o sostituiscile prima di rileggere il documento.
+        </p>
+      )}
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
         {previews.map((src, i) => {
           const isPdf = pages[i]?.type === 'application/pdf'
@@ -689,6 +700,16 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
                 <img src={src} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
               )}
               <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{i + 1}</span>
+              {!isPdf && initialMode === 'scan' && (
+                <button
+                  type="button"
+                  onClick={() => ricroppaPagina(i)}
+                  title="Ritaglia di nuovo"
+                  className="absolute bottom-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                >
+                  <Crop className="h-3 w-3" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => removePage(i)}

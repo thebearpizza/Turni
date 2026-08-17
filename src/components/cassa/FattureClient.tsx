@@ -278,6 +278,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
   // /salva invece di riusarla con un flag.
   async function handleRescanComplete(fattura: FatturaRisolta) {
     if (!rescanTarget) return
+    const vecchiFotoPaths = rescanTarget.foto_paths
     const res = await fetch('/api/cassa/fatture/sostituisci', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -286,6 +287,15 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
     if (!res.ok) {
       const data = await res.json().catch(() => null)
       throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
+    }
+    // La sostituzione ha già scritto le nuove foto (fattura.foto_paths)
+    // sulla riga: le vecchie non sono più referenziate da nessuna parte,
+    // vanno ripulite — best-effort, non deve far fallire un salvataggio
+    // già andato a buon fine.
+    const nuovi = new Set(fattura.foto_paths)
+    const daRimuovere = vecchiFotoPaths.filter(p => !nuovi.has(p))
+    if (daRimuovere.length > 0) {
+      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
     }
     load()
   }
@@ -594,7 +604,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
             <FatturaCapture
               restaurantId={rescanTarget.restaurant_id}
               categorieDirette={categorieDirette}
-              initialMode="file"
+              initialMode="scan"
               rescan={{ fatturaId: rescanTarget.id, fotoPaths: rescanTarget.foto_paths }}
               onComplete={handleRescanComplete}
               onFinished={() => setRescanTarget(null)}
