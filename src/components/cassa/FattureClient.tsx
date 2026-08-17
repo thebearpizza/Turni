@@ -34,7 +34,6 @@ interface Props {
   restaurants: RestaurantOption[]
   categorieDirette: Array<{ id: string; nome: string }>
   fornitori: FornitoreOption[]
-  userId: string
 }
 
 interface ArticoloRiga {
@@ -96,7 +95,7 @@ function monthRange(month: string): { start: string; end: string } {
   return { start, end }
 }
 
-export function FattureClient({ role, restaurants, categorieDirette, fornitori, userId }: Props) {
+export function FattureClient({ role, restaurants, categorieDirette, fornitori }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [righe, setRighe] = useState<Riga[]>([])
@@ -335,32 +334,20 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
     setEditError(null)
     const supabase = createClient()
 
-    // Cambiare fornitore non è solo un campo su fatture: i prodotti di
-    // questa fattura restano a catalogo sotto il vecchio fornitore finché
-    // non li si sposta esplicitamente — la RPC gestisce quel riaggancio
-    // (compresi eventuali duplicati/orfani), quindi va chiamata PRIMA
-    // dell'update sotto, che aggiorna gli altri campi ma non fornitore_id.
-    if (editFornitoreId !== editing.fornitore_id) {
-      const { error: fornitoreErr } = await supabase.rpc('cambia_fornitore_fattura', {
-        p_fattura_id: editing.id,
-        p_nuovo_fornitore_id: editFornitoreId,
-      })
-      if (fornitoreErr) {
-        setEditSaving(false)
-        setEditError(fornitoreErr.code === '23505' ? 'Esiste già una fattura con questo numero per il nuovo fornitore.' : friendlySaveError(fornitoreErr))
-        return
-      }
-    }
-
-    const { error } = await supabase
-      .from('fatture')
-      .update({
-        numero_documento: editNumeroDocumento.trim(),
-        data: editData,
-        ...(editing.ha_articoli ? {} : { categoria_spesa_diretta_id: editCategoriaId }),
-        updated_by: userId,
-      })
-      .eq('id', editing.id)
+    // Un'unica RPC per tutti i campi invece di due passaggi separati
+    // (prima il fornitore, poi il resto): lo stato INTERMEDIO che ne
+    // risultava — nuovo fornitore ma numero documento ancora quello
+    // vecchio — poteva violare da solo il vincolo unique anche quando lo
+    // stato finale scelto dall'utente sarebbe stato perfettamente valido
+    // (falso "esiste già" anche con un numero mai usato). La RPC gestisce
+    // anche il riaggancio dei prodotti al nuovo fornitore quando cambia.
+    const { error } = await supabase.rpc('cambia_fornitore_fattura', {
+      p_fattura_id: editing.id,
+      p_nuovo_fornitore_id: editFornitoreId,
+      p_numero_documento: editNumeroDocumento.trim(),
+      p_data: editData,
+      p_categoria_spesa_diretta_id: editing.ha_articoli ? null : editCategoriaId,
+    })
     setEditSaving(false)
     if (error) {
       setEditError(error.code === '23505' ? 'Esiste già una fattura con questo numero per questo fornitore.' : friendlySaveError(error))
@@ -578,6 +565,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
             <FatturaCapture
               restaurantId={uploadRestaurantId}
               categorieDirette={categorieDirette}
+              fornitori={fornitori}
               initialMode={captureMode}
               onComplete={handleUploadComplete}
               onFinished={() => setUploadOpen(false)}
@@ -604,6 +592,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
             <FatturaCapture
               restaurantId={rescanTarget.restaurant_id}
               categorieDirette={categorieDirette}
+              fornitori={fornitori}
               initialMode="scan"
               rescan={{ fatturaId: rescanTarget.id, fotoPaths: rescanTarget.foto_paths }}
               onComplete={handleRescanComplete}

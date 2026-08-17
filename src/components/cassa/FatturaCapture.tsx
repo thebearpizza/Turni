@@ -92,6 +92,9 @@ export interface FatturaRisolta {
 interface Props {
   restaurantId: string
   categorieDirette: Array<{ id: string; nome: string }>
+  // Per poter correggere il fornitore in revisione quando l'OCR l'ha
+  // letto male — stesso problema che rende utile la Ri-scansione.
+  fornitori: Array<{ id: string; nome: string }>
   // 'scan' = fotocamera + ritaglio prospettico (DocumentScanner), per un
   // documento cartaceo davanti all'utente. 'file' = selezione diretta da
   // file/galleria, multipla: si presume già un'immagine del documento
@@ -128,7 +131,7 @@ interface Props {
 // Un caricamento può contenere più fatture distinte insieme (anche di
 // fornitori diversi): l'estrazione le separa già, qui si rivedono e
 // salvano una alla volta con uno stepper "Fattura N di M".
-export function FatturaCapture({ restaurantId, categorieDirette, initialMode, onComplete, onFinished, onCancel, rescan }: Props) {
+export function FatturaCapture({ restaurantId, categorieDirette, fornitori, initialMode, onComplete, onFinished, onCancel, rescan }: Props) {
   const [pages, setPages] = useState<File[]>([])
   const [previews, setPreviews] = useState<string[]>([])
   const [status, setStatus] = useState<'capturing' | 'processing' | 'review'>(rescan ? 'processing' : 'capturing')
@@ -153,6 +156,10 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   const [prezziModificati, setPrezziModificati] = useState<Map<number, number>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
+  // Fornitore corretto a mano in revisione — l'OCR può leggerlo sbagliato
+  // tanto quanto data/numero documento. null finché l'utente non lo
+  // tocca: si parte dal fornitore risolto dal server.
+  const [fornitoreEditato, setFornitoreEditato] = useState<{ id: string; nome: string } | null>(null)
   // Data/numero documento corretti a mano in revisione — l'OCR può non
   // leggerli affatto (es. un DDT compilato a mano), e senza un modo di
   // inserirli qui la fattura non sarebbe più salvabile (salva/route.ts
@@ -336,19 +343,24 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     }
   }
 
+  // Fornitore effettivamente in uso per la fattura corrente: quello
+  // corretto a mano se l'utente l'ha cambiato, altrimenti quello risolto
+  // dal server.
+  const fornitoreEffettivo = fornitoreEditato ?? current?.fornitore ?? null
+
   // Solo per la decisione 'stesso': l'id catalogo è già noto (il
   // candidato suggerito), qui si registra solo la mappatura testo→id e si
   // controlla lo scostamento prezzo — nessun rischio di lasciare un
   // articolo orfano, quindi resta immediato (rete) invece che rimandato.
   async function confermaStesso(articolo: ArticoloEstratto) {
-    if (!current) return
+    if (!current || !fornitoreEffettivo) return
     try {
       const res = await fetch('/api/cassa/fatture/conferma-articolo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurant_id: restaurantId,
-          fornitore_id: current.fornitore.id,
+          fornitore_id: fornitoreEffettivo.id,
           testo_estratto: articolo.testo_estratto,
           decisione: 'stesso',
           catalogo_articolo_id: articolo.catalogo_articolo_id,
@@ -365,6 +377,13 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   }
 
   function risoltoInfo(a: ArticoloEstratto): { catalogoArticoloId: string; sospetto: VerificaSospetta | null } | null {
+    // L'abbinamento 'auto_mappato'/'chiaro' che arriva da current.articoli
+    // è stato risolto dal server contro il catalogo del fornitore
+    // ORIGINALE: se l'utente lo corregge in revisione, quell'abbinamento
+    // punterebbe a un articolo del fornitore sbagliato — va ignorato,
+    // l'articolo torna "nuovo" finché non viene confermato di nuovo (col
+    // fornitore giusto, tramite confermaStesso qui sopra).
+    if (current && fornitoreEditato && fornitoreEditato.id !== current.fornitore.id) return null
     if (a.esito === 'auto_mappato' || a.esito === 'chiaro') {
       if (rifiutati.has(a.testo_estratto)) return null
       return a.catalogo_articolo_id ? { catalogoArticoloId: a.catalogo_articolo_id, sospetto: a.sospetto } : null
@@ -420,6 +439,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     setCategoriaDiretta('')
     setDataEditata(null)
     setNumeroDocEditato(null)
+    setFornitoreEditato(null)
     setRifiutati(new Set())
     setError(null)
   }
@@ -439,7 +459,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
   }
 
   async function handleConferma() {
-    if (!current) return
+    if (!current || !fornitoreEffettivo) return
 
     if (current.duplicato) {
       avanti()
@@ -456,7 +476,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
     try {
       await onComplete({
         foto_paths: current.foto_paths,
-        fornitore: current.fornitore,
+        fornitore: { ...fornitoreEffettivo, partita_iva: fornitoreEditato ? null : current.fornitore.partita_iva },
         data: dataEffettiva,
         numero_documento: numeroDocEffettivo,
         ha_articoli: current.fattura.ha_articoli,
@@ -510,7 +530,32 @@ export function FatturaCapture({ restaurantId, categorieDirette, initialMode, on
       <div className="space-y-4">
         {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
         <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
-          <div><span className="text-muted-foreground">Fornitore</span> <strong>{current.fornitore.nome}</strong>{current.fornitore.nuovo && <Badge variant="secondary" className="ml-2">nuovo</Badge>}</div>
+          <div className="space-y-1">
+            <Label className="text-xs font-normal">Fornitore</Label>
+            <div className="flex items-center gap-2">
+              <Select
+                value={fornitoreEffettivo?.id ?? ''}
+                onValueChange={id => {
+                  const f = fornitori.find(x => x.id === id)
+                  if (!f) return
+                  setFornitoreEditato({ id: f.id, nome: f.nome })
+                  setResolved(new Map())
+                  setNuoviModificati(new Map())
+                  setRifiutati(new Set())
+                  setConfirmingIndex(null)
+                }}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {!fornitori.some(f => f.id === current.fornitore.id) && (
+                    <SelectItem value={current.fornitore.id}>{current.fornitore.nome} (nuovo)</SelectItem>
+                  )}
+                  {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {!fornitoreEditato && current.fornitore.nuovo && <Badge variant="secondary">nuovo</Badge>}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2 pt-1">
             <div className="space-y-1">
               <Label className={cn('text-xs font-normal', (verificheFattura.some(v => v.campo === 'data') || !dataEffettiva) && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</Label>

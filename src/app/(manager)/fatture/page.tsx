@@ -27,7 +27,7 @@ export default async function FattureTurniPage() {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="text-xl font-semibold tracking-tight">Fatture</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
-      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} userId={user.id} />
+      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
     </div>
   )
 }

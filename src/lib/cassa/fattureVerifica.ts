@@ -11,6 +11,14 @@ export const SOGLIA_SCOSTAMENTO_PREZZO = 0.20
 
 // Data fuori da un intervallo plausibile: futura, o troppo nel passato.
 export function verificaData(data: string, sogliaGiorniPassato = SOGLIA_GIORNI_PASSATO): VerificaSospetta | null {
+  // Nessuna data letta su nessuna pagina (primoValorizzato in
+  // fattureExtraction.ts ritorna '' in quel caso) — senza questo
+  // controllo il confronto lessicale sotto tratterebbe la stringa vuota
+  // come "più di N giorni nel passato", un messaggio fuorviante: il
+  // problema non è che la data sia vecchia, è che non è stata trovata.
+  if (!data) {
+    return { campo: 'data', messaggio: 'Data non trovata sul documento: inseriscila manualmente.' }
+  }
   const oggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   if (data > oggi) {
     return { campo: 'data', messaggio: 'La data è nel futuro.' }

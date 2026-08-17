@@ -24,7 +24,7 @@ export default async function FatturePage() {
       <div className="p-6 lg:p-8 max-w-4xl mx-auto">
         <h1 className="cassa-display text-2xl">Fatture</h1>
         <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate, per mese e ristorante.</p>
-        <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} userId={user.id} />
+        <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
       </div>
     )
   }
@@ -37,7 +37,7 @@ export default async function FatturePage() {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="cassa-display text-2xl">Fatture</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
-      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} userId={user.id} />
+      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
     </div>
   )
 }
