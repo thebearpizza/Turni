@@ -305,10 +305,27 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori, 
     setEditSaving(true)
     setEditError(null)
     const supabase = createClient()
+
+    // Cambiare fornitore non è solo un campo su fatture: i prodotti di
+    // questa fattura restano a catalogo sotto il vecchio fornitore finché
+    // non li si sposta esplicitamente — la RPC gestisce quel riaggancio
+    // (compresi eventuali duplicati/orfani), quindi va chiamata PRIMA
+    // dell'update sotto, che aggiorna gli altri campi ma non fornitore_id.
+    if (editFornitoreId !== editing.fornitore_id) {
+      const { error: fornitoreErr } = await supabase.rpc('cambia_fornitore_fattura', {
+        p_fattura_id: editing.id,
+        p_nuovo_fornitore_id: editFornitoreId,
+      })
+      if (fornitoreErr) {
+        setEditSaving(false)
+        setEditError(friendlySaveError(fornitoreErr))
+        return
+      }
+    }
+
     const { error } = await supabase
       .from('fatture')
       .update({
-        fornitore_id: editFornitoreId,
         numero_documento: editNumeroDocumento.trim(),
         data: editData,
         ...(editing.ha_articoli ? {} : { categoria_spesa_diretta_id: editCategoriaId }),
