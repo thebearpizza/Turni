@@ -12,9 +12,11 @@ export default async function FatturePage() {
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (!profile || !(profile.role === 'manager' || isDirettore)) redirect('/cassa/chiusura')
 
-  // categorie_fatture_dirette è già scoped da RLS sull'owner corretto per
-  // entrambi i ruoli, nessun filtro esplicito necessario qui.
+  // categorie_fatture_dirette e fornitori sono già scoped da RLS
+  // sull'owner corretto per entrambi i ruoli, nessun filtro esplicito
+  // necessario qui.
   const { data: categorieDirette } = await supabase.from('categorie_fatture_dirette').select('id, nome').order('nome')
+  const { data: fornitori } = await supabase.from('fornitori').select('id, nome').order('nome')
 
   if (profile.role === 'manager') {
     const { data: restaurants } = await supabase.from('restaurants').select('id, name').order('name')
@@ -22,7 +24,7 @@ export default async function FatturePage() {
       <div className="p-6 lg:p-8 max-w-4xl mx-auto">
         <h1 className="cassa-display text-2xl">Fatture</h1>
         <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate, per mese e ristorante.</p>
-        <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} />
+        <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} userId={user.id} />
       </div>
     )
   }
@@ -35,7 +37,7 @@ export default async function FatturePage() {
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="cassa-display text-2xl">Fatture</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
-      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} />
+      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} userId={user.id} />
     </div>
   )
 }
