@@ -61,12 +61,14 @@ interface SidebarContentProps {
 function SidebarContent({ pathname, items, showNotifiche, modificheInAttesa, onNavigate, onLogout }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
-      <div className="cassa-perforated-top p-6 border-b border-border flex items-start justify-between gap-2">
-        <div>
-          <h1 className="cassa-display text-2xl">Cassa</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Gestione cassa</p>
+      <div className="cassa-perforated-top border-b border-border">
+        <div className="p-6 flex items-start justify-between gap-2">
+          <div>
+            <h1 className="cassa-display text-2xl">Cassa</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Gestione cassa</p>
+          </div>
+          {showNotifiche && <NotificationBell />}
         </div>
-        {showNotifiche && <NotificationBell />}
       </div>
 
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
