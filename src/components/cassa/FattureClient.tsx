@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CassaPill } from '@/components/cassa/CassaPill'
+import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { FornitoreMultiSelect } from '@/components/cassa/FornitoreMultiSelect'
 import { FatturaCapture, type FatturaRisolta } from '@/components/cassa/FatturaCapture'
 import { FatturaFotoViewer } from '@/components/cassa/FatturaFotoViewer'
@@ -115,10 +115,6 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     setUploadRestaurantId(daFiltro ?? restaurants[0]?.id ?? '')
     setCaptureMode(mode)
     setUploadOpen(true)
-  }
-
-  function toggleRestaurant(id: string) {
-    setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
   }
 
   const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
@@ -406,13 +402,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
           {role === 'manager' ? (
             <div className="space-y-2">
               <Label>Ristoranti</Label>
-              <div className="flex flex-wrap gap-2">
-                {restaurants.map(r => (
-                  <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
-                    {r.name}
-                  </CassaPill>
-                ))}
-              </div>
+              <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
               {selectedRestaurants.length === 0 && (
                 <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
               )}

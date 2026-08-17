@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { CassaPill } from '@/components/cassa/CassaPill'
+import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -55,10 +55,6 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
   const [righe, setRighe] = useState<Riga[]>([])
   const [loading, setLoading] = useState(true)
   const [workingId, setWorkingId] = useState<string | null>(null)
-
-  function toggleRestaurant(id: string) {
-    setSelectedRestaurants(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
-  }
 
   const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
   const targetsKey = JSON.stringify(targets)
@@ -154,13 +150,7 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
           {role === 'manager' ? (
             <div className="space-y-2">
               <Label>Ristoranti</Label>
-              <div className="flex flex-wrap gap-2">
-                {restaurants.map(r => (
-                  <CassaPill key={r.id} active={selectedRestaurants.includes(r.id)} onClick={() => toggleRestaurant(r.id)}>
-                    {r.name}
-                  </CassaPill>
-                ))}
-              </div>
+              <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
               {selectedRestaurants.length === 0 && (
                 <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
               )}

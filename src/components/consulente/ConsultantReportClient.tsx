@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { FileSpreadsheet, Download } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { getDaysInMonth, differenceInMinutes } from 'date-fns'
@@ -73,12 +74,6 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
   const [previewOre, setPreviewOre]           = useState<PreviewRow[]>([])
   const [previewLoading, setPreviewLoading]   = useState(false)
   const genRef = useRef(0)
-
-  function toggleRestaurant(id: string) {
-    setSelectedRestaurants(prev =>
-      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
-    )
-  }
 
   const effectiveRestaurants = selectedRestaurants.length > 0
     ? selectedRestaurants
@@ -239,21 +234,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
         {restaurants.length > 1 && (
           <div className="space-y-1.5">
             <Label>Ristoranti</Label>
-            <div className="flex flex-wrap gap-2">
-              {restaurants.map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => toggleRestaurant(r.id)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                    selectedRestaurants.includes(r.id)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border text-foreground hover:bg-accent'
-                  }`}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
+            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
           </div>
         )}
 

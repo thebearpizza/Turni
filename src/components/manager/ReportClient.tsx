@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FileSpreadsheet, Download, Plus, Trash2, AlertTriangle } from 'lucide-react'
 import { LoadingDots } from '@/components/shared/LoadingDots'
@@ -130,12 +131,6 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   const [editorSaving, setEditorSaving] = useState(false)
   const [editorError, setEditorError] = useState<string | null>(null)
   const [confirmDeleteAbs, setConfirmDeleteAbs] = useState(false)
-
-  function toggleRestaurant(id: string) {
-    setSelectedRestaurants(prev =>
-      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
-    )
-  }
 
   const currentTargets = useCallback((): string[] => (
     isManager
@@ -538,21 +533,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
         {isManager && restaurants.length > 0 && (
           <div className="space-y-2">
             <Label>Ristoranti (seleziona uno o più, lascia vuoto per tutti)</Label>
-            <div className="flex flex-wrap gap-2">
-              {restaurants.map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => toggleRestaurant(r.id)}
-                  className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
-                    selectedRestaurants.includes(r.id)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
-                  }`}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
+            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
             {selectedRestaurants.length > 0 && (
               <p className="text-xs text-muted-foreground">{selectedRestaurants.length} ristoranti selezionati</p>
             )}

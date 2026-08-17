@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
 import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
 import { createClient } from '@/lib/supabase/client'
@@ -164,12 +165,6 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
     setFormHours(c.can_view_hours)
     setFormError(null)
     setModalOpen(true)
-  }
-
-  function toggleFormRestaurant(id: string) {
-    setFormRestaurants(prev =>
-      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
-    )
   }
 
   async function handleSave() {
@@ -782,25 +777,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
 
             <div className="space-y-1.5">
               <Label>Ristoranti autorizzati</Label>
-              <div className="flex flex-wrap gap-2">
-                {restaurants.map(r => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => toggleFormRestaurant(r.id)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                      formRestaurants.includes(r.id)
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background border-border text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {r.name}
-                  </button>
-                ))}
-              </div>
-              {formRestaurants.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nessun ristorante selezionato</p>
-              )}
+              <RestaurantMultiSelect restaurants={restaurants} selected={formRestaurants} onChange={setFormRestaurants} emptyLabel="Nessun ristorante selezionato" />
             </div>
 
             <label className="flex items-center gap-3 cursor-pointer">
