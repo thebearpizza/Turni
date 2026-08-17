@@ -6,10 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CassaPill } from '@/components/cassa/CassaPill'
+import { FornitoreMultiSelect } from '@/components/cassa/FornitoreMultiSelect'
 import { FatturaCapture, type FatturaRisolta } from '@/components/cassa/FatturaCapture'
 import { FatturaFotoViewer } from '@/components/cassa/FatturaFotoViewer'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
@@ -97,6 +97,7 @@ function monthRange(month: string): { start: string; end: string } {
 
 export function FattureClient({ role, restaurants, categorieDirette, fornitori }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
+  const [selectedFornitori, setSelectedFornitori] = useState<string[]>([])
   const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
   const [righe, setRighe] = useState<Riga[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,9 +184,19 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     return () => { supabase.removeChannel(channel) }
   }, [load])
 
-  const kpi = righe.reduce(
+  // Filtro fornitori (menu a tendina, indipendente dal filtro ristoranti
+  // già applicato lato query): a valle del caricamento, così KPI, tabella
+  // e drill-down restano sempre coerenti fra loro senza un'altra
+  // richiesta di rete a ogni cambio di selezione.
+  const righeFiltrate = useMemo(
+    () => selectedFornitori.length > 0 ? righe.filter(r => selectedFornitori.includes(r.fornitore_id)) : righe,
+    [righe, selectedFornitori]
+  )
+
+  const kpi = righeFiltrate.reduce(
     (acc, r) => {
       acc.netto += r.totale_netto
+      acc.iva += r.totale_iva
       acc.lordo += r.totale_lordo
       if (r.ha_articoli) {
         for (const a of r.fatture_articoli) {
@@ -200,7 +211,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       }
       return acc
     },
-    { netto: 0, lordo: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
+    { netto: 0, iva: 0, lordo: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
   )
 
   // Dettaglio dietro ai KPI cliccabili: per food/beverage/no food, i
@@ -213,7 +224,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     const buckets: Record<'food' | 'beverage' | 'noFood', Map<string, ProdottoAccorpato>> = {
       food: new Map(), beverage: new Map(), noFood: new Map(),
     }
-    for (const r of righe) {
+    for (const r of righeFiltrate) {
       if (!r.ha_articoli) continue
       for (const a of r.fatture_articoli) {
         if (!a.catalogo_articolo) continue
@@ -243,12 +254,12 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       beverage: Array.from(buckets.beverage.values()).sort((a, b) => b.totale - a.totale),
       noFood: Array.from(buckets.noFood.values()).sort((a, b) => b.totale - a.totale),
     }
-  }, [righe])
+  }, [righeFiltrate])
 
   const fatturePerCategoriaDiretta = useMemo(() => ({
-    utenze: righe.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Utenze').sort((a, b) => b.totale_netto - a.totale_netto),
-    manutenzione: righe.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Manutenzione/Attrezzature').sort((a, b) => b.totale_netto - a.totale_netto),
-  }), [righe])
+    utenze: righeFiltrate.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Utenze').sort((a, b) => b.totale_netto - a.totale_netto),
+    manutenzione: righeFiltrate.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Manutenzione/Attrezzature').sort((a, b) => b.totale_netto - a.totale_netto),
+  }), [righeFiltrate])
 
   const [drill, setDrill] = useState<DrillKind | null>(null)
 
@@ -416,6 +427,11 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
           )}
 
           <div className="space-y-2">
+            <Label>Fornitori</Label>
+            <FornitoreMultiSelect fornitori={fornitori} selected={selectedFornitori} onChange={setSelectedFornitori} />
+          </div>
+
+          <div className="space-y-2">
             <Label>Mese</Label>
             <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto cassa-numeric" />
           </div>
@@ -446,6 +462,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {([
             ['Totale Netto', kpi.netto, null],
+            ['Totale IVA', kpi.iva, null],
             ['Totale Lordo', kpi.lordo, null],
             ['Totale Food', kpi.food, 'food'],
             ['Totale Beverage', kpi.beverage, 'beverage'],
@@ -475,7 +492,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                 <Skeleton key={i} className="h-9 w-full" />
               ))}
             </div>
-          ) : righe.length === 0 ? (
+          ) : righeFiltrate.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessuna fattura caricata nel mese selezionato.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -488,12 +505,11 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                     <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Netto</th>
                     <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">IVA</th>
                     <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Lordo</th>
-                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Tipo</th>
                     <th className="py-2 font-medium text-right whitespace-nowrap">Azioni</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {righe.map(r => {
+                  {righeFiltrate.map(r => {
                     const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
                     // Scomposizione per aliquota (4%, 10%, 22%...) invece di
                     // un unico totale IVA aggregato — sommata per aliquota nel
@@ -523,9 +539,6 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                           )}
                         </td>
                         <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">€ {r.totale_lordo.toFixed(2)}</td>
-                        <td className="py-2 pr-4 whitespace-nowrap align-top">
-                          <Badge variant="secondary">{r.ha_articoli ? 'articoli' : r.categoria_diretta_nome ?? 'spesa diretta'}</Badge>
-                        </td>
                         <td className="py-2 align-top">
                           <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                             <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
