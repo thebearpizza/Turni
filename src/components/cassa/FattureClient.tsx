@@ -470,74 +470,90 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6">
           {loading ? (
-            <div className="divide-y divide-border">
+            <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between gap-3 py-3">
-                  <Skeleton className="h-4 w-48" />
-                  <Skeleton className="h-8 w-8 rounded-md" />
-                </div>
+                <Skeleton key={i} className="h-9 w-full" />
               ))}
             </div>
           ) : righe.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessuna fattura caricata nel mese selezionato.</p>
           ) : (
-            <div className="divide-y divide-border">
-              {righe.map(r => {
-                const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
-                // Scomposizione per aliquota (4%, 10%, 22%...) invece di
-                // un unico totale IVA aggregato — sommata per aliquota nel
-                // caso raro di righe duplicate sulla stessa aliquota.
-                const ivaPerAliquota = Array.from(
-                  r.fatture_iva_dettaglio.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())
-                ).sort((a, b) => b[0] - a[0])
-                return (
-                  <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium flex items-center gap-2">
-                        {r.fornitore_nome} · {dataLabel}
-                        <Badge variant="secondary">{r.ha_articoli ? 'articoli' : r.categoria_diretta_nome ?? 'spesa diretta'}</Badge>
-                      </div>
-                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
-                        <span className="whitespace-nowrap">Doc. {r.numero_documento}</span>
-                        <span>·</span>
-                        <span className="whitespace-nowrap">Netto € {r.totale_netto.toFixed(2)}</span>
-                        <span>·</span>
-                        {ivaPerAliquota.length > 0 ? (
-                          ivaPerAliquota.flatMap(([aliquota, iva], idx) => [
-                            idx > 0 && <span key={`sep-${aliquota}`}>·</span>,
-                            <span key={aliquota} className="whitespace-nowrap">IVA {aliquota}% € {iva.toFixed(2)}</span>,
-                          ]).filter(Boolean)
-                        ) : (
-                          <span className="whitespace-nowrap">IVA € {r.totale_iva.toFixed(2)}</span>
-                        )}
-                        <span>·</span>
-                        <span className="whitespace-nowrap">Lordo € {r.totale_lordo.toFixed(2)}</span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Modifica" disabled={workingId === r.id} onClick={() => apriModifica(r)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      {role === 'manager' && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          title="Elimina"
-                          disabled={workingId === r.id}
-                          onClick={() => setDaEliminare(r)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium">Fornitore</th>
+                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Data</th>
+                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Doc.</th>
+                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Netto</th>
+                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">IVA</th>
+                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Lordo</th>
+                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Tipo</th>
+                    <th className="py-2 font-medium text-right whitespace-nowrap">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {righe.map(r => {
+                    const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
+                    // Scomposizione per aliquota (4%, 10%, 22%...) invece di
+                    // un unico totale IVA aggregato — sommata per aliquota nel
+                    // caso raro di righe duplicate sulla stessa aliquota.
+                    const ivaPerAliquota = Array.from(
+                      r.fatture_iva_dettaglio.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())
+                    ).sort((a, b) => b[0] - a[0])
+                    return (
+                      <tr key={r.id} className="border-b border-border last:border-0">
+                        <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium max-w-56 truncate" title={r.fornitore_nome}>
+                          {r.fornitore_nome}
+                        </td>
+                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap">{dataLabel}</td>
+                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap text-muted-foreground">{r.numero_documento}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {r.totale_netto.toFixed(2)}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">
+                          {ivaPerAliquota.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {ivaPerAliquota.map(([aliquota, iva]) => (
+                                <div key={aliquota}>
+                                  <span className="text-muted-foreground text-xs">{aliquota}%</span> € {iva.toFixed(2)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <>€ {r.totale_iva.toFixed(2)}</>
+                          )}
+                        </td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium">€ {r.totale_lordo.toFixed(2)}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap">
+                          <Badge variant="secondary">{r.ha_articoli ? 'articoli' : r.categoria_diretta_nome ?? 'spesa diretta'}</Badge>
+                        </td>
+                        <td className="py-2">
+                          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Modifica" disabled={workingId === r.id} onClick={() => apriModifica(r)}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            {role === 'manager' && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title="Elimina"
+                                disabled={workingId === r.id}
+                                onClick={() => setDaEliminare(r)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
