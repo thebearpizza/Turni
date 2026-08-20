@@ -136,6 +136,25 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
 
   const puntiPoligono = quad.map(p => `${p.x * scala},${p.y * scala}`).join(' ')
 
+  // L'area di trascinamento è più larga del pallino visibile (dita, non
+  // cursori), ma non deve mai raggiungere l'angolo più vicino: quando i
+  // quattro angoli sono vicini fra loro (documento piccolo nell'inquadratura,
+  // o due angoli trascinati quasi a coincidere) il raggio si restringe fino
+  // a un minimo pari al pallino stesso, così due aree di tocco adiacenti non
+  // si sovrappongono mai — un tocco fra due angoli vicini prende sempre e
+  // solo quello più vicino, mai un altro per errore.
+  let distanzaMinima = Infinity
+  for (let i = 0; i < quad.length; i++) {
+    for (let j = i + 1; j < quad.length; j++) {
+      distanzaMinima = Math.min(distanzaMinima, Math.hypot(
+        (quad[i].x - quad[j].x) * scala,
+        (quad[i].y - quad[j].y) * scala
+      ))
+    }
+  }
+  const raggioPallino = 14
+  const raggioTocco = Math.max(raggioPallino, Math.min(32, distanzaMinima / 2 - 2))
+
   return (
     <div className="space-y-3">
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -160,18 +179,28 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
         >
           <polygon points={puntiPoligono} fill="hsl(var(--primary) / 0.15)" stroke="hsl(var(--primary))" strokeWidth={2} />
           {quad.map((p, i) => (
-            <circle
-              key={i}
-              cx={p.x * scala}
-              cy={p.y * scala}
-              // Raggio generoso: deve restare afferrabile con un dito.
-              r={14}
-              fill="hsl(var(--primary))"
-              stroke="white"
-              strokeWidth={2}
-              style={{ cursor: 'grab' }}
-              onPointerDown={e => { e.preventDefault(); setTrascinando(i) }}
-            />
+            <g key={i}>
+              {/* Area di tocco reale: invisibile e più larga del pallino
+                  (vedi raggioTocco sopra), separata dal pallino visibile
+                  così l'una non vincola le dimensioni dell'altro. */}
+              <circle
+                cx={p.x * scala}
+                cy={p.y * scala}
+                r={raggioTocco}
+                fill="transparent"
+                style={{ cursor: 'grab' }}
+                onPointerDown={e => { e.preventDefault(); setTrascinando(i) }}
+              />
+              <circle
+                cx={p.x * scala}
+                cy={p.y * scala}
+                r={raggioPallino}
+                fill="hsl(var(--primary))"
+                stroke="white"
+                strokeWidth={2}
+                pointerEvents="none"
+              />
+            </g>
           ))}
         </svg>
       </div>
