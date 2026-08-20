@@ -646,7 +646,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Dialog>
 
       <Dialog open={!!drill} onOpenChange={open => { if (!open) setDrill(null) }}>
-        <DialogContent className="cassa cassa-perforated-top flex flex-col top-[10dvh] bottom-4 translate-y-0 sm:top-[50%] sm:bottom-auto sm:max-h-[80vh] sm:translate-y-[-50%]">
+        <DialogContent closeOnOutsideInteract className="cassa cassa-perforated-top flex flex-col top-[10dvh] bottom-4 translate-y-0 sm:top-[50%] sm:bottom-auto sm:max-h-[80vh] sm:translate-y-[-50%]">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">{drill ? DRILL_LABELS[drill] : ''}</DialogTitle>
           </DialogHeader>
