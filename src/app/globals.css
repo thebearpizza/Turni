@@ -186,7 +186,16 @@
   background-size: 13px 2px;
   background-repeat: repeat-x;
   background-position: top left;
-  padding-top: 2px;
+  /* Nessun padding-top qui apposta: il tratteggio è solo un background,
+     non ha bisogno di spazio proprio, e questa classe finisce spesso
+     sullo STESSO elemento di un p-6/pt-* del chiamante (es. DialogContent,
+     che porta già p-6 di suo). Un selettore a due classi come
+     .cassa.cassa-perforated-top ha specificità più alta di .p-6, quindi
+     un padding-top qui vincerebbe SEMPRE sul padding del chiamante
+     schiacciandolo a questo valore — bug reale già capitato due volte
+     (titolo "Cassa" nel menu laterale, poi lo stesso nei dialog "Chiedi
+     all'AI"): il gap fra tratteggio e contenuto deve venire sempre dal
+     padding del chiamante, mai da qui. */
 }
 
 /* Bordo superiore di una lista scrollabile sotto un'intestazione fissa
