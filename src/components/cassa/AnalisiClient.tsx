@@ -18,10 +18,11 @@ import { AnalisiKpiRow } from '@/components/cassa/AnalisiKpiRow'
 import { BestWorstDayHighlight } from '@/components/cassa/BestWorstDayHighlight'
 import { CassaPill } from '@/components/cassa/CassaPill'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
+import { AnalisiAiDialog } from '@/components/cassa/AnalisiAiDialog'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { FileText, FileSpreadsheet, Download } from 'lucide-react'
+import { FileText, FileSpreadsheet, Download, Sparkles } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
@@ -185,6 +186,7 @@ export function AnalisiClient({ restaurants }: Props) {
   const [speseError, setSpeseError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const quickPeriods = useMemo(() => quickPeriodRanges(), [])
 
@@ -347,11 +349,14 @@ export function AnalisiClient({ restaurants }: Props) {
         </CardContent>
       </Card>
 
-      {/* Larga quanto una card KPI: stessa griglia di AnalisiKpiRow, il
-          tasto occupa solo l'ultima colonna così resta allineato a destra
-          e della stessa larghezza di una card sotto, invece di avere una
-          sua larghezza indipendente. */}
+      {/* Larga quanto una card KPI: stessa griglia di AnalisiKpiRow. Chiedi
+          all'AI occupa la prima colonna (sopra Totale Entrate), Esporta
+          l'ultima — simmetrici agli estremi della riga invece che uno solo
+          allineato a destra con l'altro senza una posizione dichiarata. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Button type="button" variant="outline" size="sm" disabled={restaurants.length === 0} className="col-start-1" onClick={() => setAiOpen(true)}>
+          <Sparkles className="w-4 h-4" /> Chiedi all&apos;AI
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="outline" size="sm" disabled={righe.length === 0} className="col-start-2 lg:col-start-4">
@@ -377,6 +382,8 @@ export function AnalisiClient({ restaurants }: Props) {
         title={`Analisi · ${start} → ${end}`}
         fileNameBase={`analisi-cassa-${start}_${end}`}
       />
+
+      <AnalisiAiDialog open={aiOpen} onOpenChange={setAiOpen} restaurantIds={targets} />
 
       {!loading && righe.length > 0 && (
         <>
