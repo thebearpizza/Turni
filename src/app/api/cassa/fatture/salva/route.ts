@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import type { RiquadroArticolo } from '@/types'
 
 // POST /api/cassa/fatture/salva
 // Body: FatturaRisolta (vedi FatturaCapture.tsx) + restaurant_id.
@@ -78,16 +79,21 @@ export async function POST(request: Request) {
     // quel caso porta nuovo_articolo invece di catalogo_articolo_id, e la
     // riga di catalogo si crea ORA — non prima, in review, altrimenti
     // annullare la fattura lascerebbe un articolo orfano a catalogo.
-    const risolti: Array<{ testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }> = []
+    const risolti: Array<{
+      testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string
+      pagina_indice: number; riquadro: RiquadroArticolo | null
+    }> = []
     for (const a of articoli as Array<{
       testo_estratto: string
       quantita: number
       prezzo_riga: number
       catalogo_articolo_id?: string
       nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
+      pagina_indice: number
+      riquadro: RiquadroArticolo | null
     }>) {
       if (a.catalogo_articolo_id) {
-        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id })
+        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
         continue
       }
 
@@ -139,7 +145,7 @@ export async function POST(request: Request) {
         { onConflict: 'owner_id,fornitore_id,testo_estratto' }
       )
 
-      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId })
+      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
     }
 
     const { error: artErr } = await supabase.from('fatture_articoli').insert(
@@ -150,6 +156,8 @@ export async function POST(request: Request) {
         quantita: a.quantita,
         prezzo_unitario: a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga,
         prezzo_riga: a.prezzo_riga,
+        pagina_indice: a.pagina_indice,
+        riquadro: a.riquadro,
       }))
     )
     if (artErr) {

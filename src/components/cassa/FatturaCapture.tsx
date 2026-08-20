@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Camera, Upload, X, Loader2, AlertTriangle, FileText, Crop } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ArticoloTipologia, VerificaSospetta } from '@/types'
+import type { ArticoloTipologia, VerificaSospetta, RiquadroArticolo } from '@/types'
 
 const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
   food: 'Food',
@@ -36,6 +36,8 @@ interface ArticoloEstratto {
   catalogo_articolo_id: string | null
   candidato_nome: string | null
   sospetto: VerificaSospetta | null
+  pagina_indice: number
+  riquadro: RiquadroArticolo | null
 }
 
 interface EstraiResponse {
@@ -78,7 +80,7 @@ export interface FatturaRisolta {
   // catalogo_articolo_id: il chiamante crea la riga di catalogo al
   // momento del salvataggio, non prima.
   articoli: Array<
-    { testo_estratto: string; quantita: number; prezzo_riga: number } & (
+    { testo_estratto: string; quantita: number; prezzo_riga: number; pagina_indice: number; riquadro: RiquadroArticolo | null } & (
       | { catalogo_articolo_id: string; nuovo_articolo?: undefined }
       | { catalogo_articolo_id?: undefined; nuovo_articolo: DatiNuovoArticolo }
     )
@@ -489,8 +491,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
           const info = risoltoInfo(a)
           const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
           return info
-            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId }
-            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a) }
+            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
         }),
         verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
       })

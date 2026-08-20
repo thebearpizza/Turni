@@ -4,7 +4,7 @@ import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArt
 import { verificaData, verificaIvaStimata, verificaTotaleDaFallback, verificaPrezzoArticolo, TOLLERANZA_QUADRATURA } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import { trovaFornitoreSimile } from '@/lib/cassa/fornitoriMatching'
-import type { VerificaSospetta, ArticoloTipologia } from '@/types'
+import type { VerificaSospetta, ArticoloTipologia, RiquadroArticolo } from '@/types'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -26,6 +26,10 @@ interface ArticoloRisolto {
   catalogo_articolo_id: string | null
   candidato_nome: string | null
   sospetto: VerificaSospetta | null
+  // Per evidenziare il prodotto nella foto originale (icona occhio in
+  // Articoli) — vedi ArticoloEstrattoConPagina in fattureExtraction.ts.
+  pagina_indice: number
+  riquadro: RiquadroArticolo | null
 }
 
 // Risolve UNA fattura già estratta (fornitore, doppione, matching
@@ -203,6 +207,7 @@ async function risolviFattura(
           unita_misura: a.unita_misura, tipologia_suggerita: a.tipologia_suggerita,
           esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: nomeById.get(mappato) ?? null,
           sospetto: verificaPrezzoArticolo(a.nome, prezzoUnitario, ultimoPrezzo),
+          pagina_indice: a.pagina_indice, riquadro: a.riquadro,
         }
       }
       const match = esitoByTesto.get(a.nome)
@@ -222,6 +227,8 @@ async function risolviFattura(
         // domanda di conferma ("È lo stesso articolo di 'X'?").
         candidato_nome: (match?.esito === 'ambiguo' || match?.esito === 'chiaro') && match.catalogo_articolo_id ? nomeById.get(match.catalogo_articolo_id) ?? null : null,
         sospetto,
+        pagina_indice: a.pagina_indice,
+        riquadro: a.riquadro,
       }
     }))
   }

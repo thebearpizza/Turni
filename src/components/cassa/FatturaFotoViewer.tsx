@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Loader2, FileText, RotateCw } from 'lucide-react'
+import type { RiquadroArticolo } from '@/types'
 
 const BUCKET = 'fatture_foto'
 
@@ -16,6 +17,13 @@ interface Props {
   // usato altrove): rilegge le stesse foto da capo, per quando la prima
   // lettura ha sbagliato fornitore, importi o articoli.
   onRescan?: () => void
+  // Presente solo quando si apre il visualizzatore per UN articolo
+  // preciso (icona occhio in Articoli): scorre alla foto giusta e ne
+  // evidenzia la riga. paginaIndice è l'indice in fotoPaths; null se
+  // l'articolo non ha un riquadro stimato (fatture salvate prima di
+  // questo campo, o lettura AI che non è riuscita a localizzarlo) — in
+  // quel caso si mostra la foto come sempre, senza overlay.
+  evidenzia?: { paginaIndice: number; riquadro: RiquadroArticolo } | null
 }
 
 // Foto originali di una fattura, una sotto l'altra (Task 3) — stessa
@@ -23,9 +31,10 @@ interface Props {
 // (CassaFileViewer), ma qui niente da generare lato server: solo URL
 // firmati sul bucket privato fatture_foto, come già fatto per le foto di
 // timbratura fallback.
-export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onRescan }: Props) {
+export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onRescan, evidenzia }: Props) {
   const [urls, setUrls] = useState<string[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const evidenziataRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) { setUrls(null); setError(null); return }
@@ -43,6 +52,15 @@ export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onResc
     load()
     return () => { cancelled = true }
   }, [open, fotoPaths])
+
+  // Una volta caricate le foto, se è stato chiesto di evidenziare un
+  // articolo preciso porta subito la sua pagina a schermo — su una
+  // fattura multipagina il prodotto potrebbe essere molto più in basso
+  // dell'elenco, altrimenti bisognerebbe scorrere a mano per trovarlo.
+  useEffect(() => {
+    if (!urls || !evidenzia) return
+    evidenziataRef.current?.scrollIntoView({ block: 'center' })
+  }, [urls, evidenzia])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,6 +84,7 @@ export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onResc
           )}
           {urls?.map((url, i) => {
             const isPdf = fotoPaths[i]?.toLowerCase().endsWith('.pdf')
+            const riquadro = evidenzia?.paginaIndice === i ? evidenzia.riquadro : null
             return isPdf ? (
               <a
                 key={i}
@@ -78,8 +97,22 @@ export function FatturaFotoViewer({ open, onOpenChange, fotoPaths, title, onResc
                 <span>Pagina {i + 1} — apri PDF</span>
               </a>
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element -- URL firmato temporaneo su storage privato, next/image non si applica
-              <img key={i} src={url} alt={`Pagina ${i + 1}`} className="w-full rounded-md border border-border" />
+              <div key={i} ref={riquadro ? evidenziataRef : undefined} className="relative overflow-hidden rounded-md border border-border">
+                {/* eslint-disable-next-line @next/next/no-img-element -- URL firmato temporaneo su storage privato, next/image non si applica */}
+                <img src={url} alt={`Pagina ${i + 1}`} className="w-full" />
+                {riquadro && (
+                  <div
+                    className="pointer-events-none absolute rounded-sm border-2 border-primary"
+                    style={{
+                      top: `${riquadro.y_min / 10}%`,
+                      left: `${riquadro.x_min / 10}%`,
+                      width: `${(riquadro.x_max - riquadro.x_min) / 10}%`,
+                      height: `${(riquadro.y_max - riquadro.y_min) / 10}%`,
+                      boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
+                    }}
+                  />
+                )}
+              </div>
             )
           })}
         </div>

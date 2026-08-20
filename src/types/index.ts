@@ -438,6 +438,17 @@ export interface FatturaIvaDettaglio {
   created_at:  string
 }
 
+// Riquadro di delimitazione della riga di un articolo sulla pagina/foto da
+// cui è stato letto, in coordinate normalizzate 0-1000 (convenzione nativa
+// di Gemini): (0,0) angolo in alto a sinistra, (1000,1000) in basso a
+// destra — serve a evidenziare il prodotto nel visualizzatore fattura.
+export interface RiquadroArticolo {
+  y_min: number
+  x_min: number
+  y_max: number
+  x_max: number
+}
+
 export interface FatturaArticolo {
   id:                    string
   fattura_id:            string
@@ -446,6 +457,12 @@ export interface FatturaArticolo {
   quantita:              number
   prezzo_unitario:       number
   prezzo_riga:           number
+  // Indice (0-based) in fatture.foto_paths della pagina di provenienza, e
+  // riquadro stimato dall'AI in quella pagina. Entrambi null sugli
+  // articoli salvati prima di questo campo, o quando l'AI non è riuscita
+  // a stimare il riquadro.
+  pagina_indice:         number | null
+  riquadro:              RiquadroArticolo | null
   created_at:            string
 }
 

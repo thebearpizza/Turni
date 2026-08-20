@@ -16,7 +16,7 @@ import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/cassa/Artic
 import { FatturaFotoViewer } from '@/components/cassa/FatturaFotoViewer'
 import { ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ArticoloTipologia } from '@/types'
+import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
 const TZ = 'Europe/Rome'
 
@@ -41,6 +41,12 @@ interface UltimoAcquisto {
   numeroDocumento: string
   data: string
   quantita: number
+  // Per evidenziare il prodotto nella foto d'origine (icona occhio):
+  // null sugli acquisti registrati prima di questo campo, o quando l'AI
+  // non è riuscita a stimare il riquadro — in quel caso si mostra la
+  // foto come sempre, senza overlay.
+  paginaIndice: number | null
+  riquadro: RiquadroArticolo | null
 }
 
 interface ArticoloRiga {
@@ -91,7 +97,7 @@ export function ArticoliClient({ fornitori }: Props) {
 
     const { data: storicoRaw } = await supabase
       .from('fatture_articoli')
-      .select('id, catalogo_articolo_id, prezzo_unitario, quantita, fattura:fatture!inner(data, foto_paths, numero_documento)')
+      .select('id, catalogo_articolo_id, prezzo_unitario, quantita, pagina_indice, riquadro, fattura:fatture!inner(data, foto_paths, numero_documento)')
       .in('catalogo_articolo_id', rows.map(r => r.id))
       .order('data', { foreignTable: 'fatture', ascending: true })
 
@@ -102,6 +108,7 @@ export function ArticoliClient({ fornitori }: Props) {
     const ultimoAcquistoById = new Map<string, UltimoAcquisto>()
     for (const s of (storicoRaw ?? []) as unknown as Array<{
       id: string; catalogo_articolo_id: string; prezzo_unitario: number; quantita: number
+      pagina_indice: number | null; riquadro: RiquadroArticolo | null
       fattura: { data: string; foto_paths: string[]; numero_documento: string } | null
     }>) {
       if (!s.fattura) continue
@@ -112,6 +119,8 @@ export function ArticoliClient({ fornitori }: Props) {
         fatturaArticoloId: s.id,
         fotoPaths: s.fattura.foto_paths,
         numeroDocumento: s.fattura.numero_documento,
+        paginaIndice: s.pagina_indice,
+        riquadro: s.riquadro,
         data: s.fattura.data,
         quantita: s.quantita,
       })
@@ -333,6 +342,11 @@ export function ArticoliClient({ fornitori }: Props) {
           viewerRiga?.ultimoAcquisto
             ? `${viewerRiga.fornitore_nome} · Doc. ${viewerRiga.ultimoAcquisto.numeroDocumento} · ${formatInTimeZone(`${viewerRiga.ultimoAcquisto.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}`
             : ''
+        }
+        evidenzia={
+          viewerRiga?.ultimoAcquisto?.paginaIndice != null && viewerRiga.ultimoAcquisto.riquadro
+            ? { paginaIndice: viewerRiga.ultimoAcquisto.paginaIndice, riquadro: viewerRiga.ultimoAcquisto.riquadro }
+            : null
         }
       />
 

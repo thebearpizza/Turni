@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import type { RiquadroArticolo } from '@/types'
 
 // POST /api/cassa/fatture/sostituisci
 // Body: { fattura_id, restaurant_id } + FatturaRisolta (vedi FatturaCapture.tsx),
@@ -38,7 +39,10 @@ export async function POST(request: Request) {
   const { data: restaurant } = await supabase.from('restaurants').select('owner_id').eq('id', restaurant_id).single()
   if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
 
-  const risolti: Array<{ testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string }> = []
+  const risolti: Array<{
+    testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string
+    pagina_indice: number; riquadro: RiquadroArticolo | null
+  }> = []
 
   if (ha_articoli && Array.isArray(articoli)) {
     for (const a of articoli as Array<{
@@ -47,9 +51,11 @@ export async function POST(request: Request) {
       prezzo_riga: number
       catalogo_articolo_id?: string
       nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
+      pagina_indice: number
+      riquadro: RiquadroArticolo | null
     }>) {
       if (a.catalogo_articolo_id) {
-        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id })
+        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
         continue
       }
 
@@ -97,7 +103,7 @@ export async function POST(request: Request) {
         { onConflict: 'owner_id,fornitore_id,testo_estratto' }
       )
 
-      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId })
+      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
     }
   }
 

@@ -101,6 +101,17 @@ export const AliquotaEstrattaSchema = z.object({
   iva: z.number().describe('Importo IVA per questa aliquota'),
 })
 
+// Coordinate normalizzate 0-1000 (convenzione nativa di Gemini per la
+// localizzazione spaziale): (0,0) angolo in alto a sinistra della pagina,
+// (1000,1000) in basso a destra. Serve a evidenziare la riga del prodotto
+// nel visualizzatore fattura (icona occhio in Articoli).
+const RiquadroSchema = z.object({
+  y_min: z.number().int().min(0).max(1000),
+  x_min: z.number().int().min(0).max(1000),
+  y_max: z.number().int().min(0).max(1000),
+  x_max: z.number().int().min(0).max(1000),
+})
+
 export const ArticoloEstrattoSchema = z.object({
   nome: z.string().describe(
     "Nome/descrizione dell'articolo trascritto ESATTAMENTE come scritto in fattura, carattere per carattere — stessa " +
@@ -118,6 +129,11 @@ export const ArticoloEstrattoSchema = z.object({
     "La tua migliore stima della categoria merceologica di questo articolo in base al nome — food (alimentare), beverage (bevande), " +
     "detergenza (pulizia/igiene), altro_no_food (tutto il resto: stoviglie, imballaggi, materiale non alimentare). " +
     "Fai sempre una scelta, anche se incerta: è solo un suggerimento che l'utente può correggere."
+  ),
+  riquadro: RiquadroSchema.nullable().describe(
+    "Riquadro di delimitazione (bounding box) dell'INTERA riga di questo articolo nella pagina — nome, quantità e prezzo " +
+    "compresi, non solo la parola del nome — nel formato {y_min, x_min, y_max, x_max} normalizzato da 0 a 1000. " +
+    "null solo se non riesci a stimarlo con ragionevole confidenza."
   ),
   aliquota_iva: z.number().describe(
     "Aliquota IVA italiana di questo articolo in percentuale (4, 5, 10 o 22) — SEMPRE valorizzata, anche quando la " +
@@ -174,8 +190,15 @@ export interface FatturaEstratta {
   // letto) presa dal totale finale scritto sul documento — es. un
   // documento di trasporto compilato a mano senza tabella prodotti.
   totale_da_fallback: boolean
-  articoli: z.infer<typeof ArticoloEstrattoSchema>[]
+  articoli: ArticoloEstrattoConPagina[]
 }
+
+// Indice (0-based) della foto/pagina di provenienza dell'articolo
+// all'interno di QUESTA fattura (== indice in foto_paths una volta
+// salvata) — assegnato in unisciPagine, non chiesto al modello: ogni
+// pagina viene estratta a sé (vedi estraiPagina), quindi la sua
+// posizione nel gruppo è già nota al sistema, non va indovinata dall'AI.
+export type ArticoloEstrattoConPagina = z.infer<typeof ArticoloEstrattoSchema> & { pagina_indice: number }
 
 interface FotoInput {
   buffer: ArrayBuffer
@@ -259,8 +282,14 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   // sommati a quello finale.
   const ivaStampata = [...pagine].reverse().find(p => p.iva_dettaglio.length > 0)?.iva_dettaglio ?? []
 
-  // Articoli concatenati nell'ordine delle pagine.
-  const articoli = pagine.flatMap(p => p.articoli)
+  // Articoli concatenati nell'ordine delle pagine, ciascuno taggato con
+  // l'indice della propria pagina ALL'INTERNO DI QUESTO GRUPPO — che
+  // coincide esattamente con l'indice che avrà in foto_paths una volta
+  // salvata la fattura (fotoPathsGruppo in risolviFattura è costruito
+  // nello stesso ordine di questo array `pagine`).
+  const articoli: ArticoloEstrattoConPagina[] = pagine.flatMap((p, paginaIndice) =>
+    p.articoli.map(a => ({ ...a, pagina_indice: paginaIndice }))
+  )
 
   // Se il riepilogo non è stato trovato/letto ma ci sono articoli con
   // un prezzo, non lasciamo i totali a zero: li ricostruiamo dalle
