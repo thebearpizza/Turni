@@ -189,6 +189,16 @@
   padding-top: 2px;
 }
 
+/* Bordo superiore di una lista scrollabile sotto un'intestazione fissa
+   (es. drill-down delle KPI in Fatture): la voce che scorre verso il
+   bordo si dissolve nell'opacità invece di tagliarsi di netto o
+   sovrapporsi visivamente al tratteggio dell'intestazione. */
+.cassa .cassa-scroll-fade-top,
+.cassa.cassa-scroll-fade-top {
+  mask-image: linear-gradient(to bottom, transparent, black 28px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 28px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cassa *, .cassa *::before, .cassa *::after {
     animation-duration: 0.001ms !important;
