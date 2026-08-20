@@ -1,5 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +11,19 @@ import { cn } from '@/lib/utils'
 interface Message {
   role: 'user' | 'assistant'
   content: string
+}
+
+// Solo gli elementi che una risposta finanziaria usa davvero (grassetto,
+// elenchi, occasionalmente un numero); definiti fuori dal componente per
+// non ricrearli a ogni render.
+const MARKDOWN_COMPONENTS: Components = {
+  p: ({ children }) => <p className="mb-1.5 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="mb-1.5 list-disc space-y-0.5 pl-4 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-1.5 list-decimal space-y-0.5 pl-4 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{children}</a>,
+  code: ({ children }) => <code className="rounded bg-background/50 px-1 py-0.5 text-xs cassa-numeric">{children}</code>,
 }
 
 interface Props {
@@ -104,12 +119,17 @@ export function AnalisiAiDialog({ open, onOpenChange, restaurantIds }: Props) {
 
           {messages.map((m, i) => (
             <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-              <p className={cn(
-                'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm',
-                m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-accent text-foreground'
-              )}>
-                {m.content}
-              </p>
+              {m.role === 'user' ? (
+                <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-primary px-3.5 py-2 text-sm text-primary-foreground">
+                  {m.content}
+                </p>
+              ) : (
+                <div className="max-w-[85%] rounded-2xl bg-accent px-3.5 py-2 text-sm text-foreground">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                    {m.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           ))}
 

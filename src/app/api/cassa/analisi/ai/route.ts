@@ -8,8 +8,25 @@ import { getDaysInMonth, isLeapYear } from 'date-fns'
 
 const TZ = 'Europe/Rome'
 
+// Con centinaia di chiusure l'elenco di id in querystring (.in(...)) supera
+// i limiti di URI del gateway Supabase — stesso limite/motivo di fetchSpese
+// in AnalisiClient.tsx.
+const CHUNK_SIZE = 150
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+// Raggruppa un array per una chiave testuale — usato per il breakdown per
+// locale (in tre strumenti diversi) e per categoria di spesa, evitando di
+// ripetere la stessa costruzione di Map quattro volte.
+function raggruppaPer<T>(righe: T[], chiave: (r: T) => string): Map<string, T[]> {
+  const m = new Map<string, T[]>()
+  for (const r of righe) {
+    const k = chiave(r)
+    m.set(k, [...(m.get(k) ?? []), r])
+  }
+  return m
 }
 
 // Stessa coppia "estrazione" di fatture/prenotazioni: qui il modello deve
@@ -25,6 +42,7 @@ function isRateLimitError(err: unknown): boolean {
 }
 
 interface ChiusuraRiga {
+  id: string
   data: string
   restaurant_name: string
   totale_entrate: number
@@ -34,11 +52,56 @@ interface ChiusuraRiga {
   incasso_asporto: number
 }
 
+interface SpesaRiga {
+  data: string
+  restaurant_name: string
+  categoria_nome: string | null
+  nome_spesa: string
+  importo: number
+}
+
+async function fetchSpese(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  chiusure: ChiusuraRiga[]
+): Promise<SpesaRiga[]> {
+  if (chiusure.length === 0) return []
+  const infoById = new Map(chiusure.map(c => [c.id, c]))
+  const ids = chiusure.map(c => c.id)
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE))
+
+  const risposte = await Promise.all(chunks.map(chunk => supabase
+    .from('cassa_spese')
+    .select('importo, nome_spesa, chiusura_id, categoria:cassa_categorie(nome)')
+    .in('chiusura_id', chunk)
+  ))
+
+  const data = risposte.flatMap(r => r.data ?? [])
+  return (data as unknown as Array<{ importo: number; nome_spesa: string; chiusura_id: string; categoria: { nome: string } | null }>).map(s => {
+    const info = infoById.get(s.chiusura_id)
+    return {
+      data: info?.data ?? '',
+      restaurant_name: info?.restaurant_name ?? '—',
+      categoria_nome: s.categoria?.nome ?? null,
+      nome_spesa: s.nome_spesa,
+      importo: s.importo,
+    }
+  })
+}
+
 // Tutti i numeri che l'AI cita vengono da qui, mai calcolati da lei:
 // un LLM non è affidabile per sommare decine di righe a mente, quindi gli
 // strumenti fanno l'aritmetica in TypeScript e l'AI si limita a scegliere
 // quale chiamare e a spiegare il risultato in linguaggio naturale.
-function buildTools(chiusure: ChiusuraRiga[]) {
+//
+// Nessuno strumento accetta un locale come filtro: quando l'ambito
+// comprende più di un ristorante, la risposta include SEMPRE anche
+// per_locale con lo stesso calcolo spezzato per nome — così una domanda
+// su uno o più locali specifici (es. "quanto ha fatto Dazio?") si
+// risolve leggendo il breakdown già restituito, senza che il modello
+// debba inventare un parametro che non esiste (causa di un errore reale
+// osservato: il modello tentava di filtrare per nome e la chiamata falliva).
+function buildTools(chiusure: ChiusuraRiga[], spese: SpesaRiga[]) {
   return {
     dati_periodo: tool({
       description: 'Somma entrate, spese, margine, coperti e incasso asporto in un intervallo di date (estremi inclusi). Usa questo strumento per qualsiasi domanda su un mese, una settimana o un range di giorni.',
@@ -52,16 +115,33 @@ function buildTools(chiusure: ChiusuraRiga[]) {
           return { giorni_con_dati: 0, messaggio: 'Nessuna chiusura confermata in questo intervallo di date.' }
         }
         const entrate = righe.reduce((s, r) => s + r.totale_entrate, 0)
-        const spese = righe.reduce((s, r) => s + r.totale_spese_giornaliere, 0)
+        const totaleSpese = righe.reduce((s, r) => s + r.totale_spese_giornaliere, 0)
         const giorni = new Set(righe.map(r => r.data)).size
+        const locali = new Set(righe.map(r => r.restaurant_name))
+
         return {
           giorni_con_dati: giorni,
           totale_entrate: round2(entrate),
-          totale_spese: round2(spese),
-          margine_operativo: round2(entrate - spese),
+          totale_spese: round2(totaleSpese),
+          margine_operativo: round2(entrate - totaleSpese),
           coperti_totali: righe.reduce((s, r) => s + r.coperti, 0),
           incasso_asporto: round2(righe.reduce((s, r) => s + r.incasso_asporto, 0)),
           media_entrate_giornaliera: round2(entrate / giorni),
+          ...(locali.size > 1 && {
+            per_locale: Array.from(raggruppaPer(righe, r => r.restaurant_name).entries()).map(([locale, voci]) => {
+              const e = voci.reduce((s, r) => s + r.totale_entrate, 0)
+              const sp = voci.reduce((s, r) => s + r.totale_spese_giornaliere, 0)
+              return {
+                locale,
+                giorni_con_dati: new Set(voci.map(v => v.data)).size,
+                totale_entrate: round2(e),
+                totale_spese: round2(sp),
+                margine_operativo: round2(e - sp),
+                coperti_totali: voci.reduce((s, r) => s + r.coperti, 0),
+                incasso_asporto: round2(voci.reduce((s, r) => s + r.incasso_asporto, 0)),
+              }
+            }),
+          }),
         }
       },
     }),
@@ -104,6 +184,7 @@ function buildTools(chiusure: ChiusuraRiga[]) {
         const entrateFinora = righe.reduce((s, r) => s + r.totale_entrate, 0)
         const giorniConDati = new Set(righe.map(r => r.data)).size
         const mediaGiornaliera = entrateFinora / giorniConDati
+        const locali = new Set(righe.map(r => r.restaurant_name))
 
         return {
           da: inizioPeriodo,
@@ -114,6 +195,51 @@ function buildTools(chiusure: ChiusuraRiga[]) {
           media_giornaliera: round2(mediaGiornaliera),
           proiezione: round2(mediaGiornaliera * giorniTotali),
           nota: 'Stima lineare: proietta in avanti la media giornaliera osservata finora, senza tenere conto di stagionalità (weekend, festività, alta/bassa stagione). Tanto più incerta quanto meno giorni di storico sono disponibili.',
+          ...(locali.size > 1 && {
+            per_locale: Array.from(raggruppaPer(righe, r => r.restaurant_name).entries()).map(([locale, voci]) => {
+              const e = voci.reduce((s, r) => s + r.totale_entrate, 0)
+              const giorni = new Set(voci.map(v => v.data)).size
+              const media = e / giorni
+              return {
+                locale,
+                entrate_finora: round2(e),
+                giorni_con_dati: giorni,
+                media_giornaliera: round2(media),
+                proiezione: round2(media * giorniTotali),
+              }
+            }),
+          }),
+        }
+      },
+    }),
+    spese_per_categoria: tool({
+      description: 'Elenco delle categorie di spesa con importo totale in un intervallo di date, dalla più alta alla più bassa. Usa questo strumento per domande su quali sono le spese principali o quanto si è speso in una categoria.',
+      inputSchema: z.object({
+        inizio: z.string().describe('Data di inizio, formato yyyy-MM-dd'),
+        fine: z.string().describe('Data di fine, formato yyyy-MM-dd (inclusa)'),
+      }),
+      execute: async ({ inizio, fine }) => {
+        const righe = spese.filter(s => s.data >= inizio && s.data <= fine)
+        if (righe.length === 0) return { messaggio: 'Nessuna voce di spesa registrata in questo intervallo di date.' }
+
+        const categorie = Array.from(raggruppaPer(righe, r => r.categoria_nome ?? 'Senza categoria').entries())
+          .map(([categoria, voci]) => ({
+            categoria,
+            importo_totale: round2(voci.reduce((s, v) => s + v.importo, 0)),
+            numero_voci: voci.length,
+          }))
+          .sort((a, b) => b.importo_totale - a.importo_totale)
+
+        const locali = new Set(righe.map(r => r.restaurant_name))
+        return {
+          totale_spese: round2(righe.reduce((s, r) => s + r.importo, 0)),
+          categorie,
+          ...(locali.size > 1 && {
+            per_locale: Array.from(raggruppaPer(righe, r => r.restaurant_name).entries()).map(([locale, voci]) => ({
+              locale,
+              totale_spese: round2(voci.reduce((s, v) => s + v.importo, 0)),
+            })),
+          }),
         }
       },
     }),
@@ -130,24 +256,26 @@ ${primaData && ultimaData ? `Dati disponibili dal ${primaData} al ${ultimaData}.
 ISTRUZIONI:
 - Rispondi sempre in italiano, tono professionale ma colloquiale, conciso: vai dritto ai numeri, senza premesse lunghe.
 - Usa SEMPRE uno strumento per ottenere i numeri prima di rispondere. Non sommare né calcolare medie a mente, non inventare MAI un numero: se lo strumento non te lo dà, non esiste.
-- Domanda su un mese/settimana/intervallo → dati_periodo. Domanda su un giorno preciso → dati_giorno. Domanda su un andamento futuro (fine mese, fine anno, "quanto incasseremo") → previsione.
-- Se la domanda non specifica un periodo (es. "come stiamo andando?"), usa il mese in corso.
+- Domanda su un mese/settimana/intervallo → dati_periodo. Domanda su un giorno preciso → dati_giorno. Domanda su un andamento futuro (fine mese, fine anno, "quanto incasseremo") → previsione. Domanda su cosa si è speso o su categorie di spesa → spese_per_categoria.
+- Nessuno strumento accetta il nome di un locale come filtro. Quando in ambito c'è più di un locale, ogni strumento restituisce ANCHE per_locale con lo stesso calcolo diviso per nome: se la domanda riguarda uno o più locali specifici, chiama comunque lo strumento sull'intero periodo e leggi la voce corrispondente in per_locale, invece di provare a passare un parametro locale/nome/ristorante che non esiste.
+- Se la domanda non specifica un periodo (es. "come stiamo andando?"), usa il mese in corso. Puoi chiamare lo stesso strumento più volte con periodi diversi per rispondere a un confronto (es. "luglio vs agosto").
 - In una proiezione, riporta sempre la nota sulla stima lineare che ricevi dallo strumento: l'utente deve capire che è una stima, non un dato certo.
 - Se uno strumento segnala che non ci sono dati per il periodo richiesto, dillo chiaramente invece di inventare qualcosa.
+- Puoi usare markdown (grassetto, elenchi puntati) per rendere i numeri più leggibili, senza esagerare.
 - Non menzionare mai ID interni o dettagli tecnici: solo numeri, date e nomi dei locali.`
 }
 
 // POST /api/cassa/analisi/ai
 // Body: { restaurant_ids: string[], messages: { role: 'user'|'assistant', content: string }[] }
 //
-// Chat testuale sopra i dati già visibili in Analisi (stessa tabella
-// cassa_chiusure, stesso filtro stato='confermata'), con tool-calling
-// invece di un'unica risposta libera: ogni numero che l'AI cita viene da
-// un calcolo fatto qui in TypeScript sulle righe già caricate, non da
-// aritmetica del modello. Nessuna cronologia salvata lato server: il
-// client rimanda l'intera conversazione a ogni domanda (vedi
-// AnalisiAiDialog.tsx), coerente con un widget "fai una domanda rapida"
-// piuttosto che un assistente persistente.
+// Chat testuale sopra i dati già visibili in Analisi (stesse tabelle
+// cassa_chiusure/cassa_spese, stesso filtro stato='confermata'), con
+// tool-calling invece di un'unica risposta libera: ogni numero che l'AI
+// cita viene da un calcolo fatto qui in TypeScript sulle righe già
+// caricate, non da aritmetica del modello. Nessuna cronologia salvata
+// lato server: il client rimanda l'intera conversazione a ogni domanda
+// (vedi AnalisiAiDialog.tsx), coerente con un widget "fai una domanda
+// rapida" piuttosto che un assistente persistente.
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -177,7 +305,7 @@ export async function POST(request: Request) {
   // in meno, non un errore.
   const { data, error } = await supabase
     .from('cassa_chiusure')
-    .select('data, totale_entrate, totale_spese_giornaliere, differenza, coperti, incasso_asporto, restaurant:restaurants(name)')
+    .select('id, data, totale_entrate, totale_spese_giornaliere, differenza, coperti, incasso_asporto, restaurant:restaurants(name)')
     .in('restaurant_id', restaurantIds)
     .eq('stato', 'confermata')
     .order('data', { ascending: true })
@@ -185,9 +313,10 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: 'Errore nel recupero dei dati: ' + error.message }, { status: 500 })
 
   const chiusure: ChiusuraRiga[] = ((data ?? []) as unknown as Array<{
-    data: string; totale_entrate: number; totale_spese_giornaliere: number; differenza: number
+    id: string; data: string; totale_entrate: number; totale_spese_giornaliere: number; differenza: number
     coperti: number; incasso_asporto: number; restaurant: { name: string } | null
   }>).map(r => ({
+    id: r.id,
     data: r.data,
     restaurant_name: r.restaurant?.name ?? '—',
     totale_entrate: r.totale_entrate,
@@ -196,6 +325,8 @@ export async function POST(request: Request) {
     coperti: r.coperti,
     incasso_asporto: r.incasso_asporto,
   }))
+
+  const spese = await fetchSpese(supabase, chiusure)
 
   const nomiLocali = Array.from(new Set(chiusure.map(c => c.restaurant_name)))
   const scopeLabel = nomiLocali.length === 0
@@ -208,10 +339,10 @@ export async function POST(request: Request) {
     chiusure[0]?.data ?? null,
     chiusure[chiusure.length - 1]?.data ?? null
   )
-  const tools = buildTools(chiusure)
+  const tools = buildTools(chiusure, spese)
   const messages: ModelMessage[] = clientMessages.map(m => ({ role: m.role, content: m.content }))
 
-  const generate = (model: string) => generateText({ model: google(model), system, messages, tools, stopWhen: stepCountIs(6) })
+  const generate = (model: string) => generateText({ model: google(model), system, messages, tools, stopWhen: stepCountIs(8) })
 
   try {
     let result
