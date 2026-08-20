@@ -6,11 +6,12 @@ import type { ArticoloTipologia } from '@/types'
 // Stesso modello/fallback dell'assistente Telegram e del controllo
 // duplicati spese Cassa — un'unica coppia di env var per l'uso "leggero"
 // di Gemini nell'app (matching articoli qui, chat Telegram, dedup spese).
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
 
-// Coppia separata per l'estrazione dati fattura, così da poterla alzare
-// indipendentemente dal resto quando la quota Gemini lo consente.
+// Coppia separata per l'estrazione dati fattura (e per l'AI di Analisi, che
+// la riusa) così da poterla alzare indipendentemente dal resto — es. a un
+// tier Pro — quando la quota Gemini lo consente.
 //
 // Default su Flash e NON su Pro: con la chiave attualmente in uso Pro
 // risponde sempre RESOURCE_EXHAUSTED, quindi puntarci significherebbe
@@ -18,9 +19,10 @@ const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-f
 // ripiegare comunque su Flash — non un compromesso qualità/tempo, una
 // perdita secca (era la causa dei 504 sulla route /estrai). Chi ha un
 // piano Gemini con quota su Pro può impostare
-// GEMINI_MODEL_ESTRAZIONE=gemini-2.5-pro e guadagnare accuratezza.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-2.5-flash'
-const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-2.5-flash-lite'
+// GEMINI_MODEL_ESTRAZIONE=gemini-3.1-pro (o gemini-3-pro) e guadagnare
+// accuratezza.
+const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
+const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
 
 // Budget complessivo per l'estrazione, deliberatamente sotto il
 // maxDuration della route: scaduto questo, preferiamo rispondere con un

@@ -11,7 +11,7 @@ import { z } from 'zod'
 // duplicati con formulazioni diverse (es. "benzina furgone" / "carburante
 // mezzo aziendale"). Il pre-filtro pg_trgm (cassa_spese_nomi) restringe i
 // candidati testualmente più vicini prima di interpellare l'AI.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
 
 const ResultSchema = z.object({
   corrispondenza: z.string().nullable().describe(

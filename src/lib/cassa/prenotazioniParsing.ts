@@ -12,15 +12,15 @@ import { z } from 'zod'
 // fallirebbe in silenzio; qui invece il testo grezzo resta salvato nel
 // log, quindi una mail non interpretata si può sempre rileggere dopo.
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
 
 // L'import da file legge una tabella fitta di numeri che si somigliano
 // (coperti, numero di tavolo, storico visite, orario): usa la coppia
 // "estrazione", la stessa delle fatture, così si può alzare a Pro senza
 // toccare il resto delle funzioni AI.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-2.5-flash'
-const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-2.5-flash-lite'
+const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
+const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
 
 export function aiConfigurata(): boolean {
   return !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
