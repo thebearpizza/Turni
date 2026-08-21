@@ -13,7 +13,7 @@ import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Trash2, FileText, FileSpreadsheet, Pencil, Loader2, Plus } from 'lucide-react'
+import { Trash2, FileText, Pencil, Loader2, Plus } from 'lucide-react'
 
 const TZ = 'Europe/Rome'
 
@@ -137,11 +137,7 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
     load()
   }
 
-  const [viewer, setViewer] = useState<{ riga: Riga; format: 'pdf' | 'xlsx' } | null>(null)
-
-  function handleView(riga: Riga, format: 'pdf' | 'xlsx') {
-    setViewer({ riga, format })
-  }
+  const [viewer, setViewer] = useState<Riga | null>(null)
 
   return (
     <div className="space-y-4">
@@ -249,22 +245,9 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
                           className="h-8 w-8"
                           title="Visualizza PDF"
                           disabled={busy}
-                          onClick={() => handleView(r, 'pdf')}
+                          onClick={() => setViewer(r)}
                         >
                           <FileText className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {role === 'manager' && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title="Visualizza Excel"
-                          disabled={busy}
-                          onClick={() => handleView(r, 'xlsx')}
-                        >
-                          <FileSpreadsheet className="w-4 h-4" />
                         </Button>
                       )}
                       {role === 'manager' && (
@@ -292,10 +275,10 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
       <CassaFileViewer
         open={!!viewer}
         onOpenChange={open => { if (!open) setViewer(null) }}
-        request={viewer ? { url: '/api/cassa/chiusura-export', body: { chiusura_id: viewer.riga.id, format: viewer.format } } : null}
-        format={viewer?.format ?? null}
-        title={viewer ? `${viewer.riga.restaurant_name} · ${formatInTimeZone(`${viewer.riga.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
-        fileNameBase={viewer ? `chiusura-${viewer.riga.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.riga.data}` : 'chiusura'}
+        request={viewer ? { url: '/api/cassa/chiusura-export', body: { chiusura_id: viewer.id } } : null}
+        format={viewer ? 'pdf' : null}
+        title={viewer ? `${viewer.restaurant_name} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
+        fileNameBase={viewer ? `chiusura-${viewer.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.data}` : 'chiusura'}
       />
 
       <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
