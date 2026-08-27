@@ -45,6 +45,18 @@ function isAbortError(err: unknown): boolean {
   return /abort|timed? ?out/i.test(err instanceof Error ? err.message : String(err))
 }
 
+// Quota massima riservata al modello principale quando il chiamante
+// dichiara un budget complessivo (solo l'estrazione fatture lo fa, vedi
+// BUDGET_ESTRAZIONE_MS — matchArticoli qui sotto non passa budgetMs e
+// resta quindi senza questo limite, comportamento invariato). Senza
+// questo tetto un primario che diventa lento (foto difficile da leggere,
+// rallentamento momentaneo lato Google) può consumare l'intero budget
+// prima di fallire, lasciando zero tempo per il tentativo di riserva —
+// esattamente il caso osservato in produzione ("Tempo massimo di lettura
+// superato" su una singola pagina). Abortire prima garantisce che al
+// modello di riserva resti sempre un margine reale per provarci.
+const QUOTA_MODELLO_PRINCIPALE_MS = 30_000
+
 async function generateWithFallback<T>(
   schema: z.ZodType<T>,
   messages: ModelMessage[],
@@ -54,9 +66,15 @@ async function generateWithFallback<T>(
   // Almeno 5s al secondo tentativo: sotto quella soglia non ha senso
   // provarci nemmeno, tanto vale riportare subito l'errore.
   const rimanente = () => (scadenza ? scadenza - Date.now() : null)
-  const segnale = () => {
+  // capMs limita solo il tentativo sul modello PRINCIPALE (vedi
+  // QUOTA_MODELLO_PRINCIPALE_MS) — quando il chiamante non dichiara un
+  // budget complessivo (rimanente() === null), nessun limite si applica
+  // comunque, cap incluso: comportamento identico a prima per chi non
+  // passa budgetMs.
+  const segnale = (capMs?: number) => {
     const ms = rimanente()
-    return ms != null ? AbortSignal.timeout(Math.max(1_000, ms)) : undefined
+    if (ms == null) return undefined
+    return AbortSignal.timeout(Math.max(1_000, capMs != null ? Math.min(ms, capMs) : ms))
   }
 
   try {
@@ -69,16 +87,20 @@ async function generateWithFallback<T>(
       // quota lo è anche fra due secondi, e il backoff dell'SDK
       // mangerebbe il budget che serve al fallback per lavorare davvero.
       maxRetries: 1,
-      abortSignal: segnale(),
+      abortSignal: segnale(QUOTA_MODELLO_PRINCIPALE_MS),
     })
   } catch (err) {
-    if (isAbortError(err)) throw new EstrazioneTimeoutError()
-    if (!isRateLimitError(err) || opts.fallbackModel === opts.model) throw err
+    const scadutoPrimario = isAbortError(err)
+    // Ripiega sulla riserva sia per quota esaurita sia per timeout del
+    // principale: in entrambi i casi il problema è "questo modello, ora,
+    // non ce la fa", non "il documento è illeggibile" — vale la pena
+    // provarci con la riserva prima di arrendersi, non solo sulla quota.
+    if ((!scadutoPrimario && !isRateLimitError(err)) || opts.fallbackModel === opts.model) throw err
 
     const ms = rimanente()
     if (ms != null && ms < 5_000) throw new EstrazioneTimeoutError()
 
-    console.warn(`[cassa/fatture] Quota esaurita per ${opts.model}, passo a ${opts.fallbackModel}`)
+    console.warn(`[cassa/fatture] ${scadutoPrimario ? 'Timeout' : 'Quota esaurita'} per ${opts.model}, passo a ${opts.fallbackModel}`)
     try {
       return await generateObject({
         model: google(opts.fallbackModel),
