@@ -8,6 +8,7 @@ const TZ = 'Europe/Rome'
 export const SOGLIA_GIORNI_PASSATO = 60
 export const TOLLERANZA_QUADRATURA = 0.02
 export const SOGLIA_SCOSTAMENTO_PREZZO = 0.20
+export const SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO = 0.10
 
 // Data fuori da un intervallo plausibile: futura, o troppo nel passato.
 export function verificaData(data: string, sogliaGiorniPassato = SOGLIA_GIORNI_PASSATO): VerificaSospetta | null {
@@ -62,6 +63,33 @@ export function verificaTotaleDaFallback(totaleDaFallback: boolean): VerificaSos
   return {
     campo: 'totale_lordo',
     messaggio: 'Nessun riepilogo IVA né tabella articoli trovati: il totale è quello letto direttamente sul documento, senza ripartizione IVA — verifica prima di salvare.',
+  }
+}
+
+// Il totale ricostruito dalla tabella articoli (netto + IVA, letta o
+// stimata dalla tipologia) non torna con il totale finale letto
+// direttamente sul documento (di solito vicino a "TOTALE"). A differenza
+// di verificaQuadratura — che confronta due numeri dello STESSO calcolo,
+// dove uno scarto è solo arrotondamento — qui sono due letture
+// INDIPENDENTI dello stesso documento: uno scostamento reale è il
+// segnale più affidabile di un errore di lettura sistematico su una riga
+// (tipicamente un prezzo unitario scambiato per l'importo della riga),
+// perché non dipende da uno storico prezzi — coglie anche il primo
+// acquisto di un articolo mai visto prima, o una ri-scansione che ripete
+// identica la stessa lettura sbagliata (storico "ultimo prezzo noto"
+// altrettanto sbagliato, quindi nessuno scostamento rilevabile lì).
+export function verificaTotaleDocumento(
+  totaleCalcolato: number,
+  totaleDocumentoLetto: number | null,
+  sogliaPercentuale = SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO
+): VerificaSospetta | null {
+  if (totaleDocumentoLetto == null || totaleDocumentoLetto === 0) return null
+  const scostamento = (totaleCalcolato - totaleDocumentoLetto) / totaleDocumentoLetto
+  if (Math.abs(scostamento) <= sogliaPercentuale) return null
+  const segno = scostamento > 0 ? '+' : ''
+  return {
+    campo: 'totale_lordo',
+    messaggio: `Il totale ricostruito dagli articoli (€ ${totaleCalcolato.toFixed(2)}) si discosta molto dal totale scritto sul documento (€ ${totaleDocumentoLetto.toFixed(2)}, ${segno}${(scostamento * 100).toFixed(0)}%): probabile errore di lettura su una riga (es. prezzo unitario scambiato per il totale della riga) — verifica gli articoli prima di salvare.`,
   }
 }
 

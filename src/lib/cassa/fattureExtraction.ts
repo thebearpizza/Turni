@@ -144,7 +144,17 @@ export const ArticoloEstrattoSchema = z.object({
     "piccola differenza rispetto all'originale stampato è un problema concreto, non un dettaglio stilistico."
   ),
   quantita: z.number(),
-  prezzo_riga: z.number().describe('Importo totale della riga (quantità × prezzo unitario)'),
+  prezzo_riga: z.number().describe(
+    "Importo TOTALE della riga (quantità × prezzo unitario), MAI il prezzo unitario da solo. Molte fatture fornitori " +
+    "italiane stampano DUE colonne di prezzo sulla stessa riga: una 'Prezzo Unitario' (o 'Prezzo', 'P.U.', spesso per " +
+    "kg/L/pz/cartone) e una 'Importo' o 'Totale Riga' (quantità × prezzo unitario, di norma la colonna più a destra, " +
+    "prima di eventuali sconto/IVA). Quando vedi due valori diversi sulla stessa riga, prezzo_riga è SEMPRE quello della " +
+    "colonna Importo/Totale, MAI quello della colonna Prezzo Unitario — scambiarli è l'errore più costoso possibile su " +
+    "questo campo, perché sbaglia il totale finale della fattura di un fattore pari alla quantità della riga. Prima di " +
+    "scrivere il valore, verifica: prezzo_riga diviso quantità deve dare un prezzo unitario plausibile per quel tipo di " +
+    "prodotto — se il risultato è implausibilmente basso (es. pochi centesimi per un prodotto alimentare normale), quasi " +
+    "certamente hai letto la colonna sbagliata."
+  ),
   unita_misura: z.string().nullable().describe(
     "Unità di misura o formato dell'articolo così come scritto in fattura (es. 'kg', 'L', 'pz', 'cartone da 12', 'conf. 6x1L'). " +
     "null solo se davvero non è indicata da nessuna parte sulla riga — non inventarla, ma quasi sempre è presente su una fattura fornitori."
@@ -214,6 +224,16 @@ export interface FatturaEstratta {
   // letto) presa dal totale finale scritto sul documento — es. un
   // documento di trasporto compilato a mano senza tabella prodotti.
   totale_da_fallback: boolean
+  // Il totale finale letto direttamente sul documento (vicino a "TOTALE"),
+  // indipendentemente da come sono stati ricostruiti iva_dettaglio/gli
+  // articoli — null se nessuna pagina ne riportava uno. Quando ha_articoli
+  // è true questo NON è già confluito nei totali (a differenza del caso
+  // totale_da_fallback): serve al chiamante come riscontro indipendente
+  // per accorgersi di un errore di lettura sistematico su una riga (es.
+  // prezzo unitario scambiato per l'importo di riga) che nessun controllo
+  // basato sullo storico prezzi potrebbe cogliere al primo acquisto di un
+  // articolo, o su una ri-scansione che ripete la stessa lettura sbagliata.
+  totale_documento: number | null
   articoli: ArticoloEstrattoConPagina[]
 }
 
@@ -257,6 +277,8 @@ Leggi ogni numero cifra per cifra, senza arrotondare né stimare un valore che �
 Il nome di ogni articolo è il dato più importante di tutti: finisce in un catalogo prezzi e viene confrontato automaticamente con le fatture successive dello stesso fornitore, quindi anche un piccolo errore di trascrizione (una lettera sbagliata, un'abbreviazione sciolta o accorciata diversamente, uno spazio in più o in meno) crea un articolo duplicato invece di riconoscere quello giusto. Trascrivi il nome carattere per carattere, esattamente come stampato — non correggere refusi apparenti, non espandere abbreviazioni, non "ripulire" il testo. Presta particolare attenzione ai caratteri che si confondono facilmente: 0 (zero) vs O (lettera), 1 (uno) vs l (elle) vs I (i maiuscola), numeri e lettere accentate italiane (à è é ì ò ù). Se il testo è sfocato o troppo piccolo per essere certi al 100%, scegli comunque la lettura più fedele possibile ai tratti visibili, invece di sostituirla con una parola "che avrebbe senso".
 
 Se questa pagina riporta un elenco di articoli, leggi la tabella riga per riga dall'alto verso il basso, con calma, senza saltarne o unirne due insieme anche se il testo è piccolo o poco nitido. Non includere fra gli articoli le righe che sono chiaramente un totale, uno sconto, una nota o un'intestazione di colonna: sono articoli solo le righe di prodotto vero e proprio. Se la pagina non contiene alcuna tabella di prodotti (per esempio riporta solo condizioni contrattuali, o è una bolletta a corpo), restituisci semplicemente un elenco articoli vuoto.
+
+Molte righe di prodotto riportano DUE colonne di prezzo distinte: un prezzo unitario (spesso per kg/L/pz/cartone) e l'importo/totale di riga (quantità × prezzo unitario). Individua sempre quale colonna è quale — dall'intestazione della tabella quando presente, o dalla posizione (l'importo/totale è di norma la colonna più a destra) — e scrivi in prezzo_riga SEMPRE l'importo/totale della riga, mai il prezzo unitario da solo: è l'errore più costoso possibile in questo compito, perché sbaglia il totale finale della fattura di un fattore pari alla quantità.
 
 Cerca sempre anche un importo finale conclusivo (di solito vicino alla parola "TOTALE", anche scritto a mano) e riportalo in totale_documento, indipendentemente da cos'altro hai trovato sulla pagina: capita che un documento — per esempio un documento di trasporto compilato a mano — non abbia affatto una tabella prodotti strutturata né un riepilogo IVA, ma riporti comunque un totale finale leggibile.
 
@@ -345,6 +367,7 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
     iva_dettaglio: ivaDettaglio,
     iva_stimata: ivaStimata,
     totale_da_fallback: totaleDaFallback,
+    totale_documento: totaleDocumento,
     articoli,
   }
 }

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { estraiFatture, matchArticoli, EstrazioneTimeoutError, type CandidatoArticolo, type FatturaEstratta } from '@/lib/cassa/fattureExtraction'
-import { verificaData, verificaIvaStimata, verificaTotaleDaFallback, verificaPrezzoArticolo, TOLLERANZA_QUADRATURA } from '@/lib/cassa/fattureVerifica'
+import { verificaData, verificaIvaStimata, verificaTotaleDaFallback, verificaTotaleDocumento, verificaPrezzoArticolo, TOLLERANZA_QUADRATURA } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import { trovaFornitoreSimile } from '@/lib/cassa/fornitoriMatching'
 import type { VerificaSospetta, ArticoloTipologia, RiquadroArticolo } from '@/types'
@@ -132,12 +132,23 @@ async function risolviFattura(
         }
       : null
 
+  // Riscontro indipendente: quando la pagina riporta anche un totale
+  // finale stampato (totale_documento), lo confrontiamo col lordo
+  // ricostruito dagli articoli — a differenza dello storico prezzi (che
+  // può essere sbagliato quanto la lettura attuale, es. al primo
+  // acquisto o su una ri-scansione che ripete lo stesso errore), è una
+  // seconda lettura del documento stesso, indipendente dalla prima.
+  const verificaTotale = estratta.ha_articoli
+    ? verificaTotaleDocumento(totaleLordo, estratta.totale_documento)
+    : null
+
   // ── Verifiche sui campi sospetti (Task 2) — solo segnalazione, non bloccano ──
   const verificheFattura: VerificaSospetta[] = [
     verificaData(estratta.data),
     quadraturaArticoli,
     verificaIvaStimata(estratta.iva_stimata),
     verificaTotaleDaFallback(estratta.totale_da_fallback),
+    verificaTotale,
   ].filter((v): v is VerificaSospetta => v !== null)
 
   // ── Matching articoli (solo se ha_articoli) ──
