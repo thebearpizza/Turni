@@ -637,14 +637,14 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                     </span>
                     <div className="w-24">
                       <CurrencyInput
-                        value={prezzoRiga}
-                        onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v))}
+                        value={prezzoUnitario}
+                        onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v * a.quantita))}
                         hideStepper
                         className="h-7 text-sm cassa-numeric"
                       />
                     </div>
                     <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      € {prezzoUnitario.toFixed(2)} cad.{prezzoModificato && ' · corretto'}
+                      = € {prezzoRiga.toFixed(2)}{prezzoModificato && ' · corretto'}
                     </span>
                   </div>
                   {confirmingIndex === i ? (
