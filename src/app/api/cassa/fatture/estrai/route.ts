@@ -107,6 +107,11 @@ async function risolviFattura(
       duplicato: true,
       fornitore: { ...fornitore, nuovo: fornitoreNuovo },
       fattura_esistente_id: doppione.id,
+      // Mostrata nell'avviso di doppione: la data letta sulla fattura
+      // già a sistema spiega spesso perché non compare nell'elenco (che
+      // filtra per mese) — es. un anno letto male da una scansione
+      // precedente la fa risultare "sparita" pur essendo salvata.
+      fattura_esistente_data: doppione.data,
       foto_paths: fotoPathsGruppo,
     }
   }

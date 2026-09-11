@@ -20,6 +20,13 @@ const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
   altro_no_food: 'Altro no-food',
 }
 
+// data è una colonna DATE (yyyy-mm-dd), senza componente ora/timezone:
+// un semplice riordino delle parti basta, non serve date-fns-tz.
+function formatDataIt(data: string): string {
+  const [y, m, d] = data.split('-')
+  return y && m && d ? `${d}/${m}/${y}` : data
+}
+
 interface AliquotaEstratta {
   aliquota: number
   imponibile: number
@@ -43,6 +50,7 @@ interface ArticoloEstratto {
 interface EstraiResponse {
   duplicato: boolean
   fattura_esistente_id?: string
+  fattura_esistente_data?: string
   foto_paths: string[]
   fornitore: { id: string; nome: string; partita_iva: string | null; nuovo: boolean }
   fattura?: {
@@ -575,7 +583,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
             <div className="space-y-1 text-sm">
               <p className="font-semibold text-destructive">Possibile doppione</p>
               <p className="text-muted-foreground">
-                Una fattura di <strong>{current.fornitore.nome}</strong> con lo stesso numero documento è già presente a sistema. Non è stata salvata.
+                Una fattura di <strong>{current.fornitore.nome}</strong> con lo stesso numero documento è già presente a sistema
+                {current.fattura_esistente_data && (
+                  <> (data <strong>{formatDataIt(current.fattura_esistente_data)}</strong> — se non la trovi in elenco, controlla di essere su quel mese)</>
+                )}
+                . Non è stata salvata.
               </p>
             </div>
           </div>

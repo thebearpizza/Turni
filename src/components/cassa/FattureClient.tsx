@@ -259,6 +259,19 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
 
   const [drill, setDrill] = useState<DrillKind | null>(null)
 
+  // Dopo un salvataggio, mostra il mese della fattura appena
+  // salvata/sostituita invece di ricaricare semplicemente il mese
+  // corrente: la data sulla fattura è quella letta dal documento (o
+  // corretta a mano), che può differire dal mese attualmente filtrato
+  // in pagina (es. una data letta male, o un documento vecchio caricato
+  // in ritardo) — senza questo, la fattura risulta salvata ma
+  // "invisibile" nell'elenco filtrato, indistinguibile da un fallimento.
+  function mostraMeseDi(dataFattura: string) {
+    const mese = dataFattura.slice(0, 7)
+    if (mese !== month) setMonth(mese)
+    else load()
+  }
+
   // Un caricamento può contenere più fatture insieme (Task batch): questa
   // viene chiamata una volta per OGNI fattura confermata, e FatturaCapture
   // se ne aspetta il risultato per sapere se può passare alla successiva
@@ -292,7 +305,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       if (daRimuovere.length > 0) {
         supabase.storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
       }
-      load()
+      mostraMeseDi(fattura.data)
       return
     }
 
@@ -305,7 +318,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       const data = await res.json().catch(() => null)
       throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
     }
-    load()
+    mostraMeseDi(fattura.data)
   }
 
   // Ri-scansione (Visualizza → Ri-scansiona): sostituisce i dati della
@@ -333,7 +346,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     if (daRimuovere.length > 0) {
       createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
     }
-    load()
+    mostraMeseDi(fattura.data)
   }
 
   // Modifica anagrafica di una fattura già caricata (fornitore, numero
