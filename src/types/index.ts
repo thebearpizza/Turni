@@ -355,6 +355,17 @@ export interface CassaSpesa {
   created_at:   string
 }
 
+export interface CassaSpesaBozza {
+  id:           string
+  restaurant_id: string
+  data:         string // yyyy-MM-dd
+  nome_spesa:   string
+  categoria_id: string | null
+  importo:      number
+  created_by:   string | null
+  created_at:   string
+}
+
 export type CassaModificaStato = 'in_attesa' | 'approvata' | 'rifiutata'
 
 export interface CassaChiusuraModifica {

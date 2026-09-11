@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { X, Loader2 } from 'lucide-react'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
+import { SpeseBozzaCard } from '@/components/cassa/SpeseBozzaCard'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import type { CassaChiusura } from '@/types'
@@ -538,6 +539,17 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {restaurantId && !loading && fase === 1 && (
+        <SpeseBozzaCard
+          restaurantId={restaurantId}
+          giorno={date}
+          ownerId={ownerId}
+          userId={userId}
+          chiusuraId={existing?.id ?? null}
+          onChiusuraCreata={row => setExisting(row)}
+        />
       )}
 
       {restaurantId && !loading && fase === 1 && (
