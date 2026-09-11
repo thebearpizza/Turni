@@ -37,7 +37,7 @@ export class EstrazioneTimeoutError extends Error {
 
 function isRateLimitError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
+  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(message)
 }
 
 function isAbortError(err: unknown): boolean {
@@ -100,7 +100,7 @@ async function generateWithFallback<T>(
     const ms = rimanente()
     if (ms != null && ms < 5_000) throw new EstrazioneTimeoutError()
 
-    console.warn(`[cassa/fatture] ${scadutoPrimario ? 'Timeout' : 'Quota esaurita'} per ${opts.model}, passo a ${opts.fallbackModel}`)
+    console.warn(`[cassa/fatture] ${scadutoPrimario ? 'Timeout' : 'Quota esaurita o modello non disponibile'} per ${opts.model}, passo a ${opts.fallbackModel}`)
     try {
       return await generateObject({
         model: google(opts.fallbackModel),

@@ -97,10 +97,15 @@ interface Props {
   // Per poter correggere il fornitore in revisione quando l'OCR l'ha
   // letto male — stesso problema che rende utile la Ri-scansione.
   fornitori: Array<{ id: string; nome: string }>
-  // 'scan' = fotocamera + ritaglio prospettico (DocumentScanner), per un
-  // documento cartaceo davanti all'utente. 'file' = selezione diretta da
-  // file/galleria, multipla: si presume già un'immagine del documento
-  // (foto precedente, scansione, screenshot), quindi salta il ritaglio.
+  // 'scan' = input con capture="environment", per un documento cartaceo
+  // davanti all'utente. 'file' = selezione diretta da file/galleria,
+  // multipla. La differenza reale è solo l'attributo dell'input: il
+  // browser decide se aprire la fotocamera direttamente o un selettore
+  // di sistema che offre comunque "Scatta foto" — quindi anche da 'file'
+  // il risultato può essere una singola foto appena scattata, non solo
+  // un file esistente. Il ritaglio prospettico (vedi handleAddPage) si
+  // applica per questo a QUALSIASI singola immagine, indipendentemente
+  // da initialMode, e salta solo su un PDF o una selezione multipla.
   initialMode: 'file' | 'scan'
   // Chiamato una volta per OGNI fattura confermata dall'utente (un
   // caricamento può contenerne più di una — vedi results/currentIndex
@@ -219,13 +224,22 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     const files = Array.from(e.target.files ?? [])
     if (files.length === 0) return
     e.target.value = ''
-    if (initialMode === 'scan') {
+    // Una singola immagine passa sempre dal ritaglio, indipendentemente
+    // da initialMode: sul telefono è il browser a decidere se l'input di
+    // "Carica da file" apre direttamente la fotocamera o un selettore di
+    // sistema che offre comunque "Scatta foto" fra le opzioni — quindi
+    // anche da quel tasto il risultato può essere una foto appena
+    // scattata, non solo un file esistente, e l'utente non ha modo di
+    // sapere in anticipo quale dei due tasti "garantisce" il ritaglio:
+    // deve funzionare allo stesso modo da entrambi.
+    if (files.length === 1 && files[0].type.startsWith('image/')) {
       setDaRitagliare(files[0])
       return
     }
-    // Da file: niente ritaglio prospettico, si accodano direttamente
-    // (in sequenza, non in parallelo, per mantenere l'ordine di
-    // selezione anche se la compressione impiega tempi diversi).
+    // Più file, o un PDF: niente ritaglio prospettico, si accodano
+    // direttamente (in sequenza, non in parallelo, per mantenere
+    // l'ordine di selezione anche se la compressione impiega tempi
+    // diversi) — tipico di un caricamento in blocco di file già esistenti.
     for (const file of files) await aggiungiPagina(file)
   }
 
@@ -747,7 +761,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                 <img src={src} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
               )}
               <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{i + 1}</span>
-              {!isPdf && initialMode === 'scan' && (
+              {!isPdf && (
                 <button
                   type="button"
                   onClick={() => ricroppaPagina(i)}

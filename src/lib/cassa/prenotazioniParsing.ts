@@ -28,7 +28,7 @@ export function aiConfigurata(): boolean {
 
 function isRateLimitError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
+  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(message)
 }
 
 async function generaConFallback<T>(

@@ -332,9 +332,9 @@ export async function POST(request: Request) {
       )
     }
 
-    const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(err instanceof Error ? err.message : String(err))
+    const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(err instanceof Error ? err.message : String(err))
     return NextResponse.json(
-      { error: rateLimited ? 'Troppe richieste all\'assistente AI in questo momento, riprova tra poco.' : 'Errore nella lettura della fattura, riprova o compila i dati a mano.' },
+      { error: rateLimited ? 'Assistente AI sovraccarico in questo momento, riprova tra poco.' : 'Errore nella lettura della fattura, riprova o compila i dati a mano.' },
       { status: rateLimited ? 429 : 502 }
     )
   }

@@ -38,7 +38,7 @@ const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'g
 
 function isRateLimitError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(message)
+  return /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(message)
 }
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
