@@ -266,6 +266,36 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
   // dialog, così l'errore (es. doppione rilevato solo ora da una richiesta
   // in parallelo) resta visibile sulla fattura corrente invece di sparire.
   async function handleUploadComplete(fattura: FatturaRisolta) {
+    // "Sostituisci quella esistente" scelto su un doppione (Fatture →
+    // Carica → Possibile doppione): stessa sostituzione in-place della
+    // ri-scansione, ma la fattura target può non essere tra le righe
+    // caricate in pagina (filtrate per mese/locale) — va quindi
+    // recuperata a parte invece di leggerla da rescanTarget/righe.
+    if (fattura.overwrite_fattura_id) {
+      const supabase = createClient()
+      const { data: esistente } = await supabase
+        .from('fatture')
+        .select('restaurant_id, foto_paths')
+        .eq('id', fattura.overwrite_fattura_id)
+        .single()
+      const res = await fetch('/api/cassa/fatture/sostituisci', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fattura_id: fattura.overwrite_fattura_id, restaurant_id: esistente?.restaurant_id ?? uploadRestaurantId, ...fattura }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
+      }
+      const nuovi = new Set(fattura.foto_paths)
+      const daRimuovere = (esistente?.foto_paths ?? []).filter((p: string) => !nuovi.has(p))
+      if (daRimuovere.length > 0) {
+        supabase.storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
+      }
+      load()
+      return
+    }
+
     const res = await fetch('/api/cassa/fatture/salva', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

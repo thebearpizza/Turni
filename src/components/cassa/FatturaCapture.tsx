@@ -69,6 +69,11 @@ export interface FatturaRisolta {
   fornitore: { id: string; nome: string; partita_iva: string | null }
   data: string
   numero_documento: string
+  // Presente solo quando l'utente ha scelto "Sostituisci quella
+  // esistente" da uno schermo di doppione: il chiamante deve aggiornare
+  // questa fattura già a sistema (route /sostituisci) invece di crearne
+  // una nuova (route /salva) — vedi sostituisciDoppione più sotto.
+  overwrite_fattura_id?: string
   ha_articoli: boolean
   categoria_spesa_diretta_id: string | null
   iva_dettaglio: AliquotaEstratta[]
@@ -190,6 +195,12 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // griglia (invece di aggiungerne una nuova): l'indice dice a
   // confermaRitaglio se sostituire quella pagina o accodarne una.
   const [ritagliaIndice, setRitagliaIndice] = useState<number | null>(null)
+  // Indice del batch → id della fattura esistente che sta sostituendo,
+  // valorizzata solo scegliendo "Sostituisci quella esistente" su un
+  // doppione (vedi sostituisciDoppione). Letta da handleConferma per
+  // passare overwrite_fattura_id a onComplete.
+  const [overwriteTargets, setOverwriteTargets] = useState<Map<number, string>>(new Map())
+  const [risolvendoDoppione, setRisolvendoDoppione] = useState(false)
 
   const rescanCaricato = useRef(false)
   useEffect(() => {
@@ -474,6 +485,41 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     onCancel()
   }
 
+  // "Sostituisci quella esistente" sullo schermo di doppione: le foto
+  // sono già su storage (current.foto_paths), basta rilanciare la
+  // lettura escludendo la fattura già a sistema dal controllo doppioni
+  // — esattamente come una ri-scansione, solo che l'id da escludere
+  // arriva dal doppione appena trovato invece che dal prop rescan. Se
+  // la nuova lettura conferma di nuovo un doppione (es. un terzo
+  // documento con lo stesso numero) lo schermo resta identico, stavolta
+  // sul nuovo fattura_esistente_id.
+  async function sostituisciDoppione() {
+    if (!current?.fattura_esistente_id) return
+    setRisolvendoDoppione(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/cassa/fatture/estrai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: current.foto_paths, exclude_fattura_id: current.fattura_esistente_id }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.fatture?.[0]) {
+        setError(data?.error ?? 'Errore nella rilettura della fattura, riprova.')
+        return
+      }
+      const nuovo = data.fatture[0] as EstraiResponse
+      if (!nuovo.duplicato) {
+        setOverwriteTargets(prev => new Map(prev).set(currentIndex, current.fattura_esistente_id as string))
+      }
+      setResults(prev => prev.map((r, i) => (i === currentIndex ? nuovo : r)))
+    } catch {
+      setError('Errore di rete, riprova')
+    } finally {
+      setRisolvendoDoppione(false)
+    }
+  }
+
   async function handleConferma() {
     if (!current || !fornitoreEffettivo) return
 
@@ -492,6 +538,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     try {
       await onComplete({
         foto_paths: current.foto_paths,
+        overwrite_fattura_id: overwriteTargets.get(currentIndex),
         fornitore: { ...fornitoreEffettivo, partita_iva: fornitoreEditato ? null : current.fornitore.partita_iva },
         data: dataEffettiva,
         numero_documento: numeroDocEffettivo,
@@ -532,9 +579,15 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
               </p>
             </div>
           </div>
-          <div className="flex justify-between pt-2">
-            <Button type="button" variant="outline" onClick={annullaRevisione}>Annulla</Button>
-            <Button type="button" onClick={avanti}>{ultimaDelBatch ? 'Chiudi' : 'Fattura successiva'}</Button>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex flex-wrap justify-between gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={annullaRevisione} disabled={risolvendoDoppione}>Annulla</Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={sostituisciDoppione} disabled={risolvendoDoppione}>
+                {risolvendoDoppione ? <><Loader2 className="h-4 w-4 animate-spin" /> Rilettura…</> : 'Sostituisci quella esistente'}
+              </Button>
+              <Button type="button" onClick={avanti} disabled={risolvendoDoppione}>{ultimaDelBatch ? 'Chiudi' : 'Fattura successiva'}</Button>
+            </div>
           </div>
         </div>
       )
