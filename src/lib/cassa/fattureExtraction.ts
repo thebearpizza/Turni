@@ -2,6 +2,7 @@ import { generateObject, type ModelMessage } from 'ai'
 import { google } from '@ai-sdk/google'
 import { z } from 'zod'
 import type { ArticoloTipologia } from '@/types'
+import { SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO } from './fattureVerifica'
 
 // Stesso modello/fallback dell'assistente Telegram e del controllo
 // duplicati spese Cassa — un'unica coppia di env var per l'uso "leggero"
@@ -372,6 +373,103 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   }
 }
 
+const CorrezionePrezziSchema = z.object({
+  righe: z.array(z.object({
+    indice: z.number().int().describe("Indice (0-based) della riga nell'elenco fornito nel messaggio, per farla corrispondere esattamente"),
+    prezzo_riga_corretto: z.number().describe(
+      "Il valore corretto di prezzo_riga per questa riga (importo/totale della riga: quantità × prezzo unitario), riletto ora dalla " +
+      "foto. Se il valore originale era già giusto, restituiscilo invariato."
+    ),
+  })).describe('Una voce per OGNI riga dell\'elenco fornito nel messaggio, nello stesso ordine — nessuna riga saltata.'),
+})
+
+// Budget dedicato e volutamente stretto (non condiviso con
+// BUDGET_ESTRAZIONE_MS): questo passaggio parte SOLO quando serve, in
+// aggiunta alla lettura già fatta — deve lasciare comunque margine sotto
+// il maxDuration della route (vedi estrai/route.ts). Se non fa in tempo
+// si rinuncia e si restituisce la lettura originale, mai un errore
+// all'utente: il controllo verificaTotaleDocumento (route /estrai) resta
+// comunque lì ad avvisarlo, corretta o no.
+const BUDGET_CORREZIONE_MS = 10_000
+
+// Se la somma delle righe non torna col totale letto sul documento, è
+// quasi sempre perché una o più righe hanno il prezzo unitario stampato
+// scambiato per l'importo della riga (vedi ArticoloEstrattoSchema.
+// prezzo_riga) — un errore che le sole istruzioni nel prompt di lettura
+// (sopra, in estraiPagina) non prevengono sempre, specialmente su
+// fatture con due colonne di prezzo ravvicinate. Qui si dà al modello un
+// riscontro NUMERICO concreto (lo scarto) su cui correggersi, facendogli
+// rileggere le stesse foto — molto più affidabile che sperare lo eviti
+// al primo passaggio, dove non ha ancora nulla con cui confrontarsi.
+// "Best effort" per costruzione: qualunque errore o timeout restituisce
+// la fattura originale invariata, senza mai far fallire l'estrazione.
+async function correggiArticoliSeSballati(fattura: FatturaEstratta, fotoDellaFattura: FotoInput[]): Promise<FatturaEstratta> {
+  if (!fattura.ha_articoli || fattura.totale_documento == null || fattura.articoli.length === 0) return fattura
+
+  const lordoStimato = fattura.iva_dettaglio.reduce((s, r) => s + r.imponibile + r.iva, 0)
+  const scostamento = Math.abs(lordoStimato - fattura.totale_documento) / fattura.totale_documento
+  if (scostamento <= SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO) return fattura
+
+  try {
+    const elenco = fattura.articoli.map((a, i) => {
+      const unitario = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
+      return `${i}. "${a.nome}" — ${a.quantita}${a.unita_misura ? ` ${a.unita_misura}` : ''}, prezzo_riga letto: € ${a.prezzo_riga.toFixed(2)} (cioè € ${unitario.toFixed(2)} a unità)`
+    }).join('\n')
+
+    const parti = fotoDellaFattura.map(foto =>
+      foto.mediaType === 'application/pdf'
+        ? { type: 'file' as const, data: foto.buffer, mediaType: foto.mediaType }
+        : { type: 'image' as const, image: foto.buffer, mediaType: foto.mediaType }
+    )
+
+    const { object } = await generateWithFallback(
+      CorrezionePrezziSchema,
+      [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Hai già letto questo documento ed estratto queste righe di prodotto:
+
+${elenco}
+
+Il totale che hai letto sul documento è € ${fattura.totale_documento.toFixed(2)}, ma la somma delle righe sopra (+ IVA) dà € ${lordoStimato.toFixed(2)} — uno scarto del ${(scostamento * 100).toFixed(0)}%, troppo grande per essere un arrotondamento o uno sconto non a riga. L'errore più comune in questo caso è aver letto, su una o più righe, il PREZZO UNITARIO stampato (es. il prezzo al kg/L/pz) scrivendolo in prezzo_riga al posto dell'IMPORTO/TOTALE della riga (quantità × prezzo unitario) — capita spesso su fatture con due colonne di prezzo vicine tra loro.
+
+Guarda di nuovo le foto allegate, riga per riga, e per ciascuna verifica se prezzo_riga corrisponde davvero all'importo/totale stampato per quella riga oppure se hai scambiato le due colonne. Correggi SOLO le righe effettivamente sbagliate, rileggendo il valore vero dalla foto — non limitarti a far tornare la somma con un calcolo: il valore deve essere quello davvero stampato sul documento. Se una riga era già corretta, restituiscila invariata. Rispondi con una voce per OGNI riga dell'elenco sopra, nello stesso ordine, nessuna saltata.`,
+            },
+            ...parti,
+          ],
+        },
+      ],
+      {
+        model: GEMINI_MODEL_ESTRAZIONE,
+        fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE,
+        temperature: 0.1,
+        budgetMs: BUDGET_CORREZIONE_MS,
+      }
+    )
+
+    const correzioneByIndice = new Map(object.righe.map(r => [r.indice, r.prezzo_riga_corretto]))
+    const articoliCorretti = fattura.articoli.map((a, i) => {
+      const corretto = correzioneByIndice.get(i)
+      return corretto != null ? { ...a, prezzo_riga: corretto } : a
+    })
+
+    // iva_dettaglio dipendeva dai prezzi articolo SOLO se era stato
+    // stimato (nessun riepilogo IVA stampato/letto) — se veniva invece da
+    // un riepilogo letto direttamente, la correzione dei prezzi non lo
+    // tocca (resta un dato letto indipendentemente dagli articoli).
+    const ivaDettaglio = fattura.iva_stimata ? calcolaIvaDaArticoli(articoliCorretti) : fattura.iva_dettaglio
+
+    console.log(`[cassa/fatture] Correzione prezzi applicata (scarto ${(scostamento * 100).toFixed(0)}% dal totale documento)`)
+    return { ...fattura, articoli: articoliCorretti, iva_dettaglio: ivaDettaglio }
+  } catch (err) {
+    console.warn('[cassa/fatture] Correzione prezzi non riuscita, mantengo la lettura originale:', err instanceof Error ? err.message : err)
+    return fattura
+  }
+}
+
 // Confronta due pagine per capire se appartengono alla stessa fattura:
 // stesso numero_documento se entrambe lo riportano, altrimenti stesso
 // fornitore_nome se entrambe lo riportano. Se nessuna delle due ha
@@ -437,9 +535,15 @@ export async function estraiFatture(foto: FotoInput[]): Promise<FatturaEstrattaC
   const pagine = await Promise.all(foto.map((f, i) => estraiPagina(f, i + 1, foto.length)))
 
   const gruppi = raggruppaPagine(pagine)
-  const fatture = gruppi.map(indici => ({
-    fattura: unisciPagine(indici.map(i => pagine[i])),
-    indiciFoto: indici,
+  // In parallelo fra le fatture del gruppo (non fra pagine, già fatto
+  // sopra): correggiArticoliSeSballati riguarda solo chi ne ha davvero
+  // bisogno (totale documento letto E scostato) e resta comunque "best
+  // effort" — non aggiunge un rischio di timeout condiviso fra fatture
+  // diverse dello stesso caricamento.
+  const fatture = await Promise.all(gruppi.map(async indici => {
+    const estratta = unisciPagine(indici.map(i => pagine[i]))
+    const corretta = await correggiArticoliSeSballati(estratta, indici.map(i => foto[i]))
+    return { fattura: corretta, indiciFoto: indici }
   }))
 
   console.log(
