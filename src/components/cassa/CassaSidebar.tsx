@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, Banknote, CalendarDays } from 'lucide-react'
+import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, Banknote, CalendarDays, Truck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PushTestButton } from '@/components/shared/PushTestButton'
 import { NotificationBell } from '@/components/shared/NotificationBell'
@@ -26,9 +26,14 @@ const managerNavItems = [
   { href: '/cassa/approvazioni',   icon: ShieldCheck, label: 'Approvazioni' },
 ]
 
+// Il cassiere ha anche accesso ad Acquisti (Task 2, sola lettura) ma
+// nessun hub da cui passare tra le due aree (a differenza del manager,
+// che ci arriva dalle card della Home): un link diretto qui è l'unico
+// modo per raggiungerla senza usare l'URL a mano.
 const cassiereNavItems = [
   { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
   { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
+  { href: '/acquisti/fatture',     icon: Truck,       label: 'Acquisti' },
 ]
 
 // hostess: solo Prenotazioni, nient'altro di Cassa.

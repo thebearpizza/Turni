@@ -29,6 +29,9 @@ const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
 
 interface Props {
   fornitori: Array<{ id: string; nome: string }>
+  // Il cassiere vede il catalogo in sola lettura (Task 2): niente
+  // correzione di prezzo/unità di misura.
+  canEdit: boolean
 }
 
 // L'acquisto più recente di un articolo — serve sia per aprire il
@@ -61,7 +64,7 @@ interface ArticoloRiga {
   ultimoAcquisto: UltimoAcquisto | null
 }
 
-export function ArticoliClient({ fornitori }: Props) {
+export function ArticoliClient({ fornitori, canEdit }: Props) {
   const [ricerca, setRicerca] = useState('')
   const [fornitoreFiltro, setFornitoreFiltro] = useState<string>('')
   const [tipologiaFiltro, setTipologiaFiltro] = useState<ArticoloTipologia | ''>('')
@@ -309,16 +312,18 @@ export function ArticoliClient({ fornitori }: Props) {
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Modifica prezzo e unità di misura"
-                          onClick={() => apriModifica(r)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Modifica prezzo e unità di misura"
+                            onClick={() => apriModifica(r)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                     {aperto && (

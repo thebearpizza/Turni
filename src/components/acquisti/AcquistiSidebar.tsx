@@ -3,15 +3,16 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, FileText, Package, Truck, LogOut, Menu, X } from 'lucide-react'
+import { Home, FileText, Package, Truck, Wallet, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar sul modello di CassaSidebar: elenchi separati per ruolo (non un
-// unico navItems filtrato), Home in cima solo per il manager — il
-// direttore (capo_servizio con is_direttore=true) non ha una home Turni
-// da cui provenire, la sua unica area è Acquisti — voci al centro,
-// Logout in fondo. Stesso componente SidebarContent a livello di modulo
-// (non ridefinito ad ogni render) per lo stesso motivo di CassaSidebar/
+// unico navItems filtrato), Home in cima solo per il manager — né il
+// direttore (capo_servizio con is_direttore=true, la cui unica area è
+// Acquisti) né il cassiere (che in CassaSidebar non ha un link Home
+// nemmeno lì) hanno una home da cui provenire — voci al centro, Logout
+// in fondo. Stesso componente SidebarContent a livello di modulo (non
+// ridefinito ad ogni render) per lo stesso motivo di CassaSidebar/
 // ManagerSidebar: evita rimonti che romperebbero eventuali sottoscrizioni
 // realtime nei figli.
 const managerNavItems = [
@@ -25,6 +26,16 @@ const direttoreNavItems = [
   { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
   { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
   { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+]
+
+// Il cassiere ha anche accesso a Cassa (Chiusura, Lista Chiusure) ma
+// nessun hub da cui passare tra le due aree — stesso motivo del link
+// simmetrico "Acquisti" aggiunto a CassaSidebar per lui.
+const cassiereNavItems = [
+  { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
+  { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
+  { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+  { href: '/cassa/chiusura',     icon: Wallet,   label: 'Cassa' },
 ]
 
 interface SidebarContentProps {
@@ -77,7 +88,7 @@ function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarConten
 }
 
 interface Props {
-  role: 'manager' | 'direttore'
+  role: 'manager' | 'cassiere' | 'direttore'
 }
 
 export function AcquistiSidebar({ role }: Props) {
@@ -85,7 +96,9 @@ export function AcquistiSidebar({ role }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const closeDrawer = () => setOpen(false)
-  const items = role === 'manager' ? managerNavItems : direttoreNavItems
+  const items =
+    role === 'manager'  ? managerNavItems :
+    role === 'cassiere' ? cassiereNavItems : direttoreNavItems
 
   async function handleLogout() {
     const supabase = createClient()
