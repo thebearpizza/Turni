@@ -32,10 +32,13 @@ export async function clearAiHistory(admin: AdminClient, telegramId: number): Pr
   await admin.from('telegram_ai_messages').delete().eq('telegram_id', telegramId)
 }
 
+// Esportate perché riusate da src/lib/hub/aiHistory.ts (Task 4, stessa
+// logica di trim/pulizia per la cronologia della Home web).
+
 // Mantiene solo gli ultimi `maxTurns` scambi, tagliando a partire dal
 // messaggio "user" che apre il primo scambio da conservare (così non si
 // rompono coppie tool-call/tool-result a metà).
-function trimToLastTurns(messages: ModelMessage[], maxTurns: number): ModelMessage[] {
+export function trimToLastTurns(messages: ModelMessage[], maxTurns: number): ModelMessage[] {
   const turnStarts: number[] = []
   messages.forEach((m, i) => { if (m.role === 'user') turnStarts.push(i) })
   if (turnStarts.length <= maxTurns) return messages
@@ -46,7 +49,7 @@ function trimToLastTurns(messages: ModelMessage[], maxTurns: number): ModelMessa
 // prima di salvare la cronologia: sono voluminosi e, se rigiocati in una
 // richiesta successiva eventualmente gestita da un modello diverso (es. dopo
 // un fallback per quota esaurita), possono causare errori di validazione.
-function stripProviderData(messages: ModelMessage[]): ModelMessage[] {
+export function stripProviderData(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((m) => {
     const { providerOptions, ...rest } = m as ModelMessage & { providerOptions?: unknown }
     void providerOptions

@@ -36,6 +36,15 @@ export function canManagePresenze(profile: TelegramProfile): boolean {
   return isManager(profile) || isDirettore(profile)
 }
 
+// Dati finanziari (Cassa/Acquisti, Task 4 dell'assistente): stesso
+// perimetro di chi ha accesso ad Analisi nell'app web — manager e
+// direttore, non il cassiere (che in Acquisti/Cassa ha solo accesso in
+// lettura alle proprie pagine, non ai dati aggregati di Analisi) né il
+// capo_servizio non direttore.
+export function canViewFinanze(profile: TelegramProfile): boolean {
+  return isManager(profile) || isDirettore(profile)
+}
+
 // Turni e ODS: manager, direttori e capi servizio (nel proprio scope).
 export function canManageTurni(profile: TelegramProfile): boolean {
   return isManager(profile) || isCapoServizio(profile)

@@ -6,6 +6,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { HubTopBar } from '@/components/manager/HubTopBar'
+import { HubAiBar } from '@/components/manager/HubAiBar'
 import { HubAreaCard, HubAreaCardSkeleton, type HubIndicatore } from '@/components/manager/HubAreaCard'
 import { CalendarClock, Wallet, Truck } from 'lucide-react'
 
@@ -58,7 +59,7 @@ export default async function HubPage() {
   return (
     <div className="min-h-[100dvh] bg-background">
       <HubTopBar />
-      <div className="mx-auto max-w-3xl px-6 pb-10 pt-6 lg:px-10">
+      <div className="mx-auto max-w-3xl px-6 pb-32 pt-6 lg:px-10">
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-wide text-primary">{saluto(ora)}, {primoNome}</p>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight">Dove lavoriamo?</h1>
@@ -77,6 +78,7 @@ export default async function HubPage() {
           </Suspense>
         </div>
       </div>
+      <HubAiBar />
     </div>
   )
 }

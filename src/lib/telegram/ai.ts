@@ -6,7 +6,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import type { Ctx } from './context'
 import {
-  isManager, isDirettore, isCapoServizio, canManagePresenze,
+  isManager, isDirettore, isCapoServizio, canManagePresenze, canViewFinanze,
   assigneeInScope, scopeTurnsQuery, scopeStaffQuery, toScopeProfile,
 } from './scope'
 import { TZ, isValidTime, normalizeTime, formatDateLabel } from './format'
@@ -56,6 +56,23 @@ function resolveDepartment(input: string): Department | null {
   return DEPARTMENTS.find(d => d.toLowerCase() === norm) ?? null
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+// Raggruppa un array per una chiave testuale — stesso helper già usato in
+// api/cassa/analisi/ai/route.ts, riscritto qui perché quella route lavora
+// su righe già caricate lato client mentre qui si interroga ctx.admin
+// direttamente (service role, bypassa la RLS — vedi nota sotto).
+function raggruppaPer<T>(righe: T[], chiave: (r: T) => string): Map<string, T[]> {
+  const m = new Map<string, T[]>()
+  for (const r of righe) {
+    const k = chiave(r)
+    m.set(k, [...(m.get(k) ?? []), r])
+  }
+  return m
+}
+
 // ── Prompt di sistema ─────────────────────────────────────────────────
 
 function buildSystemPrompt(ctx: Ctx): string {
@@ -82,7 +99,11 @@ function buildSystemPrompt(ctx: Ctx): string {
     scopeLabel = `Capo Servizio del reparto "${profile.department}" nel ristorante "${profile.restaurant?.name ?? ''}": accesso solo a questo reparto.`
   }
 
-  return `Sei l'assistente virtuale del bot Telegram di "Turni", un'app per la gestione di turni, ODS (ordini di servizio) e presenze in ristoranti italiani.
+const finanzeIstruzioni = `
+- Per domande su incassi, entrate o andamento economico di un periodo → dati_cassa_periodo. Per acquisti/fatture fornitori/spesa merce → spesa_fatture_periodo. Per il prezzo o il fornitore di un prodotto → prezzo_articolo. Questi tre riguardano SOLO chiusure cassa confermate e fatture già registrate: se non ci sono dati per il periodo richiesto, dillo chiaramente invece di stimare.
+- "Spese" può significare cose diverse: le spese di cassa giornaliere (già incluse in totale_spese_cassa/margine_operativo di dati_cassa_periodo) oppure gli acquisti fatturati dai fornitori (spesa_fatture_periodo, un dato SEPARATO non incluso nel margine di dati_cassa_periodo). Se la domanda è ambigua, chiarisci quale delle due intendi o rispondi con entrambe.`
+
+  return `Sei l'assistente virtuale di "Turni", un'app per la gestione di turni, ODS (ordini di servizio), presenze, cassa e acquisti in ristoranti italiani. Ti si può scrivere da Telegram o dalla Home dell'app web: stessa logica, stessi dati, in entrambi i casi.
 
 Stai parlando con ${profile.full_name}. ${scopeLabel}
 
@@ -94,15 +115,15 @@ ${calendarLines.join('\n')}
 ISTRUZIONI:
 - Rispondi sempre in italiano, con tono colloquiale, amichevole e professionale, come un collega disponibile. Usa il "tu".
 - Sii conciso: messaggi brevi, vai dritto al punto.
-- Puoi usare la formattazione Markdown di Telegram (*grassetto*, _corsivo_) e qualche emoji con moderazione (📅 turni, 📋 ODS, 🕐 presenze, ✅ ❌).
+- Puoi usare la formattazione Markdown (*grassetto*, _corsivo_) e qualche emoji con moderazione (📅 turni, 📋 ODS, 🕐 presenze, ✅ ❌).
 - Per qualsiasi azione che coinvolge un dipendente (turno, riposo, ODS, presenza), se non conosci il suo ID usa prima lo strumento cerca_dipendenti. Se ci sono più persone con nomi simili, chiedi all'utente di specificare a chi si riferisce: non scegliere a caso.
 - Gli ID (UUID) sono identificatori interni: NON chiederli MAI all'utente (non li conosce e non deve conoscerli) e non mostrarli nelle risposte. Quando ti serve l'ID di un dipendente o di un turno, ricavalo TU con cerca_dipendenti o lista_turni, oppure riusalo dai risultati degli strumenti nei messaggi precedenti.
 - Se l'utente indica una persona con un nome parziale o solo il cognome (es. "accolla", "vecchi"), NON chiedere subito il nome completo: prova prima cerca_dipendenti con quel testo. Chiedi chiarimenti solo se la ricerca restituisce più persone o nessuna.
 - Esegui un'azione (creare/eliminare/modificare) SOLO se la richiesta è chiara e contiene tutte le informazioni necessarie. Se manca qualcosa (data, orario, dipendente, reparto...), chiedi prima di procedere: non inventare dati.
 - Per "scambiare"/"sostituire"/"spostare" i turni (es. tra due dipendenti o tra due date), usa SEMPRE prima lista_turni per leggere i turni esistenti coinvolti, poi usa modifica_turno per aggiornare data/orari di quei turni già esistenti (scambiando i valori tra loro). NON usare crea_turno per uno scambio: creerebbe un turno duplicato lasciando quello vecchio invariato. Usa crea_turno solo quando il dipendente non ha ancora un turno in quella data.
 - Dopo aver eseguito un'azione, confermala riassumendo cosa hai fatto.
-- Per le domande sui dati (es. "chi lavora venerdì?", "quante presenze oggi?"), usa gli strumenti di lettura e rispondi in modo naturale, senza limitarti a riportare i dati grezzi.
-- Se una richiesta non è di tua competenza, suggerisci i comandi /help, /turni, /ods, /presenze.
+- Per le domande sui dati (es. "chi lavora venerdì?", "quante presenze oggi?"), usa gli strumenti di lettura e rispondi in modo naturale, senza limitarti a riportare i dati grezzi.${canViewFinanze(profile) ? finanzeIstruzioni : ''}
+- Se una richiesta non è di tua competenza (turni, ODS, presenze${canViewFinanze(profile) ? ', cassa, acquisti' : ''}), dillo chiaramente invece di inventare una risposta.
 - Vedi gli ultimi messaggi della conversazione: usali per capire riferimenti a cose appena discusse (es. un dipendente già identificato, una data già menzionata, un'azione proposta poco prima). Se nei messaggi precedenti hai già trovato l'ID di un dipendente o di un turno, riusalo senza richiamare di nuovo lo strumento di ricerca, a meno che non sia passato troppo tempo o il contesto sia cambiato.
 - IMPORTANTE: non annunciare mai a parole un'azione futura o "in corso" (es. "ora recupero i turni...", "procedo a cancellarli...", "Ok, elimino il turno...") come fosse la tua risposta finale. Se una frase descrive un'azione, quell'azione deve essere GIÀ stata eseguita con lo strumento corrispondente, nella stessa risposta e PRIMA di scrivere quella frase. Se devi ancora compiere un passo, chiamalo SUBITO (non limitarti a scriverlo a parole) e continua a concatenare le chiamate agli strumenti finché la richiesta dell'utente non è completamente conclusa. Esempio SBAGLIATO: rispondere solo "Ok, elimino il turno di sabato 20 giugno." senza aver chiamato elimina_turno. Esempio CORRETTO: chiamare lo strumento elimina_turno e poi rispondere "✅ Ho eliminato il turno di sabato 20 giugno."`
 }
@@ -624,6 +645,161 @@ function modificaPresenzaTool(ctx: Ctx) {
   })
 }
 
+// ── Tool: Cassa e Acquisti (Task 4 — l'assistente legge anche da queste
+// due aree, non solo Turni/ODS/Presenze) ────────────────────────────────
+// ctx.admin è il client service-role: bypassa la RLS, quindi il filtro
+// per ristorante/owner va applicato esplicitamente qui, non lasciato a
+// can_manage_restaurant() come farebbe l'app web — stesso motivo per cui
+// gli strumenti di turni/staff sopra usano scopeTurnsQuery/scopeStaffQuery
+// invece di affidarsi alla RLS.
+
+// Id dei ristoranti nell'ambito del chiamante: tutti quelli gestiti per
+// un manager (i propri managed_restaurant_ids, o l'intero sistema se
+// null = proprietario di piattaforma — stesso significato già in uso nel
+// resto dell'app), solo il proprio per un direttore. Serve risolverlo qui
+// perché TelegramProfile non porta managed_restaurant_ids (i comandi
+// esistenti non ne avevano mai avuto bisogno).
+async function restaurantsInScope(ctx: Ctx): Promise<string[]> {
+  if (!isManager(ctx.profile)) {
+    return ctx.profile.restaurant_id ? [ctx.profile.restaurant_id] : []
+  }
+  const { data: prof } = await ctx.admin.from('profiles').select('managed_restaurant_ids').eq('id', ctx.profile.id).single()
+  const managed = (prof?.managed_restaurant_ids ?? null) as string[] | null
+  if (managed !== null) return managed
+  const { data: all } = await ctx.admin.from('restaurants').select('id')
+  return (all ?? []).map((r: { id: string }) => r.id)
+}
+
+// owner_id delle entità condivise per owner (catalogo articoli, fornitori
+// — non hanno restaurant_id proprio): derivato dai ristoranti in ambito,
+// non da un singolo valore sul profilo.
+async function ownerIdsInScope(ctx: Ctx, restaurantIds: string[]): Promise<string[]> {
+  if (restaurantIds.length === 0) return []
+  const { data } = await ctx.admin.from('restaurants').select('owner_id').in('id', restaurantIds)
+  return Array.from(new Set((data ?? []).map((r: { owner_id: string | null }) => r.owner_id).filter((id): id is string => !!id)))
+}
+
+function datiCassaPeriodoTool(ctx: Ctx) {
+  return tool({
+    description: 'Somma entrate, spese di cassa e margine operativo in un intervallo di date (estremi inclusi), solo chiusure cassa confermate. Usa questo per domande su incassi, entrate o andamento economico di un periodo.',
+    inputSchema: z.object({
+      inizio: z.string().describe('Data di inizio, formato yyyy-MM-dd'),
+      fine: z.string().describe('Data di fine, formato yyyy-MM-dd (inclusa)'),
+    }),
+    execute: async ({ inizio, fine }) => {
+      const restaurantIds = await restaurantsInScope(ctx)
+      if (restaurantIds.length === 0) return { messaggio: 'Nessun locale nel tuo ambito.' }
+
+      const { data, error } = await ctx.admin
+        .from('cassa_chiusure')
+        .select('data, totale_entrate, totale_spese_giornaliere, coperti, restaurant:restaurants(name)')
+        .eq('stato', 'confermata')
+        .in('restaurant_id', restaurantIds)
+        .gte('data', inizio)
+        .lte('data', fine)
+      if (error) return { error: error.message }
+
+      const righe = (data ?? []) as unknown as Array<{ data: string; totale_entrate: number; totale_spese_giornaliere: number; coperti: number; restaurant: { name: string } | null }>
+      if (righe.length === 0) return { messaggio: 'Nessuna chiusura cassa confermata in questo intervallo di date.' }
+
+      const entrate = righe.reduce((s, r) => s + r.totale_entrate, 0)
+      const spese = righe.reduce((s, r) => s + r.totale_spese_giornaliere, 0)
+      const locali = new Set(righe.map(r => r.restaurant?.name ?? '—'))
+
+      return {
+        giorni_con_dati: new Set(righe.map(r => r.data)).size,
+        totale_entrate: round2(entrate),
+        totale_spese_cassa: round2(spese),
+        margine_operativo: round2(entrate - spese),
+        coperti_totali: righe.reduce((s, r) => s + r.coperti, 0),
+        ...(locali.size > 1 && {
+          per_locale: Array.from(raggruppaPer(righe, r => r.restaurant?.name ?? '—').entries()).map(([locale, voci]) => ({
+            locale,
+            totale_entrate: round2(voci.reduce((s, v) => s + v.totale_entrate, 0)),
+            margine_operativo: round2(voci.reduce((s, v) => s + (v.totale_entrate - v.totale_spese_giornaliere), 0)),
+          })),
+        }),
+      }
+    },
+  })
+}
+
+function spesaFatturePeriodoTool(ctx: Ctx) {
+  return tool({
+    description: 'Totale delle fatture fornitori (acquisti di merce/servizi) ricevute in un intervallo di date, con i fornitori principali per spesa. Usa questo per domande su acquisti, spesa merce o quanto speso con un fornitore.',
+    inputSchema: z.object({
+      inizio: z.string().describe('Data di inizio, formato yyyy-MM-dd'),
+      fine: z.string().describe('Data di fine, formato yyyy-MM-dd (inclusa)'),
+    }),
+    execute: async ({ inizio, fine }) => {
+      const restaurantIds = await restaurantsInScope(ctx)
+      if (restaurantIds.length === 0) return { messaggio: 'Nessun locale nel tuo ambito.' }
+
+      const { data, error } = await ctx.admin
+        .from('fatture')
+        .select('totale_netto, totale_lordo, fornitore:fornitori(nome), restaurant:restaurants(name)')
+        .in('restaurant_id', restaurantIds)
+        .gte('data', inizio)
+        .lte('data', fine)
+      if (error) return { error: error.message }
+
+      const righe = (data ?? []) as unknown as Array<{ totale_netto: number; totale_lordo: number; fornitore: { nome: string } | null; restaurant: { name: string } | null }>
+      if (righe.length === 0) return { messaggio: 'Nessuna fattura fornitore registrata in questo intervallo di date.' }
+
+      const fornitori = Array.from(raggruppaPer(righe, r => r.fornitore?.nome ?? 'Fornitore sconosciuto').entries())
+        .map(([fornitore, voci]) => ({ fornitore, totale_lordo: round2(voci.reduce((s, v) => s + v.totale_lordo, 0)), numero_fatture: voci.length }))
+        .sort((a, b) => b.totale_lordo - a.totale_lordo)
+
+      return {
+        numero_fatture: righe.length,
+        totale_netto: round2(righe.reduce((s, r) => s + r.totale_netto, 0)),
+        totale_lordo: round2(righe.reduce((s, r) => s + r.totale_lordo, 0)),
+        fornitori,
+      }
+    },
+  })
+}
+
+function prezzoArticoloTool(ctx: Ctx) {
+  return tool({
+    description: 'Cerca un articolo del catalogo acquisti per nome (anche parziale, es. "farina" o "acqua") e restituisce fornitore e prezzo più recente noto. Usa questo per domande sul prezzo o il fornitore di un prodotto.',
+    inputSchema: z.object({ nome: z.string().describe('Nome o parte del nome del prodotto da cercare') }),
+    execute: async ({ nome }) => {
+      const restaurantIds = await restaurantsInScope(ctx)
+      const ownerIds = await ownerIdsInScope(ctx, restaurantIds)
+      if (ownerIds.length === 0) return { messaggio: 'Nessun catalogo articoli nel tuo ambito.' }
+
+      const { data: candidati, error } = await ctx.admin
+        .from('catalogo_articoli')
+        .select('id, nome_articolo, unita_misura, fornitore:fornitori(nome)')
+        .in('owner_id', ownerIds)
+        .ilike('nome_articolo', `%${nome}%`)
+        .limit(8)
+      if (error) return { error: error.message }
+      if (!candidati?.length) return { messaggio: `Nessun articolo di catalogo trovato per "${nome}".` }
+
+      const righe = candidati as unknown as Array<{ id: string; nome_articolo: string; unita_misura: string | null; fornitore: { nome: string } | null }>
+      const risultati = await Promise.all(righe.map(async art => {
+        const { data: storico } = await ctx.admin
+          .from('fatture_articoli')
+          .select('prezzo_unitario, fattura:fatture!inner(data)')
+          .eq('catalogo_articolo_id', art.id)
+          .order('data', { foreignTable: 'fatture', ascending: false })
+          .limit(1)
+        const ultimo = (storico ?? [])[0] as unknown as { prezzo_unitario: number; fattura: { data: string } | null } | undefined
+        return {
+          nome: art.nome_articolo,
+          fornitore: art.fornitore?.nome ?? null,
+          unita_misura: art.unita_misura,
+          prezzo_piu_recente: ultimo ? round2(ultimo.prezzo_unitario) : null,
+          data_ultimo_acquisto: ultimo?.fattura?.data ?? null,
+        }
+      }))
+      return { risultati }
+    },
+  })
+}
+
 // ── Esecuzione assistente ────────────────────────────────────────────
 
 function buildTools(ctx: Ctx): Record<string, Tool> {
@@ -643,6 +819,14 @@ function buildTools(ctx: Ctx): Record<string, Tool> {
     tools.lista_presenze = listaPresenzeTool(ctx)
     tools.crea_presenza = creaPresenzaTool(ctx)
     tools.modifica_presenza = modificaPresenzaTool(ctx)
+  }
+
+  // Cassa e Acquisti (Task 4): stesso perimetro di chi ha accesso ad
+  // Analisi nell'app web — manager e direttore.
+  if (canViewFinanze(ctx.profile)) {
+    tools.dati_cassa_periodo = datiCassaPeriodoTool(ctx)
+    tools.spesa_fatture_periodo = spesaFatturePeriodoTool(ctx)
+    tools.prezzo_articolo = prezzoArticoloTool(ctx)
   }
 
   return tools
@@ -669,13 +853,32 @@ function looksUnfinished(text: string): boolean {
 
 const CORRECTION_NUDGE = '[Nota automatica del sistema, invisibile all\'utente] La tua ultima risposta non va bene: non devi mai chiedere ID all\'utente né annunciare azioni senza eseguirle. Usa SUBITO gli strumenti necessari (cerca_dipendenti per trovare le persone, lista_turni per i turni, ecc.), completa la richiesta dell\'utente e rispondi solo con il risultato finale o con una domanda che l\'utente può davvero capire (mai sugli ID).'
 
-export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string> {
+export interface AiHistoryStore {
+  get: () => Promise<ModelMessage[]>
+  save: (messages: ModelMessage[]) => Promise<void>
+}
+
+// historyStore è opzionale: di default legge/scrive telegram_ai_messages
+// per ctx.telegramId, esattamente come prima — nessuna chiamata esistente
+// dal router Telegram deve cambiare. La Home web (Task 4) passa il proprio
+// store, su una tabella diversa (hub_ai_messages, chiave profilo invece
+// che telegram_id): stessa logica di conversazione (prompt, strumenti,
+// retry correttivo) applicata a un'altra origine dei messaggi, non un
+// secondo assistente con regole proprie.
+export async function runAiAssistant(
+  ctx: Ctx,
+  userText: string,
+  historyStore: AiHistoryStore = {
+    get: () => getAiHistory(ctx.admin, ctx.telegramId),
+    save: (messages) => saveAiHistory(ctx.admin, ctx.telegramId, messages),
+  }
+): Promise<string> {
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    return '🤖 L\'assistente AI non è ancora configurato. Usa /help per l\'elenco dei comandi disponibili.'
+    return '🤖 L\'assistente AI non è ancora configurato.'
   }
 
   try {
-    const history = await getAiHistory(ctx.admin, ctx.telegramId)
+    const history = await historyStore.get()
     const messages: ModelMessage[] = [...history, { role: 'user', content: userText }]
     const system = buildSystemPrompt(ctx)
     const tools = buildTools(ctx)
@@ -717,15 +920,15 @@ export async function runAiAssistant(ctx: Ctx, userText: string): Promise<string
       }
     }
 
-    if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova oppure usa /help per i comandi disponibili.'
+    if (!text) return '🤖 Non sono riuscito a generare una risposta. Riprova.'
 
-    await saveAiHistory(ctx.admin, ctx.telegramId, finalMessages)
+    await historyStore.save(finalMessages)
     return text
   } catch (err) {
-    console.error('Errore assistente AI Telegram:', err instanceof Error ? err.stack ?? err.message : err)
+    console.error('Errore assistente AI:', err instanceof Error ? err.stack ?? err.message : err)
     if (isRateLimitError(err)) {
       return '⏳ Troppe richieste all\'assistente AI in questo momento. Aspetta qualche secondo e riprova.'
     }
-    return '⚠️ Si è verificato un errore con l\'assistente AI. Riprova più tardi oppure usa /help per i comandi disponibili.'
+    return '⚠️ Si è verificato un errore con l\'assistente AI. Riprova più tardi.'
   }
 }
