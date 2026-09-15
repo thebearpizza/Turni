@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, FileText, Package, LogOut, Menu, X } from 'lucide-react'
+import { Home, FileText, Package, Truck, LogOut, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sidebar sul modello di CassaSidebar: elenchi separati per ruolo (non un
@@ -15,14 +15,16 @@ import { cn } from '@/lib/utils'
 // ManagerSidebar: evita rimonti che romperebbero eventuali sottoscrizioni
 // realtime nei figli.
 const managerNavItems = [
-  { href: '/hub',              icon: Home,    label: 'Home' },
-  { href: '/acquisti/fatture', icon: FileText, label: 'Fatture' },
-  { href: '/acquisti/articoli', icon: Package, label: 'Articoli' },
+  { href: '/hub',                icon: Home,     label: 'Home' },
+  { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
+  { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
+  { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
 ]
 
 const direttoreNavItems = [
-  { href: '/acquisti/fatture', icon: FileText, label: 'Fatture' },
-  { href: '/acquisti/articoli', icon: Package, label: 'Articoli' },
+  { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
+  { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
+  { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
 ]
 
 interface SidebarContentProps {
