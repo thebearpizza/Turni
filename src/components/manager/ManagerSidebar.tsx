@@ -15,18 +15,20 @@ import { useBadging } from '@/hooks/useBadging'
 import type { Profile } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
-// Il direttore (capo_servizio con is_direttore=true) non passa più da
-// questa sidebar: (manager)/layout.tsx lo reindirizza ad /acquisti prima
-// che ManagerSidebar venga montata — niente più voci "direttoreOnly" qui.
+// `direttoreOnly: true` → visibile anche a capo_servizio con is_direttore === true,
+// oltre ai ruoli elencati in `roles`. Il direttore ora ha anche una Home
+// (Turni/Acquisti, vedi hub/page.tsx): a differenza delle altre voci
+// direttoreOnly (già visibili al manager perché roles include 'manager'),
+// prima di questa non l'aveva mai avuta.
 const navItems = [
-  { href: '/hub', icon: Home, label: 'Home', roles: ['manager'] },
+  { href: '/hub', icon: Home, label: 'Home', roles: ['manager'], direttoreOnly: true },
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['manager', 'capo_servizio'] },
   { href: '/turni', icon: CalendarClock, label: 'Turni', roles: ['manager', 'capo_servizio'] },
   { href: '/ristoranti', icon: Store, label: 'Ristoranti', roles: ['manager'] },
-  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager'] },
+  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager'], direttoreOnly: true },
   { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager'] },
-  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager'] },
-  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'] },
+  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager'], direttoreOnly: true },
+  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'], direttoreOnly: true },
   { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
   { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
   { href: '/report',           icon: FileSpreadsheet, label: 'Report',           roles: ['manager', 'capo_servizio'] },
@@ -199,9 +201,10 @@ export function ManagerSidebar({ profile }: Props) {
     return () => { document.body.style.overflow = '' }
   }, [open])
 
+  const isDirettore = profile.role === 'capo_servizio' && profile.is_direttore === true
   const isPlatformOwner = profile.role === 'manager' && profile.managed_restaurant_ids === null
   const visibleItems = navItems.filter(item =>
-    item.roles.includes(profile.role) &&
+    (item.roles.includes(profile.role) || (item.direttoreOnly === true && isDirettore)) &&
     (!('platformOwnerOnly' in item) || (item.platformOwnerOnly === true && isPlatformOwner))
   )
 

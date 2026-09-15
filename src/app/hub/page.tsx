@@ -48,8 +48,9 @@ export default async function HubPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single()
-  if (!profile || profile.role !== 'manager') redirect('/dashboard')
+  const { data: profile } = await supabase.from('profiles').select('role, full_name, is_direttore').eq('id', user.id).single()
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  if (!profile || !(profile.role === 'manager' || isDirettore)) redirect('/dashboard')
 
   const ora = Number(formatInTimeZone(new Date(), TZ, 'H'))
   const dataLabelGrezza = formatInTimeZone(new Date(), TZ, 'EEEE d MMMM', { locale: it })
@@ -59,7 +60,7 @@ export default async function HubPage() {
   return (
     <div className="min-h-[100dvh] bg-background">
       <HubTopBar />
-      <div className="mx-auto max-w-3xl px-6 pb-32 pt-6 lg:px-10">
+      <div className={`mx-auto max-w-3xl px-6 pt-6 lg:px-10 ${isDirettore ? 'pb-10' : 'pb-32'}`}>
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-wide text-primary">{saluto(ora)}, {primoNome}</p>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight">Dove lavoriamo?</h1>
@@ -70,15 +71,20 @@ export default async function HubPage() {
           <Suspense fallback={<HubAreaCardSkeleton />}>
             <TurniCard />
           </Suspense>
-          <Suspense fallback={<HubAreaCardSkeleton />}>
-            <CassaCard />
-          </Suspense>
+          {/* Il direttore non ha accesso a Cassa (solo Turni e Acquisti) —
+              vedi cassa/layout.tsx e (manager)/layout.tsx. */}
+          {!isDirettore && (
+            <Suspense fallback={<HubAreaCardSkeleton />}>
+              <CassaCard />
+            </Suspense>
+          )}
           <Suspense fallback={<HubAreaCardSkeleton />}>
             <AcquistiCard />
           </Suspense>
         </div>
       </div>
-      <HubAiBar />
+      {/* Assistente IA (Task 4): solo per il manager, non richiesto per il direttore. */}
+      {!isDirettore && <HubAiBar />}
     </div>
   )
 }

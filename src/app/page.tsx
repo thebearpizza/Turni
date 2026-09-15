@@ -9,7 +9,7 @@ export default async function HomePage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, is_direttore')
     .eq('id', user.id)
     .single()
 
@@ -21,6 +21,10 @@ export default async function HomePage() {
     redirect('/hub')
   } else if (profile.role === 'cassiere' || profile.role === 'hostess') {
     redirect('/cassa')
+  } else if (profile.role === 'capo_servizio' && profile.is_direttore === true) {
+    // Il direttore ha una Home come il manager (Turni/Acquisti, non Cassa) —
+    // vedi hub/page.tsx.
+    redirect('/hub')
   } else {
     redirect('/dashboard')
   }

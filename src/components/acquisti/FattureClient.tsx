@@ -30,7 +30,7 @@ interface FornitoreOption {
 }
 
 interface Props {
-  role: 'manager' | 'direttore' | 'cassiere'
+  role: 'manager' | 'direttore'
   restaurants: RestaurantOption[]
   categorieDirette: Array<{ id: string; nome: string }>
   fornitori: FornitoreOption[]
@@ -96,11 +96,6 @@ function monthRange(month: string): { start: string; end: string } {
 }
 
 export function FattureClient({ role, restaurants, categorieDirette, fornitori }: Props) {
-  // Il cassiere vede Fatture in sola lettura (Task 2): niente
-  // caricamento, modifica anagrafica o ri-scansione — solo Visualizza.
-  // L'eliminazione resta riservata al solo manager (invariato: il
-  // direttore non l'ha mai avuta neanche prima di questo task).
-  const canEdit = role !== 'cassiere'
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   const [selectedFornitori, setSelectedFornitori] = useState<string[]>([])
   const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
@@ -476,18 +471,16 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
         </CardContent>
       </Card>
 
-      {canEdit && (
-        <div className="grid grid-cols-2 gap-3">
-          <Button type="button" onClick={() => openUpload('file')} disabled={restaurants.length === 0}>
-            <Upload className="w-4 h-4" /> Carica fattura
-          </Button>
-          <Button type="button" onClick={() => openUpload('scan')} disabled={restaurants.length === 0}>
-            <Camera className="w-4 h-4" />
-            <span className="hidden sm:inline">Scansiona documento</span>
-            <span className="sm:hidden">Scansiona</span>
-          </Button>
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Button type="button" onClick={() => openUpload('file')} disabled={restaurants.length === 0}>
+          <Upload className="w-4 h-4" /> Carica fattura
+        </Button>
+        <Button type="button" onClick={() => openUpload('scan')} disabled={restaurants.length === 0}>
+          <Camera className="w-4 h-4" />
+          <span className="hidden sm:inline">Scansiona documento</span>
+          <span className="sm:hidden">Scansiona</span>
+        </Button>
+      </div>
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -584,11 +577,9 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                             <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
                               <Eye className="w-4 h-4" />
                             </Button>
-                            {canEdit && (
-                              <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Modifica" disabled={workingId === r.id} onClick={() => apriModifica(r)}>
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Modifica" disabled={workingId === r.id} onClick={() => apriModifica(r)}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
                             {role === 'manager' && (
                               <Button
                                 type="button"
@@ -651,7 +642,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
         onOpenChange={open => { if (!open) setViewer(null) }}
         fotoPaths={viewer?.foto_paths ?? []}
         title={viewer ? `${viewer.fornitore_nome} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
-        onRescan={viewer && canEdit ? () => { setRescanTarget(viewer); setViewer(null) } : undefined}
+        onRescan={viewer ? () => { setRescanTarget(viewer); setViewer(null) } : undefined}
       />
 
       <Dialog open={!!rescanTarget} onOpenChange={open => { if (!open) setRescanTarget(null) }}>

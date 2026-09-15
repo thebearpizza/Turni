@@ -18,9 +18,6 @@ export default async function ManagerLayout({ children }: { children: React.Reac
   if (!profile || profile.role === 'dipendente') redirect('/home')
   if (profile.role === 'consulente_lavoro') redirect('/consulente/dashboard')
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
-  // Il direttore (capo_servizio con is_direttore=true) non ha più accesso
-  // alla shell Turni: la sua unica area è Acquisti.
-  if (profile.role === 'capo_servizio' && profile.is_direttore === true) redirect('/acquisti/fatture')
 
   const isPending = profile.account_status === 'pending'
 

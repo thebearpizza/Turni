@@ -2,10 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FattureClient } from '@/components/acquisti/FattureClient'
 
-// L'accesso a /acquisti/* (manager, cassiere, direttore) è già gestito
-// da acquisti/layout.tsx — qui serve solo il ruolo per scopare i dati
-// (locale singolo per cassiere/direttore, tutti quelli gestiti per il
-// manager) e per passare la sola lettura del cassiere a FattureClient.
+// L'accesso a /acquisti/* (manager, direttore) è già gestito da
+// acquisti/layout.tsx — qui serve solo il ruolo per scopare i dati
+// (locale singolo per il direttore, tutti quelli gestiti per il manager).
 export default async function FatturePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -35,15 +34,11 @@ export default async function FatturePage() {
     ? await supabase.from('restaurants').select('id, name').eq('id', profile.restaurant_id).single()
     : { data: null }
 
-  // Solo cassiere e direttore (capo_servizio con is_direttore) arrivano
-  // qui — chiunque altro è già stato reindirizzato dal layout.
-  const role = profile.role === 'cassiere' ? 'cassiere' as const : 'direttore' as const
-
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <h1 className="cassa-display text-2xl">Fatture</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
-      <FattureClient role={role} restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
+      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
     </div>
   )
 }
