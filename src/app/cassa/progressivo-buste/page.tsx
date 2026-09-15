@@ -7,8 +7,7 @@ export default async function ProgressivoBustePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('role, is_direttore').eq('id', user.id).single()
-  if (profile?.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (profile?.role !== 'manager') redirect('/cassa/chiusura')
 

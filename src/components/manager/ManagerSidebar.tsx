@@ -8,7 +8,6 @@ import {
   LayoutDashboard, Store, Users, Clock, CalendarX,
   CheckSquare, MessageSquare, FileSpreadsheet, LogOut,
   Menu, X, Bell, ClipboardList, CalendarClock, UserCheck, Home,
-  FileText, Package
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
@@ -16,26 +15,21 @@ import { useBadging } from '@/hooks/useBadging'
 import type { Profile } from '@/types'
 import { ROLE_LABELS } from '@/types'
 
-// `direttoreOnly: true` → visibile anche a capo_servizio con is_direttore === true,
-// oltre ai ruoli elencati in `roles`.
+// Il direttore (capo_servizio con is_direttore=true) non passa più da
+// questa sidebar: (manager)/layout.tsx lo reindirizza ad /acquisti prima
+// che ManagerSidebar venga montata — niente più voci "direttoreOnly" qui.
 const navItems = [
   { href: '/hub', icon: Home, label: 'Home', roles: ['manager'] },
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['manager', 'capo_servizio'] },
   { href: '/turni', icon: CalendarClock, label: 'Turni', roles: ['manager', 'capo_servizio'] },
   { href: '/ristoranti', icon: Store, label: 'Ristoranti', roles: ['manager'] },
-  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager'], direttoreOnly: true },
+  { href: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['manager'] },
   { href: '/presenze', icon: Clock, label: 'Presenze', roles: ['manager'] },
-  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager'], direttoreOnly: true },
-  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'], direttoreOnly: true },
+  { href: '/assenze', icon: CalendarX, label: 'Assenze', roles: ['manager'] },
+  { href: '/approvazioni', icon: CheckSquare, label: 'Approvazioni', roles: ['manager'] },
   { href: '/bacheca', icon: MessageSquare,   label: 'Bacheca', roles: ['manager', 'capo_servizio'] },
   { href: '/ods',     icon: ClipboardList,  label: 'ODS',     roles: ['manager', 'capo_servizio'] },
   { href: '/report',           icon: FileSpreadsheet, label: 'Report',           roles: ['manager', 'capo_servizio'] },
-  // roles: [] — a differenza delle altre voci direttoreOnly (che restano
-  // visibili anche al manager, perché roles include 'manager'), queste
-  // due sono per il direttore soltanto: senza un ruolo che le includa,
-  // compaiono solo passando dal ramo direttoreOnly && isDirettore.
-  { href: '/fatture',  icon: FileText, label: 'Fatture',  roles: [], direttoreOnly: true },
-  { href: '/articoli', icon: Package,  label: 'Articoli', roles: [], direttoreOnly: true },
   { href: '/account-pendenti', icon: UserCheck,       label: 'Account Pendenti', roles: ['manager'], platformOwnerOnly: true },
 ]
 
@@ -205,10 +199,9 @@ export function ManagerSidebar({ profile }: Props) {
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  const isDirettore = profile.role === 'capo_servizio' && profile.is_direttore === true
   const isPlatformOwner = profile.role === 'manager' && profile.managed_restaurant_ids === null
   const visibleItems = navItems.filter(item =>
-    (item.roles.includes(profile.role) || (item.direttoreOnly === true && isDirettore)) &&
+    item.roles.includes(profile.role) &&
     (!('platformOwnerOnly' in item) || (item.platformOwnerOnly === true && isPlatformOwner))
   )
 

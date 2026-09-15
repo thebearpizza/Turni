@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, FileText, Package, Banknote, CalendarDays } from 'lucide-react'
+import { Home, Wallet, ShieldCheck, BarChart3, ListChecks, LogOut, Menu, X, Banknote, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PushTestButton } from '@/components/shared/PushTestButton'
 import { NotificationBell } from '@/components/shared/NotificationBell'
@@ -23,8 +23,6 @@ const managerNavItems = [
   { href: '/cassa/progressivo-buste', icon: Banknote, label: 'Progressivo Buste' },
   { href: '/cassa/lista-chiusure', icon: ListChecks,  label: 'Lista Chiusure' },
   { href: '/cassa/chiusura',       icon: Wallet,      label: 'Chiusura Cassa' },
-  { href: '/cassa/fatture',        icon: FileText,    label: 'Fatture' },
-  { href: '/cassa/articoli',       icon: Package,     label: 'Articoli' },
   { href: '/cassa/approvazioni',   icon: ShieldCheck, label: 'Approvazioni' },
 ]
 
@@ -36,13 +34,6 @@ const cassiereNavItems = [
 // hostess: solo Prenotazioni, nient'altro di Cassa.
 const hostessNavItems = [
   { href: '/cassa/prenotazioni', icon: CalendarDays, label: 'Prenotazioni' },
-]
-
-// capo_servizio con is_direttore=true: solo Fatture e Articoli, non figura
-// con le altre voci (niente Home/Chiusura Cassa/Lista Chiusure/Analisi).
-const direttoreNavItems = [
-  { href: '/cassa/fatture',  icon: FileText, label: 'Fatture' },
-  { href: '/cassa/articoli', icon: Package,  label: 'Articoli' },
 ]
 
 interface SidebarContentProps {
@@ -110,7 +101,7 @@ function SidebarContent({ pathname, items, showNotifiche, modificheInAttesa, onN
 }
 
 interface Props {
-  role: 'manager' | 'cassiere' | 'direttore' | 'hostess'
+  role: 'manager' | 'cassiere' | 'hostess'
 }
 
 export function CassaSidebar({ role }: Props) {
@@ -121,8 +112,7 @@ export function CassaSidebar({ role }: Props) {
   const closeDrawer = () => setOpen(false)
   const items =
     role === 'manager'  ? managerNavItems :
-    role === 'cassiere' ? cassiereNavItems :
-    role === 'hostess'  ? hostessNavItems  : direttoreNavItems
+    role === 'cassiere' ? cassiereNavItems : hostessNavItems
 
   // Richieste di modifica in attesa, con realtime: la voce Approvazioni
   // non aveva finora alcun segnale, il manager doveva andare a

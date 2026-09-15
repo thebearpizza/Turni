@@ -9,14 +9,13 @@ export default async function ChiusuraCassaPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore')
+    .select('role, restaurant_id')
     .eq('id', user.id)
     .single()
 
   if (!profile) redirect('/login')
-  if (profile.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
-  // Senza questo la hostess "non manager, non direttore" cadrebbe nella
-  // vista cassiere qui sotto — quella cassa non le compete.
+  // Senza questo la hostess "non manager" cadrebbe nella vista cassiere
+  // qui sotto — quella cassa non le compete.
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
 
   if (profile.role === 'manager') {

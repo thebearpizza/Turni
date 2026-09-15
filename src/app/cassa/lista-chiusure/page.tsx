@@ -7,9 +7,8 @@ export default async function ListaChiusurePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase.from('profiles').select('role, restaurant_id, is_direttore').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('role, restaurant_id').eq('id', user.id).single()
   if (!profile) redirect('/login')
-  if (profile.role === 'capo_servizio' && profile.is_direttore) redirect('/cassa/fatture')
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
 
   if (profile.role !== 'manager') {

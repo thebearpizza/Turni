@@ -14,14 +14,15 @@ export default async function CassaLayout({ children }: { children: React.ReactN
     .eq('id', user.id)
     .single()
 
+  // Il direttore (capo_servizio con is_direttore=true) non ha più accesso
+  // a Cassa: Fatture/Articoli, le uniche pagine che poteva vedere qui,
+  // sono ora sotto /acquisti — vedi (acquisti)/layout.tsx.
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  if (isDirettore) redirect('/acquisti/fatture')
 
-  if (!profile || !(['manager', 'cassiere', 'hostess'].includes(profile.role) || isDirettore)) redirect('/dashboard')
+  if (!profile || !['manager', 'cassiere', 'hostess'].includes(profile.role)) redirect('/dashboard')
 
-  const cassaRole =
-    profile.role === 'manager'  ? 'manager' :
-    profile.role === 'cassiere' ? 'cassiere' :
-    profile.role === 'hostess'  ? 'hostess'  : 'direttore'
+  const cassaRole = profile.role as 'manager' | 'cassiere' | 'hostess'
 
   return (
     <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">

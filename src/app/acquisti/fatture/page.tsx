@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { FattureClient } from '@/components/cassa/FattureClient'
+import { FattureClient } from '@/components/acquisti/FattureClient'
 
 export default async function FatturePage() {
   const supabase = await createClient()

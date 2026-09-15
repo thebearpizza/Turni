@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ArticoliClient } from '@/components/cassa/ArticoliClient'
+import { ArticoliClient } from '@/components/acquisti/ArticoliClient'
 
 export default async function ArticoliPage() {
   const supabase = await createClient()

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/compressImage'
-import { DocumentScanner } from '@/components/cassa/DocumentScanner'
+import { DocumentScanner } from '@/components/acquisti/DocumentScanner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
