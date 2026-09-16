@@ -334,7 +334,11 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
     const el = e.currentTarget as HTMLElement
     const r = el.getBoundingClientRect()
     const ghost = el.cloneNode(true) as HTMLElement
-    ghost.className = 'dock-nav-ghost'
+    // Aggiunge la classe del fantasma senza sostituire quelle originali:
+    // il clone deve restare visivamente identico al pulsante (sfondo,
+    // bordo, layout dell'icona/etichetta), solo sovrapposto e scalato.
+    ghost.className = `${el.className} dock-nav-ghost`
+    ghost.style.position = 'fixed'
     ghost.style.width = r.width + 'px'
     ghost.style.height = r.height + 'px'
     ghost.style.left = r.left + 'px'
@@ -426,7 +430,7 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
       <div ref={clipRef} className="fixed left-0 right-0 top-0 z-30 overflow-hidden" style={{ pointerEvents: 'none' }}>
         <div
           ref={panelRef}
-          className="dock-nav-sheet pointer-events-auto absolute inset-x-0 bottom-0 rounded-t-lg border-t border-border shadow-[0_-18px_50px_rgba(0,0,0,.35)]"
+          className="dock-nav-sheet pointer-events-auto absolute inset-x-0 bottom-0 rounded-t-lg shadow-[0_-18px_50px_rgba(0,0,0,.35)]"
           style={{ willChange: 'transform' }}
         >
           <button
@@ -544,7 +548,7 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
 
       <div
         ref={dockRef}
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-[color-mix(in_srgb,var(--color-background)_96%,transparent)] px-1.5 pb-[max(env(safe-area-inset-bottom),9px)] pt-1 backdrop-blur-lg"
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-[color-mix(in_srgb,var(--color-background)_96%,transparent)] px-1.5 pb-[max(env(safe-area-inset-bottom),9px)] pt-1 backdrop-blur-[18px]"
       >
         {dockKeys.map(key => {
           const it = itemByKey.get(key)

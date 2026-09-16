@@ -314,6 +314,18 @@
   transform: scale(1.07);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
 }
+/* In modalità riordino il tocco prolungato su un'icona non deve far
+   comparire menu contestuale/selezione di testo/evidenziazione nativa
+   del browser (Android/iOS): senza questo il trascinamento sembra
+   "litigare" col gesto nativo — icona che scatta, testo dei pulsanti
+   vicini che si evidenzia. */
+.dock-nav-grid-item, .dock-nav-ghost {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-tap-highlight-color: transparent;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .dock-nav-sheet, .dock-nav-sheet *, .dock-nav-ghost {
