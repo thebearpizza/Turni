@@ -60,6 +60,11 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
   const drag = useRef<Drag | null>(null)
   const pendingDx = useRef<number | null>(null)
   const rafId = useRef(0)
+  const settleTimeout = useRef(0)
+  // Valore già confermato (onCommit già chiamato) durante la breve
+  // planata finale, prima che il centro venga scambiato — serve solo
+  // se si afferra la rotella proprio in quella finestra di ~170ms.
+  const settlingValue = useRef<number | null>(null)
   // Un pointerup/pointercancel duplicato per lo stesso gesto (capita su
   // iOS) non deve rielaborare/azzerare il lancio già avviato.
   const gestitoRef = useRef(false)
@@ -90,19 +95,48 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
   function concludi() {
     const d = drag.current
     drag.current = null
-    setAnimating(false)
+    clearTimeout(settleTimeout.current)
+
+    if (!d || d.lastValue === d.startValue) {
+      setAnimating(false)
+      if (stripRef.current) {
+        stripRef.current.style.transition = 'none'
+        stripRef.current.style.transform = 'translateX(0px)'
+      }
+      return
+    }
+    // "animating" resta true per tutta la planata: se tornasse false
+    // subito, l'effetto che risincronizza renderCenter da "value" (la
+    // prop, aggiornata dal genitore in risposta a onCommit qui sotto,
+    // spesso prima che la planata finisca) scambierebbe il centro
+    // troppo presto, riproponendo lo stesso scatto.
+
+    // La planata finale deve restare nello STESSO sistema di
+    // riferimento (renderCenter invariato): animare la trasformazione
+    // e cambiare centro insieme causava lo scatto segnalato — per la
+    // durata della transizione le due cose erano scoordinate, e la
+    // distanza da animare non era il piccolo scarto residuo ma
+    // l'intera corsa del lancio (es. da 100 a 160, ~1000px). Qui invece
+    // planiamo solo sul piccolo resto (al più mezza unità) che separa
+    // la posizione attuale dalla tacca esatta già raggiunta — poi, a
+    // planata conclusa, lo scambio di centro coincide esattamente con
+    // dov'era già arrivata la grafica: zero salto visibile.
+    const dxFinale = (d.startValue - d.lastValue) * PX_PER_UNIT
     if (stripRef.current) {
-      // Il fermo finale (specie a fine lancio) altrimenti scatta di
-      // colpo sulla posizione esatta della tacca: una piccola
-      // transizione solo qui, ripulita al prossimo tocco così il
-      // trascinamento attivo resta a scatto zero (vedi onPointerDown).
-      stripRef.current.style.transition = 'transform 200ms cubic-bezier(.22,.61,.36,1)'
-      stripRef.current.style.transform = 'translateX(0px)'
+      stripRef.current.style.transition = 'transform 160ms cubic-bezier(.22,.61,.36,1)'
+      stripRef.current.style.transform = `translateX(${dxFinale}px)`
     }
-    if (d && d.lastValue !== d.startValue) {
-      setRenderCenter(d.lastValue) // evita lo scatto indietro-e-poi-avanti in attesa del commit
-      onCommit(d.lastValue)
-    }
+    onCommit(d.lastValue)
+    settlingValue.current = d.lastValue
+    settleTimeout.current = window.setTimeout(() => {
+      settlingValue.current = null
+      setRenderCenter(d.lastValue)
+      setAnimating(false) // solo ora "value" può risincronizzare renderCenter: la planata è finita
+      if (stripRef.current) {
+        stripRef.current.style.transition = 'none'
+        stripRef.current.style.transform = 'translateX(0px)'
+      }
+    }, 170)
   }
 
   function lanciaInerzia(dxIniziale: number, vIniziale: number) {
@@ -138,6 +172,7 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     gestitoRef.current = false
     cancelAnimationFrame(rafId.current)
     rafId.current = 0
+    clearTimeout(settleTimeout.current)
     // Se si afferra la rotella mentre sta ancora scorrendo per
     // inerzia, il punto raggiunto finora diventa definitivo (si
     // "blocca" lì) invece di tornare al valore precedente al lancio.
@@ -150,7 +185,13 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
         setRenderCenter(interrotto.lastValue)
         onCommit(interrotto.lastValue)
       }
+    } else if (settlingValue.current !== null) {
+      // Afferrata proprio durante la breve planata finale (~170ms): il
+      // valore appena confermato resta quello buono.
+      valoreIniziale = settlingValue.current
+      setRenderCenter(settlingValue.current)
     }
+    settlingValue.current = null
     const t = performance.now()
     drag.current = { startValue: valoreIniziale, lastValue: valoreIniziale, startX: e.clientX, lastX: e.clientX, lastT: t, v: 0 }
     setAnimating(true)
