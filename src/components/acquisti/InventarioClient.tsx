@@ -341,7 +341,7 @@ export function InventarioClient({ role, restaurants }: Props) {
                       >
                         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
                         <div className="min-w-0">
-                          <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nomeArticolo}</p>
+                          <p className={cn('text-sm font-medium break-words', !aperto && 'line-clamp-2')}>{r.nomeArticolo}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             {aperto && <span className="truncate">{r.fornitoriNomi.join(' · ')}</span>}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
