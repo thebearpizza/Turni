@@ -13,7 +13,6 @@ const MANAGER_ITEMS = [
   { key: 'analisi',        href: '/cassa/analisi',           icon: BarChart3,   label: 'Analisi' },
   { key: 'lista-chiusure', href: '/cassa/lista-chiusure',     icon: ListChecks,  label: 'Lista Chiusure' },
   { key: 'chiusura',       href: '/cassa/chiusura',           icon: Wallet,      label: 'Chiusura Cassa' },
-  { key: 'prenotazioni',   href: '/cassa/prenotazioni',       icon: CalendarDays, label: 'Prenotazioni' },
   { key: 'progressivo-buste', href: '/cassa/progressivo-buste', icon: Banknote, label: 'Progressivo Buste' },
   { key: 'approvazioni',   href: '/cassa/approvazioni',       icon: ShieldCheck, label: 'Approvazioni' },
 ] as const

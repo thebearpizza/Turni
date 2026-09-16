@@ -89,10 +89,8 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
   const defaultOrder = useMemo(() => items.map(it => it.key), [items])
 
   const [order, setOrder] = useState<string[]>(defaultOrder)
-  const [mounted, setMounted] = useState(false)
   useEffect(() => {
     setOrder(loadOrder(userId, area, defaultOrder))
-    setMounted(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, area])
   // Se la lista voci cambia (ruolo diverso, nuova voce) dopo il mount,
@@ -401,8 +399,6 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
   async function handleLogout() {
     await onLogout()
   }
-
-  if (!mounted) return null
 
   const dockKeys = order.slice(0, Math.min(NDOCK, order.length))
   const toneStyle = { '--dock-tone': tone } as React.CSSProperties
