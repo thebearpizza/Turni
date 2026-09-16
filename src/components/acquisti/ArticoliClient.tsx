@@ -12,9 +12,10 @@ import { Button } from '@/components/ui/button'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
+import { Boxes, ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
@@ -60,6 +61,7 @@ interface ArticoloRiga {
   fattore_conversione: number
   fornitore_id: string
   fornitore_nome: string
+  traccia_in_inventario: boolean
   storico: PuntoStorico[] // ordinato per data crescente, prezzo già normalizzato
   ultimoAcquisto: UltimoAcquisto | null
 }
@@ -75,6 +77,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
   const [modifica, setModifica] = useState<ArticoloRiga | null>(null)
   const [prezzoModifica, setPrezzoModifica] = useState(0)
   const [unitaModifica, setUnitaModifica] = useState('')
+  const [tracciaModifica, setTracciaModifica] = useState(false)
   const [salvandoModifica, setSalvandoModifica] = useState(false)
   const [erroreModifica, setErroreModifica] = useState<string | null>(null)
 
@@ -84,7 +87,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
 
     let query = supabase
       .from('catalogo_articoli')
-      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, fornitore:fornitori(nome)')
+      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)')
       .order('nome_articolo')
     if (fornitoreFiltro) query = query.eq('fornitore_id', fornitoreFiltro)
     if (tipologiaFiltro) query = query.eq('tipologia', tipologiaFiltro)
@@ -93,7 +96,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     const rows = (catalogo ?? []) as unknown as Array<{
       id: string; nome_articolo: string; tipologia: ArticoloTipologia
       unita_misura: string | null; fattore_conversione: number
-      fornitore_id: string; fornitore: { nome: string } | null
+      fornitore_id: string; traccia_in_inventario: boolean; fornitore: { nome: string } | null
     }>
 
     if (rows.length === 0) { setRighe([]); setLoading(false); return }
@@ -140,6 +143,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
         fattore_conversione: fattore,
         fornitore_id: r.fornitore_id,
         fornitore_nome: r.fornitore?.nome ?? '—',
+        traccia_in_inventario: r.traccia_in_inventario,
         // Normalizzato secondo il fattore di conversione (Task 4): stesso
         // fattore fisso per tutto lo storico di questa coppia articolo+fornitore.
         storico: storicoGrezzo.map(p => ({ data: p.data, prezzo: p.prezzo / fattore })),
@@ -169,6 +173,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     setModifica(r)
     setPrezzoModifica(r.storico.at(-1)?.prezzo ?? 0)
     setUnitaModifica(r.unita_misura ?? '')
+    setTracciaModifica(r.traccia_in_inventario)
     setErroreModifica(null)
   }
 
@@ -183,7 +188,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
 
     const { error: errUnita } = await supabase
       .from('catalogo_articoli')
-      .update({ unita_misura: unitaModifica.trim() || null })
+      .update({ unita_misura: unitaModifica.trim() || null, traccia_in_inventario: tracciaModifica })
       .eq('id', modifica.id)
     if (errUnita) {
       setErroreModifica(errUnita.message)
@@ -290,6 +295,11 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             {r.fornitore_nome}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
+                            {r.traccia_in_inventario && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1" title="Tracciato in Inventario">
+                                <Boxes className="h-2.5 w-2.5" /> Inventario
+                              </Badge>
+                            )}
                           </p>
                         </div>
                       </button>
@@ -376,6 +386,13 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
             <div className="space-y-1.5">
               <Label>Unità di misura</Label>
               <Input value={unitaModifica} onChange={e => setUnitaModifica(e.target.value)} placeholder="Es. kg, L, pz" />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+              <div>
+                <Label htmlFor="traccia-inventario">Traccia in Inventario</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">Vale per tutti i locali. Disattivalo per gli articoli difficili da contare (es. freschi sfusi).</p>
+              </div>
+              <Switch id="traccia-inventario" checked={tracciaModifica} onCheckedChange={setTracciaModifica} />
             </div>
             {erroreModifica && <p className="text-sm text-destructive">{erroreModifica}</p>}
           </div>
