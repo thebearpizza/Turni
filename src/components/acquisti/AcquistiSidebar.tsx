@@ -2,16 +2,17 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { FileText, Package, Truck } from 'lucide-react'
+import { Boxes, FileText, Package, Truck } from 'lucide-react'
 import { DockNav, type DockNavItem, type DockNavAreaLink } from '@/components/nav/DockNav'
 
-// "Home" non è una voce: DockNav la gestisce a parte. Solo tre voci in
-// quest'area (la barra le mostra tutte, senza bisogno di distinguere le
-// "prime quattro" — sono già meno di quattro).
+// "Home" non è una voce: DockNav la gestisce a parte. Quattro voci in
+// quest'area — esattamente le prime NDOCK di DockNav, quindi la barra
+// fissa le mostra tutte senza bisogno del foglio estraibile.
 const ITEMS = [
-  { key: 'fatture',   href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
-  { key: 'articoli',  href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
-  { key: 'fornitori', href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+  { key: 'fatture',    href: '/acquisti/fatture',    icon: FileText, label: 'Fatture' },
+  { key: 'articoli',   href: '/acquisti/articoli',   icon: Package,  label: 'Articoli' },
+  { key: 'inventario', href: '/acquisti/inventario', icon: Boxes,    label: 'Inventario' },
+  { key: 'fornitori',  href: '/acquisti/fornitori',  icon: Truck,    label: 'Fornitori' },
 ] as const
 
 const AREA_LINKS_MANAGER: DockNavAreaLink[] = [

@@ -606,7 +606,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Card>
 
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="cassa cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
+        <DialogContent className="cassa acquisti cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">
               {captureMode === 'scan' ? 'Scansiona documento' : 'Carica fattura'}
@@ -646,7 +646,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       />
 
       <Dialog open={!!rescanTarget} onOpenChange={open => { if (!open) setRescanTarget(null) }}>
-        <DialogContent className="cassa cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
+        <DialogContent className="cassa acquisti cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">Ri-scansiona documento</DialogTitle>
           </DialogHeader>
@@ -666,7 +666,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Dialog>
 
       <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
-        <DialogContent className="cassa cassa-perforated-top">
+        <DialogContent className="cassa acquisti cassa-perforated-top">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">Eliminare questa fattura?</DialogTitle>
           </DialogHeader>
@@ -689,7 +689,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Dialog>
 
       <Dialog open={!!drill} onOpenChange={open => { if (!open) setDrill(null) }}>
-        <DialogContent closeOnOutsideInteract className="cassa cassa-perforated-top flex flex-col top-[10dvh] bottom-4 translate-y-0 sm:top-[50%] sm:bottom-auto sm:max-h-[80vh] sm:translate-y-[-50%]">
+        <DialogContent closeOnOutsideInteract className="cassa acquisti cassa-perforated-top flex flex-col top-[10dvh] bottom-4 translate-y-0 sm:top-[50%] sm:bottom-auto sm:max-h-[80vh] sm:translate-y-[-50%]">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">{drill ? DRILL_LABELS[drill] : ''}</DialogTitle>
           </DialogHeader>
@@ -736,7 +736,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       </Dialog>
 
       <Dialog open={!!editing} onOpenChange={open => { if (!open) { setEditing(null); setEditError(null) } }}>
-        <DialogContent className="cassa cassa-perforated-top">
+        <DialogContent className="cassa acquisti cassa-perforated-top">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">Modifica fattura</DialogTitle>
           </DialogHeader>

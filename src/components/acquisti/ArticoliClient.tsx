@@ -12,9 +12,10 @@ import { Button } from '@/components/ui/button'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
+import { Boxes, ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
@@ -60,6 +61,7 @@ interface ArticoloRiga {
   fattore_conversione: number
   fornitore_id: string
   fornitore_nome: string
+  traccia_in_inventario: boolean
   storico: PuntoStorico[] // ordinato per data crescente, prezzo già normalizzato
   ultimoAcquisto: UltimoAcquisto | null
 }
@@ -84,7 +86,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
 
     let query = supabase
       .from('catalogo_articoli')
-      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, fornitore:fornitori(nome)')
+      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)')
       .order('nome_articolo')
     if (fornitoreFiltro) query = query.eq('fornitore_id', fornitoreFiltro)
     if (tipologiaFiltro) query = query.eq('tipologia', tipologiaFiltro)
@@ -93,7 +95,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     const rows = (catalogo ?? []) as unknown as Array<{
       id: string; nome_articolo: string; tipologia: ArticoloTipologia
       unita_misura: string | null; fattore_conversione: number
-      fornitore_id: string; fornitore: { nome: string } | null
+      fornitore_id: string; traccia_in_inventario: boolean; fornitore: { nome: string } | null
     }>
 
     if (rows.length === 0) { setRighe([]); setLoading(false); return }
@@ -140,6 +142,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
         fattore_conversione: fattore,
         fornitore_id: r.fornitore_id,
         fornitore_nome: r.fornitore?.nome ?? '—',
+        traccia_in_inventario: r.traccia_in_inventario,
         // Normalizzato secondo il fattore di conversione (Task 4): stesso
         // fattore fisso per tutto lo storico di questa coppia articolo+fornitore.
         storico: storicoGrezzo.map(p => ({ data: p.data, prezzo: p.prezzo / fattore })),
@@ -170,6 +173,19 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     setPrezzoModifica(r.storico.at(-1)?.prezzo ?? 0)
     setUnitaModifica(r.unita_misura ?? '')
     setErroreModifica(null)
+  }
+
+  // Interruttore direttamente in riga (niente dialog): ottimistico, con
+  // ripristino silenzioso se la scrittura fallisce — azione a basso
+  // rischio, un eventuale errore di rete si nota subito riprovando.
+  async function toggleTraccia(r: ArticoloRiga, checked: boolean) {
+    setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: checked } : x))
+    const supabase = createClient()
+    const { error } = await supabase.from('catalogo_articoli').update({ traccia_in_inventario: checked }).eq('id', r.id)
+    if (error) {
+      console.error(error)
+      setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: !checked } : x))
+    }
   }
 
   // Il prezzo mostrato/modificato è quello normalizzato (vedi storico più
@@ -271,7 +287,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                   <div key={r.id} className="py-2">
                     <div
                       className={cn(
-                        'flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 transition-colors',
+                        'w-full rounded-md px-2 py-2 transition-colors',
                         aperto ? 'bg-accent' : 'hover:bg-accent/60'
                       )}
                     >
@@ -280,50 +296,60 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                         onClick={() => setEspanso(prev => prev === r.id ? null : r.id)}
                         aria-expanded={aperto}
                         className={cn(
-                          'flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left',
+                          'flex w-full items-start gap-2 rounded-sm text-left',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1'
                         )}
                       >
-                        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
-                        <div className="min-w-0">
-                          <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nome_articolo}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            {r.fornitore_nome}
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
-                          </p>
-                        </div>
+                        <ChevronDown className={cn('h-4 w-4 shrink-0 mt-0.5 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
+                        <p className={cn('min-w-0 flex-1 text-sm font-medium break-words', !aperto && 'line-clamp-2')}>{r.nome_articolo}</p>
                       </button>
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
-                          {prezzoRecente != null ? (
-                            <>€ {prezzoRecente.toFixed(2)}{r.unita_misura && <span className="text-muted-foreground text-xs"> / {r.unita_misura}</span>}</>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">nessun acquisto</span>
+                      <div className="mt-1.5 flex items-center justify-between gap-2 pl-6">
+                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground flex items-center gap-1.5">
+                          {aperto && <span className="truncate">{r.fornitore_nome}</span>}
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
+                        </p>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
+                            {prezzoRecente != null ? (
+                              <>€ {prezzoRecente.toFixed(2)}{r.unita_misura && <span className="text-muted-foreground text-xs"> / {r.unita_misura}</span>}</>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">nessun acquisto</span>
+                            )}
+                          </div>
+                          {canEdit && (
+                            <div className="flex items-center gap-1" title="Traccia in Inventario">
+                              <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <Switch
+                                checked={r.traccia_in_inventario}
+                                onCheckedChange={checked => toggleTraccia(r, checked)}
+                                className="scale-90"
+                              />
+                            </div>
                           )}
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Vedi documento"
-                          disabled={!r.ultimoAcquisto}
-                          onClick={() => setViewerRiga(r)}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        {canEdit && (
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            title="Modifica prezzo e unità di misura"
-                            onClick={() => apriModifica(r)}
+                            title="Vedi documento"
+                            disabled={!r.ultimoAcquisto}
+                            onClick={() => setViewerRiga(r)}
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Eye className="h-3.5 w-3.5" />
                           </Button>
-                        )}
+                          {canEdit && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Modifica prezzo e unità di misura"
+                              onClick={() => apriModifica(r)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {aperto && (

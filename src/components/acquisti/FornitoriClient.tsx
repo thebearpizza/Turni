@@ -215,7 +215,7 @@ function FornitoreDettaglioDialog({ fornitoreId, canEdit, onClose, onSaved }: De
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="cassa cassa-perforated-top max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="cassa acquisti cassa-perforated-top max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="cassa-display text-lg">{loading ? 'Fornitore' : nome}</DialogTitle>
         </DialogHeader>
@@ -332,7 +332,7 @@ function UnisciFornitoreDialog({ fornitoreDaId, nomeDa, fornitori, onClose, onDo
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="cassa cassa-perforated-top">
+      <DialogContent className="cassa acquisti cassa-perforated-top">
         <DialogHeader>
           <DialogTitle className="cassa-display text-lg">Unisci fornitore duplicato</DialogTitle>
           <DialogDescription>

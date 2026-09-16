@@ -390,14 +390,48 @@ export interface Fornitore {
 }
 
 export interface CatalogoArticolo {
-  id:                    string
-  owner_id:              string
-  fornitore_id:          string
-  nome_articolo:         string
-  tipologia:             ArticoloTipologia
-  unita_misura:          string | null
-  fattore_conversione:   number
-  created_at:            string
+  id:                     string
+  owner_id:               string
+  fornitore_id:           string
+  nome_articolo:          string
+  tipologia:              ArticoloTipologia
+  unita_misura:           string | null
+  fattore_conversione:    number
+  // Interruttore per-articolo (vale per tutti i locali del manager, non
+  // per singolo ristorante): decide se questo articolo compare in
+  // Inventario. Di default false — si traccia solo ciò che si sceglie
+  // esplicitamente (bevande e affini, non i freschi difficili da pesare).
+  traccia_in_inventario:  boolean
+  created_at:             string
+}
+
+// ── Inventario (Acquisti) ────────────────────────────────────────────
+// 'carico_manuale' | 'scarico_manuale' | 'rettifica' oggi; 'fattura' e
+// 'chiusura_cassa' quando arriverà lo scarico automatico (vedi
+// migrazione 20260916_inventario_magazzino.sql) — stesso approccio
+// "enum a livello applicativo" di ArticoloTipologia, nessun CHECK a
+// livello DB per poter estendere l'elenco senza migrazioni.
+export type InventarioCausale = 'carico_manuale' | 'scarico_manuale' | 'rettifica' | 'fattura' | 'chiusura_cassa'
+
+// Un movimento è un registro immutabile: niente UPDATE/DELETE dall'app,
+// per correggere un errore si aggiunge un movimento di rettifica.
+export interface InventarioMovimento {
+  id:                     string
+  restaurant_id:          string
+  catalogo_articolo_id:   string
+  quantita:               number // positiva = carico, negativa = scarico
+  causale:                InventarioCausale
+  nota:                   string | null
+  created_by:             string | null
+  created_at:             string
+}
+
+// Vista: giacenza attuale = somma dei movimenti per ristorante+articolo.
+export interface InventarioGiacenza {
+  restaurant_id:          string
+  catalogo_articolo_id:   string
+  giacenza:               number
+  ultimo_movimento_at:    string | null
 }
 
 export interface ArticoloMappaturaTesto {
