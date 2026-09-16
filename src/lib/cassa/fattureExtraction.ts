@@ -58,7 +58,10 @@ function isAbortError(err: unknown): boolean {
 // modello di riserva resti sempre un margine reale per provarci.
 const QUOTA_MODELLO_PRINCIPALE_MS = 30_000
 
-async function generateWithFallback<T>(
+// Esportata (con FotoInput sotto) per riuso da altri lettori AI che
+// vogliono lo stesso ritentativo/fallback/budget — vedi
+// reportChiusuraExtraction.ts.
+export async function generateWithFallback<T>(
   schema: z.ZodType<T>,
   messages: ModelMessage[],
   opts: { model: string; fallbackModel: string; temperature?: number; budgetMs?: number }
@@ -245,7 +248,7 @@ export interface FatturaEstratta {
 // posizione nel gruppo è già nota al sistema, non va indovinata dall'AI.
 export type ArticoloEstrattoConPagina = z.infer<typeof ArticoloEstrattoSchema> & { pagina_indice: number }
 
-interface FotoInput {
+export interface FotoInput {
   buffer: ArrayBuffer
   mediaType: string
 }
