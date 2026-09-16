@@ -1,91 +1,67 @@
 'use client'
-import { useState } from 'react'
-import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Home, FileText, Package, Truck, LogOut, Menu, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { FileText, Package, Truck } from 'lucide-react'
+import { DockNav, type DockNavItem, type DockNavAreaLink } from '@/components/nav/DockNav'
 
-// Sidebar sul modello di CassaSidebar: elenchi separati per ruolo (non un
-// unico navItems filtrato) — voci al centro, Logout in fondo. Stesso
-// componente SidebarContent a livello di modulo (non ridefinito ad ogni
-// render) per lo stesso motivo di CassaSidebar/ManagerSidebar: evita
-// rimonti che romperebbero eventuali sottoscrizioni realtime nei figli.
-const managerNavItems = [
-  { href: '/hub',                icon: Home,     label: 'Home' },
-  { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
-  { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
-  { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+// "Home" non è una voce: DockNav la gestisce a parte. Solo tre voci in
+// quest'area (la barra le mostra tutte, senza bisogno di distinguere le
+// "prime quattro" — sono già meno di quattro).
+const ITEMS = [
+  { key: 'fatture',   href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
+  { key: 'articoli',  href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
+  { key: 'fornitori', href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+] as const
+
+const AREA_LINKS_MANAGER: DockNavAreaLink[] = [
+  { key: 'turni', label: 'Turni', href: '/dashboard' },
+  { key: 'cassa', label: 'Cassa', href: '/cassa' },
+  { key: 'acquisti', label: 'Acquisti', href: '/acquisti/fatture' },
 ]
-
-// Il direttore ora ha una Home (Turni/Acquisti) da cui arriva — vedi
-// hub/page.tsx.
-const direttoreNavItems = [
-  { href: '/hub',                icon: Home,     label: 'Home' },
-  { href: '/acquisti/fatture',   icon: FileText, label: 'Fatture' },
-  { href: '/acquisti/articoli',  icon: Package,  label: 'Articoli' },
-  { href: '/acquisti/fornitori', icon: Truck,    label: 'Fornitori' },
+const AREA_LINKS_DIRETTORE: DockNavAreaLink[] = [
+  { key: 'turni', label: 'Turni', href: '/dashboard' },
+  { key: 'acquisti', label: 'Acquisti', href: '/acquisti/fatture' },
 ]
-
-interface SidebarContentProps {
-  pathname: string
-  items: typeof managerNavItems
-  onNavigate: () => void
-  onLogout: () => void
-}
-
-function SidebarContent({ pathname, items, onNavigate, onLogout }: SidebarContentProps) {
-  return (
-    <div className="flex flex-col h-full">
-      <div className="cassa-perforated-top border-b border-border">
-        <div className="p-6">
-          <h1 className="cassa-display text-2xl">Acquisti</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Fatture, articoli e fornitori</p>
-        </div>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {items.map(({ href, icon: Icon, label }) => (
-          <Link
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(href + '/')
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            )}
-          >
-            <Icon className="w-4 h-4 shrink-0" />
-            <span className="flex-1">{label}</span>
-          </Link>
-        ))}
-      </nav>
-
-      <div className="p-4 border-t border-border">
-        <button
-          onClick={onLogout}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          Esci
-        </button>
-      </div>
-    </div>
-  )
-}
 
 interface Props {
   role: 'manager' | 'direttore'
+  userId: string
 }
 
-export function AcquistiSidebar({ role }: Props) {
-  const [open, setOpen] = useState(false)
-  const pathname = usePathname()
+export function AcquistiSidebar({ role, userId }: Props) {
   const router = useRouter()
-  const closeDrawer = () => setOpen(false)
-  const items = role === 'manager' ? managerNavItems : direttoreNavItems
+  const [daVerificare, setDaVerificare] = useState(0)
+
+  // Fatture con dati sospetti non ancora confermati — stessa definizione
+  // dell'indicatore "Da verificare" della card Acquisti in Home
+  // (hub_indicatori_acquisti): jsonb_array_length(verifiche_sospette) > 0,
+  // su tutte le fatture nell'ambito di chi chiama (RLS), non solo il mese.
+  useEffect(() => {
+    const supabase = createClient()
+    const oggi = new Date()
+    const anno = oggi.getFullYear(), mese = oggi.getMonth() + 1
+    const meseInizio = `${anno}-${String(mese).padStart(2, '0')}-01`
+    const meseFine = `${anno}-${String(mese).padStart(2, '0')}-${String(new Date(anno, mese, 0).getDate()).padStart(2, '0')}`
+    async function fetchCount() {
+      const { data } = await supabase
+        .rpc('hub_indicatori_acquisti', { p_mese_inizio: meseInizio, p_mese_fine: meseFine })
+        .single()
+      const row = data as { fatture_da_verificare?: number } | null
+      setDaVerificare(Number(row?.fatture_da_verificare ?? 0))
+    }
+    fetchCount()
+    const channel = supabase
+      .channel('dock_fatture_da_verificare')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, fetchCount)
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  const items: DockNavItem[] = ITEMS.map(item => ({
+    ...item,
+    badge: item.key === 'fatture' ? daVerificare : undefined,
+  }))
 
   async function handleLogout() {
     const supabase = createClient()
@@ -94,42 +70,13 @@ export function AcquistiSidebar({ role }: Props) {
   }
 
   return (
-    <>
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 h-full flex-col border-r border-border bg-card shrink-0">
-        <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
-      </aside>
-
-      {/* Mobile header + drawer */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center h-14 px-4 border-b border-border bg-background">
-        <button
-          onClick={() => setOpen(true)}
-          className="-m-1 p-3 rounded-md hover:bg-accent"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        <span className="ml-3 font-semibold flex-1">
-          {items.find(item => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ?? 'Acquisti'}
-        </span>
-      </div>
-
-      {open && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={closeDrawer} />
-          <aside
-            className="relative w-72 bg-card border-r border-border flex flex-col"
-            onTouchMove={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={closeDrawer}
-              className="absolute top-4 right-4 p-1 rounded hover:bg-accent"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <SidebarContent pathname={pathname} items={items} onNavigate={closeDrawer} onLogout={handleLogout} />
-          </aside>
-        </div>
-      )}
-    </>
+    <DockNav
+      area="acquisti"
+      items={items}
+      userId={userId}
+      homeHref="/hub"
+      areaLinks={role === 'manager' ? AREA_LINKS_MANAGER : AREA_LINKS_DIRETTORE}
+      onLogout={handleLogout}
+    />
   )
 }

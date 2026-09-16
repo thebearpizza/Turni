@@ -25,17 +25,15 @@ export default async function CassaLayout({ children }: { children: React.ReactN
   const cassaRole = profile.role as 'manager' | 'cassiere' | 'hostess'
 
   return (
-    <div className="cassa flex h-[100dvh] overflow-hidden bg-background text-foreground">
-      <CassaSidebar role={cassaRole} />
-      <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
-        {/* Non è (solo) un banner: montarlo qui riallinea la subscription
-            push col server a ogni apertura di Cassa. Chi lavora tutto il
-            giorno qui dentro prima non rinnovava mai la registrazione. */}
-        <div className="pt-3">
-          <PushNotificationPrompt />
-        </div>
-        {children}
-      </main>
+    <div className="cassa h-[100dvh] overflow-y-auto bg-background pb-24 text-foreground">
+      {/* Non è (solo) un banner: montarlo qui riallinea la subscription
+          push col server a ogni apertura di Cassa. Chi lavora tutto il
+          giorno qui dentro prima non rinnovava mai la registrazione. */}
+      <div className="pt-3">
+        <PushNotificationPrompt />
+      </div>
+      {children}
+      <CassaSidebar role={cassaRole} userId={user.id} />
     </div>
   )
 }
