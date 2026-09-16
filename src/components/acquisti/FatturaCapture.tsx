@@ -334,7 +334,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
 
   // Quante pagine al massimo per chiamata a /estrai — vedi il commento
   // nel corpo di handleElabora sotto per il perché.
-  const MAX_PAGINE_PER_LETTURA = 3
+  const MAX_PAGINE_PER_LETTURA = 4
 
   async function handleElabora() {
     setStatus('processing')
