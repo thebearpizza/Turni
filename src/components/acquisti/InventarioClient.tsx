@@ -329,7 +329,7 @@ export function InventarioClient({ role, restaurants }: Props) {
                   <div key={r.nomeArticolo} className="py-2">
                     <div
                       className={cn(
-                        'flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 transition-colors',
+                        'w-full rounded-md px-2 py-2 transition-colors',
                         aperto ? 'bg-accent' : 'hover:bg-accent/60'
                       )}
                     >
@@ -337,24 +337,24 @@ export function InventarioClient({ role, restaurants }: Props) {
                         type="button"
                         onClick={() => toggleEspanso(r)}
                         aria-expanded={aperto}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                        className="flex w-full items-start gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                       >
-                        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
-                        <div className="min-w-0">
-                          <p className={cn('text-sm font-medium break-words', !aperto && 'line-clamp-2')}>{r.nomeArticolo}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            {aperto && <span className="truncate">{r.fornitoriNomi.join(' · ')}</span>}
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
-                          </p>
-                        </div>
+                        <ChevronDown className={cn('h-4 w-4 shrink-0 mt-0.5 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
+                        <p className={cn('min-w-0 flex-1 text-sm font-medium break-words', !aperto && 'line-clamp-2')}>{r.nomeArticolo}</p>
                       </button>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
-                          {r.giacenza}{r.unitaMisura && <span className="text-muted-foreground text-xs"> {r.unitaMisura}</span>}
+                      <div className="mt-1.5 flex items-center justify-between gap-2 pl-6">
+                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground flex items-center gap-1.5">
+                          {aperto && <span className="truncate">{r.fornitoriNomi.join(' · ')}</span>}
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
+                            {r.giacenza}{r.unitaMisura && <span className="text-muted-foreground text-xs"> {r.unitaMisura}</span>}
+                          </div>
+                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Modifica" onClick={() => apriModifica(r)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Modifica" onClick={() => apriModifica(r)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
                       </div>
                     </div>
                     {aperto && (
