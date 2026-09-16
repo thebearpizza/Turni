@@ -91,7 +91,14 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     const d = drag.current
     drag.current = null
     setAnimating(false)
-    if (stripRef.current) stripRef.current.style.transform = 'translateX(0px)'
+    if (stripRef.current) {
+      // Il fermo finale (specie a fine lancio) altrimenti scatta di
+      // colpo sulla posizione esatta della tacca: una piccola
+      // transizione solo qui, ripulita al prossimo tocco così il
+      // trascinamento attivo resta a scatto zero (vedi onPointerDown).
+      stripRef.current.style.transition = 'transform 200ms cubic-bezier(.22,.61,.36,1)'
+      stripRef.current.style.transform = 'translateX(0px)'
+    }
     if (d && d.lastValue !== d.startValue) {
       setRenderCenter(d.lastValue) // evita lo scatto indietro-e-poi-avanti in attesa del commit
       onCommit(d.lastValue)
@@ -148,7 +155,10 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     drag.current = { startValue: valoreIniziale, lastValue: valoreIniziale, startX: e.clientX, lastX: e.clientX, lastT: t, v: 0 }
     setAnimating(true)
     setRenderCenter(valoreIniziale)
-    if (stripRef.current) stripRef.current.style.transform = 'translateX(0px)'
+    if (stripRef.current) {
+      stripRef.current.style.transition = 'none' // il tocco attivo deve seguire il dito a scatto zero, senza la transizione del fermo precedente
+      stripRef.current.style.transform = 'translateX(0px)'
+    }
     if (numberRef.current) numberRef.current.textContent = String(valoreIniziale)
     e.currentTarget.setPointerCapture(e.pointerId)
   }
