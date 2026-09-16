@@ -26,7 +26,11 @@ interface Props {
   onCommit: (value: number) => void
 }
 
-export function GiacenzaRuler({ value, unit, min = 0, max = 999, onCommit }: Props) {
+// Nessun tetto artificiale: una giacenza reale non ha un massimo
+// sensato da indovinare. Il solo limite vero è 0 in basso (non esiste
+// una giacenza negativa) — la rotella scorre "all'infinito" verso
+// l'alto, come richiesto.
+export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }: Props) {
   const [dragging, setDragging] = useState(false)
   const [liveValue, setLiveValue] = useState(value)
   const drag = useRef<{ startX: number; startValue: number } | null>(null)
