@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { GiacenzaRuler } from '@/components/acquisti/GiacenzaRuler'
+import { ProdottiVenditaDaAbbinareCard } from '@/components/acquisti/ProdottiVenditaDaAbbinareCard'
 import { ChevronDown, Loader2, Minus, Pencil, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, InventarioCausale } from '@/types'
@@ -335,6 +336,8 @@ export function InventarioClient({ role, restaurants }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      {restaurantId && <ProdottiVenditaDaAbbinareCard restaurantId={restaurantId} />}
 
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6">
