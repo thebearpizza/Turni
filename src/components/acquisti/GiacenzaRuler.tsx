@@ -8,21 +8,17 @@ import { cn } from '@/lib/utils'
 // diminuisce (la rotella "gira" verso i numeri più alti che stanno più
 // a destra sulla riga — lo stesso verso di uno scorrimento nativo).
 //
-// Per restare fluida (niente scatti), la posizione durante il
-// trascinamento è scritta DIRETTAMENTE sul nodo DOM via ref (un
-// translateX continuo, non arrotondato) invece che tramite stato React
-// — un nuovo render/reconciliation ad ogni pixel di movimento è
-// esattamente la causa più comune di scatti in un drag React, stesso
-// principio già usato per il foglio di navigazione (DockNav). Il
-// valore arrotondato (per il numero grande e la vibrazione) si
-// aggiorna solo quando supera una soglia intera.
+// Per restare fluida (niente scatti), la posizione durante il gesto è
+// scritta DIRETTAMENTE sul nodo DOM via ref (un translateX continuo,
+// non arrotondato) invece che tramite stato React — un nuovo
+// render/reconciliation ad ogni pixel di movimento è esattamente la
+// causa più comune di scatti in un drag React, stesso principio già
+// usato per il foglio di navigazione (DockNav).
 //
-// Al rilascio, se il gesto era veloce, la rotella prosegue per
-// inerzia e rallenta con attrito costante invece di fermarsi di
-// colpo — stessa idea della molla di DockNav (un ciclo rAF che integra
-// la fisica frame per frame), ma con un attrito verso velocità zero
-// invece di una molla verso un bersaglio fisso: qui non c'è una
-// "posizione di riposo" da raggiungere, solo un rallentamento naturale.
+// Al rilascio, se il gesto era veloce, la rotella prosegue per inerzia
+// e rallenta con attrito costante (ciclo rAF che integra la fisica
+// frame per frame, stessa idea della molla di DockNav ma con un
+// attrito verso velocità zero invece di una molla verso un bersaglio).
 //
 // Nota: niente vero feedback aptico su iPhone — Safari non ha mai
 // implementato la Vibration API (solo le app native possono vibrare).
@@ -30,10 +26,20 @@ import { cn } from '@/lib/utils'
 // ma funziona su Android/Chrome: costa nulla lasciarlo.
 const PX_PER_UNIT = 18
 const MAJOR_EVERY = 5
-const HALF_RANGE = 90 // ampio abbastanza da coprire un trascinamento/lancio lungo senza dover ridisegnare le tacche a metà gesto
-const EDGE_RANGE = 15 // unità oltre le quali le tacche sono già rimpicciolite/sfumate al massimo
+const HALF_RANGE = 110 // copre anche un lancio molto forte (vedi V_MAX/ATTRITO) senza esaurire le tacche pre-disegnate a metà corsa
+const EDGE_RANGE = 15 // unità oltre le quali le tacche a riposo sono già rimpicciolite/sfumate al massimo
 const FLING_SOGLIA = 250 // px/s — sotto non scatta l'inerzia, è un rilascio "controllato"
+const V_MAX = 2400 // px/s — velocità massima in ingresso al lancio, limita anche quanto lontano può arrivare la corsa
 const ATTRITO = 1800 // px/s² — quanto rapidamente rallenta il lancio
+
+interface Drag {
+  startValue: number
+  lastValue: number
+  startX: number
+  lastX: number
+  lastT: number
+  v: number
+}
 
 interface Props {
   value: number
@@ -47,19 +53,22 @@ interface Props {
 // sensato da indovinare. Il solo limite vero è 0 in basso (non esiste
 // una giacenza negativa) — la rotella scorre "all'infinito" verso l'alto.
 export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }: Props) {
-  const [dragging, setDragging] = useState(false)
+  const [animating, setAnimating] = useState(false)
   const [renderCenter, setRenderCenter] = useState(value)
   const stripRef = useRef<HTMLDivElement>(null)
   const numberRef = useRef<HTMLSpanElement>(null)
-  const drag = useRef<{ startValue: number; lastValue: number; startX: number; lastX: number; lastT: number; v: number } | null>(null)
+  const drag = useRef<Drag | null>(null)
   const pendingDx = useRef<number | null>(null)
   const rafId = useRef(0)
+  // Un pointerup/pointercancel duplicato per lo stesso gesto (capita su
+  // iOS) non deve rielaborare/azzerare il lancio già avviato.
+  const gestitoRef = useRef(false)
 
   // Da ferma, la rotella resta centrata sul valore corrente (dopo un
   // commit, o un aggiornamento realtime da un altro dispositivo).
   useEffect(() => {
-    if (!dragging) setRenderCenter(value)
-  }, [value, dragging])
+    if (!animating) setRenderCenter(value)
+  }, [value, animating])
 
   function vibra() {
     try { navigator.vibrate?.(3) } catch { /* iOS: API assente, no-op */ }
@@ -81,6 +90,7 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
   function concludi() {
     const d = drag.current
     drag.current = null
+    setAnimating(false)
     if (stripRef.current) stripRef.current.style.transform = 'translateX(0px)'
     if (d && d.lastValue !== d.startValue) {
       setRenderCenter(d.lastValue) // evita lo scatto indietro-e-poi-avanti in attesa del commit
@@ -93,12 +103,23 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     let v = vIniziale
     let t0 = performance.now()
     const step = (t: number) => {
+      const d = drag.current
+      if (!d) return // il gesto è già stato concluso altrove (es. ripreso in mano a metà corsa)
       const dt = Math.min((t - t0) / 1000, 0.032)
       t0 = t
       const segno = v > 0 ? 1 : -1
       v -= segno * ATTRITO * dt
       if (segno * v < 0) v = 0
       dx += v * dt
+      const live = d.startValue - dx / PX_PER_UNIT
+      if (live <= min || live >= max) {
+        // Ha raggiunto un limite reale (es. zero): si ferma lì, non
+        // continua a "scorrere nel vuoto" oltre il bordo.
+        const limite = Math.min(max, Math.max(min, live))
+        scrivi((d.startValue - limite) * PX_PER_UNIT)
+        concludi()
+        return
+      }
       scrivi(dx)
       if (Math.abs(v) < 40) { concludi(); return }
       rafId.current = requestAnimationFrame(step)
@@ -107,14 +128,28 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
   }
 
   function onPointerDown(e: React.PointerEvent) {
-    cancelAnimationFrame(rafId.current) // interrompe un eventuale lancio ancora in corso
+    gestitoRef.current = false
+    cancelAnimationFrame(rafId.current)
     rafId.current = 0
+    // Se si afferra la rotella mentre sta ancora scorrendo per
+    // inerzia, il punto raggiunto finora diventa definitivo (si
+    // "blocca" lì) invece di tornare al valore precedente al lancio.
+    const interrotto = drag.current
+    let valoreIniziale = value
+    if (interrotto) {
+      valoreIniziale = interrotto.lastValue
+      drag.current = null
+      if (interrotto.lastValue !== interrotto.startValue) {
+        setRenderCenter(interrotto.lastValue)
+        onCommit(interrotto.lastValue)
+      }
+    }
     const t = performance.now()
-    drag.current = { startValue: value, lastValue: value, startX: e.clientX, lastX: e.clientX, lastT: t, v: 0 }
-    setRenderCenter(value)
-    setDragging(true)
+    drag.current = { startValue: valoreIniziale, lastValue: valoreIniziale, startX: e.clientX, lastX: e.clientX, lastT: t, v: 0 }
+    setAnimating(true)
+    setRenderCenter(valoreIniziale)
     if (stripRef.current) stripRef.current.style.transform = 'translateX(0px)'
-    if (numberRef.current) numberRef.current.textContent = String(value)
+    if (numberRef.current) numberRef.current.textContent = String(valoreIniziale)
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   function onPointerMove(e: React.PointerEvent) {
@@ -122,7 +157,7 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     if (!d) return
     const t = performance.now()
     const dt = t - d.lastT
-    if (dt > 0) { d.v = (e.clientX - d.lastX) / dt * 1000; d.lastT = t; d.lastX = e.clientX }
+    if (dt > 0) { d.v = Math.max(-V_MAX, Math.min(V_MAX, (e.clientX - d.lastX) / dt * 1000)); d.lastT = t; d.lastX = e.clientX }
     pendingDx.current = e.clientX - d.startX
     if (!rafId.current) {
       rafId.current = requestAnimationFrame(() => {
@@ -132,11 +167,12 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
     }
   }
   function fine() {
+    if (gestitoRef.current) return // pointerup + pointercancel duplicati per lo stesso gesto
+    gestitoRef.current = true
     cancelAnimationFrame(rafId.current)
     rafId.current = 0
     const d = drag.current
     if (!d) return
-    setDragging(false)
     const dxAttuale = pendingDx.current ?? 0
     pendingDx.current = null
     if (Math.abs(d.v) > FLING_SOGLIA) lanciaInerzia(dxAttuale, d.v)
@@ -147,17 +183,24 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
   for (let n = Math.max(min, Math.floor(renderCenter) - HALF_RANGE); n <= Math.min(max, Math.floor(renderCenter) + HALF_RANGE); n++) {
     const major = n % MAJOR_EVERY === 0
     const x = (n - renderCenter) * PX_PER_UNIT
-    // Un po' di tridimensionalità: le tacche si rimpiccioliscono e
-    // sfumano man mano che si allontanano dal centro, come se
-    // curvassero via lungo una rotella vista di fronte.
-    const t = Math.min(1, Math.abs(n - renderCenter) / EDGE_RANGE)
+    // Un po' di tridimensionalità SOLO a riposo: applicarla anche
+    // durante il gesto la farebbe apparire sballata (il centro visivo
+    // si sposta col dito/l'inerzia, ma qui il calcolo resta ancorato
+    // al valore fermo) — a riposo invece si anima dolcemente verso la
+    // forma corretta invece di scattare di colpo.
+    const t = animating ? 0 : Math.min(1, Math.abs(n - renderCenter) / EDGE_RANGE)
     const scala = 1 - 0.45 * t
     const opacita = 1 - 0.55 * t
     ticks.push(
       <div
         key={n}
         className="absolute top-0 flex flex-col items-center"
-        style={{ left: `calc(50% + ${x}px)`, transform: `translateX(-50%) scaleY(${scala})`, opacity: opacita }}
+        style={{
+          left: `calc(50% + ${x}px)`,
+          transform: `translateX(-50%) scaleY(${scala})`,
+          opacity: opacita,
+          transition: animating ? 'none' : 'transform 220ms ease-out, opacity 220ms ease-out',
+        }}
       >
         {major && (
           <span className="mb-0.5 text-[11px] font-bold whitespace-nowrap" style={{ color: 'hsl(var(--primary))' }}>{n}</span>
