@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { Boxes, ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
+import { Boxes, ChevronDown, Eye, GitMerge, Loader2, Pencil, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
@@ -79,6 +79,26 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
   const [unitaModifica, setUnitaModifica] = useState('')
   const [salvandoModifica, setSalvandoModifica] = useState(false)
   const [erroreModifica, setErroreModifica] = useState<string | null>(null)
+
+  // Creazione manuale (es. una scorta vecchia mai vista su una
+  // fattura): stessi campi minimi del catalogo, fornitore obbligatorio
+  // perché lo è anche a livello di schema.
+  const [nuovoOpen, setNuovoOpen] = useState(false)
+  const [nuovoNome, setNuovoNome] = useState('')
+  const [nuovoFornitoreId, setNuovoFornitoreId] = useState('')
+  const [nuovoTipologia, setNuovoTipologia] = useState<ArticoloTipologia>('beverage')
+  const [nuovoUnita, setNuovoUnita] = useState('')
+  const [nuovoTraccia, setNuovoTraccia] = useState(true)
+  const [salvandoNuovo, setSalvandoNuovo] = useState(false)
+  const [erroreNuovo, setErroreNuovo] = useState<string | null>(null)
+
+  // Unione con un articolo esistente (es. l'articolo creato a mano sopra,
+  // quando poi arriva anche via fattura sotto un'altra riga di catalogo).
+  const [unione, setUnione] = useState<ArticoloRiga | null>(null)
+  const [unioneRicerca, setUnioneRicerca] = useState('')
+  const [unioneTarget, setUnioneTarget] = useState<string | null>(null)
+  const [unendo, setUnendo] = useState(false)
+  const [erroreUnione, setErroreUnione] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -228,8 +248,100 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     await load()
   }
 
+  function apriNuovo() {
+    setNuovoNome('')
+    setNuovoFornitoreId(fornitori[0]?.id ?? '')
+    setNuovoTipologia('beverage')
+    setNuovoUnita('')
+    setNuovoTraccia(true)
+    setErroreNuovo(null)
+    setNuovoOpen(true)
+  }
+
+  async function salvaNuovo() {
+    const nome = nuovoNome.trim()
+    if (!nome) { setErroreNuovo('Inserisci un nome.'); return }
+    if (!nuovoFornitoreId) { setErroreNuovo('Seleziona un fornitore.'); return }
+
+    setSalvandoNuovo(true)
+    setErroreNuovo(null)
+    const supabase = createClient()
+
+    // owner_id non è nella sessione (Articoli non è scoped per
+    // ristorante) — lo si legge da un ristorante qualunque visibile
+    // all'utente, le RLS di restaurants sono già scoped correttamente
+    // per manager e direttore.
+    const { data: ristorante, error: errRistorante } = await supabase
+      .from('restaurants').select('owner_id').limit(1).single()
+    if (errRistorante || !ristorante) {
+      setErroreNuovo('Impossibile determinare il locale di riferimento.')
+      setSalvandoNuovo(false)
+      return
+    }
+
+    const { error } = await supabase.from('catalogo_articoli').insert({
+      owner_id: ristorante.owner_id,
+      fornitore_id: nuovoFornitoreId,
+      nome_articolo: nome,
+      tipologia: nuovoTipologia,
+      unita_misura: nuovoUnita.trim() || null,
+      traccia_in_inventario: nuovoTraccia,
+    })
+    if (error) {
+      setErroreNuovo(error.code === '23505' ? 'Esiste già un articolo con questo nome per questo fornitore.' : error.message)
+      setSalvandoNuovo(false)
+      return
+    }
+
+    setSalvandoNuovo(false)
+    setNuovoOpen(false)
+    await load()
+  }
+
+  // Chiude il dialog di modifica e apre quello di unione per lo stesso
+  // articolo — due Dialog Radix aperti insieme vanno evitati (portali e
+  // focus-trap in conflitto), meglio scambiarli.
+  function apriUnione() {
+    if (!modifica) return
+    setUnione(modifica)
+    setModifica(null)
+    setUnioneRicerca('')
+    setUnioneTarget(null)
+    setErroreUnione(null)
+  }
+
+  async function confermaUnione() {
+    if (!unione || !unioneTarget) return
+    setUnendo(true)
+    setErroreUnione(null)
+    const supabase = createClient()
+    const { error } = await supabase.rpc('unisci_articoli', { p_assorbito_id: unione.id, p_mantenuto_id: unioneTarget })
+    if (error) {
+      setErroreUnione(error.message)
+      setUnendo(false)
+      return
+    }
+    setUnendo(false)
+    setUnione(null)
+    await load()
+  }
+
+  const candidatiUnione = unione
+    ? righe
+        .filter(r => r.id !== unione.id)
+        .filter(r => !unioneRicerca.trim() || r.nome_articolo.toLowerCase().includes(unioneRicerca.trim().toLowerCase()) || r.fornitore_nome.toLowerCase().includes(unioneRicerca.trim().toLowerCase()))
+    : []
+
   return (
     <div className="space-y-4">
+      {canEdit && (
+        <div className="flex justify-end">
+          <Button type="button" onClick={apriNuovo} className="gap-1.5">
+            <Plus className="h-4 w-4" /> Nuovo articolo
+          </Button>
+        </div>
+      )}
+
       <Card className="cassa-perforated-top">
         <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1.5">
@@ -403,6 +515,9 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
               <Label>Unità di misura</Label>
               <Input value={unitaModifica} onChange={e => setUnitaModifica(e.target.value)} placeholder="Es. kg, L, pz" />
             </div>
+            <Button type="button" variant="outline" className="w-full gap-1.5" onClick={apriUnione} disabled={salvandoModifica}>
+              <GitMerge className="h-4 w-4" /> Unisci con un altro articolo…
+            </Button>
             {erroreModifica && <p className="text-sm text-destructive">{erroreModifica}</p>}
           </div>
 
@@ -412,6 +527,118 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
             </Button>
             <Button type="button" onClick={salvaModifica} disabled={salvandoModifica}>
               {salvandoModifica ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={nuovoOpen}
+        onOpenChange={o => { if (!salvandoNuovo && !o) setNuovoOpen(false) }}
+      >
+        <DialogContent className="cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Nuovo articolo</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} placeholder="Es. Coca-Cola 0.33 vetro" autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fornitore</Label>
+              <Select value={nuovoFornitoreId} onValueChange={setNuovoFornitoreId}>
+                <SelectTrigger><SelectValue placeholder="Seleziona fornitore" /></SelectTrigger>
+                <SelectContent>
+                  {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {fornitori.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nessun fornitore a catalogo: creane uno prima in Fornitori.</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipologia</Label>
+              <Select value={nuovoTipologia} onValueChange={v => setNuovoTipologia(v as ArticoloTipologia)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(TIPOLOGIA_LABELS) as ArticoloTipologia[]).map(t => (
+                    <SelectItem key={t} value={t}>{TIPOLOGIA_LABELS[t]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Unità di misura</Label>
+              <Input value={nuovoUnita} onChange={e => setNuovoUnita(e.target.value)} placeholder="Es. kg, L, pz" />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+              <div className="flex items-center gap-1.5">
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Label htmlFor="nuovo-traccia">Traccia in Inventario</Label>
+              </div>
+              <Switch id="nuovo-traccia" checked={nuovoTraccia} onCheckedChange={setNuovoTraccia} />
+            </div>
+            {erroreNuovo && <p className="text-sm text-destructive">{erroreNuovo}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setNuovoOpen(false)} disabled={salvandoNuovo}>
+              Annulla
+            </Button>
+            <Button type="button" onClick={salvaNuovo} disabled={salvandoNuovo}>
+              {salvandoNuovo ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Crea articolo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!unione}
+        onOpenChange={o => { if (!unendo && !o) setUnione(null) }}
+      >
+        <DialogContent className="cassa-perforated-top flex max-h-[85vh] flex-col">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">Unisci &ldquo;{unione?.nome_articolo}&rdquo;</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 overflow-y-auto">
+            <p className="text-sm text-muted-foreground">
+              Scegli l&apos;articolo con cui unirlo. Storico prezzi, movimenti di inventario e riconoscimento automatico dalle fatture passano tutti a quello scelto; questa riga viene eliminata. Operazione irreversibile.
+            </p>
+            <Input
+              value={unioneRicerca}
+              onChange={e => setUnioneRicerca(e.target.value)}
+              placeholder="Cerca per nome o fornitore…"
+            />
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {candidatiUnione.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">Nessun articolo trovato.</p>
+              ) : candidatiUnione.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setUnioneTarget(c.id)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                    unioneTarget === c.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent/60'
+                  )}
+                >
+                  <span className="min-w-0 truncate">{c.nome_articolo}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{c.fornitore_nome}</span>
+                </button>
+              ))}
+            </div>
+            {erroreUnione && <p className="text-sm text-destructive">{erroreUnione}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setUnione(null)} disabled={unendo}>
+              Annulla
+            </Button>
+            <Button type="button" variant="destructive" onClick={confermaUnione} disabled={unendo || !unioneTarget}>
+              {unendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Unione…</> : 'Unisci'}
             </Button>
           </DialogFooter>
         </DialogContent>
