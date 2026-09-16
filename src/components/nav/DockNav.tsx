@@ -548,7 +548,7 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
 
       <div
         ref={dockRef}
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-[color-mix(in_srgb,var(--color-background)_96%,transparent)] px-1.5 pb-[max(env(safe-area-inset-bottom),9px)] pt-1 backdrop-blur-[18px]"
+        className="fixed inset-x-0 bottom-0 z-40 flex bg-[color-mix(in_srgb,var(--color-background)_96%,transparent)] px-1.5 pb-[max(env(safe-area-inset-bottom),9px)] pt-1 backdrop-blur-[18px]"
       >
         {dockKeys.map(key => {
           const it = itemByKey.get(key)

@@ -313,6 +313,14 @@
   pointer-events: none;
   transform: scale(1.07);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  /* Il pulsante clonato porta con sé le classi originali (vedi
+     DockNav.tsx) per restare fedele all'aspetto normale — ma se la
+     voce trascinata è quella della pagina corrente, porta con sé
+     anche lo sfondo "attivo" (tinta al 15% su trasparente), che la
+     farebbe apparire semitrasparente rispetto alle altre voci
+     trascinate. Il fantasma deve sempre essere opaco, come tutte le
+     altre. */
+  background-color: hsl(var(--card)) !important;
 }
 /* In modalità riordino il tocco prolungato su un'icona non deve far
    comparire menu contestuale/selezione di testo/evidenziazione nativa
