@@ -466,6 +466,17 @@ export interface Fattura {
   totale_netto:                number
   totale_iva:                  number
   totale_lordo:                number
+  // Scavalco manuale: quando valorizzati, il trigger di ricalcolo li usa
+  // al posto della somma da fatture_articoli/fatture_iva_dettaglio — per
+  // correggere un totale letto male dall'OCR senza che il prossimo
+  // inserimento su una riga figlia lo sovrascriva. null = nessuna
+  // correzione, comportamento invariato (la stragrande maggioranza).
+  totale_lordo_manuale:        number | null
+  totale_netto_manuale:        number | null
+  // Cauzione su vuoti (fusti/casse) che il fornitore scala quando li
+  // ritira — non tocca il totale scansionato, solo il calcolo di
+  // "da pagare" in visualizzazione. Opzionale.
+  vuoti_ritirati:              number | null
   foto_paths:                  string[]
   verifiche_sospette:          VerificaSospetta[]
   created_by:                  string | null

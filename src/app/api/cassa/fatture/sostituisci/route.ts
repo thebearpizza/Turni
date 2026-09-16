@@ -27,6 +27,7 @@ export async function POST(request: Request) {
   const {
     fattura_id, restaurant_id, fornitore, numero_documento, data, ha_articoli,
     categoria_spesa_diretta_id, verifiche_sospette, iva_dettaglio, articoli, foto_paths,
+    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati,
   } = body ?? {}
 
   if (!fattura_id || !restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio) || !Array.isArray(foto_paths) || foto_paths.length === 0) {
@@ -118,6 +119,9 @@ export async function POST(request: Request) {
     p_iva_dettaglio: iva_dettaglio,
     p_articoli: risolti,
     p_foto_paths: foto_paths,
+    p_totale_lordo_manuale: totale_lordo_manuale ?? null,
+    p_totale_netto_manuale: totale_netto_manuale ?? null,
+    p_vuoti_ritirati: vuoti_ritirati ?? null,
   })
 
   if (error) {

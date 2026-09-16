@@ -88,6 +88,14 @@ export interface FatturaRisolta {
   totale_netto: number
   totale_iva: number
   totale_lordo: number
+  // Corretti a mano in revisione quando l'OCR ha letto male il totale
+  // stampato — null se l'utente non li ha toccati (il caso comune): il
+  // server allora non applica nessuno scavalco, il totale resta quello
+  // calcolato dalla somma di articoli/IVA come sempre.
+  totale_lordo_manuale: number | null
+  totale_netto_manuale: number | null
+  // Cauzione su vuoti (fusti/casse) da scalare al ritiro — opzionale.
+  vuoti_ritirati: number | null
   // Un articolo 'nuovo' mai confermato esplicitamente (non più
   // obbligatorio) arriva con nuovo_articolo invece di
   // catalogo_articolo_id: il chiamante crea la riga di catalogo al
@@ -159,6 +167,10 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // foto è rapido, la lettura AI no, distinguerli evita che un'attesa
   // lunga sembri bloccata sul passo sbagliato.
   const [faseElaborazione, setFaseElaborazione] = useState<'upload' | 'lettura'>('upload')
+  // Quale gruppo di pagine si sta leggendo — vedi handleElabora: la
+  // lettura è spezzata in più chiamate invece di una sola con tutte le
+  // pagine insieme, per non superare il tempo massimo della funzione.
+  const [progressoLettura, setProgressoLettura] = useState<{ corrente: number; totale: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<EstraiResponse[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -187,6 +199,15 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // parte dal valore letto dall'AI.
   const [dataEditata, setDataEditata] = useState<string | null>(null)
   const [numeroDocEditato, setNumeroDocEditato] = useState<string | null>(null)
+  // Totale corretto a mano in revisione — null finché l'utente non
+  // tocca il campo: si parte dal valore letto dall'AI, nessuno scavalco
+  // inviato al salvataggio. Correggere il Lordo aggiorna anche il Netto
+  // (stessa IVA, vedi onChange sotto); il Netto resta comunque
+  // modificabile per conto suo.
+  const [totaleLordoEditato, setTotaleLordoEditato] = useState<number | null>(null)
+  const [totaleNettoEditato, setTotaleNettoEditato] = useState<number | null>(null)
+  // Cauzione su vuoti da scalare — facoltativo, non tocca il totale.
+  const [vuotiRitirati, setVuotiRitirati] = useState<number | null>(null)
   // Testo_estratto degli articoli 'chiaro'/'auto_mappato' che l'utente ha
   // smentito in revisione ("Non è questo") — riportati allo stato non
   // risolto, verranno salvati come nuovo articolo invece dell'abbinamento
@@ -311,9 +332,14 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     })
   }
 
+  // Quante pagine al massimo per chiamata a /estrai — vedi il commento
+  // nel corpo di handleElabora sotto per il perché.
+  const MAX_PAGINE_PER_LETTURA = 4
+
   async function handleElabora() {
     setStatus('processing')
     setFaseElaborazione('upload')
+    setProgressoLettura(null)
     setError(null)
 
     // Le foto le carica il client direttamente sullo storage, non la API
@@ -344,38 +370,80 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
       return
     }
 
+    // Letta in gruppi piccoli invece che tutte le pagine in un'unica
+    // chiamata: la lettura di ogni pagina è già in parallelo e limitata
+    // singolarmente (vedi BUDGET_ESTRAZIONE_MS in fattureExtraction.ts),
+    // ma più pagine insieme — specie di fatture diverse — vanno spesso
+    // in timeout comunque, verosimilmente per la concorrenza verso il
+    // modello AI più che per il tempo di lettura in sé. Gruppi piccoli
+    // riducono il rischio; un gruppo di più di MAX_PAGINE_PER_LETTURA
+    // pagine (documento lungo) resta un unico gruppo, quindi un
+    // documento così lungo non trae vantaggio da questa suddivisione —
+    // solo dallo scaglionare fatture diverse tra loro.
     setFaseElaborazione('lettura')
-    try {
-      const res = await fetch('/api/cassa/fatture/estrai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: fotoPaths, exclude_fattura_id: rescan?.fatturaId }),
-      })
+    const gruppi: string[][] = []
+    for (let i = 0; i < fotoPaths.length; i += MAX_PAGINE_PER_LETTURA) gruppi.push(fotoPaths.slice(i, i + MAX_PAGINE_PER_LETTURA))
 
-      // Una funzione terminata dalla piattaforma (timeout) risponde con
-      // una pagina di errore, non con JSON: senza questa guardia il
-      // res.json() esplode e l'utente vede un generico "Errore di rete"
-      // che non dice nulla su cosa è andato storto davvero.
-      const data = await res.json().catch(() => null)
+    const risultatiAccumulati: EstraiResponse[] = []
+    for (let g = 0; g < gruppi.length; g++) {
+      setProgressoLettura({ corrente: g + 1, totale: gruppi.length })
+      try {
+        const res = await fetch('/api/cassa/fatture/estrai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: gruppi[g], exclude_fattura_id: rescan?.fatturaId }),
+        })
 
-      if (!res.ok || !data) {
-        setError(
-          data?.error ??
-          (res.status === 504
-            ? 'La lettura ha superato il tempo massimo. Riprova con meno pagine per volta, oppure compila i dati a mano.'
-            : `Errore nella lettura della fattura (codice ${res.status}). Riprova o compila i dati a mano.`)
-        )
-        setStatus('capturing')
+        // Una funzione terminata dalla piattaforma (timeout) risponde con
+        // una pagina di errore, non con JSON: senza questa guardia il
+        // res.json() esplode e l'utente vede un generico "Errore di rete"
+        // che non dice nulla su cosa è andato storto davvero.
+        const data = await res.json().catch(() => null)
+
+        if (!res.ok || !data) {
+          // Le pagine dei gruppi già letti restano ripulite dalla griglia
+          // (i loro risultati sono già in risultatiAccumulati); quelle del
+          // gruppo fallito e dei successivi, mai tentate, restano invece
+          // in coda per un nuovo tentativo.
+          const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
+          setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
+          setPages(prev => prev.slice(paginePassate))
+          const messaggioErrore = data?.error ?? (res.status === 504
+            ? 'La lettura ha superato il tempo massimo.'
+            : `Errore nella lettura della fattura (codice ${res.status}).`)
+          if (risultatiAccumulati.length > 0) {
+            setResults(risultatiAccumulati)
+            setCurrentIndex(0)
+            setStatus('review')
+            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
+          } else {
+            setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
+            setStatus('capturing')
+          }
+          return
+        }
+
+        risultatiAccumulati.push(...(data.fatture ?? []))
+      } catch {
+        const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
+        setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
+        setPages(prev => prev.slice(paginePassate))
+        if (risultatiAccumulati.length > 0) {
+          setResults(risultatiAccumulati)
+          setCurrentIndex(0)
+          setStatus('review')
+          setError('Errore di rete durante la lettura. Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda.')
+        } else {
+          setError('Errore di rete, riprova')
+          setStatus('capturing')
+        }
         return
       }
-
-      setResults(data.fatture ?? [])
-      setCurrentIndex(0)
-      setStatus('review')
-    } catch {
-      setError('Errore di rete, riprova')
-      setStatus('capturing')
     }
+
+    setResults(risultatiAccumulati)
+    setCurrentIndex(0)
+    setStatus('review')
   }
 
   // Fornitore effettivamente in uso per la fattura corrente: quello
@@ -441,6 +509,15 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   const articoli = current?.articoli ?? []
   const dataEffettiva = (dataEditata ?? current?.fattura?.data ?? '').trim()
   const numeroDocEffettivo = (numeroDocEditato ?? current?.fattura?.numero_documento ?? '').trim()
+  const totaleLordoEffettivo = totaleLordoEditato ?? current?.fattura?.totale_lordo ?? 0
+  const totaleNettoEffettivo = totaleNettoEditato ?? current?.fattura?.totale_netto ?? 0
+  function onChangeTotaleLordo(v: number) {
+    setTotaleLordoEditato(v)
+    // L'IVA non è modificabile qui: corretto il totale, l'imponibile si
+    // aggiusta di conseguenza (stessa IVA), restando comunque
+    // modificabile per conto suo subito dopo.
+    setTotaleNettoEditato(v - (current?.fattura?.totale_iva ?? 0))
+  }
   const testataCompleta = !!dataEffettiva && !!numeroDocEffettivo
   const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
   // Nessun articolo blocca più il salvataggio in attesa di una decisione:
@@ -476,6 +553,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     setNumeroDocEditato(null)
     setFornitoreEditato(null)
     setRifiutati(new Set())
+    setTotaleLordoEditato(null)
+    setTotaleNettoEditato(null)
+    setVuotiRitirati(null)
     setError(null)
   }
 
@@ -556,6 +636,9 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         totale_netto: current.fattura.totale_netto,
         totale_iva: current.fattura.totale_iva,
         totale_lordo: current.fattura.totale_lordo,
+        totale_lordo_manuale: totaleLordoEditato,
+        totale_netto_manuale: totaleNettoEditato,
+        vuoti_ritirati: vuotiRitirati,
         articoli: articoli.map((a, i) => {
           const info = risoltoInfo(a)
           const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
@@ -653,10 +736,27 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
               {!dataEffettiva && !numeroDocEffettivo ? 'Inserisci data e numero documento per poter salvare.' : !dataEffettiva ? 'Inserisci la data per poter salvare.' : 'Inserisci il numero documento per poter salvare.'}
             </p>
           )}
-          <p className="cassa-numeric">
-            <span className="text-muted-foreground font-sans">Netto</span> € {current.fattura.totale_netto.toFixed(2)} · <span className="text-muted-foreground font-sans">IVA</span> € {current.fattura.totale_iva.toFixed(2)} ·{' '}
-            <span className={cn('font-sans', verificheFattura.some(v => v.campo === 'totale_lordo') ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground')}>Lordo</span> € {current.fattura.totale_lordo.toFixed(2)}
-          </p>
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div className="space-y-1">
+              <Label className="text-xs font-normal">Netto</Label>
+              <CurrencyInput value={totaleNettoEffettivo} onChange={setTotaleNettoEditato} hideStepper className="h-8 cassa-numeric" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-normal text-muted-foreground">IVA</Label>
+              <p className="cassa-numeric flex h-8 items-center text-sm text-muted-foreground">€ {current.fattura.totale_iva.toFixed(2)}</p>
+            </div>
+            <div className="space-y-1">
+              <Label className={cn('text-xs font-normal', verificheFattura.some(v => v.campo === 'totale_lordo') && 'text-amber-600 dark:text-amber-400 font-medium')}>Lordo</Label>
+              <CurrencyInput value={totaleLordoEffettivo} onChange={onChangeTotaleLordo} hideStepper className="h-8 cassa-numeric" />
+            </div>
+          </div>
+          <div className="space-y-1 pt-1">
+            <Label className="text-xs font-normal">Vuoti ritirati (facoltativo)</Label>
+            <CurrencyInput value={vuotiRitirati} onChange={setVuotiRitirati} hideStepper className="h-8 cassa-numeric max-w-32" />
+            {!!vuotiRitirati && (
+              <p className="text-xs text-muted-foreground">Da pagare € {(totaleLordoEffettivo - vuotiRitirati).toFixed(2)}</p>
+            )}
+          </div>
           {verificheFattura.map((v, i) => (
             <p key={i} className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {v.messaggio}
@@ -864,7 +964,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         <p className="text-xs text-muted-foreground">
           {faseElaborazione === 'upload'
             ? 'Caricamento foto in corso…'
-            : 'Lettura accurata in corso, può richiedere qualche decina di secondi — non chiudere la pagina.'}
+            : `Lettura accurata in corso${progressoLettura && progressoLettura.totale > 1 ? ` (gruppo ${progressoLettura.corrente} di ${progressoLettura.totale})` : ''}, può richiedere qualche decina di secondi — non chiudere la pagina.`}
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { CurrencyInput } from '@/components/ui/currency-input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -60,6 +61,7 @@ interface Riga {
   totale_netto: number
   totale_iva: number
   totale_lordo: number
+  vuoti_ritirati: number | null
   foto_paths: string[]
   fatture_articoli: ArticoloRiga[]
   fatture_iva_dettaglio: AliquotaRiga[]
@@ -135,7 +137,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     const { data } = await supabase
       .from('fatture')
       .select(`
-        id, restaurant_id, fornitore_id, numero_documento, data, ha_articoli, categoria_spesa_diretta_id, totale_netto, totale_iva, totale_lordo, foto_paths,
+        id, restaurant_id, fornitore_id, numero_documento, data, ha_articoli, categoria_spesa_diretta_id, totale_netto, totale_iva, totale_lordo, vuoti_ritirati, foto_paths,
         fornitore:fornitori(nome),
         categoria_diretta:categorie_fatture_dirette(nome),
         fatture_articoli(quantita, prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia, nome_articolo, unita_misura)),
@@ -161,6 +163,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       totale_netto: r.totale_netto,
       totale_iva: r.totale_iva,
       totale_lordo: r.totale_lordo,
+      vuoti_ritirati: r.vuoti_ritirati,
       foto_paths: r.foto_paths,
       fatture_articoli: r.fatture_articoli ?? [],
       fatture_iva_dettaglio: r.fatture_iva_dettaglio ?? [],
@@ -194,6 +197,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       acc.netto += r.totale_netto
       acc.iva += r.totale_iva
       acc.lordo += r.totale_lordo
+      acc.vuotiRitirati += r.vuoti_ritirati ?? 0
       if (r.ha_articoli) {
         for (const a of r.fatture_articoli) {
           if (a.catalogo_articolo?.tipologia === 'food') acc.food += a.prezzo_riga
@@ -207,7 +211,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       }
       return acc
     },
-    { netto: 0, iva: 0, lordo: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
+    { netto: 0, iva: 0, lordo: 0, vuotiRitirati: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
   )
 
   // Dettaglio dietro ai KPI cliccabili: per food/beverage/no food, i
@@ -358,6 +362,12 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
   const [editNumeroDocumento, setEditNumeroDocumento] = useState('')
   const [editData, setEditData] = useState('')
   const [editCategoriaId, setEditCategoriaId] = useState('')
+  // Cauzione su vuoti da scalare — spesso nota solo DOPO il salvataggio
+  // (il fornitore la ritira giorni dopo la consegna), quindi va
+  // corretta anche da qui, non solo in fase di scansione. A differenza
+  // degli altri campi non passa dalla RPC: è una colonna indipendente,
+  // non coinvolta nel vincolo di unicità fornitore+numero documento.
+  const [editVuotiRitirati, setEditVuotiRitirati] = useState<number | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -367,6 +377,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
     setEditNumeroDocumento(r.numero_documento)
     setEditData(r.data)
     setEditCategoriaId(r.categoria_diretta_id ?? '')
+    setEditVuotiRitirati(r.vuoti_ritirati)
     setEditError(null)
   }
 
@@ -398,11 +409,22 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
       p_data: editData,
       p_categoria_spesa_diretta_id: editing.ha_articoli ? null : editCategoriaId,
     })
-    setEditSaving(false)
     if (error) {
+      setEditSaving(false)
       setEditError(error.code === '23505' ? 'Esiste già una fattura con questo numero per questo fornitore.' : friendlySaveError(error))
       return
     }
+
+    if (editVuotiRitirati !== editing.vuoti_ritirati) {
+      const { error: vuotiErr } = await supabase.from('fatture').update({ vuoti_ritirati: editVuotiRitirati }).eq('id', editing.id)
+      if (vuotiErr) {
+        setEditSaving(false)
+        setEditError(friendlySaveError(vuotiErr))
+        return
+      }
+    }
+
+    setEditSaving(false)
     setEditing(null)
     load()
   }
@@ -497,6 +519,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
             ['Totale Netto', kpi.netto, null],
             ['Totale IVA', kpi.iva, null],
             ['Totale Lordo', kpi.lordo, null],
+            ['Da Pagare', kpi.lordo - kpi.vuotiRitirati, null],
             ['Totale Food', kpi.food, 'food'],
             ['Totale Beverage', kpi.beverage, 'beverage'],
             ['Totale No Food', kpi.noFood, 'noFood'],
@@ -571,7 +594,14 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                             <>€ {r.totale_iva.toFixed(2)}</>
                           )}
                         </td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">€ {r.totale_lordo.toFixed(2)}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">
+                          € {r.totale_lordo.toFixed(2)}
+                          {!!r.vuoti_ritirati && (
+                            <div className="text-[10px] font-normal text-muted-foreground">
+                              −€{r.vuoti_ritirati.toFixed(2)} vuoti · da pagare € {(r.totale_lordo - r.vuoti_ritirati).toFixed(2)}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-2 align-top">
                           <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                             <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
@@ -772,6 +802,11 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                   </Select>
                 </div>
               )}
+              <div className="space-y-1.5">
+                <Label>Vuoti ritirati (facoltativo)</Label>
+                <CurrencyInput value={editVuotiRitirati} onChange={setEditVuotiRitirati} className="cassa-numeric max-w-32" />
+                <p className="text-xs text-muted-foreground">Cauzione su fusti/casse scalata dal fornitore al ritiro — non tocca il totale, solo il calcolo di quanto resta da pagare.</p>
+              </div>
               {editError && <p className="text-sm text-destructive">{editError}</p>}
             </div>
           )}
