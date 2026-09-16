@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AcquistiSidebar } from '@/components/acquisti/AcquistiSidebar'
+import { AreaTheme } from '@/components/shared/AreaTheme'
 
 // Manager (tutto) e direttore (capo_servizio con is_direttore=true, CRUD
 // su Fatture/Articoli come sempre avuto, sola lettura solo su Fornitori)
@@ -25,6 +26,7 @@ export default async function AcquistiLayout({ children }: { children: React.Rea
 
   return (
     <div className="cassa acquisti h-[100dvh] overflow-y-auto bg-background pb-24 text-foreground">
+      <AreaTheme classes="cassa acquisti" />
       {children}
       <AcquistiSidebar role={acquistiRole} userId={user.id} />
     </div>

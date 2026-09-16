@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { Boxes, ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
+import { ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
@@ -77,7 +77,6 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
   const [modifica, setModifica] = useState<ArticoloRiga | null>(null)
   const [prezzoModifica, setPrezzoModifica] = useState(0)
   const [unitaModifica, setUnitaModifica] = useState('')
-  const [tracciaModifica, setTracciaModifica] = useState(false)
   const [salvandoModifica, setSalvandoModifica] = useState(false)
   const [erroreModifica, setErroreModifica] = useState<string | null>(null)
 
@@ -173,8 +172,20 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
     setModifica(r)
     setPrezzoModifica(r.storico.at(-1)?.prezzo ?? 0)
     setUnitaModifica(r.unita_misura ?? '')
-    setTracciaModifica(r.traccia_in_inventario)
     setErroreModifica(null)
+  }
+
+  // Interruttore direttamente in riga (niente dialog): ottimistico, con
+  // ripristino silenzioso se la scrittura fallisce — azione a basso
+  // rischio, un eventuale errore di rete si nota subito riprovando.
+  async function toggleTraccia(r: ArticoloRiga, checked: boolean) {
+    setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: checked } : x))
+    const supabase = createClient()
+    const { error } = await supabase.from('catalogo_articoli').update({ traccia_in_inventario: checked }).eq('id', r.id)
+    if (error) {
+      console.error(error)
+      setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: !checked } : x))
+    }
   }
 
   // Il prezzo mostrato/modificato è quello normalizzato (vedi storico più
@@ -188,7 +199,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
 
     const { error: errUnita } = await supabase
       .from('catalogo_articoli')
-      .update({ unita_misura: unitaModifica.trim() || null, traccia_in_inventario: tracciaModifica })
+      .update({ unita_misura: unitaModifica.trim() || null })
       .eq('id', modifica.id)
     if (errUnita) {
       setErroreModifica(errUnita.message)
@@ -295,11 +306,6 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                             {r.fornitore_nome}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
-                            {r.traccia_in_inventario && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1" title="Tracciato in Inventario">
-                                <Boxes className="h-2.5 w-2.5" /> Inventario
-                              </Badge>
-                            )}
                           </p>
                         </div>
                       </button>
@@ -311,6 +317,14 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                             <span className="text-muted-foreground text-xs">nessun acquisto</span>
                           )}
                         </div>
+                        {canEdit && (
+                          <Switch
+                            checked={r.traccia_in_inventario}
+                            onCheckedChange={checked => toggleTraccia(r, checked)}
+                            title="Traccia in Inventario"
+                            className="scale-90"
+                          />
+                        )}
                         <Button
                           type="button"
                           variant="ghost"
@@ -386,13 +400,6 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
             <div className="space-y-1.5">
               <Label>Unità di misura</Label>
               <Input value={unitaModifica} onChange={e => setUnitaModifica(e.target.value)} placeholder="Es. kg, L, pz" />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
-              <div>
-                <Label htmlFor="traccia-inventario">Traccia in Inventario</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">Vale per tutti i locali. Disattivalo per gli articoli difficili da contare (es. freschi sfusi).</p>
-              </div>
-              <Switch id="traccia-inventario" checked={tracciaModifica} onCheckedChange={setTracciaModifica} />
             </div>
             {erroreModifica && <p className="text-sm text-destructive">{erroreModifica}</p>}
           </div>

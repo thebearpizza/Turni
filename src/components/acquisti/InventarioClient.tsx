@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ChevronDown, Loader2, Minus, Plus } from 'lucide-react'
+import { ChevronDown, Loader2, Minus, Pencil, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, InventarioCausale } from '@/types'
 
@@ -35,12 +35,23 @@ const CAUSALE_LABELS: Record<InventarioCausale, string> = {
 
 interface RestaurantOption { id: string; name: string }
 
+// Un "gruppo" accorpa tutte le righe del catalogo con lo stesso nome
+// esatto (accorpamento automatico per nome uguale, scelto esplicitamente
+// invece di un accorpamento manuale — nomi che differiscono anche di
+// poco, es. maiuscole o spazi, restano righe separate): lo stesso
+// prodotto comprato da fornitori diversi è una riga sola in Inventario,
+// pur restando righe distinte nel catalogo (storico prezzi per
+// fornitore invariato in Articoli). I nuovi movimenti si agganciano
+// sempre al primo membro del gruppo (ordine stabile): la giacenza
+// mostrata è comunque la somma su tutti i membri, quindi il totale
+// resta corretto indipendentemente da quale membro riceve il movimento.
 interface ArticoloRiga {
-  id: string
-  nome_articolo: string
+  nomeArticolo: string
   tipologia: ArticoloTipologia
-  unita_misura: string | null
-  fornitore_nome: string
+  unitaMisura: string | null
+  fornitoriNomi: string[]
+  memberIds: string[]
+  primaryId: string
   giacenza: number
 }
 
@@ -65,7 +76,7 @@ export function InventarioClient({ role, restaurants }: Props) {
   const [righe, setRighe] = useState<ArticoloRiga[]>([])
   const [loading, setLoading] = useState(true)
   const [espanso, setEspanso] = useState<string | null>(null)
-  const [storicoPerArticolo, setStoricoPerArticolo] = useState<Record<string, MovimentoRiga[]>>({})
+  const [storicoPerGruppo, setStoricoPerGruppo] = useState<Record<string, MovimentoRiga[]>>({})
   const [caricandoStorico, setCaricandoStorico] = useState<string | null>(null)
 
   const [movimento, setMovimento] = useState<{ articolo: ArticoloRiga; direzione: 'carico' | 'scarico' } | null>(null)
@@ -74,6 +85,11 @@ export function InventarioClient({ role, restaurants }: Props) {
   const [notaMovimento, setNotaMovimento] = useState('')
   const [salvandoMovimento, setSalvandoMovimento] = useState(false)
   const [erroreMovimento, setErroreMovimento] = useState<string | null>(null)
+
+  const [modificaUnita, setModificaUnita] = useState<ArticoloRiga | null>(null)
+  const [unitaInput, setUnitaInput] = useState('')
+  const [salvandoUnita, setSalvandoUnita] = useState(false)
+  const [erroreUnita, setErroreUnita] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!restaurantId) { setRighe([]); setLoading(false); return }
@@ -102,14 +118,25 @@ export function InventarioClient({ role, restaurants }: Props) {
         .map(g => [g.catalogo_articolo_id, g.giacenza])
     )
 
-    setRighe(articoli.map(a => ({
-      id: a.id,
-      nome_articolo: a.nome_articolo,
-      tipologia: a.tipologia,
-      unita_misura: a.unita_misura,
-      fornitore_nome: a.fornitore?.nome ?? '—',
-      giacenza: giacenzaById.get(a.id) ?? 0,
-    })))
+    // Accorpamento per nome esatto (trim, case-sensitive) — vedi il
+    // commento sull'interfaccia ArticoloRiga più sopra.
+    const gruppi = new Map<string, typeof articoli>()
+    for (const a of articoli) {
+      const chiave = a.nome_articolo.trim()
+      const arr = gruppi.get(chiave) ?? []
+      arr.push(a)
+      gruppi.set(chiave, arr)
+    }
+
+    setRighe(Array.from(gruppi.entries()).map(([nome, membri]) => ({
+      nomeArticolo: nome,
+      tipologia: membri[0].tipologia,
+      unitaMisura: membri.find(m => m.unita_misura)?.unita_misura ?? null,
+      fornitoriNomi: Array.from(new Set(membri.map(m => m.fornitore?.nome ?? '—'))),
+      memberIds: membri.map(m => m.id),
+      primaryId: membri[0].id,
+      giacenza: membri.reduce((tot, m) => tot + (giacenzaById.get(m.id) ?? 0), 0),
+    })).sort((a, b) => a.nomeArticolo.localeCompare(b.nomeArticolo)))
     setLoading(false)
   }, [restaurantId])
 
@@ -128,34 +155,34 @@ export function InventarioClient({ role, restaurants }: Props) {
 
   const righeFiltrate = righe
     .filter(r => !tipologiaFiltro || r.tipologia === tipologiaFiltro)
-    .filter(r => !ricerca.trim() || r.nome_articolo.toLowerCase().includes(ricerca.trim().toLowerCase()))
+    .filter(r => !ricerca.trim() || r.nomeArticolo.toLowerCase().includes(ricerca.trim().toLowerCase()))
 
-  async function caricaStorico(articoloId: string) {
-    if (storicoPerArticolo[articoloId] || !restaurantId) return
-    setCaricandoStorico(articoloId)
+  async function caricaStorico(r: ArticoloRiga) {
+    if (storicoPerGruppo[r.nomeArticolo] || !restaurantId) return
+    setCaricandoStorico(r.nomeArticolo)
     const supabase = createClient()
     const { data } = await supabase
       .from('inventario_movimenti')
       .select('id, quantita, causale, nota, created_at, autore:profiles(full_name)')
       .eq('restaurant_id', restaurantId)
-      .eq('catalogo_articolo_id', articoloId)
+      .in('catalogo_articolo_id', r.memberIds)
       .order('created_at', { ascending: false })
       .limit(30)
-    const righe = ((data ?? []) as unknown as Array<{
+    const righeStorico = ((data ?? []) as unknown as Array<{
       id: string; quantita: number; causale: InventarioCausale; nota: string | null
       created_at: string; autore: { full_name: string } | null
     }>).map(m => ({
       id: m.id, quantita: m.quantita, causale: m.causale, nota: m.nota,
       created_at: m.created_at, autore_nome: m.autore?.full_name ?? null,
     }))
-    setStoricoPerArticolo(prev => ({ ...prev, [articoloId]: righe }))
+    setStoricoPerGruppo(prev => ({ ...prev, [r.nomeArticolo]: righeStorico }))
     setCaricandoStorico(null)
   }
 
   function toggleEspanso(r: ArticoloRiga) {
     setEspanso(prev => {
-      const next = prev === r.id ? null : r.id
-      if (next) caricaStorico(r.id)
+      const next = prev === r.nomeArticolo ? null : r.nomeArticolo
+      if (next) caricaStorico(r)
       return next
     })
   }
@@ -180,7 +207,7 @@ export function InventarioClient({ role, restaurants }: Props) {
 
     const { error } = await supabase.from('inventario_movimenti').insert({
       restaurant_id: restaurantId,
-      catalogo_articolo_id: movimento.articolo.id,
+      catalogo_articolo_id: movimento.articolo.primaryId,
       quantita: movimento.direzione === 'carico' ? qty : -qty,
       causale: causaleMovimento,
       nota: notaMovimento.trim() || null,
@@ -195,11 +222,40 @@ export function InventarioClient({ role, restaurants }: Props) {
 
     setSalvandoMovimento(false)
     setMovimento(null)
-    setStoricoPerArticolo(prev => {
+    setStoricoPerGruppo(prev => {
       const next = { ...prev }
-      delete next[movimento.articolo.id]
+      delete next[movimento.articolo.nomeArticolo]
       return next
     })
+    await load()
+  }
+
+  function apriModificaUnita(r: ArticoloRiga) {
+    setModificaUnita(r)
+    setUnitaInput(r.unitaMisura ?? '')
+    setErroreUnita(null)
+  }
+
+  // Aggiorna l'unità di misura su TUTTI i membri del gruppo (tutte le
+  // righe di catalogo con questo nome, indipendentemente dal fornitore):
+  // qui il prodotto è uno solo, tenerle disallineate confonderebbe la
+  // prossima volta che si accorpano.
+  async function salvaUnita() {
+    if (!modificaUnita) return
+    setSalvandoUnita(true)
+    setErroreUnita(null)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('catalogo_articoli')
+      .update({ unita_misura: unitaInput.trim() || null })
+      .in('id', modificaUnita.memberIds)
+    if (error) {
+      setErroreUnita(error.message)
+      setSalvandoUnita(false)
+      return
+    }
+    setSalvandoUnita(false)
+    setModificaUnita(null)
     await load()
   }
 
@@ -265,10 +321,10 @@ export function InventarioClient({ role, restaurants }: Props) {
           ) : (
             <div className="divide-y divide-border">
               {righeFiltrate.map(r => {
-                const aperto = espanso === r.id
-                const storico = storicoPerArticolo[r.id]
+                const aperto = espanso === r.nomeArticolo
+                const storico = storicoPerGruppo[r.nomeArticolo]
                 return (
-                  <div key={r.id} className="py-2">
+                  <div key={r.nomeArticolo} className="py-2">
                     <div
                       className={cn(
                         'flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 transition-colors',
@@ -283,17 +339,20 @@ export function InventarioClient({ role, restaurants }: Props) {
                       >
                         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
                         <div className="min-w-0">
-                          <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nome_articolo}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            {r.fornitore_nome}
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
+                          <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nomeArticolo}</p>
+                          <p className={cn('text-xs text-muted-foreground flex items-center gap-1.5', !aperto && 'truncate')}>
+                            {r.fornitoriNomi.join(' · ')}
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
                           </p>
                         </div>
                       </button>
-                      <div className="flex shrink-0 items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-0.5">
                         <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
-                          {r.giacenza}{r.unita_misura && <span className="text-muted-foreground text-xs"> {r.unita_misura}</span>}
+                          {r.giacenza}{r.unitaMisura && <span className="text-muted-foreground text-xs"> {r.unitaMisura}</span>}
                         </div>
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Unità di misura" onClick={() => apriModificaUnita(r)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                         <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Scarico" onClick={() => apriMovimento(r, 'scarico')}>
                           <Minus className="h-3.5 w-3.5" />
                         </Button>
@@ -304,7 +363,7 @@ export function InventarioClient({ role, restaurants }: Props) {
                     </div>
                     {aperto && (
                       <div className="px-2 pb-2 pt-1">
-                        {caricandoStorico === r.id ? (
+                        {caricandoStorico === r.nomeArticolo ? (
                           <Skeleton className="h-16 w-full" />
                         ) : !storico || storico.length === 0 ? (
                           <p className="text-xs text-muted-foreground py-2">Nessun movimento registrato.</p>
@@ -346,13 +405,13 @@ export function InventarioClient({ role, restaurants }: Props) {
         <DialogContent className="cassa-perforated-top">
           <DialogHeader>
             <DialogTitle className="cassa-display text-lg">
-              {movimento?.direzione === 'carico' ? 'Carico' : 'Scarico'} · {movimento?.articolo.nome_articolo}
+              {movimento?.direzione === 'carico' ? 'Carico' : 'Scarico'} · {movimento?.articolo.nomeArticolo}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Quantità{movimento?.articolo.unita_misura ? ` (${movimento.articolo.unita_misura})` : ''}</Label>
+              <Label>Quantità{movimento?.articolo.unitaMisura ? ` (${movimento.articolo.unitaMisura})` : ''}</Label>
               <Input
                 inputMode="decimal"
                 value={quantitaMovimento}
@@ -384,6 +443,37 @@ export function InventarioClient({ role, restaurants }: Props) {
             </Button>
             <Button type="button" onClick={salvaMovimento} disabled={salvandoMovimento}>
               {salvandoMovimento ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!modificaUnita}
+        onOpenChange={o => { if (!salvandoUnita && !o) { setModificaUnita(null); setErroreUnita(null) } }}
+      >
+        <DialogContent className="cassa-perforated-top">
+          <DialogHeader>
+            <DialogTitle className="cassa-display text-lg">{modificaUnita?.nomeArticolo}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Unità di misura</Label>
+              <Input value={unitaInput} onChange={e => setUnitaInput(e.target.value)} placeholder="Es. kg, L, pz" autoFocus />
+              {modificaUnita && modificaUnita.memberIds.length > 1 && (
+                <p className="text-xs text-muted-foreground">Aggiorna tutti i fornitori di questo prodotto ({modificaUnita.fornitoriNomi.join(', ')}).</p>
+              )}
+            </div>
+            {erroreUnita && <p className="text-sm text-destructive">{erroreUnita}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setModificaUnita(null)} disabled={salvandoUnita}>
+              Annulla
+            </Button>
+            <Button type="button" onClick={salvaUnita} disabled={salvandoUnita}>
+              {salvandoUnita ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
             </Button>
           </DialogFooter>
         </DialogContent>
