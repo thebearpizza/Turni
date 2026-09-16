@@ -277,6 +277,70 @@
   border-color: hsl(var(--border));
 }
 
+/* ── DockNav — foglio di navigazione (sostituisce il drawer laterale) ──
+   Le tre parti (barra fissa, contenitore .overflow-hidden, maniglia) e
+   la fisica (translateY, molla, FLIP) sono in DockNav.tsx — qui solo ciò
+   che il CSS deve fare e le classi React non possono esprimere pulite:
+   il prolungamento sotto il foglio (copre lo scarto durante il rimbalzo,
+   vedi il commento nel componente), il segnaposto tratteggiato di un
+   elemento in trascinamento, e il clone "fantasma" che segue il dito. */
+.dock-nav-sheet {
+  background: color-mix(in srgb, var(--color-background) 96%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.dock-nav-sheet::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 72px;
+  background: color-mix(in srgb, var(--color-background) 96%, transparent);
+}
+.dock-nav-holder {
+  background: transparent !important;
+  border-style: dashed !important;
+  box-shadow: none !important;
+}
+.dock-nav-holder > * {
+  opacity: 0;
+}
+.dock-nav-ghost {
+  position: fixed;
+  margin: 0;
+  z-index: 999;
+  pointer-events: none;
+  transform: scale(1.07);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  /* Il pulsante clonato porta con sé le classi originali (vedi
+     DockNav.tsx) per restare fedele all'aspetto normale — ma se la
+     voce trascinata è quella della pagina corrente, porta con sé
+     anche lo sfondo "attivo" (tinta al 15% su trasparente), che la
+     farebbe apparire semitrasparente rispetto alle altre voci
+     trascinate. Il fantasma deve sempre essere opaco, come tutte le
+     altre. */
+  background-color: hsl(var(--card)) !important;
+}
+/* In modalità riordino il tocco prolungato su un'icona non deve far
+   comparire menu contestuale/selezione di testo/evidenziazione nativa
+   del browser (Android/iOS): senza questo il trascinamento sembra
+   "litigare" col gesto nativo — icona che scatta, testo dei pulsanti
+   vicini che si evidenzia. */
+.dock-nav-grid-item, .dock-nav-ghost {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-nav-sheet, .dock-nav-sheet *, .dock-nav-ghost {
+    transition-duration: 0.001ms !important;
+  }
+}
+
 html {
   overflow-x: hidden;
   overscroll-behavior-x: none;

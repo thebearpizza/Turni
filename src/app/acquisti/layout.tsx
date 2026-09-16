@@ -24,11 +24,9 @@ export default async function AcquistiLayout({ children }: { children: React.Rea
   const acquistiRole = profile.role === 'manager' ? 'manager' as const : 'direttore' as const
 
   return (
-    <div className="cassa acquisti flex h-[100dvh] overflow-hidden bg-background text-foreground">
-      <AcquistiSidebar role={acquistiRole} />
-      <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
-        {children}
-      </main>
+    <div className="cassa acquisti h-[100dvh] overflow-y-auto bg-background pb-24 text-foreground">
+      {children}
+      <AcquistiSidebar role={acquistiRole} userId={user.id} />
     </div>
   )
 }

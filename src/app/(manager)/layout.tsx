@@ -23,13 +23,11 @@ export default async function ManagerLayout({ children }: { children: React.Reac
 
   return (
     <AccountStatusProvider isPending={isPending}>
-      <div className="flex h-[100dvh] overflow-hidden bg-background">
-        <ManagerSidebar profile={profile} />
-        <main className="flex-1 h-full overflow-y-auto pt-14 lg:pt-0">
-          {isPending && <DemoBanner />}
-          {children}
-        </main>
+      <div className="h-[100dvh] overflow-y-auto bg-background pb-24">
+        {isPending && <DemoBanner />}
+        {children}
       </div>
+      <ManagerSidebar profile={profile} />
     </AccountStatusProvider>
   )
 }
