@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { GiacenzaRuler } from '@/components/acquisti/GiacenzaRuler'
 import { ChevronDown, Loader2, Minus, Pencil, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, InventarioCausale } from '@/types'
@@ -188,6 +189,38 @@ export function InventarioClient({ role, restaurants }: Props) {
     })
   }
 
+  // Righello a scorrimento nella riga espansa: una scorciatoia veloce
+  // per la rettifica diretta ("conto quanto c'è e correggo"), sempre
+  // causale 'rettifica' — non sostituisce il dialog Carico/Scarico
+  // (che resta per registrare un evento specifico con causale/nota),
+  // lo affianca per il caso più comune. Ottimistico, con ripristino
+  // silenzioso se la scrittura fallisce.
+  async function commitRettifica(r: ArticoloRiga, nuovaGiacenza: number) {
+    const delta = nuovaGiacenza - r.giacenza
+    if (delta === 0 || !restaurantId) return
+    const giacenzaPrecedente = r.giacenza
+    setRighe(prev => prev.map(x => x.nomeArticolo === r.nomeArticolo ? { ...x, giacenza: nuovaGiacenza } : x))
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('inventario_movimenti').insert({
+      restaurant_id: restaurantId,
+      catalogo_articolo_id: r.primaryId,
+      quantita: delta,
+      causale: 'rettifica',
+      created_by: user?.id ?? null,
+    })
+    if (error) {
+      console.error(error)
+      setRighe(prev => prev.map(x => x.nomeArticolo === r.nomeArticolo ? { ...x, giacenza: giacenzaPrecedente } : x))
+      return
+    }
+    setStoricoPerGruppo(prev => {
+      const next = { ...prev }
+      delete next[r.nomeArticolo]
+      return next
+    })
+  }
+
   // Cambiare direzione porta con sé la causale di default corrispondente,
   // ma solo se non era già su "Rettifica" (valida in entrambi i casi).
   function setDirezione(d: 'carico' | 'scarico') {
@@ -358,7 +391,8 @@ export function InventarioClient({ role, restaurants }: Props) {
                       </div>
                     </div>
                     {aperto && (
-                      <div className="px-2 pb-2 pt-1">
+                      <div className="px-2 pb-2 pt-1 space-y-3">
+                        <GiacenzaRuler value={r.giacenza} unit={r.unitaMisura} onCommit={v => commitRettifica(r, v)} />
                         {caricandoStorico === r.nomeArticolo ? (
                           <Skeleton className="h-16 w-full" />
                         ) : !storico || storico.length === 0 ? (
