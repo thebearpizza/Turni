@@ -165,6 +165,43 @@ async function fetchSpese(
   return { righe, error }
 }
 
+// Stesso identico "shape" di SpesaRow (i grafici CategorieBreakdownChart/
+// CategorieTrendChart sono generici, aggregano su categoria_nome/nome_spesa
+// senza sapere se si tratta di spese o di vendite) — qui nome_spesa è
+// riusato per il nome del prodotto venduto, letto dal report di chiusura.
+async function fetchVenditeProdotti(
+  supabase: ReturnType<typeof createClient>,
+  chiusure: Riga[]
+): Promise<FetchSpeseResult> {
+  if (chiusure.length === 0) return { righe: [], error: false }
+  const chiusuraInfoById = new Map(chiusure.map(r => [r.id, r]))
+  const ids = chiusure.map(r => r.id)
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE))
+
+  const risposte = await Promise.all(chunks.map(chunk => supabase
+    .from('cassa_vendite_prodotti')
+    .select('importo, nome_prodotto, nome_categoria, chiusura_id')
+    .in('chiusura_id', chunk)
+  ))
+
+  const error = risposte.some(r => r.error)
+  const data = risposte.flatMap(r => r.data ?? [])
+
+  const righe = (data as unknown as Array<{ importo: number; nome_prodotto: string; nome_categoria: string | null; chiusura_id: string }>).map(v => {
+    const chiusura = chiusuraInfoById.get(v.chiusura_id)
+    return {
+      importo: v.importo,
+      categoria_nome: v.nome_categoria,
+      nome_spesa: v.nome_prodotto,
+      data: chiusura?.data ?? '',
+      restaurant_id: chiusura?.restaurant_id ?? '',
+      restaurant_name: chiusura?.restaurant_name ?? '—',
+    }
+  })
+  return { righe, error }
+}
+
 export function AnalisiClient({ restaurants }: Props) {
   const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
   // Default: mese corrente, stesso comportamento di prima senza bisogno di
@@ -184,6 +221,8 @@ export function AnalisiClient({ restaurants }: Props) {
   const [righePeriodoPrecedente, setRighePeriodoPrecedente] = useState<Riga[] | null>(null)
   const [spese, setSpese] = useState<SpesaRow[]>([])
   const [speseError, setSpeseError] = useState(false)
+  const [vendite, setVendite] = useState<SpesaRow[]>([])
+  const [venditeError, setVenditeError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null)
   const [aiOpen, setAiOpen] = useState(false)
@@ -241,6 +280,15 @@ export function AnalisiClient({ restaurants }: Props) {
       setSpeseError(speseData.error)
       if (speseData.error) {
         toast({ title: 'Impossibile caricare le spese del periodo', variant: 'destructive' })
+      }
+    }
+
+    const venditeData = await fetchVenditeProdotti(supabase, current)
+    if (requestId.current === myRequest) {
+      setVendite(venditeData.righe)
+      setVenditeError(venditeData.error)
+      if (venditeData.error) {
+        toast({ title: 'Impossibile caricare le vendite del periodo', variant: 'destructive' })
       }
     }
 
@@ -456,6 +504,32 @@ export function AnalisiClient({ restaurants }: Props) {
               <p className="text-sm text-cassa-negative">Caricamento delle spese non riuscito. Riprova.</p>
             ) : (
               <CategorieTrendChart spese={spese} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && righe.length > 0 && vendite.length > 0 && (
+        <Card className="cassa-perforated-top">
+          <CardContent className="pt-6 space-y-3">
+            <Label className="cassa-display text-base">Vendite per categoria</Label>
+            {venditeError ? (
+              <p className="text-sm text-cassa-negative">Caricamento delle vendite non riuscito. Riprova.</p>
+            ) : (
+              <CategorieBreakdownChart spese={vendite} multiRestaurant={targets.length > 1} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && righe.length > 0 && vendite.length > 0 && (
+        <Card className="cassa-perforated-top">
+          <CardContent className="pt-6 space-y-3">
+            <Label className="cassa-display text-base">Vendite per categoria nel tempo</Label>
+            {venditeError ? (
+              <p className="text-sm text-cassa-negative">Caricamento delle vendite non riuscito. Riprova.</p>
+            ) : (
+              <CategorieTrendChart spese={vendite} />
             )}
           </CardContent>
         </Card>

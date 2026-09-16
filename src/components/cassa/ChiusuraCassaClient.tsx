@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { X, Loader2 } from 'lucide-react'
 import { SpeseFase } from '@/components/cassa/SpeseFase'
 import { SpeseBozzaCard } from '@/components/cassa/SpeseBozzaCard'
+import { ReportChiusuraCapture, type ReportChiusuraEstratto } from '@/components/cassa/ReportChiusuraCapture'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import type { CassaChiusura } from '@/types'
@@ -202,6 +203,36 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
   }
 
+  // Esito del caricamento report (Fase 1, primo passo): precompila i tre
+  // incassi e i coperti (se letti) e li marca "toccati" come se
+  // l'operatore li avesse digitati — restano comunque modificabili nei
+  // campi sotto. Un avviso non bloccante segnala i due casi in cui
+  // conviene ricontrollare a mano: data del report diversa da quella
+  // della chiusura in corso, o totale dichiarato nel documento che non
+  // torna con la somma dei pagamenti letti.
+  const [reportAvviso, setReportAvviso] = useState<string | null>(null)
+  function handleReportEstratto(r: ReportChiusuraEstratto) {
+    setFields(f => ({
+      ...f,
+      entrateContanti: r.entrate_contanti,
+      entratePos: r.entrate_pos,
+      entrateBonifico: r.entrate_bonifico,
+      ...(r.coperti != null ? { coperti: r.coperti } : {}),
+    }))
+    markTouched('entrateContanti')
+    markTouched('entratePos')
+    markTouched('entrateBonifico')
+    if (r.coperti != null) markTouched('coperti')
+
+    setReportAvviso(
+      r.data && r.data !== date
+        ? `Il report caricato è del ${formatDataBreve(r.data)}, ma stai compilando la chiusura del ${formatDataBreve(date)} — controlla di aver scelto il giorno giusto.`
+        : r.scostamento_totale
+          ? `Il totale dichiarato nel report non coincide con la somma dei pagamenti letti (differenza € ${r.scostamento_totale.toFixed(2)}) — ricontrolla gli importi.`
+          : null
+    )
+  }
+
   // Scarta il risultato di un caricamento superato da uno più recente —
   // senza questa guardia, cambiare ristorante due volte in rapida
   // successione può far vincere la risposta più lenta e lasciare a
@@ -212,6 +243,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     if (!restaurantId || !date) return
     const myRequest = ++loadRequestId.current
     setLoading(true)
+    setReportAvviso(null)
     const supabase = createClient()
 
     const { data: row } = await supabase
@@ -539,6 +571,20 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {restaurantId && !loading && fase === 1 && !isConfermata && (
+        <ReportChiusuraCapture
+          restaurantId={restaurantId}
+          data={date}
+          onEstratto={handleReportEstratto}
+        />
+      )}
+
+      {reportAvviso && !loading && fase === 1 && (
+        <p className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
+          {reportAvviso}
+        </p>
       )}
 
       {restaurantId && !loading && fase === 1 && (
