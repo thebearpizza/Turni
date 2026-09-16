@@ -79,17 +79,18 @@ export function InventarioClient({ role, restaurants }: Props) {
   const [storicoPerGruppo, setStoricoPerGruppo] = useState<Record<string, MovimentoRiga[]>>({})
   const [caricandoStorico, setCaricandoStorico] = useState<string | null>(null)
 
-  const [movimento, setMovimento] = useState<{ articolo: ArticoloRiga; direzione: 'carico' | 'scarico' } | null>(null)
-  const [quantitaMovimento, setQuantitaMovimento] = useState('')
-  const [causaleMovimento, setCausaleMovimento] = useState<InventarioCausale>('carico_manuale')
-  const [notaMovimento, setNotaMovimento] = useState('')
-  const [salvandoMovimento, setSalvandoMovimento] = useState(false)
-  const [erroreMovimento, setErroreMovimento] = useState<string | null>(null)
-
-  const [modificaUnita, setModificaUnita] = useState<ArticoloRiga | null>(null)
+  // Un'unica scheda "Modifica" per riga (aperta dalla matitina): logga
+  // un movimento (se la quantità non è vuota) e/o aggiorna l'unità di
+  // misura — non due azioni separate, per non affollare la riga di
+  // icone diverse.
+  const [modifica, setModifica] = useState<ArticoloRiga | null>(null)
+  const [direzione, setDirezioneRaw] = useState<'carico' | 'scarico'>('carico')
+  const [quantita, setQuantita] = useState('')
+  const [causale, setCausale] = useState<InventarioCausale>('carico_manuale')
+  const [nota, setNota] = useState('')
   const [unitaInput, setUnitaInput] = useState('')
-  const [salvandoUnita, setSalvandoUnita] = useState(false)
-  const [erroreUnita, setErroreUnita] = useState<string | null>(null)
+  const [salvando, setSalvando] = useState(false)
+  const [errore, setErrore] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!restaurantId) { setRighe([]); setLoading(false); return }
@@ -187,79 +188,80 @@ export function InventarioClient({ role, restaurants }: Props) {
     })
   }
 
-  function apriMovimento(articolo: ArticoloRiga, direzione: 'carico' | 'scarico') {
-    setMovimento({ articolo, direzione })
-    setQuantitaMovimento('')
-    setCausaleMovimento(direzione === 'carico' ? 'carico_manuale' : 'scarico_manuale')
-    setNotaMovimento('')
-    setErroreMovimento(null)
+  // Cambiare direzione porta con sé la causale di default corrispondente,
+  // ma solo se non era già su "Rettifica" (valida in entrambi i casi).
+  function setDirezione(d: 'carico' | 'scarico') {
+    setDirezioneRaw(d)
+    setCausale(prev => prev === 'rettifica' ? prev : (d === 'carico' ? 'carico_manuale' : 'scarico_manuale'))
   }
 
-  async function salvaMovimento() {
-    if (!movimento || !restaurantId) return
-    const qty = Number(quantitaMovimento.replace(',', '.'))
-    if (!qty || qty <= 0) { setErroreMovimento('Inserisci una quantità maggiore di zero.'); return }
+  function apriModifica(r: ArticoloRiga) {
+    setModifica(r)
+    setDirezioneRaw('carico')
+    setCausale('carico_manuale')
+    setQuantita('')
+    setNota('')
+    setUnitaInput(r.unitaMisura ?? '')
+    setErrore(null)
+  }
 
-    setSalvandoMovimento(true)
-    setErroreMovimento(null)
+  function passo(delta: number) {
+    const attuale = Number(quantita.replace(',', '.')) || 0
+    const next = Math.max(0, attuale + delta)
+    setQuantita(next % 1 === 0 ? String(next) : String(Number(next.toFixed(2))))
+  }
+
+  async function salvaModifica() {
+    if (!modifica || !restaurantId) return
+    const qty = quantita.trim() ? Number(quantita.replace(',', '.')) : 0
+    if (quantita.trim() && (!qty || qty <= 0)) { setErrore('La quantità deve essere maggiore di zero.'); return }
+
+    setSalvando(true)
+    setErrore(null)
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
 
-    const { error } = await supabase.from('inventario_movimenti').insert({
-      restaurant_id: restaurantId,
-      catalogo_articolo_id: movimento.articolo.primaryId,
-      quantita: movimento.direzione === 'carico' ? qty : -qty,
-      causale: causaleMovimento,
-      nota: notaMovimento.trim() || null,
-      created_by: user?.id ?? null,
-    })
+    if (qty > 0) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error: errMov } = await supabase.from('inventario_movimenti').insert({
+        restaurant_id: restaurantId,
+        catalogo_articolo_id: modifica.primaryId,
+        quantita: direzione === 'carico' ? qty : -qty,
+        causale,
+        nota: nota.trim() || null,
+        created_by: user?.id ?? null,
+      })
+      if (errMov) {
+        setErrore(errMov.message)
+        setSalvando(false)
+        return
+      }
+    }
 
-    if (error) {
-      setErroreMovimento(error.message)
-      setSalvandoMovimento(false)
+    // Aggiorna l'unità su TUTTI i membri del gruppo (tutte le righe di
+    // catalogo con questo nome, indipendentemente dal fornitore): qui
+    // il prodotto è uno solo, tenerle disallineate confonderebbe la
+    // prossima volta che si accorpano.
+    const { error: errUnita } = await supabase
+      .from('catalogo_articoli')
+      .update({ unita_misura: unitaInput.trim() || null })
+      .in('id', modifica.memberIds)
+    if (errUnita) {
+      setErrore(errUnita.message)
+      setSalvando(false)
       return
     }
 
-    setSalvandoMovimento(false)
-    setMovimento(null)
+    setSalvando(false)
+    setModifica(null)
     setStoricoPerGruppo(prev => {
       const next = { ...prev }
-      delete next[movimento.articolo.nomeArticolo]
+      delete next[modifica.nomeArticolo]
       return next
     })
     await load()
   }
 
-  function apriModificaUnita(r: ArticoloRiga) {
-    setModificaUnita(r)
-    setUnitaInput(r.unitaMisura ?? '')
-    setErroreUnita(null)
-  }
-
-  // Aggiorna l'unità di misura su TUTTI i membri del gruppo (tutte le
-  // righe di catalogo con questo nome, indipendentemente dal fornitore):
-  // qui il prodotto è uno solo, tenerle disallineate confonderebbe la
-  // prossima volta che si accorpano.
-  async function salvaUnita() {
-    if (!modificaUnita) return
-    setSalvandoUnita(true)
-    setErroreUnita(null)
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('catalogo_articoli')
-      .update({ unita_misura: unitaInput.trim() || null })
-      .in('id', modificaUnita.memberIds)
-    if (error) {
-      setErroreUnita(error.message)
-      setSalvandoUnita(false)
-      return
-    }
-    setSalvandoUnita(false)
-    setModificaUnita(null)
-    await load()
-  }
-
-  const opzioniCausale: InventarioCausale[] = movimento?.direzione === 'carico'
+  const opzioniCausale: InventarioCausale[] = direzione === 'carico'
     ? ['carico_manuale', 'rettifica']
     : ['scarico_manuale', 'rettifica']
 
@@ -340,24 +342,18 @@ export function InventarioClient({ role, restaurants }: Props) {
                         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
                         <div className="min-w-0">
                           <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nomeArticolo}</p>
-                          <p className={cn('text-xs text-muted-foreground flex items-center gap-1.5', !aperto && 'truncate')}>
-                            {r.fornitoriNomi.join(' · ')}
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            {aperto && <span className="truncate">{r.fornitoriNomi.join(' · ')}</span>}
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
                           </p>
                         </div>
                       </button>
-                      <div className="flex shrink-0 items-center gap-0.5">
+                      <div className="flex shrink-0 items-center gap-1">
                         <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
                           {r.giacenza}{r.unitaMisura && <span className="text-muted-foreground text-xs"> {r.unitaMisura}</span>}
                         </div>
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Unità di misura" onClick={() => apriModificaUnita(r)}>
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Modifica" onClick={() => apriModifica(r)}>
                           <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Scarico" onClick={() => apriMovimento(r, 'scarico')}>
-                          <Minus className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Carico" onClick={() => apriMovimento(r, 'carico')}>
-                          <Plus className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -399,81 +395,79 @@ export function InventarioClient({ role, restaurants }: Props) {
       </Card>
 
       <Dialog
-        open={!!movimento}
-        onOpenChange={o => { if (!salvandoMovimento && !o) { setMovimento(null); setErroreMovimento(null) } }}
+        open={!!modifica}
+        onOpenChange={o => { if (!salvando && !o) { setModifica(null); setErrore(null) } }}
       >
         <DialogContent className="cassa-perforated-top">
           <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">
-              {movimento?.direzione === 'carico' ? 'Carico' : 'Scarico'} · {movimento?.articolo.nomeArticolo}
-            </DialogTitle>
+            <DialogTitle className="cassa-display text-lg">{modifica?.nomeArticolo}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Quantità{movimento?.articolo.unitaMisura ? ` (${movimento.articolo.unitaMisura})` : ''}</Label>
-              <Input
-                inputMode="decimal"
-                value={quantitaMovimento}
-                onChange={e => setQuantitaMovimento(e.target.value)}
-                placeholder="0"
-                className="cassa-numeric"
-                autoFocus
-              />
+            <div className="flex gap-2">
+              <Button type="button" variant={direzione === 'carico' ? 'default' : 'outline'} className="flex-1" onClick={() => setDirezione('carico')}>
+                Carico
+              </Button>
+              <Button type="button" variant={direzione === 'scarico' ? 'default' : 'outline'} className="flex-1" onClick={() => setDirezione('scarico')}>
+                Scarico
+              </Button>
             </div>
+
             <div className="space-y-1.5">
-              <Label>Causale</Label>
-              <Select value={causaleMovimento} onValueChange={v => setCausaleMovimento(v as InventarioCausale)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {opzioniCausale.map(c => <SelectItem key={c} value={c}>{CAUSALE_LABELS[c]}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Quantità{modifica?.unitaMisura ? ` (${modifica.unitaMisura})` : ''}</Label>
+              <div className="flex items-center gap-1.5">
+                <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => passo(-1)}>
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  inputMode="decimal"
+                  value={quantita}
+                  onChange={e => setQuantita(e.target.value)}
+                  placeholder="0"
+                  className="cassa-numeric text-center"
+                />
+                <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => passo(1)}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Lascia vuoto per non registrare nessun movimento.</p>
             </div>
-            <div className="space-y-1.5">
-              <Label>Nota (facoltativa)</Label>
-              <Textarea value={notaMovimento} onChange={e => setNotaMovimento(e.target.value)} rows={2} />
-            </div>
-            {erroreMovimento && <p className="text-sm text-destructive">{erroreMovimento}</p>}
-          </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setMovimento(null)} disabled={salvandoMovimento}>
-              Annulla
-            </Button>
-            <Button type="button" onClick={salvaMovimento} disabled={salvandoMovimento}>
-              {salvandoMovimento ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {quantita.trim() !== '' && (
+              <div className="space-y-1.5">
+                <Label>Causale</Label>
+                <Select value={causale} onValueChange={v => setCausale(v as InventarioCausale)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {opzioniCausale.map(c => <SelectItem key={c} value={c}>{CAUSALE_LABELS[c]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {quantita.trim() !== '' && (
+              <div className="space-y-1.5">
+                <Label>Nota (facoltativa)</Label>
+                <Textarea value={nota} onChange={e => setNota(e.target.value)} rows={2} />
+              </div>
+            )}
 
-      <Dialog
-        open={!!modificaUnita}
-        onOpenChange={o => { if (!salvandoUnita && !o) { setModificaUnita(null); setErroreUnita(null) } }}
-      >
-        <DialogContent className="cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">{modificaUnita?.nomeArticolo}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 border-t border-border pt-3">
               <Label>Unità di misura</Label>
-              <Input value={unitaInput} onChange={e => setUnitaInput(e.target.value)} placeholder="Es. kg, L, pz" autoFocus />
-              {modificaUnita && modificaUnita.memberIds.length > 1 && (
-                <p className="text-xs text-muted-foreground">Aggiorna tutti i fornitori di questo prodotto ({modificaUnita.fornitoriNomi.join(', ')}).</p>
+              <Input value={unitaInput} onChange={e => setUnitaInput(e.target.value)} placeholder="Es. kg, L, pz" />
+              {modifica && modifica.memberIds.length > 1 && (
+                <p className="text-xs text-muted-foreground">Aggiorna tutti i fornitori di questo prodotto ({modifica.fornitoriNomi.join(', ')}).</p>
               )}
             </div>
-            {erroreUnita && <p className="text-sm text-destructive">{erroreUnita}</p>}
+
+            {errore && <p className="text-sm text-destructive">{errore}</p>}
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setModificaUnita(null)} disabled={salvandoUnita}>
+            <Button type="button" variant="outline" onClick={() => setModifica(null)} disabled={salvando}>
               Annulla
             </Button>
-            <Button type="button" onClick={salvaUnita} disabled={salvandoUnita}>
-              {salvandoUnita ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
+            <Button type="button" onClick={salvaModifica} disabled={salvando}>
+              {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
             </Button>
           </DialogFooter>
         </DialogContent>

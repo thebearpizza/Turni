@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
+import { Boxes, ChevronDown, Eye, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
@@ -304,8 +304,8 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                         <div className="min-w-0">
                           <p className={cn('text-sm font-medium', !aperto && 'truncate')}>{r.nome_articolo}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            {r.fornitore_nome}
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
+                            {aperto && <span className="truncate">{r.fornitore_nome}</span>}
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
                           </p>
                         </div>
                       </button>
@@ -318,12 +318,14 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                           )}
                         </div>
                         {canEdit && (
-                          <Switch
-                            checked={r.traccia_in_inventario}
-                            onCheckedChange={checked => toggleTraccia(r, checked)}
-                            title="Traccia in Inventario"
-                            className="scale-90"
-                          />
+                          <div className="flex items-center gap-1" title="Traccia in Inventario">
+                            <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <Switch
+                              checked={r.traccia_in_inventario}
+                              onCheckedChange={checked => toggleTraccia(r, checked)}
+                              className="scale-90"
+                            />
+                          </div>
                         )}
                         <Button
                           type="button"
