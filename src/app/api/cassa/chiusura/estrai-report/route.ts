@@ -79,6 +79,62 @@ export async function POST(request: Request) {
     if (scaricoErr) console.error('Errore scarico inventario da chiusura:', scaricoErr.message)
   }
 
+  // Vendite per categoria/prodotto per l'Analisi — anche queste in
+  // silenzio, mai bloccanti: la chiusura potrebbe non esistere ancora
+  // (report caricato prima di qualunque salvataggio di Fase 1), stessa
+  // logica "trova o crea" di assicuraChiusura in SpeseBozzaCard.
+  if (estratto.prodotti.length > 0) {
+    let chiusuraId: string | null = null
+    const { data: esistente } = await supabase
+      .from('cassa_chiusure')
+      .select('id')
+      .eq('restaurant_id', restaurantId)
+      .eq('data', dataChiusura)
+      .maybeSingle()
+    if (esistente) {
+      chiusuraId = esistente.id
+    } else {
+      const { data: creata, error: creaErr } = await supabase
+        .from('cassa_chiusure')
+        .insert({ restaurant_id: restaurantId, data: dataChiusura, stato: 'in_verifica', created_by: user.id })
+        .select('id')
+        .single()
+      if (creaErr) {
+        // Un'altra sessione l'ha creata nel frattempo (vincolo unique) — la riusa.
+        if (creaErr.code === '23505') {
+          const { data: concorrente } = await supabase
+            .from('cassa_chiusure')
+            .select('id')
+            .eq('restaurant_id', restaurantId)
+            .eq('data', dataChiusura)
+            .maybeSingle()
+          chiusuraId = concorrente?.id ?? null
+        } else {
+          console.error('Errore creazione chiusura per vendite prodotti:', creaErr.message)
+        }
+      } else {
+        chiusuraId = creata.id
+      }
+    }
+
+    if (chiusuraId) {
+      const righe = estratto.prodotti
+        .filter(p => p.nome)
+        .map(p => ({
+          chiusura_id: chiusuraId,
+          nome_categoria: p.categoria,
+          nome_prodotto: p.nome,
+          quantita: p.quantita,
+          importo: p.importo,
+          valore_lordo: p.importo,
+        }))
+      const { error: venditeErr } = await supabase
+        .from('cassa_vendite_prodotti')
+        .upsert(righe, { onConflict: 'chiusura_id,nome_prodotto' })
+      if (venditeErr) console.error('Errore salvataggio vendite prodotti:', venditeErr.message)
+    }
+  }
+
   const totaleCalcolato = estratto.entrate_contanti + estratto.entrate_pos + estratto.entrate_bonifico
   const scostamento = estratto.totale_dichiarato != null ? Math.abs(estratto.totale_dichiarato - totaleCalcolato) : 0
 

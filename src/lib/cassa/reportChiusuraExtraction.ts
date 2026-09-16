@@ -19,7 +19,9 @@ export const ReportChiusuraEstrattoSchema = z.object({
   prodotti: z.array(z.object({
     nome: z.string().describe('Nome del prodotto/piatto esattamente come scritto nel documento'),
     quantita: z.number().describe('Quantità venduta/consumata di questo prodotto'),
-  })).describe('Elenco COMPLETO di tutti i prodotti/articoli venduti nel documento con la relativa quantità, anche quelli che sembrano piatti del menu e non articoli di magazzino — il filtro avviene dopo, qui serve l\'elenco grezzo e completo'),
+    importo: z.number().describe('Totale incassato per questo prodotto (quantità × prezzo unitario), come indicato nella riga — 0 se il documento non riporta un importo per riga'),
+    categoria: z.string().nullable().describe('Categoria/reparto del prodotto (es. nome della sezione del menu sotto cui è raggruppato nel documento: "Pizze", "Bevande", "Dolci"...) — null se il documento non raggruppa i prodotti per categoria o non è possibile determinarla con certezza'),
+  })).describe('Elenco COMPLETO di tutti i prodotti/articoli venduti nel documento con quantità e importo, anche quelli che sembrano piatti del menu e non articoli di magazzino — il filtro avviene dopo, qui serve l\'elenco grezzo e completo'),
 })
 
 const PROMPT = `Sei un assistente che legge report di chiusura giornaliera di un ristorante, esportati dal gestionale di cassa/POS — quasi sempre un PDF già digitale, talvolta una foto di una copia stampata.
@@ -28,7 +30,7 @@ Il documento contiene tipicamente, in quest'ordine: dati anagrafici del locale (
 
 Sui pagamenti: NON tutti i metodi compaiono sempre — se un metodo non è stato usato quel giorno, la sua riga è semplicemente ASSENTE dal documento (non mostrata a zero). Distingui con attenzione SOLO due righe specifiche (Contante→entrate_contanti, POS/Carta/Bancomat→entrate_pos): ogni altra riga di pagamento presente, qualunque sia il suo nome (Bonifico, Satispay, buoni pasto, carte prepagate, voucher, altro), va sommata in entrate_bonifico.
 
-Sui prodotti: leggi l'intera tabella "prodotti"/"articoli venduti" riga per riga, con calma, senza saltarne nessuna — anche se sembrano piatti del menu (pizze, dolci, ecc.) invece di articoli di magazzino: l'elenco va comunque completo, il filtro su cosa è davvero tracciato a magazzino avviene automaticamente dopo, non qui. Non includere righe di totale/sconto/intestazione tra i prodotti.
+Sui prodotti: leggi l'intera tabella "prodotti"/"articoli venduti" riga per riga, con calma, senza saltarne nessuna — anche se sembrano piatti del menu (pizze, dolci, ecc.) invece di articoli di magazzino: l'elenco va comunque completo, il filtro su cosa è davvero tracciato a magazzino avviene automaticamente dopo, non qui. Non includere righe di totale/sconto/intestazione tra i prodotti. Per ogni prodotto riporta anche l'importo incassato (se la riga lo indica) e, se il documento raggruppa i prodotti sotto intestazioni di categoria/reparto (es. "Pizze", "Bevande", "Primi"...), riporta quella categoria per ogni prodotto della sezione — altrimenti lascia categoria a null, senza inventarla.
 
 Leggi ogni numero cifra per cifra, senza arrotondare: le cifre italiane usano la virgola come separatore decimale (es. "12,50" = 12.50).`
 
