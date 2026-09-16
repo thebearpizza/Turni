@@ -10,7 +10,9 @@ import type { RiquadroArticolo } from '@/types'
 // applicate. totale_netto/iva/lordo non vengono scritti qui: li
 // ricalcola il trigger su fatture_iva_dettaglio/fatture_articoli (Task 0)
 // una volta inserite le righe figlie, così restano sempre coerenti con
-// quelle.
+// quelle — a meno che l'utente non abbia corretto a mano il totale in
+// revisione (totale_lordo_manuale/totale_netto_manuale), che il trigger
+// rispetta quando presente.
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -20,6 +22,7 @@ export async function POST(request: Request) {
   const {
     restaurant_id, fornitore, numero_documento, data, ha_articoli,
     categoria_spesa_diretta_id, foto_paths, verifiche_sospette, iva_dettaglio, articoli,
+    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati,
   } = body ?? {}
 
   if (!restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio)) {
@@ -44,6 +47,9 @@ export async function POST(request: Request) {
       categoria_spesa_diretta_id: ha_articoli ? null : categoria_spesa_diretta_id,
       foto_paths: foto_paths ?? [],
       verifiche_sospette: verifiche_sospette ?? [],
+      totale_lordo_manuale: totale_lordo_manuale ?? null,
+      totale_netto_manuale: totale_netto_manuale ?? null,
+      vuoti_ritirati: vuoti_ritirati ?? null,
       created_by: user.id,
     })
     .select('id')
