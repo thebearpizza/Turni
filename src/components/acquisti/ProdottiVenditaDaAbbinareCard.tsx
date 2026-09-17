@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2, Link2, EyeOff } from 'lucide-react'
 
@@ -18,6 +19,10 @@ interface ProdottoNonAbbinato {
 interface Props {
   restaurantId: string
 }
+
+// Come CHUNK_SIZE in AnalisiClient: con molte chiusure l'elenco di id in
+// querystring (.in(...)) supera i limiti di URI del gateway Supabase.
+const CHUNK_SIZE = 150
 
 // Card visibile solo a manager/direttore (Inventario è già ristretto a
 // questi ruoli, vedi acquisti/layout.tsx): elenca i nomi prodotto letti
@@ -42,12 +47,19 @@ export function ProdottiVenditaDaAbbinareCard({ restaurantId }: Props) {
     setLoading(true)
     const supabase = createClient()
 
-    const [{ data: catalogoRaw }, { data: venditeRaw }, { data: mappatureRaw }] = await Promise.all([
+    // Niente embed su cassa_chiusure: prima gli id delle chiusure del
+    // locale, poi le vendite per quegli id — stesso pattern già in uso
+    // in AnalisiClient, più semplice e robusto di un filtro su tabella
+    // annidata via PostgREST.
+    const { data: chiusureRaw } = await supabase.from('cassa_chiusure').select('id').eq('restaurant_id', restaurantId)
+    const chiusuraIds = (chiusureRaw ?? []).map(c => c.id as string)
+
+    const chunks: string[][] = []
+    for (let i = 0; i < chiusuraIds.length; i += CHUNK_SIZE) chunks.push(chiusuraIds.slice(i, i + CHUNK_SIZE))
+
+    const [{ data: catalogoRaw }, venditeRisposte, { data: mappatureRaw }] = await Promise.all([
       supabase.from('catalogo_articoli').select('id, nome_articolo').eq('traccia_in_inventario', true).order('nome_articolo'),
-      supabase
-        .from('cassa_vendite_prodotti')
-        .select('nome_prodotto, nome_categoria, cassa_chiusure!inner(restaurant_id)')
-        .eq('cassa_chiusure.restaurant_id', restaurantId),
+      Promise.all(chunks.map(chunk => supabase.from('cassa_vendite_prodotti').select('nome_prodotto, nome_categoria').in('chiusura_id', chunk))),
       supabase.from('vendite_prodotti_mappature').select('nome_prodotto'),
     ])
 
@@ -57,7 +69,7 @@ export function ProdottiVenditaDaAbbinareCard({ restaurantId }: Props) {
     const trackedNames = new Set(catalogoOptions.map(a => a.nome_articolo.trim().toLowerCase()))
     const mappedNames = new Set(((mappatureRaw ?? []) as Array<{ nome_prodotto: string }>).map(m => m.nome_prodotto.trim().toLowerCase()))
 
-    const vendite = (venditeRaw ?? []) as unknown as Array<{ nome_prodotto: string; nome_categoria: string | null }>
+    const vendite = venditeRisposte.flatMap(r => (r.data ?? []) as Array<{ nome_prodotto: string; nome_categoria: string | null }>)
     const visti = new Set<string>()
     const coda: ProdottoNonAbbinato[] = []
     for (const v of vendite) {
@@ -97,7 +109,7 @@ export function ProdottiVenditaDaAbbinareCard({ restaurantId }: Props) {
 
   const risultati = catalogo.filter(a => !ricerca.trim() || a.nome_articolo.toLowerCase().includes(ricerca.trim().toLowerCase()))
 
-  if (loading || daAbbinare.length === 0) return null
+  if (!loading && daAbbinare.length === 0) return null
 
   return (
     <>
@@ -109,6 +121,16 @@ export function ProdottiVenditaDaAbbinareCard({ restaurantId }: Props) {
           <p className="text-sm text-muted-foreground">
             Nomi letti dai report di chiusura che non coincidono con nessun articolo tracciato. Abbinali una volta sola: da qui in poi lo scarico dall&apos;Inventario li riconosce da solo.
           </p>
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 py-1">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="divide-y divide-border">
             {daAbbinare.map(p => (
               <div key={p.nome} className="flex items-center justify-between gap-2 py-2">
@@ -122,6 +144,7 @@ export function ProdottiVenditaDaAbbinareCard({ restaurantId }: Props) {
               </div>
             ))}
           </div>
+          )}
         </CardContent>
       </Card>
 
