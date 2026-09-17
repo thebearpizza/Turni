@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
-import { estraiReportChiusura, EstrazioneTimeoutError } from '@/lib/cassa/reportChiusuraExtraction'
+import { NextResponse, after } from 'next/server'
+import { estraiReportChiusura, matchProdottiVenduti, EstrazioneTimeoutError } from '@/lib/cassa/reportChiusuraExtraction'
 
 const BUCKET = 'chiusura_report_foto'
 
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Percorso file non valido' }, { status: 400 })
   }
 
-  const { data: restaurant } = await supabase.from('restaurants').select('id').eq('id', restaurantId).single()
+  const { data: restaurant } = await supabase.from('restaurants').select('id, owner_id').eq('id', restaurantId).single()
   if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
 
   const fotoBuffers: { buffer: ArrayBuffer; mediaType: string }[] = []
@@ -133,6 +133,56 @@ export async function POST(request: Request) {
         .upsert(righe, { onConflict: 'chiusura_id,nome_prodotto' })
       if (venditeErr) console.error('Errore salvataggio vendite prodotti:', venditeErr.message)
     }
+  }
+
+  // Abbinamento automatico AI dei prodotti venduti verso il catalogo
+  // articoli — sempre silenzioso, e programmato con after() per non
+  // ritardare la risposta al cassiere (un'altra chiamata AI qui, prima
+  // del return, rischierebbe di sommarsi al tempo già speso da
+  // estraiReportChiusura e avvicinarsi ai 60s di maxDuration). Prova
+  // solo sui nomi senza già un match esatto né una mappatura salvata,
+  // sull'INTERO catalogo del titolare (non solo gli articoli tracciati,
+  // per poter abbinare in anticipo anche un articolo non ancora seguito
+  // in Inventario — vedi matchProdottiVenduti). Scrive solo gli esiti
+  // 'chiaro' (registra_abbinamento_ai, che non sovrascrive mai una
+  // mappatura già decisa); gli 'ambiguo'/'nuovo' restano in sospeso
+  // nella card "Prodotti da abbinare" di Inventario.
+  if (estratto.prodotti.length > 0) {
+    const prodottiPerAbbinamento = estratto.prodotti
+    const ownerId = restaurant.owner_id
+    after(async () => {
+      try {
+        const [{ data: catalogoRaw }, { data: mappatureRaw }] = await Promise.all([
+          supabase.from('catalogo_articoli').select('id, nome_articolo').eq('owner_id', ownerId),
+          supabase.from('vendite_prodotti_mappature').select('nome_prodotto').eq('owner_id', ownerId),
+        ])
+        const catalogo = (catalogoRaw ?? []) as Array<{ id: string; nome_articolo: string }>
+        const trackedNames = new Set(catalogo.map(a => a.nome_articolo.trim().toLowerCase()))
+        const mappedNames = new Set(((mappatureRaw ?? []) as Array<{ nome_prodotto: string }>).map(m => m.nome_prodotto.trim().toLowerCase()))
+
+        const daValutare = Array.from(new Set(
+          prodottiPerAbbinamento
+            .map(p => p.nome.trim())
+            .filter(nome => nome && !trackedNames.has(nome.toLowerCase()) && !mappedNames.has(nome.toLowerCase()))
+        ))
+
+        if (daValutare.length > 0) {
+          const esiti = await matchProdottiVenduti(daValutare, catalogo.map(a => ({ id: a.id, nome_articolo: a.nome_articolo })))
+          for (const esito of esiti) {
+            if (esito.esito === 'chiaro' && esito.catalogo_articolo_id) {
+              const { error: abbinaErr } = await supabase.rpc('registra_abbinamento_ai', {
+                p_restaurant_id: restaurantId,
+                p_nome_prodotto: esito.testo_estratto,
+                p_catalogo_articolo_id: esito.catalogo_articolo_id,
+              })
+              if (abbinaErr) console.error('Errore abbinamento AI prodotto venduto:', abbinaErr.message)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Errore abbinamento AI prodotti venduti:', err instanceof Error ? err.message : err)
+      }
+    })
   }
 
   const totaleCalcolato = estratto.entrate_contanti + estratto.entrate_pos + estratto.entrate_bonifico
