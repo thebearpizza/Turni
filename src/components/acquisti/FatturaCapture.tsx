@@ -47,6 +47,29 @@ interface ArticoloEstratto {
   riquadro: RiquadroArticolo | null
 }
 
+// Rispecchia PaginaEstratta in fattureExtraction.ts (fase 1: solo
+// lettura, prima ancora del raggruppamento in fatture — vedi
+// handleElabora). Articolo qui è il dato grezzo letto dalla pagina,
+// prima di qualunque abbinamento al catalogo (a differenza di
+// ArticoloEstratto sotto, che è il risultato della fase 2).
+interface PaginaLetta {
+  data: string | null
+  fornitore_nome: string | null
+  fornitore_partita_iva: string | null
+  numero_documento: string | null
+  iva_dettaglio: AliquotaEstratta[]
+  articoli: Array<{
+    nome: string
+    quantita: number
+    prezzo_riga: number
+    unita_misura: string | null
+    tipologia_suggerita: ArticoloTipologia
+    riquadro: RiquadroArticolo | null
+    aliquota_iva: number
+  }>
+  totale_documento: number | null
+}
+
 interface EstraiResponse {
   duplicato: boolean
   fattura_esistente_id?: string
@@ -336,6 +359,36 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // nel corpo di handleElabora sotto per il perché.
   const MAX_PAGINE_PER_LETTURA = 4
 
+  // Fase 2 (vedi handleElabora): compone le fatture da un elenco di
+  // pagine già lette, in un'unica chiamata — mai fatta gruppo per
+  // gruppo, altrimenti una fattura le cui pagine cadono in due gruppi
+  // diversi verrebbe spezzata in due (vedi il commento su componiFatture
+  // in fattureExtraction.ts).
+  async function chiamaComponi(
+    pagine: PaginaLetta[],
+    paths: string[],
+    excludeFatturaId?: string
+  ): Promise<{ fatture: EstraiResponse[] } | { error: string }> {
+    try {
+      const res = await fetch('/api/cassa/fatture/componi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: paths, pagine, exclude_fattura_id: excludeFatturaId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        return {
+          error: data?.error ?? (res.status === 504
+            ? 'La composizione ha superato il tempo massimo.'
+            : `Errore nella composizione della fattura (codice ${res.status}).`),
+        }
+      }
+      return { fatture: (data.fatture ?? []) as EstraiResponse[] }
+    } catch {
+      return { error: 'Errore di rete durante la composizione.' }
+    }
+  }
+
   async function handleElabora() {
     setStatus('processing')
     setFaseElaborazione('upload')
@@ -380,13 +433,21 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     // pagine (documento lungo) resta un unico gruppo, quindi un
     // documento così lungo non trae vantaggio da questa suddivisione —
     // solo dallo scaglionare fatture diverse tra loro.
+    //
+    // Fase 1 (qui sotto): solo lettura, gruppo per gruppo. Il
+    // raggruppamento in fatture è deliberatamente rimandato a un'unica
+    // chiamata finale (chiamaComponi, fase 2) su TUTTE le pagine lette —
+    // farlo già qui, gruppo per gruppo, spezzerebbe in due una fattura
+    // le cui pagine cadono a cavallo di due gruppi consecutivi.
     setFaseElaborazione('lettura')
     const gruppi: string[][] = []
     for (let i = 0; i < fotoPaths.length; i += MAX_PAGINE_PER_LETTURA) gruppi.push(fotoPaths.slice(i, i + MAX_PAGINE_PER_LETTURA))
 
-    const risultatiAccumulati: EstraiResponse[] = []
+    const pagineAccumulate: PaginaLetta[] = []
     for (let g = 0; g < gruppi.length; g++) {
       setProgressoLettura({ corrente: g + 1, totale: gruppi.length })
+      let pagineGruppo: PaginaLetta[] | null = null
+      let messaggioErrore: string | null = null
       try {
         const res = await fetch('/api/cassa/fatture/estrai', {
           method: 'POST',
@@ -399,49 +460,54 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         // res.json() esplode e l'utente vede un generico "Errore di rete"
         // che non dice nulla su cosa è andato storto davvero.
         const data = await res.json().catch(() => null)
-
         if (!res.ok || !data) {
-          // Le pagine dei gruppi già letti restano ripulite dalla griglia
-          // (i loro risultati sono già in risultatiAccumulati); quelle del
-          // gruppo fallito e dei successivi, mai tentate, restano invece
-          // in coda per un nuovo tentativo.
-          const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
-          setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
-          setPages(prev => prev.slice(paginePassate))
-          const messaggioErrore = data?.error ?? (res.status === 504
+          messaggioErrore = data?.error ?? (res.status === 504
             ? 'La lettura ha superato il tempo massimo.'
             : `Errore nella lettura della fattura (codice ${res.status}).`)
-          if (risultatiAccumulati.length > 0) {
-            setResults(risultatiAccumulati)
-            setCurrentIndex(0)
-            setStatus('review')
-            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
-          } else {
-            setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
-            setStatus('capturing')
-          }
-          return
+        } else {
+          pagineGruppo = data.pagine ?? []
         }
-
-        risultatiAccumulati.push(...(data.fatture ?? []))
       } catch {
+        messaggioErrore = 'Errore di rete durante la lettura.'
+      }
+
+      if (messaggioErrore) {
+        // Le pagine dei gruppi già letti restano ripulite dalla griglia
+        // (le loro pagine sono già in pagineAccumulate); quelle del
+        // gruppo fallito e dei successivi, mai tentate, restano invece
+        // in coda per un nuovo tentativo.
         const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
         setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
         setPages(prev => prev.slice(paginePassate))
-        if (risultatiAccumulati.length > 0) {
-          setResults(risultatiAccumulati)
-          setCurrentIndex(0)
-          setStatus('review')
-          setError('Errore di rete durante la lettura. Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda.')
-        } else {
-          setError('Errore di rete, riprova')
-          setStatus('capturing')
+
+        if (pagineAccumulate.length > 0) {
+          // Almeno le pagine già lette possono comunque essere composte
+          // in fatture, per non perdere il lavoro fatto finora.
+          const composizione = await chiamaComponi(pagineAccumulate, fotoPaths.slice(0, paginePassate), rescan?.fatturaId)
+          if ('fatture' in composizione && composizione.fatture.length > 0) {
+            setResults(composizione.fatture)
+            setCurrentIndex(0)
+            setStatus('review')
+            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
+            return
+          }
         }
+        setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
+        setStatus('capturing')
         return
       }
+
+      pagineAccumulate.push(...(pagineGruppo ?? []))
     }
 
-    setResults(risultatiAccumulati)
+    // Fase 2: un'unica composizione su tutte le pagine lette.
+    const composizione = await chiamaComponi(pagineAccumulate, fotoPaths, rescan?.fatturaId)
+    if ('error' in composizione) {
+      setError(`${composizione.error} Riprova, oppure compila i dati a mano.`)
+      setStatus('capturing')
+      return
+    }
+    setResults(composizione.fatture)
     setCurrentIndex(0)
     setStatus('review')
   }
@@ -586,17 +652,22 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     setRisolvendoDoppione(true)
     setError(null)
     try {
-      const res = await fetch('/api/cassa/fatture/estrai', {
+      const resPagine = await fetch('/api/cassa/fatture/estrai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: current.foto_paths, exclude_fattura_id: current.fattura_esistente_id }),
       })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.fatture?.[0]) {
-        setError(data?.error ?? 'Errore nella rilettura della fattura, riprova.')
+      const dataPagine = await resPagine.json().catch(() => null)
+      if (!resPagine.ok || !dataPagine?.pagine) {
+        setError(dataPagine?.error ?? 'Errore nella rilettura della fattura, riprova.')
         return
       }
-      const nuovo = data.fatture[0] as EstraiResponse
+      const composizione = await chiamaComponi(dataPagine.pagine, current.foto_paths, current.fattura_esistente_id)
+      if ('error' in composizione || !composizione.fatture[0]) {
+        setError('error' in composizione ? composizione.error : 'Errore nella rilettura della fattura, riprova.')
+        return
+      }
+      const nuovo = composizione.fatture[0]
       if (!nuovo.duplicato) {
         setOverwriteTargets(prev => new Map(prev).set(currentIndex, current.fattura_esistente_id as string))
       }

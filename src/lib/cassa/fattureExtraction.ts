@@ -253,7 +253,7 @@ export interface FotoInput {
   mediaType: string
 }
 
-type PaginaEstratta = z.infer<typeof PaginaEstrattaSchema>
+export type PaginaEstratta = z.infer<typeof PaginaEstrattaSchema>
 
 async function estraiPagina(foto: FotoInput, numero: number, totale: number): Promise<PaginaEstratta> {
   const contesto = totale > 1
@@ -526,23 +526,37 @@ export interface FatturaEstrattaConIndici {
   indiciFoto: number[]
 }
 
-export async function estraiFatture(foto: FotoInput[]): Promise<FatturaEstrattaConIndici[]> {
+// Fase 1 (per gruppo/chiamata — vedi MAX_PAGINE_PER_LETTURA in
+// FatturaCapture.tsx): legge ogni pagina singolarmente e in parallelo,
+// senza ancora raggrupparle in fatture. Il collo di bottiglia è la
+// generazione della risposta (un elenco articoli lungo), quindi mandare
+// più pagine in un'unica richiesta AI costerebbe quanto la somma di
+// tutte e sforerebbe il tempo massimo della funzione; in parallelo il
+// costo è quello della pagina più lenta. In più ogni chiamata ha molto
+// meno da leggere, il che aiuta anche la precisione — che è la priorità
+// qui. Il raggruppamento in fatture è deliberatamente un passo a parte
+// (componiFatture) proprio per poter avvenire su TUTTE le pagine di un
+// caricamento insieme, anche quando arrivano da gruppi/chiamate diversi:
+// farlo già qui, gruppo per gruppo, spezzerebbe a metà una fattura le
+// cui pagine finiscono divise fra due gruppi consecutivi.
+export async function estraiPagine(foto: FotoInput[]): Promise<PaginaEstratta[]> {
+  return Promise.all(foto.map((f, i) => estraiPagina(f, i + 1, foto.length)))
+}
+
+// Fase 2 (una sola volta, su TUTTE le pagine lette — vedi
+// estraiPagine): raggruppa le pagine in fatture, ricostruisce i totali e
+// corregge eventuali prezzi sballati. Pura composizione/logica per il
+// raggruppamento (nessuna chiamata AI qui); un'eventuale chiamata AI
+// avviene solo dentro correggiArticoliSeSballati, e solo per le fatture
+// che ne hanno davvero bisogno — `foto` deve essere nello stesso ordine
+// di `pagine` (stesso indice = stessa pagina).
+export async function componiFatture(pagine: PaginaEstratta[], foto: FotoInput[]): Promise<FatturaEstrattaConIndici[]> {
   const inizio = Date.now()
-
-  // Una richiesta per pagina, in parallelo. Il collo di bottiglia è la
-  // generazione della risposta (un elenco articoli lungo), quindi
-  // mandare tre pagine in un'unica richiesta costa quanto la somma delle
-  // tre e sfora il tempo massimo della funzione; in parallelo il costo è
-  // quello della pagina più lenta. In più ogni chiamata ha molto meno da
-  // leggere, il che aiuta anche la precisione — che è la priorità qui.
-  const pagine = await Promise.all(foto.map((f, i) => estraiPagina(f, i + 1, foto.length)))
-
   const gruppi = raggruppaPagine(pagine)
-  // In parallelo fra le fatture del gruppo (non fra pagine, già fatto
-  // sopra): correggiArticoliSeSballati riguarda solo chi ne ha davvero
-  // bisogno (totale documento letto E scostato) e resta comunque "best
-  // effort" — non aggiunge un rischio di timeout condiviso fra fatture
-  // diverse dello stesso caricamento.
+  // In parallelo fra le fatture (correggiArticoliSeSballati riguarda
+  // solo chi ne ha davvero bisogno — totale documento letto E scostato —
+  // e resta comunque "best effort": non aggiunge un rischio di timeout
+  // condiviso fra fatture diverse dello stesso caricamento).
   const fatture = await Promise.all(gruppi.map(async indici => {
     const estratta = unisciPagine(indici.map(i => pagine[i]))
     const corretta = await correggiArticoliSeSballati(estratta, indici.map(i => foto[i]))
@@ -550,7 +564,7 @@ export async function estraiFatture(foto: FotoInput[]): Promise<FatturaEstrattaC
   }))
 
   console.log(
-    `[cassa/fatture] estratte ${foto.length} pagine → ${fatture.length} fattur${fatture.length === 1 ? 'a' : 'e'} in ${Date.now() - inizio}ms, ` +
+    `[cassa/fatture] composte ${pagine.length} pagine → ${fatture.length} fattur${fatture.length === 1 ? 'a' : 'e'} in ${Date.now() - inizio}ms, ` +
     `${fatture.reduce((s, f) => s + f.fattura.articoli.length, 0)} articoli totali`
   )
   return fatture
