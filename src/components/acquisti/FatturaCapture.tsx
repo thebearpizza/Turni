@@ -47,6 +47,29 @@ interface ArticoloEstratto {
   riquadro: RiquadroArticolo | null
 }
 
+// Rispecchia PaginaEstratta in fattureExtraction.ts (fase 1: solo
+// lettura, prima ancora del raggruppamento in fatture — vedi
+// handleElabora). Articolo qui è il dato grezzo letto dalla pagina,
+// prima di qualunque abbinamento al catalogo (a differenza di
+// ArticoloEstratto sotto, che è il risultato della fase 2).
+interface PaginaLetta {
+  data: string | null
+  fornitore_nome: string | null
+  fornitore_partita_iva: string | null
+  numero_documento: string | null
+  iva_dettaglio: AliquotaEstratta[]
+  articoli: Array<{
+    nome: string
+    quantita: number
+    prezzo_riga: number
+    unita_misura: string | null
+    tipologia_suggerita: ArticoloTipologia
+    riquadro: RiquadroArticolo | null
+    aliquota_iva: number
+  }>
+  totale_documento: number | null
+}
+
 interface EstraiResponse {
   duplicato: boolean
   fattura_esistente_id?: string
@@ -181,11 +204,15 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // catalogo non si crea qui: solo al salvataggio della fattura (vedi
   // handleConferma), altrimenti annullare lascerebbe un articolo orfano.
   const [nuoviModificati, setNuoviModificati] = useState<Map<string, DatiNuovoArticolo>>(new Map())
-  // Prezzo riga corretto a mano in revisione — a differenza di
-  // resolved/nuoviModificati va tenuto per indice, non per
-  // testo_estratto: due righe con lo stesso testo estratto (raro ma
-  // possibile) non devono correggersi a vicenda.
-  const [prezziModificati, setPrezziModificati] = useState<Map<number, number>>(new Map())
+  // Quantità e prezzo unitario corretti a mano in revisione — tenuti per
+  // indice, non per testo_estratto: due righe con lo stesso testo
+  // estratto (raro ma possibile) non devono correggersi a vicenda.
+  // L'importo di riga è sempre DERIVATO dai due (mai memorizzato a
+  // parte), così Netto/Lordo in testata possono ricalcolarsi dal vivo
+  // sulla somma reale delle righe invece di restare fermi al valore
+  // letto dall'OCR quando si corregge un articolo.
+  const [quantitaModificate, setQuantitaModificate] = useState<Map<number, number>>(new Map())
+  const [prezzoUnitarioModificato, setPrezzoUnitarioModificato] = useState<Map<number, number>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
   // Fornitore corretto a mano in revisione — l'OCR può leggerlo sbagliato
@@ -336,6 +363,36 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // nel corpo di handleElabora sotto per il perché.
   const MAX_PAGINE_PER_LETTURA = 4
 
+  // Fase 2 (vedi handleElabora): compone le fatture da un elenco di
+  // pagine già lette, in un'unica chiamata — mai fatta gruppo per
+  // gruppo, altrimenti una fattura le cui pagine cadono in due gruppi
+  // diversi verrebbe spezzata in due (vedi il commento su componiFatture
+  // in fattureExtraction.ts).
+  async function chiamaComponi(
+    pagine: PaginaLetta[],
+    paths: string[],
+    excludeFatturaId?: string
+  ): Promise<{ fatture: EstraiResponse[] } | { error: string }> {
+    try {
+      const res = await fetch('/api/cassa/fatture/componi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: paths, pagine, exclude_fattura_id: excludeFatturaId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        return {
+          error: data?.error ?? (res.status === 504
+            ? 'La composizione ha superato il tempo massimo.'
+            : `Errore nella composizione della fattura (codice ${res.status}).`),
+        }
+      }
+      return { fatture: (data.fatture ?? []) as EstraiResponse[] }
+    } catch {
+      return { error: 'Errore di rete durante la composizione.' }
+    }
+  }
+
   async function handleElabora() {
     setStatus('processing')
     setFaseElaborazione('upload')
@@ -380,13 +437,21 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     // pagine (documento lungo) resta un unico gruppo, quindi un
     // documento così lungo non trae vantaggio da questa suddivisione —
     // solo dallo scaglionare fatture diverse tra loro.
+    //
+    // Fase 1 (qui sotto): solo lettura, gruppo per gruppo. Il
+    // raggruppamento in fatture è deliberatamente rimandato a un'unica
+    // chiamata finale (chiamaComponi, fase 2) su TUTTE le pagine lette —
+    // farlo già qui, gruppo per gruppo, spezzerebbe in due una fattura
+    // le cui pagine cadono a cavallo di due gruppi consecutivi.
     setFaseElaborazione('lettura')
     const gruppi: string[][] = []
     for (let i = 0; i < fotoPaths.length; i += MAX_PAGINE_PER_LETTURA) gruppi.push(fotoPaths.slice(i, i + MAX_PAGINE_PER_LETTURA))
 
-    const risultatiAccumulati: EstraiResponse[] = []
+    const pagineAccumulate: PaginaLetta[] = []
     for (let g = 0; g < gruppi.length; g++) {
       setProgressoLettura({ corrente: g + 1, totale: gruppi.length })
+      let pagineGruppo: PaginaLetta[] | null = null
+      let messaggioErrore: string | null = null
       try {
         const res = await fetch('/api/cassa/fatture/estrai', {
           method: 'POST',
@@ -399,49 +464,54 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         // res.json() esplode e l'utente vede un generico "Errore di rete"
         // che non dice nulla su cosa è andato storto davvero.
         const data = await res.json().catch(() => null)
-
         if (!res.ok || !data) {
-          // Le pagine dei gruppi già letti restano ripulite dalla griglia
-          // (i loro risultati sono già in risultatiAccumulati); quelle del
-          // gruppo fallito e dei successivi, mai tentate, restano invece
-          // in coda per un nuovo tentativo.
-          const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
-          setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
-          setPages(prev => prev.slice(paginePassate))
-          const messaggioErrore = data?.error ?? (res.status === 504
+          messaggioErrore = data?.error ?? (res.status === 504
             ? 'La lettura ha superato il tempo massimo.'
             : `Errore nella lettura della fattura (codice ${res.status}).`)
-          if (risultatiAccumulati.length > 0) {
-            setResults(risultatiAccumulati)
-            setCurrentIndex(0)
-            setStatus('review')
-            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
-          } else {
-            setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
-            setStatus('capturing')
-          }
-          return
+        } else {
+          pagineGruppo = data.pagine ?? []
         }
-
-        risultatiAccumulati.push(...(data.fatture ?? []))
       } catch {
+        messaggioErrore = 'Errore di rete durante la lettura.'
+      }
+
+      if (messaggioErrore) {
+        // Le pagine dei gruppi già letti restano ripulite dalla griglia
+        // (le loro pagine sono già in pagineAccumulate); quelle del
+        // gruppo fallito e dei successivi, mai tentate, restano invece
+        // in coda per un nuovo tentativo.
         const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
         setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
         setPages(prev => prev.slice(paginePassate))
-        if (risultatiAccumulati.length > 0) {
-          setResults(risultatiAccumulati)
-          setCurrentIndex(0)
-          setStatus('review')
-          setError('Errore di rete durante la lettura. Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda.')
-        } else {
-          setError('Errore di rete, riprova')
-          setStatus('capturing')
+
+        if (pagineAccumulate.length > 0) {
+          // Almeno le pagine già lette possono comunque essere composte
+          // in fatture, per non perdere il lavoro fatto finora.
+          const composizione = await chiamaComponi(pagineAccumulate, fotoPaths.slice(0, paginePassate), rescan?.fatturaId)
+          if ('fatture' in composizione && composizione.fatture.length > 0) {
+            setResults(composizione.fatture)
+            setCurrentIndex(0)
+            setStatus('review')
+            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
+            return
+          }
         }
+        setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
+        setStatus('capturing')
         return
       }
+
+      pagineAccumulate.push(...(pagineGruppo ?? []))
     }
 
-    setResults(risultatiAccumulati)
+    // Fase 2: un'unica composizione su tutte le pagine lette.
+    const composizione = await chiamaComponi(pagineAccumulate, fotoPaths, rescan?.fatturaId)
+    if ('error' in composizione) {
+      setError(`${composizione.error} Riprova, oppure compila i dati a mano.`)
+      setStatus('capturing')
+      return
+    }
+    setResults(composizione.fatture)
     setCurrentIndex(0)
     setStatus('review')
   }
@@ -507,10 +577,37 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   }
 
   const articoli = current?.articoli ?? []
+
+  // Quantità/prezzo unitario effettivi di una riga (originali o corretti
+  // a mano) e il conseguente importo di riga — usata sia per il
+  // salvataggio sia per il ricalcolo dal vivo di Netto/Lordo sotto.
+  function quantitaEffettiva(i: number, a: ArticoloEstratto): number {
+    return quantitaModificate.get(i) ?? a.quantita
+  }
+  function prezzoUnitarioEffettivo(i: number, a: ArticoloEstratto): number {
+    const originale = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
+    return prezzoUnitarioModificato.get(i) ?? originale
+  }
+  function prezzoRigaEffettivo(i: number, a: ArticoloEstratto): number {
+    return quantitaEffettiva(i, a) * prezzoUnitarioEffettivo(i, a)
+  }
+
   const dataEffettiva = (dataEditata ?? current?.fattura?.data ?? '').trim()
   const numeroDocEffettivo = (numeroDocEditato ?? current?.fattura?.numero_documento ?? '').trim()
-  const totaleLordoEffettivo = totaleLordoEditato ?? current?.fattura?.totale_lordo ?? 0
-  const totaleNettoEffettivo = totaleNettoEditato ?? current?.fattura?.totale_netto ?? 0
+  // Netto dalla somma REALE delle righe (quando la fattura ne ha) invece
+  // che dal valore letto dall'OCR: è anche esattamente il criterio che il
+  // trigger di salvataggio (fatture_recompute_totali) usa per calcolare
+  // il netto quando ha_articoli è vero, quindi qui la testata mostra
+  // sempre ciò che verrà davvero salvato — e si aggiorna subito quando si
+  // corregge quantità o prezzo di una riga, invece di restare ferma al
+  // valore originale. L'IVA non dipende dalle righe (resta quella letta/
+  // stimata in fattura, invariata da queste correzioni — coerente con la
+  // stessa separazione già presente nel trigger).
+  const nettoDaArticoli = current?.fattura?.ha_articoli
+    ? articoli.reduce((tot, a, i) => tot + prezzoRigaEffettivo(i, a), 0)
+    : null
+  const totaleNettoEffettivo = totaleNettoEditato ?? nettoDaArticoli ?? current?.fattura?.totale_netto ?? 0
+  const totaleLordoEffettivo = totaleLordoEditato ?? (nettoDaArticoli != null ? nettoDaArticoli + (current?.fattura?.totale_iva ?? 0) : current?.fattura?.totale_lordo ?? 0)
   function onChangeTotaleLordo(v: number) {
     setTotaleLordoEditato(v)
     // L'IVA non è modificabile qui: corretto il totale, l'imponibile si
@@ -546,7 +643,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     setCurrentIndex(i => i + 1)
     setResolved(new Map())
     setNuoviModificati(new Map())
-    setPrezziModificati(new Map())
+    setQuantitaModificate(new Map())
+    setPrezzoUnitarioModificato(new Map())
     setConfirmingIndex(null)
     setCategoriaDiretta('')
     setDataEditata(null)
@@ -586,17 +684,22 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     setRisolvendoDoppione(true)
     setError(null)
     try {
-      const res = await fetch('/api/cassa/fatture/estrai', {
+      const resPagine = await fetch('/api/cassa/fatture/estrai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: current.foto_paths, exclude_fattura_id: current.fattura_esistente_id }),
       })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.fatture?.[0]) {
-        setError(data?.error ?? 'Errore nella rilettura della fattura, riprova.')
+      const dataPagine = await resPagine.json().catch(() => null)
+      if (!resPagine.ok || !dataPagine?.pagine) {
+        setError(dataPagine?.error ?? 'Errore nella rilettura della fattura, riprova.')
         return
       }
-      const nuovo = data.fatture[0] as EstraiResponse
+      const composizione = await chiamaComponi(dataPagine.pagine, current.foto_paths, current.fattura_esistente_id)
+      if ('error' in composizione || !composizione.fatture[0]) {
+        setError('error' in composizione ? composizione.error : 'Errore nella rilettura della fattura, riprova.')
+        return
+      }
+      const nuovo = composizione.fatture[0]
       if (!nuovo.duplicato) {
         setOverwriteTargets(prev => new Map(prev).set(currentIndex, current.fattura_esistente_id as string))
       }
@@ -641,10 +744,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         vuoti_ritirati: vuotiRitirati,
         articoli: articoli.map((a, i) => {
           const info = risoltoInfo(a)
-          const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
+          const quantita = quantitaEffettiva(i, a)
+          const prezzoRiga = prezzoRigaEffettivo(i, a)
           return info
-            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
-            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+            ? { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+            : { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
         }),
         verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
       })
@@ -782,34 +886,40 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
           <div className="space-y-2">
             <Label>Articoli ({articoli.length})</Label>
             {articoli.map((a, i) => {
-              const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
-              const prezzoModificato = prezziModificati.has(i)
-              // Con il prezzo corretto a mano: stesso oggetto ma con
-              // prezzo_riga aggiornato, così sia la conferma "è lo
-              // stesso" (verifica scostamento lato server) sia il nuovo
-              // articolo usano il valore corretto, non quello originale
-              // dell'OCR.
-              const aEffettivo = prezzoModificato ? { ...a, prezzo_riga: prezzoRiga } : a
+              const quantita = quantitaEffettiva(i, a)
+              const prezzoUnitario = prezzoUnitarioEffettivo(i, a)
+              const prezzoRiga = prezzoRigaEffettivo(i, a)
+              const modificato = quantitaModificate.has(i) || prezzoUnitarioModificato.has(i)
+              // Con quantità/prezzo corretti a mano: stesso oggetto ma con
+              // i valori aggiornati, così sia la conferma "è lo stesso"
+              // (verifica scostamento lato server) sia il nuovo articolo
+              // usano i valori corretti, non quelli originali dell'OCR.
+              const aEffettivo = modificato ? { ...a, quantita, prezzo_riga: prezzoRiga } : a
               const info = risoltoInfo(a)
               const nuovoInfo = nuoviModificati.get(a.testo_estratto)
-              const prezzoUnitario = a.quantita !== 0 ? prezzoRiga / a.quantita : prezzoRiga
               return (
                 <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
                   <p className="truncate">{a.testo_estratto}</p>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      {a.quantita}{a.unita_misura ? ` ${a.unita_misura}` : ''} ×
-                    </span>
+                    <div className="w-16">
+                      <CurrencyInput
+                        value={quantita}
+                        onChange={v => setQuantitaModificate(prev => new Map(prev).set(i, v))}
+                        hideStepper
+                        className="h-7 text-sm cassa-numeric text-center"
+                      />
+                    </div>
+                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">{a.unita_misura ?? ''} ×</span>
                     <div className="w-24">
                       <CurrencyInput
                         value={prezzoUnitario}
-                        onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v * a.quantita))}
+                        onChange={v => setPrezzoUnitarioModificato(prev => new Map(prev).set(i, v))}
                         hideStepper
                         className="h-7 text-sm cassa-numeric"
                       />
                     </div>
                     <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      = € {prezzoRiga.toFixed(2)}{prezzoModificato && ' · corretto'}
+                      = € {prezzoRiga.toFixed(2)}{modificato && ' · corretto'}
                     </span>
                   </div>
                   {confirmingIndex === i ? (
@@ -837,7 +947,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                           </Button>
                         )}
                       </div>
-                      {info.sospetto && !prezzoModificato && (
+                      {info.sospetto && !modificato && (
                         <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
                         </p>
