@@ -204,11 +204,15 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   // catalogo non si crea qui: solo al salvataggio della fattura (vedi
   // handleConferma), altrimenti annullare lascerebbe un articolo orfano.
   const [nuoviModificati, setNuoviModificati] = useState<Map<string, DatiNuovoArticolo>>(new Map())
-  // Prezzo riga corretto a mano in revisione — a differenza di
-  // resolved/nuoviModificati va tenuto per indice, non per
-  // testo_estratto: due righe con lo stesso testo estratto (raro ma
-  // possibile) non devono correggersi a vicenda.
-  const [prezziModificati, setPrezziModificati] = useState<Map<number, number>>(new Map())
+  // Quantità e prezzo unitario corretti a mano in revisione — tenuti per
+  // indice, non per testo_estratto: due righe con lo stesso testo
+  // estratto (raro ma possibile) non devono correggersi a vicenda.
+  // L'importo di riga è sempre DERIVATO dai due (mai memorizzato a
+  // parte), così Netto/Lordo in testata possono ricalcolarsi dal vivo
+  // sulla somma reale delle righe invece di restare fermi al valore
+  // letto dall'OCR quando si corregge un articolo.
+  const [quantitaModificate, setQuantitaModificate] = useState<Map<number, number>>(new Map())
+  const [prezzoUnitarioModificato, setPrezzoUnitarioModificato] = useState<Map<number, number>>(new Map())
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
   const [categoriaDiretta, setCategoriaDiretta] = useState('')
   // Fornitore corretto a mano in revisione — l'OCR può leggerlo sbagliato
@@ -573,10 +577,37 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
   }
 
   const articoli = current?.articoli ?? []
+
+  // Quantità/prezzo unitario effettivi di una riga (originali o corretti
+  // a mano) e il conseguente importo di riga — usata sia per il
+  // salvataggio sia per il ricalcolo dal vivo di Netto/Lordo sotto.
+  function quantitaEffettiva(i: number, a: ArticoloEstratto): number {
+    return quantitaModificate.get(i) ?? a.quantita
+  }
+  function prezzoUnitarioEffettivo(i: number, a: ArticoloEstratto): number {
+    const originale = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
+    return prezzoUnitarioModificato.get(i) ?? originale
+  }
+  function prezzoRigaEffettivo(i: number, a: ArticoloEstratto): number {
+    return quantitaEffettiva(i, a) * prezzoUnitarioEffettivo(i, a)
+  }
+
   const dataEffettiva = (dataEditata ?? current?.fattura?.data ?? '').trim()
   const numeroDocEffettivo = (numeroDocEditato ?? current?.fattura?.numero_documento ?? '').trim()
-  const totaleLordoEffettivo = totaleLordoEditato ?? current?.fattura?.totale_lordo ?? 0
-  const totaleNettoEffettivo = totaleNettoEditato ?? current?.fattura?.totale_netto ?? 0
+  // Netto dalla somma REALE delle righe (quando la fattura ne ha) invece
+  // che dal valore letto dall'OCR: è anche esattamente il criterio che il
+  // trigger di salvataggio (fatture_recompute_totali) usa per calcolare
+  // il netto quando ha_articoli è vero, quindi qui la testata mostra
+  // sempre ciò che verrà davvero salvato — e si aggiorna subito quando si
+  // corregge quantità o prezzo di una riga, invece di restare ferma al
+  // valore originale. L'IVA non dipende dalle righe (resta quella letta/
+  // stimata in fattura, invariata da queste correzioni — coerente con la
+  // stessa separazione già presente nel trigger).
+  const nettoDaArticoli = current?.fattura?.ha_articoli
+    ? articoli.reduce((tot, a, i) => tot + prezzoRigaEffettivo(i, a), 0)
+    : null
+  const totaleNettoEffettivo = totaleNettoEditato ?? nettoDaArticoli ?? current?.fattura?.totale_netto ?? 0
+  const totaleLordoEffettivo = totaleLordoEditato ?? (nettoDaArticoli != null ? nettoDaArticoli + (current?.fattura?.totale_iva ?? 0) : current?.fattura?.totale_lordo ?? 0)
   function onChangeTotaleLordo(v: number) {
     setTotaleLordoEditato(v)
     // L'IVA non è modificabile qui: corretto il totale, l'imponibile si
@@ -612,7 +643,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
     setCurrentIndex(i => i + 1)
     setResolved(new Map())
     setNuoviModificati(new Map())
-    setPrezziModificati(new Map())
+    setQuantitaModificate(new Map())
+    setPrezzoUnitarioModificato(new Map())
     setConfirmingIndex(null)
     setCategoriaDiretta('')
     setDataEditata(null)
@@ -712,10 +744,11 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
         vuoti_ritirati: vuotiRitirati,
         articoli: articoli.map((a, i) => {
           const info = risoltoInfo(a)
-          const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
+          const quantita = quantitaEffettiva(i, a)
+          const prezzoRiga = prezzoRigaEffettivo(i, a)
           return info
-            ? { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
-            : { testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+            ? { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+            : { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
         }),
         verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
       })
@@ -853,34 +886,40 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
           <div className="space-y-2">
             <Label>Articoli ({articoli.length})</Label>
             {articoli.map((a, i) => {
-              const prezzoRiga = prezziModificati.get(i) ?? a.prezzo_riga
-              const prezzoModificato = prezziModificati.has(i)
-              // Con il prezzo corretto a mano: stesso oggetto ma con
-              // prezzo_riga aggiornato, così sia la conferma "è lo
-              // stesso" (verifica scostamento lato server) sia il nuovo
-              // articolo usano il valore corretto, non quello originale
-              // dell'OCR.
-              const aEffettivo = prezzoModificato ? { ...a, prezzo_riga: prezzoRiga } : a
+              const quantita = quantitaEffettiva(i, a)
+              const prezzoUnitario = prezzoUnitarioEffettivo(i, a)
+              const prezzoRiga = prezzoRigaEffettivo(i, a)
+              const modificato = quantitaModificate.has(i) || prezzoUnitarioModificato.has(i)
+              // Con quantità/prezzo corretti a mano: stesso oggetto ma con
+              // i valori aggiornati, così sia la conferma "è lo stesso"
+              // (verifica scostamento lato server) sia il nuovo articolo
+              // usano i valori corretti, non quelli originali dell'OCR.
+              const aEffettivo = modificato ? { ...a, quantita, prezzo_riga: prezzoRiga } : a
               const info = risoltoInfo(a)
               const nuovoInfo = nuoviModificati.get(a.testo_estratto)
-              const prezzoUnitario = a.quantita !== 0 ? prezzoRiga / a.quantita : prezzoRiga
               return (
                 <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
                   <p className="truncate">{a.testo_estratto}</p>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      {a.quantita}{a.unita_misura ? ` ${a.unita_misura}` : ''} ×
-                    </span>
+                    <div className="w-16">
+                      <CurrencyInput
+                        value={quantita}
+                        onChange={v => setQuantitaModificate(prev => new Map(prev).set(i, v))}
+                        hideStepper
+                        className="h-7 text-sm cassa-numeric text-center"
+                      />
+                    </div>
+                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">{a.unita_misura ?? ''} ×</span>
                     <div className="w-24">
                       <CurrencyInput
                         value={prezzoUnitario}
-                        onChange={v => setPrezziModificati(prev => new Map(prev).set(i, v * a.quantita))}
+                        onChange={v => setPrezzoUnitarioModificato(prev => new Map(prev).set(i, v))}
                         hideStepper
                         className="h-7 text-sm cassa-numeric"
                       />
                     </div>
                     <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      = € {prezzoRiga.toFixed(2)}{prezzoModificato && ' · corretto'}
+                      = € {prezzoRiga.toFixed(2)}{modificato && ' · corretto'}
                     </span>
                   </div>
                   {confirmingIndex === i ? (
@@ -908,7 +947,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                           </Button>
                         )}
                       </div>
-                      {info.sospetto && !prezzoModificato && (
+                      {info.sospetto && !modificato && (
                         <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
                         </p>
