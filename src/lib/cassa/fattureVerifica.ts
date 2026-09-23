@@ -50,7 +50,7 @@ export function verificaIvaStimata(ivaStimata: boolean): VerificaSospetta | null
   if (!ivaStimata) return null
   return {
     campo: 'totale_lordo',
-    messaggio: 'Riepilogo IVA non trovato in fattura: Netto/IVA/Lordo sono stati stimati in base alla tipologia degli articoli — verifica prima di salvare.',
+    messaggio: "Riepilogo IVA non trovato e aliquota non indicata su alcune righe: per quelle l'IVA è stata stimata in base alla tipologia dell'articolo — verifica prima di salvare.",
   }
 }
 

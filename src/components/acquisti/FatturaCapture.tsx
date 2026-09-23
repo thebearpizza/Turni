@@ -66,6 +66,7 @@ interface PaginaLetta {
     tipologia_suggerita: ArticoloTipologia
     riquadro: RiquadroArticolo | null
     aliquota_iva: number
+    aliquota_letta: boolean
   }>
   totale_documento: number | null
 }
@@ -906,6 +907,8 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                         value={quantita}
                         onChange={v => setQuantitaModificate(prev => new Map(prev).set(i, v))}
                         hideStepper
+                        hideCurrency
+                        decimali={3}
                         className="h-7 text-sm cassa-numeric text-center"
                       />
                     </div>

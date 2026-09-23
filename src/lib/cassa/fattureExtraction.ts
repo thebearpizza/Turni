@@ -184,6 +184,10 @@ export const ArticoloEstrattoSchema = z.object({
     "alimentare sono quasi sempre al 22%. Nel dubbio scegli 22%, l'aliquota ordinaria: è la stima più prudente " +
     "quando non sei sicuro della categoria esatta."
   ),
+  aliquota_letta: z.boolean().describe(
+    "true se l'aliquota IVA di QUESTA riga è stampata sul documento (una colonna IVA/Aliquota/Cod. IVA accanto " +
+    "all'articolo, o un'indicazione esplicita sulla riga stessa); false se l'hai stimata tu dalla categoria del prodotto."
+  ),
 })
 
 // Schema di una SINGOLA pagina: i dati di testata compaiono di norma
@@ -219,8 +223,15 @@ export interface FatturaEstratta {
   iva_dettaglio: z.infer<typeof AliquotaEstrattaSchema>[]
   // true quando iva_dettaglio non viene dal riepilogo stampato in
   // fattura (non trovato/non letto) ma è stato ricostruito sommando gli
-  // articoli per aliquota_iva stimata — un numero plausibile, non un
-  // dato letto, da segnalare come tale invece di presentarlo come certo.
+  // articoli per la loro aliquota_iva — va ricalcolato se cambiano i
+  // prezzi delle righe (vedi correggiArticoliSeSballati).
+  iva_da_articoli: boolean
+  // true solo se, oltre a essere ricostruita dalle righe, almeno una
+  // aliquota non era stampata sulla riga ma stimata dalla categoria del
+  // prodotto — un numero plausibile, non un dato letto, da segnalare
+  // come tale. Se ogni riga riporta la propria aliquota (colonna IVA per
+  // articolo, senza riquadro riepilogativo) l'IVA è letta dal documento
+  // e non va segnalata come stimata.
   iva_stimata: boolean
   // true quando né un riepilogo IVA stampato né articoli erano
   // disponibili per ricostruire i totali, e iva_dettaglio contiene
@@ -343,9 +354,11 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
 
   // Se il riepilogo non è stato trovato/letto ma ci sono articoli con
   // un prezzo, non lasciamo i totali a zero: li ricostruiamo dalle
-  // aliquote stimate per ciascun articolo (vedi calcolaIvaDaArticoli).
-  const ivaStimata = ivaStampata.length === 0 && articoli.length > 0
-  const ivaDaArticoli = ivaStimata ? calcolaIvaDaArticoli(articoli) : ivaStampata
+  // aliquote di ciascun articolo (vedi calcolaIvaDaArticoli) — lette
+  // sulla riga quando il documento le riporta, altrimenti stimate.
+  const ivaCalcolataDaArticoli = ivaStampata.length === 0 && articoli.length > 0
+  const ivaStimata = ivaCalcolataDaArticoli && articoli.some(a => !a.aliquota_letta)
+  const ivaDaArticoli = ivaCalcolataDaArticoli ? calcolaIvaDaArticoli(articoli) : ivaStampata
 
   // Ultima rete: né riepilogo IVA né articoli da cui derivare un totale,
   // ma un importo finale è comunque leggibile sul documento (stesso
@@ -369,6 +382,7 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
     // tabella.
     ha_articoli: articoli.length > 0,
     iva_dettaglio: ivaDettaglio,
+    iva_da_articoli: ivaCalcolataDaArticoli,
     iva_stimata: ivaStimata,
     totale_da_fallback: totaleDaFallback,
     totale_documento: totaleDocumento,
@@ -463,7 +477,7 @@ Guarda di nuovo le foto allegate, riga per riga, e per ciascuna verifica se prez
     // stimato (nessun riepilogo IVA stampato/letto) — se veniva invece da
     // un riepilogo letto direttamente, la correzione dei prezzi non lo
     // tocca (resta un dato letto indipendentemente dagli articoli).
-    const ivaDettaglio = fattura.iva_stimata ? calcolaIvaDaArticoli(articoliCorretti) : fattura.iva_dettaglio
+    const ivaDettaglio = fattura.iva_da_articoli ? calcolaIvaDaArticoli(articoliCorretti) : fattura.iva_dettaglio
 
     console.log(`[cassa/fatture] Correzione prezzi applicata (scarto ${(scostamento * 100).toFixed(0)}% dal totale documento)`)
     return { ...fattura, articoli: articoliCorretti, iva_dettaglio: ivaDettaglio }

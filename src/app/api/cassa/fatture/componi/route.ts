@@ -141,7 +141,7 @@ async function risolviFattura(
   // confermato dall'utente, senza alcun avviso.
   const sommaArticoli = estratta.articoli.reduce((s, a) => s + a.prezzo_riga, 0)
   const quadraturaArticoli: VerificaSospetta | null =
-    estratta.ha_articoli && !estratta.iva_stimata && Math.abs(sommaArticoli - totaleNetto) > TOLLERANZA_QUADRATURA
+    estratta.ha_articoli && !estratta.iva_da_articoli && Math.abs(sommaArticoli - totaleNetto) > TOLLERANZA_QUADRATURA
       ? {
           campo: 'totale_lordo',
           messaggio: `La somma delle righe articolo (€ ${sommaArticoli.toFixed(2)}) non torna con l'imponibile del riepilogo IVA (€ ${totaleNetto.toFixed(2)}): il totale salvato rifletterà la somma degli articoli.`,
