@@ -32,6 +32,18 @@ interface ArticoloRisolto {
   riquadro: RiquadroArticolo | null
 }
 
+// Ripiego senza AI per matchArticoli: solo nome identico (trim, senza
+// distinzione di maiuscole) a un articolo del catalogo di quel fornitore
+// — stesso criterio di abbinamento "esatto, mai fuzzy" usato nel resto
+// dell'app. Tutto il resto resta 'nuovo'.
+function abbinaPerNomeEsatto(testi: string[], candidati: CandidatoArticolo[]): Awaited<ReturnType<typeof matchArticoli>> {
+  const perNome = new Map(candidati.map(c => [c.nome_articolo.trim().toLowerCase(), c.id]))
+  return testi.map(t => {
+    const id = perNome.get(t.trim().toLowerCase()) ?? null
+    return { testo_estratto: t, esito: id ? 'chiaro' : 'nuovo', catalogo_articolo_id: id }
+  })
+}
+
 // Risolve UNA fattura già composta (fornitore, doppione, matching
 // articoli) — usata una volta per ogni fattura individuata nel
 // caricamento. Un caricamento può contenere più fatture distinte, anche
@@ -184,7 +196,23 @@ async function risolviFattura(
     let esitiMatch: Awaited<ReturnType<typeof matchArticoli>> = []
     if (daAbbinare.length > 0) {
       const candidati: CandidatoArticolo[] = (catalogo ?? []).map(c => ({ id: c.id, nome_articolo: c.nome_articolo }))
-      esitiMatch = await matchArticoli(daAbbinare.map(a => a.nome), candidati)
+      try {
+        esitiMatch = await matchArticoli(daAbbinare.map(a => a.nome), candidati)
+      } catch (err) {
+        // L'abbinamento AI è un passaggio secondario: se Gemini non
+        // risponde (tipicamente sovraccarico), la lettura della fattura —
+        // già riuscita a questo punto — non va buttata via. Si ripiega su
+        // un abbinamento per nome esatto e si avvisa in revisione che gli
+        // articoli rimasti "nuovi" vanno controllati a mano.
+        console.warn('[cassa/fatture] Abbinamento AI non disponibile, ripiego su nome esatto:', err instanceof Error ? err.message : err)
+        esitiMatch = abbinaPerNomeEsatto(daAbbinare.map(a => a.nome), candidati)
+        if (esitiMatch.some(e => e.esito === 'nuovo')) {
+          verificheFattura.push({
+            campo: 'articoli',
+            messaggio: "Abbinamento automatico degli articoli non disponibile in questo momento (servizio AI sovraccarico): gli articoli segnati come nuovi potrebbero già esistere a catalogo con un nome diverso — controllali prima di salvare, o uniscili dopo da Articoli.",
+          })
+        }
+      }
 
       // I match "chiaro" si ricordano subito — non serve chiedere di nuovo
       // per la stessa identica dicitura in futuro (la conferma esplicita
@@ -342,6 +370,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ fatture: risultati })
   } catch (err) {
     if (!excludeFatturaId) await supabase.storage.from(BUCKET).remove(fotoPaths)
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Errore nella registrazione della fattura' }, { status: 500 })
+    const messaggio = err instanceof Error ? err.message : String(err)
+    console.error('Errore risoluzione fattura:', messaggio)
+    // Mai mostrare all'utente il messaggio grezzo (in inglese) dell'SDK AI.
+    const rateLimited = /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(messaggio)
+    return NextResponse.json(
+      { error: rateLimited ? 'Assistente AI sovraccarico in questo momento, riprova tra poco.' : (err instanceof Error ? err.message : 'Errore nella registrazione della fattura') },
+      { status: rateLimited ? 429 : 500 }
+    )
   }
 }
