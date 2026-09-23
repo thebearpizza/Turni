@@ -105,21 +105,35 @@ export async function generateWithFallback<T>(
     if (ms != null && ms < 5_000) throw new EstrazioneTimeoutError()
 
     console.warn(`[cassa/fatture] ${scadutoPrimario ? 'Timeout' : 'Quota esaurita o modello non disponibile'} per ${opts.model}, passo a ${opts.fallbackModel}`)
-    try {
-      return await generateObject({
-        model: google(opts.fallbackModel),
-        schema,
-        messages,
-        temperature: opts.temperature,
-        maxRetries: 1,
-        abortSignal: segnale(),
-      })
-    } catch (err2) {
-      if (isAbortError(err2)) throw new EstrazioneTimeoutError()
-      throw err2
+    // Il sovraccarico ("high demand") è quasi sempre un picco di pochi
+    // secondi: se anche la riserva lo segnala e il budget lo consente, si
+    // riprova dopo una breve pausa invece di arrendersi subito — qualche
+    // secondo in più costa molto meno all'utente che rifare la scansione.
+    // Solo per chi dichiara un budget (lettura fatture/report), così il
+    // tempo aggiunto resta sempre sotto il limite della funzione.
+    for (let tentativo = 0; ; tentativo++) {
+      try {
+        return await generateObject({
+          model: google(opts.fallbackModel),
+          schema,
+          messages,
+          temperature: opts.temperature,
+          maxRetries: 1,
+          abortSignal: segnale(),
+        })
+      } catch (err2) {
+        if (isAbortError(err2)) throw new EstrazioneTimeoutError()
+        const pausa = PAUSE_RIPROVA_RISERVA_MS[tentativo]
+        const restante = rimanente()
+        if (!isRateLimitError(err2) || pausa == null || restante == null || restante < pausa + 10_000) throw err2
+        console.warn(`[cassa/fatture] Anche ${opts.fallbackModel} sovraccarico, nuovo tentativo tra ${pausa / 1000}s`)
+        await new Promise(resolve => setTimeout(resolve, pausa))
+      }
     }
   }
 }
+
+const PAUSE_RIPROVA_RISERVA_MS = [3_000, 6_000]
 
 // ── Estrazione dati fattura da foto ─────────────────────────────────────
 
