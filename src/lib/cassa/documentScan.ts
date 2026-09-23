@@ -106,11 +106,114 @@ function angoliDaMaschera(maschera: Uint8Array, w: number): Quadrilatero | null 
   return [punto(tl), punto(tr), punto(br), punto(bl)]
 }
 
+// Media su una finestra (2r+1)×(2r+1), separabile: attenua il testo
+// stampato sul foglio (piccoli tratti scuri) che altrimenti buca la
+// maschera del documento e sposta gli angoli trovati.
+function sfoca(canale: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(w * h)
+  const out = new Float32Array(w * h)
+  for (let y = 0; y < h; y++) {
+    let somma = 0
+    for (let x = -r; x <= r; x++) somma += canale[y * w + Math.min(w - 1, Math.max(0, x))]
+    for (let x = 0; x < w; x++) {
+      tmp[y * w + x] = somma / (2 * r + 1)
+      somma += canale[y * w + Math.min(w - 1, x + r + 1)] - canale[y * w + Math.max(0, x - r)]
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let somma = 0
+    for (let y = -r; y <= r; y++) somma += tmp[Math.min(h - 1, Math.max(0, y)) * w + x]
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = somma / (2 * r + 1)
+      somma += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]
+    }
+  }
+  return out
+}
+
+// Chiusura morfologica (dilatazione poi erosione, finestra quadrata):
+// richiude i piccoli buchi e le interruzioni lungo il bordo del foglio
+// (un'ombra, una piega) prima di cercare la componente più grande.
+function chiudi(maschera: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  const applica = (src: Uint8Array, dilata: boolean): Uint8Array => {
+    const tmp = new Uint8Array(w * h)
+    const out = new Uint8Array(w * h)
+    const target = dilata ? 1 : 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let v = dilata ? 0 : 1
+        for (let k = -r; k <= r && v !== target; k++) {
+          const xx = x + k
+          if (xx >= 0 && xx < w && src[y * w + xx] === target) v = target
+        }
+        tmp[y * w + x] = v
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+        let v = dilata ? 0 : 1
+        for (let k = -r; k <= r && v !== target; k++) {
+          const yy = y + k
+          if (yy >= 0 && yy < h && tmp[yy * w + x] === target) v = target
+        }
+        out[y * w + x] = v
+      }
+    }
+    return out
+  }
+  return applica(applica(maschera, true), false)
+}
+
+function mediana(valori: number[]): number {
+  const ordinati = [...valori].sort((a, b) => a - b)
+  return ordinati[Math.floor(ordinati.length / 2)] ?? 0
+}
+
+function areaQuadrilatero(q: Quadrilatero): number {
+  let a = 0
+  for (let i = 0; i < 4; i++) {
+    const p = q[i], n = q[(i + 1) % 4]
+    a += p.x * n.y - n.x * p.y
+  }
+  return Math.abs(a) / 2
+}
+
+// Dà un punteggio a una maschera candidata: quanto la sua componente
+// principale "somiglia a un foglio fotografato". Un foglio riempie il
+// quadrilatero dei suoi angoli quasi del tutto (rettangolarità ~1); uno
+// sfondo trapelato, un'ombra o un oggetto irregolare no.
+function valutaCandidato(maschera: Uint8Array, w: number, h: number): { angoli: Quadrilatero; punteggio: number } | null {
+  const componente = componenteConnessaMaggiore(chiudi(maschera, w, h, 2), w, h)
+  if (!componente) return null
+  const angoli = angoliDaMaschera(componente, w)
+  if (!angoli) return null
+
+  let dimensione = 0
+  for (let i = 0; i < componente.length; i++) dimensione += componente[i]
+  const frazione = dimensione / (w * h)
+  const areaQuad = areaQuadrilatero(angoli)
+  if (areaQuad <= 0) return null
+  const rettangolarita = dimensione / areaQuad
+
+  // Un foglio che occupa praticamente tutta la foto non si distingue
+  // dallo sfondo "trapelato" (tutta l'immagine selezionata): in entrambi
+  // i casi gli angoli trovati sono quelli della foto, inutili.
+  if (frazione > 0.97 || rettangolarita < 0.8) return null
+  return { angoli, punteggio: Math.min(rettangolarita, 1.05) + frazione * 0.1 }
+}
+
 // Rileva i quattro angoli del documento su un canvas già disegnato.
 // Restituisce coordinate nello spazio del canvas sorgente (non
 // dell'immagine ridotta usata per l'analisi). null se non trova nulla di
-// abbastanza grande: in quel caso il chiamante propone angoli di default
-// e lascia correggere a mano.
+// abbastanza convincente: in quel caso il chiamante propone angoli di
+// default e lascia correggere a mano.
+//
+// Prova più modi di separare il foglio dallo sfondo e tiene il migliore
+// (vedi valutaCandidato). Il solo "più chiaro della media" — l'unico
+// criterio fino a prima — falliva spesso nei casi reali: foglio chiaro su
+// un banco chiaro, DDT colorati (giallo/rosa), ombre. Qui si aggiunge la
+// distanza di colore dallo sfondo, stimato dai bordi della foto: conta
+// che il foglio sia DIVERSO dallo sfondo, non che sia più chiaro.
 export function rilevaAngoli(sorgente: HTMLCanvasElement): Quadrilatero | null {
   const scala = LARGHEZZA_ANALISI / sorgente.width
   const w = Math.max(1, Math.round(sorgente.width * scala))
@@ -122,27 +225,80 @@ export function rilevaAngoli(sorgente: HTMLCanvasElement): Quadrilatero | null {
   const ctx = piccolo.getContext('2d', { willReadFrequently: true })
   if (!ctx) return null
   ctx.drawImage(sorgente, 0, 0, w, h)
-
   const { data } = ctx.getImageData(0, 0, w, h)
-  const grigi = new Uint8Array(w * h)
-  const istogramma = new Array(256).fill(0)
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    const g = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0
-    grigi[p] = g
-    istogramma[g]++
+
+  const n = w * h
+  const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n)
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) { R[p] = data[i]; G[p] = data[i + 1]; B[p] = data[i + 2] }
+  const raggioSfocatura = 3
+  const r = sfoca(R, w, h, raggioSfocatura), g = sfoca(G, w, h, raggioSfocatura), b = sfoca(B, w, h, raggioSfocatura)
+
+  const sogliaDi = (valori: Float32Array, max: number): Uint8Array => {
+    const istogramma = new Array(256).fill(0)
+    const quantizzati = new Uint8Array(n)
+    for (let p = 0; p < n; p++) {
+      const q = Math.max(0, Math.min(255, Math.round((valori[p] / max) * 255)))
+      quantizzati[p] = q
+      istogramma[q]++
+    }
+    const soglia = sogliaOtsu(istogramma, n)
+    const maschera = new Uint8Array(n)
+    for (let p = 0; p < n; p++) maschera[p] = quantizzati[p] > soglia ? 1 : 0
+    return maschera
   }
 
-  const soglia = sogliaOtsu(istogramma, w * h)
-  const maschera = new Uint8Array(w * h)
-  for (let p = 0; p < grigi.length; p++) maschera[p] = grigi[p] > soglia ? 1 : 0
+  // 1) Luminosità: foglio chiaro su sfondo scuro (il caso classico).
+  const luminosita = new Float32Array(n)
+  for (let p = 0; p < n; p++) luminosita[p] = r[p] * 0.299 + g[p] * 0.587 + b[p] * 0.114
+  const candidati: Uint8Array[] = [sogliaDi(luminosita, 255)]
 
-  const componente = componenteConnessaMaggiore(maschera, w, h)
-  if (!componente) return null
+  // 2) Distanza di colore dallo sfondo, stimato dalla cornice esterna
+  //    della foto (dove di norma c'è il banco, non il foglio).
+  const margine = Math.max(2, Math.round(Math.min(w, h) * 0.04))
+  const bordoR: number[] = [], bordoG: number[] = [], bordoB: number[] = []
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x >= margine && x < w - margine && y >= margine && y < h - margine) continue
+      const p = y * w + x
+      bordoR.push(r[p]); bordoG.push(g[p]); bordoB.push(b[p])
+    }
+  }
+  const sR = mediana(bordoR), sG = mediana(bordoG), sB = mediana(bordoB)
+  const distanza = new Float32Array(n)
+  let distanzaMax = 1
+  for (let p = 0; p < n; p++) {
+    const d = Math.hypot(r[p] - sR, g[p] - sG, b[p] - sB)
+    distanza[p] = d
+    if (d > distanzaMax) distanzaMax = d
+  }
+  candidati.push(sogliaDi(distanza, distanzaMax))
 
-  const angoli = angoliDaMaschera(componente, w)
-  if (!angoli) return null
+  // 3) Distanza di sola tinta (cromaticità) dallo sfondo: un'ombra
+  //    scurisce foglio e banco ma non ne cambia il colore, quindi questo
+  //    criterio regge anche con una zona in ombra, dove i due sopra no.
+  const cromaticita = (rr: number, gg: number, bb: number) => {
+    const s = rr + gg + bb + 1
+    return [rr / s, gg / s]
+  }
+  const [crS, cgS] = cromaticita(sR, sG, sB)
+  const distanzaTinta = new Float32Array(n)
+  let tintaMax = 1e-6
+  for (let p = 0; p < n; p++) {
+    const [cr, cg] = cromaticita(r[p], g[p], b[p])
+    const d = Math.hypot(cr - crS, cg - cgS)
+    distanzaTinta[p] = d
+    if (d > tintaMax) tintaMax = d
+  }
+  candidati.push(sogliaDi(distanzaTinta, tintaMax))
 
-  return angoli.map(p => ({ x: p.x / scala, y: p.y / scala })) as Quadrilatero
+  let migliore: { angoli: Quadrilatero; punteggio: number } | null = null
+  for (const maschera of candidati) {
+    const esito = valutaCandidato(maschera, w, h)
+    if (esito && (!migliore || esito.punteggio > migliore.punteggio)) migliore = esito
+  }
+  if (!migliore) return null
+
+  return migliore.angoli.map(p => ({ x: p.x / scala, y: p.y / scala })) as Quadrilatero
 }
 
 // Risolve un sistema lineare n×n con eliminazione di Gauss e pivoting

@@ -29,7 +29,11 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
   const [quad, setQuad] = useState<Quadrilatero | null>(null)
   const [rilevatoAuto, setRilevatoAuto] = useState(false)
   const [larghezzaResa, setLarghezzaResa] = useState(0)
-  const [trascinando, setTrascinando] = useState<number | null>(null)
+  // Angolo in trascinamento e scarto (in px a schermo) fra il dito e
+  // l'angolo al momento della presa: l'angolo si sposta DI QUANTO si muove
+  // il dito, senza saltargli sotto — così resta visibile accanto al
+  // polpastrello invece di esserne coperto proprio mentre lo si posiziona.
+  const [trascinando, setTrascinando] = useState<{ indice: number; dx: number; dy: number } | null>(null)
   const [elaborando, setElaborando] = useState(false)
 
   useEffect(() => {
@@ -95,7 +99,10 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
 
   useEffect(() => {
     if (trascinando === null) return
-    const muovi = (e: PointerEvent) => { e.preventDefault(); spostaAngolo(trascinando, e.clientX, e.clientY) }
+    const muovi = (e: PointerEvent) => {
+      e.preventDefault()
+      spostaAngolo(trascinando.indice, e.clientX + trascinando.dx, e.clientY + trascinando.dy)
+    }
     const rilascia = () => setTrascinando(null)
     // Listener non-passive sul documento: senza preventDefault il
     // trascinamento su mobile scrollerebbe la pagina invece di muovere
@@ -135,25 +142,33 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
   }
 
   const puntiPoligono = quad.map(p => `${p.x * scala},${p.y * scala}`).join(' ')
+  const raggioPallino = 18
 
-  // L'area di trascinamento è più larga del pallino visibile (dita, non
-  // cursori), ma non deve mai raggiungere l'angolo più vicino: quando i
-  // quattro angoli sono vicini fra loro (documento piccolo nell'inquadratura,
-  // o due angoli trascinati quasi a coincidere) il raggio si restringe fino
-  // a un minimo pari al pallino stesso, così due aree di tocco adiacenti non
-  // si sovrappongono mai — un tocco fra due angoli vicini prende sempre e
-  // solo quello più vicino, mai un altro per errore.
-  let distanzaMinima = Infinity
-  for (let i = 0; i < quad.length; i++) {
-    for (let j = i + 1; j < quad.length; j++) {
-      distanzaMinima = Math.min(distanzaMinima, Math.hypot(
-        (quad[i].x - quad[j].x) * scala,
-        (quad[i].y - quad[j].y) * scala
-      ))
-    }
+  // Presa "per vicinanza" invece che sul pallino: un tocco ovunque
+  // sull'anteprima prende l'angolo più vicino, purché entro RAGGIO_PRESA —
+  // un bersaglio molto più ampio del pallino, senza aree di tocco che si
+  // sovrappongono (vince sempre e solo il più vicino).
+  const RAGGIO_PRESA = 80
+  function prendiAngolo(e: React.PointerEvent) {
+    const el = contenitoreRef.current
+    if (!el || !quad) return
+    const rect = el.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    let indice = -1
+    let distanza = Infinity
+    quad.forEach((p, i) => {
+      const d = Math.hypot(p.x * scala - px, p.y * scala - py)
+      if (d < distanza) { distanza = d; indice = i }
+    })
+    if (indice < 0 || distanza > RAGGIO_PRESA) return
+    e.preventDefault()
+    setTrascinando({
+      indice,
+      dx: quad[indice].x * scala - px,
+      dy: quad[indice].y * scala - py,
+    })
   }
-  const raggioPallino = 14
-  const raggioTocco = Math.max(raggioPallino, Math.min(32, distanzaMinima / 2 - 2))
 
   return (
     <div className="space-y-3">
@@ -168,6 +183,7 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
         ref={contenitoreRef}
         className="relative w-full select-none overflow-hidden rounded-md border border-border"
         style={{ touchAction: 'none' }}
+        onPointerDown={prendiAngolo}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL, next/image non si applica */}
         <img src={anteprima} alt="Pagina da ritagliare" className="block w-full" draggable={false} />
@@ -179,17 +195,16 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
         >
           <polygon points={puntiPoligono} fill="hsl(var(--primary) / 0.15)" stroke="hsl(var(--primary))" strokeWidth={2} />
           {quad.map((p, i) => (
-            <g key={i}>
-              {/* Area di tocco reale: invisibile e più larga del pallino
-                  (vedi raggioTocco sopra), separata dal pallino visibile
-                  così l'una non vincola le dimensioni dell'altro. */}
+            <g key={i} pointerEvents="none">
+              {/* Alone più grande attorno al pallino: rende visibile quanto
+                  è ampia la presa, e l'angolo attivo durante il trascinamento. */}
               <circle
                 cx={p.x * scala}
                 cy={p.y * scala}
-                r={raggioTocco}
-                fill="transparent"
-                style={{ cursor: 'grab' }}
-                onPointerDown={e => { e.preventDefault(); setTrascinando(i) }}
+                r={raggioPallino + 12}
+                fill="hsl(var(--primary) / 0.2)"
+                stroke={trascinando?.indice === i ? 'white' : 'none'}
+                strokeWidth={2}
               />
               <circle
                 cx={p.x * scala}
@@ -198,7 +213,6 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
                 fill="hsl(var(--primary))"
                 stroke="white"
                 strokeWidth={2}
-                pointerEvents="none"
               />
             </g>
           ))}
