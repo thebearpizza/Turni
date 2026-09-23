@@ -27,6 +27,16 @@ function isRateLimitError(err: unknown): boolean {
   return /429|rate.?limit|quota|RESOURCE_EXHAUSTED|503|UNAVAILABLE|overloaded|high demand|try again later/i.test(message)
 }
 
+// Principale non utilizzabile per configurazione (chiave API assente,
+// scaduta o revocata): non è un problema del documento, la riserva — su
+// un altro fornitore, con un'altra chiave — può comunque leggerlo.
+function isConfigError(err: unknown): boolean {
+  if (err instanceof Error && /LoadAPIKeyError/.test(err.name)) return true
+  const status = (err as { statusCode?: number } | null)?.statusCode
+  if (status === 401 || status === 403) return true
+  return /api key is missing|invalid api key|unauthorized/i.test(err instanceof Error ? err.message : String(err))
+}
+
 function isAbortError(err: unknown): boolean {
   if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) return true
   return /abort|timed? ?out/i.test(err instanceof Error ? err.message : String(err))
@@ -85,12 +95,14 @@ export async function generateWithFallback<T>(
     // principale: in entrambi i casi il problema è "questo modello, ora,
     // non ce la fa", non "il documento è illeggibile" — vale la pena
     // provarci con la riserva prima di arrendersi, non solo sulla quota.
-    if ((!scadutoPrimario && !isRateLimitError(err)) || opts.fallbackModel === opts.model) throw err
+    const configurazione = isConfigError(err)
+    if ((!scadutoPrimario && !configurazione && !isRateLimitError(err)) || opts.fallbackModel === opts.model) throw err
 
     const ms = rimanente()
     if (ms != null && ms < 5_000) throw new EstrazioneTimeoutError()
 
-    console.warn(`[cassa/fatture] ${scadutoPrimario ? 'Timeout' : 'Quota esaurita o modello non disponibile'} per ${opts.model}, passo a ${opts.fallbackModel}`)
+    const motivo = scadutoPrimario ? 'Timeout' : configurazione ? 'Chiave API mancante o non valida' : 'Quota esaurita o modello non disponibile'
+    console.warn(`[cassa/fatture] ${motivo} per ${opts.model}, passo a ${opts.fallbackModel}`)
     // Il sovraccarico ("high demand") è quasi sempre un picco di pochi
     // secondi: se anche la riserva lo segnala e il budget lo consente, si
     // riprova dopo una breve pausa invece di arrendersi subito — qualche
