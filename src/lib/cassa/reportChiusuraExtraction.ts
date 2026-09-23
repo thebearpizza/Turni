@@ -1,11 +1,8 @@
 import { z } from 'zod'
 import { generateWithFallback, EstrazioneTimeoutError, BUDGET_ESTRAZIONE_MS, type FotoInput } from './fattureExtraction'
-
-// Stessa coppia modello/fallback dell'estrazione fatture (documento
-// analogo per complessità: foto/PDF di un documento stampato) — vedi
-// fattureExtraction.ts per il ragionamento su Flash vs Pro.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
-const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
+// Stessa coppia modello/riserva dell'estrazione fatture (documento
+// analogo per complessità: foto/PDF di un documento stampato).
+import { MODELLO_LETTURA, MODELLO_LETTURA_RISERVA } from './modelliAi'
 
 export { EstrazioneTimeoutError }
 
@@ -53,8 +50,8 @@ export async function estraiReportChiusura(foto: FotoInput[]): Promise<z.infer<t
       },
     ],
     {
-      model: GEMINI_MODEL_ESTRAZIONE,
-      fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE,
+      model: MODELLO_LETTURA,
+      fallbackModel: MODELLO_LETTURA_RISERVA,
       temperature: 0.1,
       budgetMs: BUDGET_ESTRAZIONE_MS,
     }

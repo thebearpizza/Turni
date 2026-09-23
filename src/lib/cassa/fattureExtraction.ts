@@ -1,29 +1,15 @@
 import { generateObject, type ModelMessage } from 'ai'
-import { google } from '@ai-sdk/google'
 import { z } from 'zod'
 import type { ArticoloTipologia } from '@/types'
 import { SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO } from './fattureVerifica'
+import { MODELLO_LETTURA, MODELLO_LETTURA_RISERVA, MODELLO_ABBINAMENTO, MODELLO_ABBINAMENTO_RISERVA, risolviModello } from './modelliAi'
 
-// Stesso modello/fallback dell'assistente Telegram e del controllo
-// duplicati spese Cassa — un'unica coppia di env var per l'uso "leggero"
-// di Gemini nell'app (matching articoli qui, chat Telegram, dedup spese).
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
-const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
-
-// Coppia separata per l'estrazione dati fattura (e per l'AI di Analisi, che
-// la riusa) così da poterla alzare indipendentemente dal resto — es. a un
-// tier Pro — quando la quota Gemini lo consente.
-//
-// Default su Flash e NON su Pro: con la chiave attualmente in uso Pro
-// risponde sempre RESOURCE_EXHAUSTED, quindi puntarci significherebbe
-// solo bruciare secondi in tentativi destinati a fallire prima di
-// ripiegare comunque su Flash — non un compromesso qualità/tempo, una
-// perdita secca (era la causa dei 504 sulla route /estrai). Chi ha un
-// piano Gemini con quota su Pro può impostare
-// GEMINI_MODEL_ESTRAZIONE=gemini-3.1-pro (o gemini-3-pro) e guadagnare
-// accuratezza.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
-const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
+// Modelli (e fornitore — Gemini o Mistral) configurabili da variabile
+// d'ambiente, vedi modelliAi.ts. Nota storica sul default Flash e non Pro:
+// con la chiave Gemini attualmente in uso Pro risponde sempre
+// RESOURCE_EXHAUSTED, quindi puntarci brucerebbe solo secondi prima di
+// ripiegare comunque sulla riserva (era la causa dei 504 sulla route
+// /estrai).
 
 // Budget complessivo per l'estrazione, deliberatamente sotto il
 // maxDuration della route: scaduto questo, preferiamo rispondere con un
@@ -83,7 +69,7 @@ export async function generateWithFallback<T>(
 
   try {
     return await generateObject({
-      model: google(opts.model),
+      model: risolviModello(opts.model),
       schema,
       messages,
       temperature: opts.temperature,
@@ -114,7 +100,7 @@ export async function generateWithFallback<T>(
     for (let tentativo = 0; ; tentativo++) {
       try {
         return await generateObject({
-          model: google(opts.fallbackModel),
+          model: risolviModello(opts.fallbackModel),
           schema,
           messages,
           temperature: opts.temperature,
@@ -310,8 +296,8 @@ Non inventare mai un numero di documento o una partita IVA che non siano scritti
     // che il modello riporti quello che vede, non che "arrotondi" verso
     // la variante testuale più probabile/comune.
     {
-      model: GEMINI_MODEL_ESTRAZIONE,
-      fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE,
+      model: MODELLO_LETTURA,
+      fallbackModel: MODELLO_LETTURA_RISERVA,
       temperature: 0.1,
       budgetMs: BUDGET_ESTRAZIONE_MS,
     }
@@ -460,8 +446,8 @@ Guarda di nuovo le foto allegate, riga per riga, e per ciascuna verifica se prez
         },
       ],
       {
-        model: GEMINI_MODEL_ESTRAZIONE,
-        fallbackModel: GEMINI_FALLBACK_MODEL_ESTRAZIONE,
+        model: MODELLO_LETTURA,
+        fallbackModel: MODELLO_LETTURA_RISERVA,
         temperature: 0.1,
         budgetMs: BUDGET_CORREZIONE_MS,
       }
@@ -652,7 +638,7 @@ Attenzione agli errori più comuni: nomi che condividono solo una parola generic
         ],
       },
     ],
-    { model: GEMINI_MODEL, fallbackModel: GEMINI_FALLBACK_MODEL }
+    { model: MODELLO_ABBINAMENTO, fallbackModel: MODELLO_ABBINAMENTO_RISERVA }
   )
 
   return object.risultati.map(r => {
