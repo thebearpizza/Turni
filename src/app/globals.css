@@ -406,3 +406,10 @@ html[data-splash="no"] #splash-apertura { display: none; }
   .splash-esterno { animation: splash-giro 6s linear infinite; }
   .splash-interno { animation: splash-giro-inverso 9s linear infinite; }
 }
+/* Logo animato fuori dallo splash (LogoAnimato.tsx): solo la rotazione
+   continua, più lenta. */
+.logo-giro { animation: splash-giro 8s linear infinite; will-change: transform; }
+.logo-giro-inverso { animation: splash-giro-inverso 12s linear infinite; will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .logo-giro, .logo-giro-inverso { animation: none; }
+}

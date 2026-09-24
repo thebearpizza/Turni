@@ -1,15 +1,12 @@
 'use client'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ThemeToggle } from '@/components/shared/ThemeToggle'
+import { LogoAnimato } from '@/components/shared/LogoAnimato'
 import { LogOut } from 'lucide-react'
 
-// Barra in cima alla Home Manager (Task 3): logo reale (file statico in
-// public/, non base64), wordmark, toggle tema, logout. Il logo ha uno
-// sfondo scuro proprio (texture carbonio incisa nel file) — il bordo
-// chiaro qui è quello che lo stacca dalla barra, qualunque sia il tema
-// attivo attorno, non un dettaglio da adattare al tema.
+// Barra in cima alla Home Manager (Task 3): logo con gli anelli che
+// girano, wordmark, toggle tema, logout.
 export function HubTopBar() {
   const router = useRouter()
 
@@ -21,15 +18,7 @@ export function HubTopBar() {
 
   return (
     <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/95 px-6 py-3 backdrop-blur lg:px-10">
-      <Image
-        src="/logo.svg"
-            unoptimized
-        alt="inTurno"
-        width={36}
-        height={36}
-        className="shrink-0 rounded-[6px] shadow-sm"
-        priority
-      />
+      <LogoAnimato size={36} className="rounded-[6px] shadow-sm" />
       <span className="flex-1 text-base font-extrabold tracking-tight">inTurno</span>
       <ThemeToggle />
       <button
