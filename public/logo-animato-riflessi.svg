@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="none" viewBox="0 0 80 80">
+<defs>
+<linearGradient id="tessera" x1="40" y1="0" x2="40" y2="80" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#35373a"/><stop offset="0.5" stop-color="#1d1f20"/><stop offset="1" stop-color="#0c0d0e"/></linearGradient>
+<linearGradient id="tesseraBordo" x1="40" y1="0" x2="40" y2="80" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8a8c90"/><stop offset="0.5" stop-color="#3a3c3e"/><stop offset="1" stop-color="#1a1b1c"/></linearGradient>
+<linearGradient id="ghiera" x1="22" y1="6" x2="58" y2="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d4d5d7"/><stop offset="0.35" stop-color="#6a6c70"/><stop offset="0.7" stop-color="#2e3032"/><stop offset="1" stop-color="#18191a"/></linearGradient>
+<radialGradient id="quadrante" cx="36" cy="30" r="44" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a4c50"/><stop offset="0.55" stop-color="#2a2c2f"/><stop offset="1" stop-color="#121314"/></radialGradient>
+<radialGradient id="conca" cx="40" cy="40" r="35" gradientUnits="userSpaceOnUse"><stop offset="0.8" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.55"/></radialGradient>
+<linearGradient id="metallo" x1="0" y1="21" x2="0" y2="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fbfbfb"/><stop offset="0.45" stop-color="#d2d3d5"/><stop offset="0.55" stop-color="#a4a6a9"/><stop offset="1" stop-color="#d8d9db"/></linearGradient>
+<linearGradient id="solco" x1="0" y1="21" x2="0" y2="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7c7e82"/><stop offset="1" stop-color="#5c5e62"/></linearGradient>
+<radialGradient id="tuboEst" cx="40" cy="40" r="32.4" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a4c50"/><stop offset="0.8889" stop-color="#4a4c50"/><stop offset="0.9133" stop-color="#a9abaf"/><stop offset="0.9444" stop-color="#f4f4f5"/><stop offset="0.9756" stop-color="#a9abaf"/><stop offset="1.0000" stop-color="#4a4c50"/></radialGradient>
+<radialGradient id="tuboRaccordo" cx="55.486" cy="17.033" r="4.7" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a4c50"/><stop offset="0.2340" stop-color="#4a4c50"/><stop offset="0.4026" stop-color="#a9abaf"/><stop offset="0.6170" stop-color="#f4f4f5"/><stop offset="0.8315" stop-color="#a9abaf"/><stop offset="1.0000" stop-color="#4a4c50"/></radialGradient>
+<radialGradient id="tuboInt" cx="40" cy="40" r="25.2" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a4c50"/><stop offset="0.9206" stop-color="#4a4c50"/><stop offset="0.9381" stop-color="#a9abaf"/><stop offset="0.9603" stop-color="#f4f4f5"/><stop offset="0.9825" stop-color="#a9abaf"/><stop offset="1.0000" stop-color="#4a4c50"/></radialGradient>
+<linearGradient id="lancettaLuce" x1="56.425" y1="17.625" x2="59.183" y2="19.939" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a4c50"/><stop offset="0.22" stop-color="#a9abaf"/><stop offset="0.5" stop-color="#f4f4f5"/><stop offset="0.78" stop-color="#a9abaf"/><stop offset="1" stop-color="#4a4c50"/></linearGradient>
+<linearGradient id="vetro" x1="20" y1="8" x2="46" y2="50" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity="0.2"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<g stroke="#fff" stroke-linecap="round" fill="none">
+<path d="M10.926 32.21A30.1 30.1 0 0 1 29.705 11.715" stroke-width="1.6" stroke-opacity="0.12"/>
+<path d="M11.715 29.705A30.1 30.1 0 0 1 27.279 12.72" stroke-width="0.7" stroke-opacity="0.45"/>
+<path d="M17.447 31.792A24 24 0 0 1 29.857 18.249" stroke-width="0.9" stroke-opacity="0.12"/>
+<path d="M18.249 29.857A24 24 0 0 1 28 19.215" stroke-width="0.35" stroke-opacity="0.45"/>
+</g>
+<path d="M8.6 34A31.6 31.6 0 0 1 60 11.6Q34 16 8.6 34Z" fill="url(#vetro)"/>
+<circle cx="40.0" cy="40.0" r="37.2" stroke="#fff" stroke-opacity="0.18" stroke-width="0.3" fill="none"/>
+</svg>

@@ -413,7 +413,9 @@ export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', hom
         <Link
           href={homeHref}
           aria-label="Torna alla Home"
-          className="fixed right-3 top-3 z-40 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-[var(--dock-tone)]"
+          // after:-inset-2: area di tocco di 52px attorno al pulsante da 36,
+          // senza ingrandirlo a vista.
+          className="fixed right-3 top-3 z-40 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm transition-colors after:absolute after:-inset-2 after:content-[''] hover:text-[var(--dock-tone)]"
           style={{ borderColor: undefined }}
         >
           <Home className="h-4 w-4" />
