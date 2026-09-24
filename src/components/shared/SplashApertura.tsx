@@ -115,11 +115,11 @@ export function SplashApertura() {
   // primo disegno, nasconde subito lo splash renderizzato dal server:
   // niente lampo del logo prima che l'effetto lo smonti.
   //
-  // Il logo è diviso in tre strati: la rotazione degli anelli è
-  // un'animazione CSS sull'<img> intero, che il browser esegue fuori dal
-  // thread principale — continua a girare anche mentre l'app è occupata a
+  // Il logo è diviso in strati (vedi scripts/genera-logo.py) animati con
+  // CSS sugli <img> interi: il browser li esegue fuori dal thread
+  // principale, quindi restano fluidi anche mentre l'app è occupata a
   // idratarsi e caricare dati. Le animazioni interne all'SVG si
-  // bloccherebbero proprio in quei momenti.
+  // bloccherebbero proprio in quei momenti. Sequenza in globals.css.
   return (
     <>
       <script
@@ -137,12 +137,17 @@ export function SplashApertura() {
             transitionDuration: `${DISSOLVENZA_MS}ms`,
           }}
         >
-          <div aria-hidden className="relative h-[140px] w-[140px]">
+          <div aria-hidden className="splash-logo">
+            <div className="splash-alone" />
+            <div className="splash-onda" />
             {/* eslint-disable @next/next/no-img-element -- SVG statici a strati animati via CSS, next/image non serve */}
-            <img src="/logo-animato-fondo.svg" alt="" className="absolute inset-0 h-full w-full" />
-            <img src="/logo-animato-anello.svg" alt="" className="splash-anello absolute inset-0 h-full w-full" />
-            <img src="/logo-animato-riflessi.svg" alt="" className="absolute inset-0 h-full w-full" />
+            <img src="/logo-animato-fondo.svg" alt="" className="splash-strato" />
+            <img src="/logo-animato-interno.svg" alt="" className="splash-strato splash-interno" />
+            <img src="/logo-animato-lettere.svg" alt="" className="splash-strato splash-lettere" />
+            <img src="/logo-animato-esterno.svg" alt="" className="splash-strato splash-esterno" />
+            <img src="/logo-animato-riflessi.svg" alt="" className="splash-strato splash-riflessi" />
             {/* eslint-enable @next/next/no-img-element */}
+            <div className="splash-riflesso" />
           </div>
           {conIndietro && (
             <button

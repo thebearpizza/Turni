@@ -1,8 +1,8 @@
 // ── inTurno Service Worker ────────────────────────────────────────
 // Handles: push notifications, offline caching, App Badging
 
-const STATIC_CACHE = 'inturno-static-v5'
-const PAGES_CACHE  = 'inturno-pages-v5'
+const STATIC_CACHE = 'inturno-static-v6'
+const PAGES_CACHE  = 'inturno-pages-v6'
 
 // Assets to pre-cache on install (offline shell)
 const PRECACHE = [
@@ -12,7 +12,9 @@ const PRECACHE = [
   '/logo-branding.png',
   '/logo.svg',
   '/logo-animato-fondo.svg',
-  '/logo-animato-anello.svg',
+  '/logo-animato-interno.svg',
+  '/logo-animato-esterno.svg',
+  '/logo-animato-lettere.svg',
   '/logo-animato-riflessi.svg',
 ]
 

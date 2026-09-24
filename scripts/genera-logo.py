@@ -3,11 +3,13 @@ geometria, così statico e animato restano sempre identici.
 
 Uso: python3 scripts/genera-logo.py  (scrive in public/ e src/app/icon.svg)
 
-Strati dell'animazione (sovrapposti nello splash, vedi SplashApertura.tsx):
-- fondo: tessera, quadrante, lettere — fermo;
-- anello: anelli e lancetta — ruota via CSS attorno al centro (40,40), per
-  questo la sua ombreggiatura è radiale (invariante alla rotazione): la luce
-  non deve "girare" insieme agli anelli;
+Strati dell'animazione (sovrapposti nello splash, vedi SplashApertura.tsx,
+animati via CSS in globals.css):
+- fondo: tessera e quadrante — fermo;
+- lettere: la "it" — emerge all'ingresso;
+- interno / esterno: i due anelli (l'esterno con la lancetta) — ruotano in
+  versi opposti attorno al centro (40,40); per questo la loro ombreggiatura
+  è radiale (invariante alla rotazione): la luce non deve girare con loro;
 - riflessi: il vetro e il riflesso di luce sugli anelli — fermo sopra.
 """
 from math import cos, sin, radians, pi
@@ -141,19 +143,22 @@ lettere = f'''<g filter="url(#ombraLettere)">
 <path d="M43.4 24.2V48.2Q43.4 54.4 50.6 54.4H52" stroke="url(#solco)" stroke-width="0.45" fill="none" stroke-linecap="round" opacity="0.8"/>
 <path d="M43.75 24.2V48.2Q43.75 54 50.6 54" stroke="#fff" stroke-width="0.25" fill="none" opacity="0.5"/>'''
 
-fondo = f'''<rect x="0.25" y="0.25" width="79.5" height="79.5" rx="13" fill="url(#tessera)" stroke="url(#tesseraBordo)" stroke-width="0.5"/>
+fondo_base = f'''<rect x="0.25" y="0.25" width="79.5" height="79.5" rx="13" fill="url(#tessera)" stroke="url(#tesseraBordo)" stroke-width="0.5"/>
 <circle cx="{C}" cy="{C}" r="37.4" fill="url(#ghiera)"/>
 <circle cx="{C}" cy="{C}" r="35.3" fill="url(#quadrante)" stroke="#0a0a0b" stroke-opacity="0.6" stroke-width="0.4"/>
 <circle cx="{C}" cy="{C}" r="35.3" fill="url(#conca)"/>
-{ombra_anelli_statica}
-{lettere}'''
+{ombra_anelli_statica}'''
+fondo = fondo_base + lettere
 
-anello = f'''<g filter="url(#ombraAnelli)">
+interno = f'''<g filter="url(#ombraAnelli)">
 <path d="{anello_int}" stroke="url(#tuboInt)" stroke-width="{L_INT}" stroke-linecap="round" fill="none"/>
+</g>'''
+esterno = f'''<g filter="url(#ombraAnelli)">
 <path d="{anello_est}" stroke="url(#tuboEst)" stroke-width="{L_EST}" stroke-linecap="round" fill="none"/>
 <path d="{raccordo}" stroke="url(#tuboRaccordo)" stroke-width="{L_EST}" fill="none"/>
 <path d="{lancetta}" fill="url(#lancettaLuce)"/>
 </g>'''
+anello = interno + esterno
 
 # Riflessi fermi: luce sugli anelli in alto a sinistra e vetro sul quadrante.
 riflessi = f'''<g filter="url(#sfuma)" opacity="0.7">
@@ -171,8 +176,10 @@ def svg(corpo):
 
 for nome, corpo in [('public/logo.svg', fondo + anello + riflessi),
                     ('src/app/icon.svg', fondo + anello + riflessi),
-                    ('public/logo-animato-fondo.svg', fondo),
-                    ('public/logo-animato-anello.svg', anello),
+                    ('public/logo-animato-fondo.svg', fondo_base),
+                    ('public/logo-animato-lettere.svg', lettere),
+                    ('public/logo-animato-interno.svg', interno),
+                    ('public/logo-animato-esterno.svg', esterno),
                     ('public/logo-animato-riflessi.svg', riflessi)]:
     open(nome, 'w').write(svg(corpo))
     print('scritto', nome)
