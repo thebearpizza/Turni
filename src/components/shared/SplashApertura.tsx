@@ -12,7 +12,9 @@ import { ArrowLeft } from 'lucide-react'
 //   area — compresi i redirect interni, es. /cassa → /cassa/analisi — non
 //   la fa ripartire né la interrompe.
 // Resta finché la schermata sotto ha skeleton nel DOM: durata variabile.
-const DURATA_MINIMA_MS = 700
+// La sequenza d'ingresso (globals.css) si completa in circa 1,6 s: la
+// "it" compare verso 1,1 s. Sotto questa soglia lo splash la tronca.
+const DURATA_MINIMA_MS = 1700
 const DURATA_MASSIMA_MS = 12000
 // Gli skeleton devono restare assenti per un attimo: fra il loading.tsx
 // della rotta e gli skeleton del componente client c'è un istante senza.

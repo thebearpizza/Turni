@@ -106,42 +106,53 @@ DEFS = f'''<defs>
 {radiale_tubo('tuboInt', C, C, R_INT, L_INT)}
 <linearGradient id="lancettaLuce" x1="{f(lg_x0)}" y1="{f(lg_y0)}" x2="{f(lg_x1)}" y2="{f(lg_y1)}" gradientUnits="userSpaceOnUse">{''.join(stop(o, c) for o, c in PROFILO)}</linearGradient>
 <linearGradient id="vetro" x1="20" y1="8" x2="46" y2="50" gradientUnits="userSpaceOnUse">{stop(0,'#fff',.2)}{stop(1,'#fff',0)}</linearGradient>
-<filter id="ombraLettere" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
-  <feGaussianBlur in="SourceAlpha" stdDeviation="0.9"/><feOffset dx="0.9" dy="1.4" result="o"/>
-  <feFlood flood-color="#000" flood-opacity="0.75"/><feComposite in2="o" operator="in" result="ombra"/>
-  <feGaussianBlur in="SourceAlpha" stdDeviation="0.45" result="rilievo"/>
-  <feSpecularLighting in="rilievo" surfaceScale="1.6" specularConstant="0.85" specularExponent="18" lighting-color="#fff" result="spec"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting>
-  <feComposite in="spec" in2="SourceAlpha" operator="in" result="specIn"/>
-  <feComposite in="SourceGraphic" in2="specIn" operator="arithmetic" k2="1" k3="0.7" result="lucido"/>
-  <feMerge><feMergeNode in="ombra"/><feMergeNode in="lucido"/></feMerge>
-</filter>
-<filter id="ombraAnelli" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
-  <feGaussianBlur in="SourceAlpha" stdDeviation="0.8" result="b"/>
-  <feFlood flood-color="#000" flood-opacity="0.8"/><feComposite in2="b" operator="in" result="ombra"/>
-  <feMerge><feMergeNode in="ombra"/><feMergeNode in="SourceGraphic"/></feMerge>
-</filter>
-<filter id="sfuma" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="0.5"/></filter>
 </defs>'''
+
+# Niente filtri SVG (sfocature, luci): Safari su iPhone li calcola a bassa
+# risoluzione e il logo risulta sgranato, specie piccolo o in rotazione.
+# Ombre e rilievi sono fatti con copie della forma a opacità scalare, che
+# restano nitide a ogni dimensione.
+SFUMATURA = [(1.8, 0.07), (1.1, 0.12), (0.5, 0.2), (0, 0.3)]   # allargamento, opacità
+
+
+def ombra_tratto(d, larghezza, dx=0, dy=0, cap='round', intensita=1.0):
+    """Ombra morbida di un tratto: più tratti via via più larghi e tenui."""
+    return ''.join(
+        f'<path d="{d}" stroke="#000" stroke-opacity="{op*intensita:.3f}" stroke-width="{f(larghezza + extra)}" '
+        f'stroke-linecap="{cap}" fill="none" transform="translate({dx} {dy})"/>'
+        for extra, op in SFUMATURA)
+
 
 # Ombra proiettata ferma (luce da in alto a sinistra) sotto gli anelli: sta
 # nel fondo, quindi non ruota — gli anelli girano sopra un'ombra coerente.
-ombra_anelli_statica = (
-    f'<g filter="url(#sfuma)" opacity="0.55" transform="translate(0.9 1.3)">'
-    f'<circle cx="{C}" cy="{C}" r="{R_EST}" stroke="#000" stroke-width="{L_EST}"/>'
-    f'<circle cx="{C}" cy="{C}" r="{R_INT}" stroke="#000" stroke-width="{L_INT}"/></g>'
-)
+cerchio = lambda r: f'M{f(C - r)} {C}a{f(r)} {f(r)} 0 1 0 {f(2*r)} 0a{f(r)} {f(r)} 0 1 0 {f(-2*r)} 0'
+ombra_anelli_statica = (ombra_tratto(cerchio(R_EST), L_EST, 0.9, 1.3, intensita=1.4)
+                        + ombra_tratto(cerchio(R_INT), L_INT, 0.9, 1.3, intensita=1.4))
 
 # Lettere "it": stesso spessore per i e t, solco inciso al centro della t
 # (l'eco delle doppie linee del disegno originale).
 S = 4.8
-lettere = f'''<g filter="url(#ombraLettere)">
-<rect x="{32 - S/2}" y="32.3" width="{S}" height="26" rx="0.5" fill="url(#metallo)"/>
-<circle cx="32" cy="25.9" r="3.1" fill="url(#metallo)"/>
-<path d="M43.4 22.8V48.2Q43.4 55.8 50.6 55.8H52.8" stroke="url(#metallo)" stroke-width="{S}" fill="none"/>
-<rect x="36.2" y="32.3" width="16.4" height="4.2" rx="0.4" fill="url(#metallo)"/>
-</g>
-<path d="M43.4 24.2V48.2Q43.4 54.4 50.6 54.4H52" stroke="url(#solco)" stroke-width="0.45" fill="none" stroke-linecap="round" opacity="0.8"/>
-<path d="M43.75 24.2V48.2Q43.75 54 50.6 54" stroke="#fff" stroke-width="0.25" fill="none" opacity="0.5"/>'''
+T_ASTA = 'M43.4 22.8V48.2Q43.4 55.8 50.6 55.8H52.8'
+
+
+def forme_lettere(colore, extra=0.0, dx=0.0, dy=0.0, opacita=1.0):
+    """La "it" in un solo colore, allargata di extra (per ombre e bordi)."""
+    e = extra / 2
+    return (f'<g transform="translate({f(dx)} {f(dy)})" opacity="{opacita:.3f}">'
+            f'<rect x="{f(32 - S/2 - e)}" y="{f(32.3 - e)}" width="{f(S + extra)}" height="{f(26 + extra)}" rx="{f(0.5 + e)}" fill="{colore}"/>'
+            f'<circle cx="32" cy="25.9" r="{f(3.1 + e)}" fill="{colore}"/>'
+            f'<path d="{T_ASTA}" stroke="{colore}" stroke-width="{f(S + extra)}" fill="none"/>'
+            f'<rect x="{f(36.2 - e)}" y="{f(32.3 - e)}" width="{f(16.4 + extra)}" height="{f(4.2 + extra)}" rx="{f(0.4 + e)}" fill="{colore}"/>'
+            '</g>')
+
+
+lettere = (''.join(forme_lettere('#000', extra, 0.9, 1.4, op * 2.2) for extra, op in SFUMATURA)
+           # rilievo: bordo chiaro in alto a sinistra, scuro in basso a destra
+           + forme_lettere('#ffffff', 0, -0.28, -0.28, 0.75)
+           + forme_lettere('#3a3c40', 0, 0.28, 0.28, 1)
+           + forme_lettere('url(#metallo)')
+           + '<path d="M43.4 24.2V48.2Q43.4 54.4 50.6 54.4H52" stroke="url(#solco)" stroke-width="0.45" fill="none" stroke-linecap="round" opacity="0.8"/>'
+           + '<path d="M43.75 24.2V48.2Q43.75 54 50.6 54" stroke="#fff" stroke-width="0.25" fill="none" opacity="0.5"/>')
 
 fondo_base = f'''<rect x="0.25" y="0.25" width="79.5" height="79.5" rx="13" fill="url(#tessera)" stroke="url(#tesseraBordo)" stroke-width="0.5"/>
 <circle cx="{C}" cy="{C}" r="37.4" fill="url(#ghiera)"/>
@@ -150,10 +161,10 @@ fondo_base = f'''<rect x="0.25" y="0.25" width="79.5" height="79.5" rx="13" fill
 {ombra_anelli_statica}'''
 fondo = fondo_base + lettere
 
-interno = f'''<g filter="url(#ombraAnelli)">
+interno = f'''<g>{ombra_tratto(anello_int, L_INT)}
 <path d="{anello_int}" stroke="url(#tuboInt)" stroke-width="{L_INT}" stroke-linecap="round" fill="none"/>
 </g>'''
-esterno = f'''<g filter="url(#ombraAnelli)">
+esterno = f'''<g>{ombra_tratto(anello_est, L_EST)}{ombra_tratto(raccordo, L_EST, cap="butt")}{ombra_tratto(f"M{f(xa)} {f(ya)}L{f(xt)} {f(yt)}", L_EST * 0.8)}
 <path d="{anello_est}" stroke="url(#tuboEst)" stroke-width="{L_EST}" stroke-linecap="round" fill="none"/>
 <path d="{raccordo}" stroke="url(#tuboRaccordo)" stroke-width="{L_EST}" fill="none"/>
 <path d="{lancetta}" fill="url(#lancettaLuce)"/>
@@ -161,9 +172,11 @@ esterno = f'''<g filter="url(#ombraAnelli)">
 anello = interno + esterno
 
 # Riflessi fermi: luce sugli anelli in alto a sinistra e vetro sul quadrante.
-riflessi = f'''<g filter="url(#sfuma)" opacity="0.7">
-<path d="{arco(R_EST - 0.5, 195, 250)}" stroke="#fff" stroke-width="0.9" stroke-linecap="round" fill="none"/>
-<path d="{arco(R_INT - 0.2, 200, 245)}" stroke="#fff" stroke-width="0.5" stroke-linecap="round" fill="none"/>
+riflessi = f'''<g stroke="#fff" stroke-linecap="round" fill="none">
+<path d="{arco(R_EST - 0.5, 195, 250)}" stroke-width="1.6" stroke-opacity="0.12"/>
+<path d="{arco(R_EST - 0.5, 200, 245)}" stroke-width="0.7" stroke-opacity="0.45"/>
+<path d="{arco(R_INT - 0.2, 200, 245)}" stroke-width="0.9" stroke-opacity="0.12"/>
+<path d="{arco(R_INT - 0.2, 205, 240)}" stroke-width="0.35" stroke-opacity="0.45"/>
 </g>
 <path d="M8.6 34A31.6 31.6 0 0 1 60 11.6Q34 16 8.6 34Z" fill="url(#vetro)"/>
 <circle cx="{C}" cy="{C}" r="37.2" stroke="#fff" stroke-opacity="0.18" stroke-width="0.3" fill="none"/>'''
