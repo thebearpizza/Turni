@@ -30,8 +30,11 @@ export default async function CassaLayout({ children }: { children: React.ReactN
       <AreaTheme classes="cassa" />
       {/* Non è (solo) un banner: montarlo qui riallinea la subscription
           push col server a ogni apertura di Cassa. Chi lavora tutto il
-          giorno qui dentro prima non rinnovava mai la registrazione. */}
-      <div className="pt-3">
+          giorno qui dentro prima non rinnovava mai la registrazione.
+          Rientrato ai lati: in alto ci sono la casetta (destra) e la
+          campanella del cassiere (sinistra), pulsanti fissi che il banner
+          finiva per coprire in parte, rubandogli i tocchi sui bordi. */}
+      <div className="px-10 pt-3">
         <PushNotificationPrompt />
       </div>
       {children}
