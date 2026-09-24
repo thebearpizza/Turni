@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="none" viewBox="-8.40921 -7.65921 96.818451 96.818451">
+<!-- SVG created with Arrow, by QuiverAI (https://quiver.ai) -->
+  <defs>
+    <filter id="filter0_d_1_350" x="1.059" y="2.348" width="75.88" height="75.46" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/>
+      <feOffset dx="1" dy="1"/>
+      <feGaussianBlur stdDeviation="1"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.8 0"/>
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350"/>
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape"/>
+    </filter>
+    <filter id="filter1_d_1_350" x="13.43" y="13.66" width="54.14" height="55.81" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/>
+      <feOffset dx="1" dy="1"/>
+      <feGaussianBlur stdDeviation="0.5"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0"/>
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350"/>
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape"/>
+    </filter>
+    <filter id="filter2_d_1_350" x="28.66" y="22.77" width="25.96" height="37.52" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/>
+      <feOffset dx="1" dy="1.5"/>
+      <feGaussianBlur stdDeviation="0.75"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0"/>
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350"/>
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape"/>
+    </filter>
+    <linearGradient id="paint0_linear_1_350" x1="40" x2="40" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E3032" offset="0"/>
+      <stop stop-color="#1D1F20" offset=".5401"/>
+      <stop stop-color="#0F1011" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint1_linear_1_350" x1="40" x2="40" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#747578" offset="0"/>
+      <stop stop-color="#434547" offset=".5401"/>
+      <stop stop-color="#636467" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint2_linear_1_350" x1="19.38" x2="54.38" y1="9.375" y2="73.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C8C9CB" offset="0"/>
+      <stop stop-color="#535658" offset=".3453"/>
+      <stop stop-color="#343637" offset=".6946"/>
+      <stop stop-color="#1C1D1E" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint3_linear_1_350" x1="25.62" x2="55.62" y1="12.5" y2="69.38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0"/>
+      <stop stop-color="#B9BABC" offset=".4487"/>
+      <stop stop-color="#D2D2D4" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint4_linear_1_350" x1="26.88" x2="52.5" y1="17.5" y2="64.38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0"/>
+      <stop stop-color="#B2B3B5" offset=".54"/>
+      <stop stop-color="#E9E9EA" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint5_linear_1_350" x1="31.25" x2="33.75" y1="32.5" y2="57.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F5F6" offset="0"/>
+      <stop stop-color="#ABACAE" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint6_linear_1_350" x1="39.38" x2="48.12" y1="23.12" y2="57.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2F2F3" offset="0"/>
+      <stop stop-color="#E8E8E9" offset=".431"/>
+      <stop stop-color="#BABCBD" offset=".6809"/>
+      <stop stop-color="#BFBFC1" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint7_linear_1_350" x1="30.62" x2="33.62" y1="22.88" y2="28.88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0"/>
+      <stop stop-color="#EAEAEA" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint8_linear_1_350" x1="53.12" x2="61.56" y1="11.25" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0"/>
+      <stop stop-color="#E3E3E4" offset=".5304"/>
+      <stop stop-color="#D9D9DB" offset=".7198"/>
+      <stop stop-color="#C5C5C7" offset=".8875"/>
+    </linearGradient>
+    <linearGradient id="paint9_linear_1_350" x1="59.06" x2="58.25" y1="17.31" y2="21.25" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0"/>
+      <stop stop-color="#fff" stop-opacity="0" offset="1"/>
+    </linearGradient>
+    <linearGradient id="paint10_linear_1_350" x1="59.56" x2="56.12" y1="22.06" y2="24.69" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".2" offset="0"/>
+      <stop stop-color="#fff" stop-opacity="0" offset="1"/>
+    </linearGradient>
+  </defs>
+  <style type="text/css">@keyframes bpPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes ringGlow { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+.anim-pulse { animation: bpPulse 1s ease-in-out infinite; }
+.anim-ring-glow { animation: ringGlow 1s ease-in-out infinite; }
+@keyframes sheenPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 1; } }
+@keyframes blueprintScan { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.95; } }
+.anim-sheen-pulse { animation: sheenPulse 3s ease-in-out infinite; }
+.anim-blueprint-scan { animation: blueprintScan 2s ease-in-out infinite; }</style>
+  <rect x=".2188" y=".2188" width="79.56" height="79.56" rx="12.89" fill="url(#paint0_linear_1_350)" stroke="url(#paint1_linear_1_350)" stroke-width=".4375"/>
+  <circle cx="40" cy="40.75" r="37.8" fill="url(#paint2_linear_1_350)" stroke="#747578" stroke-width=".3125"/>
+  <g filter="url(#filter0_d_1_350)" id="outer-ring-frame">
+    <path d="m66.64 19.32c-0.17 0.17-0.43 0.22-0.44 0.45-0.05 1.14-0.74 2.14-1.66 2.65 3.72 5.23 5.7 11.73 5.7 18.33 0 16.76-13.63 30.21-30.24 30.21s-30.03-13.45-30.03-30.34c0-17.13 13.52-30 29.82-30 8.02 0 15.44 3.34 20.76 8.01 0 0 0.83-1.14 0.79-2.11-5.91-6.56-13.72-9.9-21.72-9.9-18.66 0-33.69 15.36-33.69 33.59 0 18.99 15.03 34.48 34.19 34.48 18.81 0 33.99-15.49 33.99-34.07 0-8.43-2.84-16.11-7.47-21.3z" fill="url(#paint3_linear_1_350)" stroke="#8A8B8D" stroke-width=".3125" id="outer_ring_base"/>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="6s" repeatCount="indefinite"/>
+  </g>
+  <g filter="url(#filter1_d_1_350)" class="anim-ring-glow" id="inner-ring">
+    <path d="m61.24 24.78-1.19 0.97c2.93 4.2 4.57 9.32 4.57 14.89 0 14.06-11.45 24.94-24.58 24.94-13.73 0-24.66-11.03-24.66-25 0-14.65 11.55-25.39 24.46-25.39 6.22 0 11.58 2.27 15.4 5.6l1.11-1.17c-4.43-3.72-10.23-5.89-16.63-5.89-14.35 0-26.22 12.37-26.22 26.73 0 15.29 11.87 26.94 26.62 26.94 14.46 0 26.38-12.11 26.38-26.66 0-6.32-1.98-11.97-5.26-15.96z" fill="url(#paint4_linear_1_350)" stroke="#7D7E81" stroke-width=".3125"/>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="6s" repeatCount="indefinite"/>
+  </g>
+  <rect x="29.58" y="32.27" width="4.75" height="26" fill="url(#paint5_linear_1_350)" stroke="#656668" stroke-width=".3125"/>
+  <g filter="url(#filter2_d_1_350)" id="letter-t" class="anim-sheen-pulse">
+    <path d="m46.62 46.97v-8.69h-1.37v8.69c0 3.17 2 5.12 4.73 5.12h1.11v3.29c-5.27 0.55-8.62-2.4-8.62-7.12v-11.79h9.97v-4.16h-5.85v-9.47h-1.37v9.47h-2.72v-9.47h-2.47v9.47h-3.81v4.16h3.81v12.06c0 5.82 4.16 9.59 9.42 9.59h3.11v-7.53h-2.47c-2.02 0-3.47-1.37-3.47-3.62z" fill="url(#paint6_linear_1_350)" stroke="#949598" stroke-width=".3125"/>
+  </g>
+  <circle cx="31.94" cy="25.94" r="3.25" fill="#48484B"/>
+  <circle cx="31.84" cy="25.84" r="3.062" fill="url(#paint7_linear_1_350)" stroke="#808083" stroke-width=".25"/>
+  <path d="m63.12 15.54c-5.92-5.84-14.5-9.29-23.37-9.29v0.04c0.08 0 0.17-0.01 0.25-0.01 8.4 0 16.77 3.57 22.73 9.2 1.69 1.57 1.46 4-0.18 5.45-2.44 2.17-4.9 4.59-6.78 6.38-0.53 0.49-1.18 0.83-1.88 0.96l-2.14 0.42 0.37-1.71c0.18-0.88 0.64-1.69 1.32-2.29l6.48-5.65c0.59-0.52 0.84-1.35 0.27-1.87-5.47-4.89-12.77-7.79-20.44-7.79-17.09 0-30.56 14.19-30.56 31.18v0.03c-0.04-0.41-0.03-0.81-0.03-1.21 0-17.03 13.96-30.19 30.7-30.19 8.46 0 16.35 3.68 22.16 8.7 0.27 0.25-0.14 0.92-0.32 1.3l1.15-1.18c0.58-0.75 0.93-1.8 0.27-2.47z" fill="#5E5F62" id="ring_pointer_underlay">
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="6s" repeatCount="indefinite"/>
+  </path>
+  <path d="m63.08 15.52c-5.91-6.01-14.5-9.27-23.33-9.27-18.7 0-33.72 15.59-33.72 33.81 0 0.17 0 0.34 0.01 0.51 0-0.06-0.01-0.12-0.01-0.18 0-18.29 15.19-33.77 33.72-33.77 8.63 0 17.14 3.5 23.09 9.23 0.09-0.1 0.2-0.22 0.24-0.33z" fill="#E8E8E9"/>
+  <path d="m66.62 19.66c0.04 1.24-0.71 2.37-1.71 2.81 3.8 5.3 5.9 11.78 5.9 18.44 0 17.26-13.98 30.47-30.62 30.47-16.45 0-29.96-12.83-30.82-29.29 0.57 16.69 14.34 29.41 30.86 29.41 17 0 30.68-13.81 30.68-30.81 0-7.02-1.8-13.82-5.36-18.28 0.86-0.65 1.21-1.7 1.07-2.75z" fill="#F4F4F5"/>
+  <g id="pointer-indicator--part-1">
+    <path d="m63.38 15.62c-0.43-0.43-0.88-0.84-1.35-1.24 0.28 0.3 0.58 0.61 0.87 0.93 1.48 1.61 1.18 3.89-0.45 5.3-2.47 2.15-4.71 4.36-6.64 6.1-0.62 0.56-1.4 0.91-2.23 0.99l-1.05 0.11-0.65 0.69-0.13 0.69 2.07-0.44c0.73-0.15 1.4-0.5 1.94-1.01 1.86-1.86 4.36-4.37 6.91-6.55 1.71-1.44 1.87-4.04 0.71-5.57z" fill="#636466" id="pointer_bevel"/>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="1s" repeatCount="indefinite"/>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="6s" repeatCount="indefinite"/>
+  </g>
+  <path d="m62.93 15.48c-5.87-5.78-14.49-9.23-23.18-9.23-18.5 0-33.69 15.69-33.69 33.81 0 0.15 0 0.29 0.01 0.43 0.2-18.24 15.3-33.87 33.68-33.87 8.67 0 17.19 3.58 23.09 9.23 0.09-0.13 0.14-0.23 0.09-0.37z" fill="#E8E8E9"/>
+  <path d="m63.07 15.59c-5.88-5.9-14.51-9.34-23.32-9.34-18.56 0-33.69 15.74-33.69 33.94 0 0.16 0.01 0.32 0.01 0.48 0.19-18.18 15.34-34.05 33.68-34.05 8.7 0 17.21 3.63 23.1 9.32 0.1-0.12 0.21-0.28 0.22-0.35z" fill="#E8E8E9"/>
+  <path d="m63.07 15.59c-5.88-5.9-14.51-9.34-23.32-9.34-18.56 0-33.69 15.74-33.69 33.94 0 0.16 0.01 0.32 0.01 0.48 0.19-18.18 15.34-34.05 33.68-34.05 8.7 0 17.21 3.63 23.1 9.32 0.1-0.12 0.21-0.28 0.22-0.35z" fill="#E8E8E9"/>
+  <path d="m63.12 15.62c-5.9-5.87-14.56-9.37-23.37-9.37-18.56 0-33.69 15.81-33.69 33.94 0 0.1 0 0.2 0.01 0.3 0.18-18.18 15.37-33.87 33.68-33.87 8.77 0 17.32 3.69 23.21 9.41 0.1-0.12 0.19-0.29 0.16-0.41z" fill="#E8E8E9"/>
+  <path d="m62.94 15.59c-5.89-5.9-14.5-9.34-23.32-9.34-18.43 0-33.56 15.81-33.56 33.94 0 0.1 0 0.2 0.01 0.3 0.18-18.18 15.37-33.87 33.68-33.87 8.77 0 17.25 3.63 23.14 9.35 0.04-0.12 0.06-0.28 0.05-0.38z" fill="#E8E8E9"/>
+  <path d="m63.12 15.62-0.18-0.18c0.01 0.1-0.01 0.22-0.05 0.32 0.03 0.02 0.1 0.11 0.18 0.18 0.06-0.12 0.08-0.25 0.05-0.32z" fill="#E8E8E9"/>
+  <path d="m60.66 17.1c-5.52-4.94-13.06-7.79-20.85-7.79-17.04 0-30.69 14.36-30.69 31.13 0 0.13 0.01 0.27 0.01 0.41 0.23-16.69 14.03-31.35 30.68-31.35 7.75 0 15.36 3.06 20.77 7.94 0.06-0.09 0.11-0.18 0.08-0.34z" fill="#5E5F62"/>
+  <g id="pointer-indicator--part-2">
+  <path d="m60.79 17.25c0.02 0.36-0.24 1.02-0.69 1.44l-6.6 6c-0.6 0.56-0.94 1.28-1.12 2.06l-0.26 1.31 1.44-0.25c0.82-0.12 1.56-0.56 2.19-1.12l6.75-6.13c1.53-1.31 0.48-3.45-0.31-4.59l-0.76 0.62-0.64 0.66z" fill="url(#paint8_linear_1_350)" id="pointer_body"/>
+  <g id="pointer_highlights"><path d="m60.45 17.31c0.24 0.4 0.14 1.02-0.3 1.5l-2.62 2.75c1.83-0.05 3.24-1.23 3.7-2.72 0.18-0.82-0.17-1.54-0.59-2.09l-0.19 0.56z" fill="url(#paint9_linear_1_350)"/>
+  <path d="m59.75 22.12c-2.19 0.38-4.05 1.87-5.19 3.76 2.16-0.26 4.06-1.83 5.19-3.76z" fill="url(#paint10_linear_1_350)"/></g>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="1s" repeatCount="indefinite"/>
+    <animateTransform attributeName="transform" type="rotate" from="0 40 40.75" to="360 40 40.75" dur="6s" repeatCount="indefinite"/>
+  </g>
+  <g class="anim-pulse" id="blueprint-lines--part-1">
+  <path d="m36.25 36.25h3.75" stroke="#59595C" stroke-linecap="round" stroke-width=".5"/>
+  <path d="m42.62 36.31h9.63" stroke="#59595C" stroke-linecap="round" stroke-width=".5"/>
+  <path d="m45.5 38.56h1" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m40.25 36.44v12" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m51.25 51.94v3.62" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".375"/>
+  </g>
+  <path d="m33.88 32.44v25.37" stroke="#656668" stroke-width=".3125"/>
+  <path d="m29.75 58.03h4.37" stroke="#252527" stroke-width=".5"/>
+  <g class="anim-pulse anim-blueprint-scan" id="blueprint-lines--part-2">
+  <path d="m40.06 22.94v9.37" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m42.44 22.94v9.44" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m45.38 22.94v9.44" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m36.31 32.41h3.72" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m42.5 32.38h2.75" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m46.62 32.38h5.63" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25"/>
+  <path d="m45.44 38.62v8.44c0 3.06 2.06 4.88 4.68 4.88h1" stroke="#D0D0D2" stroke-linecap="round" stroke-width=".375"/>
+  </g>
+  <path d="m60.38 25.62c3 4.32 4.74 9.57 4.74 15.13 0 14.25-11.68 25.19-25 25.19-14.06 0-25.24-11.38-25.24-25.5 0-14.69 11.81-25.38 24.93-25.38 6.07 0 11.5 2.19 15.5 5.5" stroke="#D9D9DC" stroke-linecap="round" stroke-width=".375"/>
+  <path d="m66.69 19.69c4.22 5.68 6.93 13 6.93 21 0 18.62-15.43 33.81-33.56 33.81-18.75 0-33.81-15.06-34-33.88" stroke="#86878A" stroke-width=".3125"/>
+  <path d="m71.03 40.44c0 17.38-14.1 30.94-30.91 30.94-16.55 0-30.07-12.93-30.75-29.13" stroke="#F4F4F5" stroke-linecap="round" stroke-width=".375"/>
+</svg>

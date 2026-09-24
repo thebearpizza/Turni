@@ -22,11 +22,12 @@ export function HubTopBar() {
   return (
     <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/95 px-6 py-3 backdrop-blur lg:px-10">
       <Image
-        src="/logo-branding.png"
+        src="/logo.svg"
+            unoptimized
         alt="inTurno"
         width={36}
         height={36}
-        className="shrink-0 rounded-[9px] border border-white/20 shadow-sm"
+        className="shrink-0 rounded-[6px] shadow-sm"
         priority
       />
       <span className="flex-1 text-base font-extrabold tracking-tight">inTurno</span>

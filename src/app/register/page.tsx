@@ -8,11 +8,12 @@ export default function RegisterPage() {
 
         <div className="flex flex-col items-center mb-8 gap-4">
           <Image
-            src="/logo-branding.png"
+            src="/logo.svg"
+            unoptimized
             alt="inTurno"
             width={88}
             height={88}
-            className="rounded-[22px] shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+            className="rounded-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
             priority
           />
           <div className="text-center">

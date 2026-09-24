@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/shared/ThemeProvider'
 import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
 import { SessionGuardian } from '@/components/shared/SessionGuardian'
 import { Toaster } from '@/components/shared/Toaster'
+import { SplashApertura } from '@/components/shared/SplashApertura'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'] })
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
   },
   icons: {
     apple: [
-      { url: '/logo-branding.png', sizes: '180x180', type: 'image/png' },
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
     ],
   },
 }
@@ -37,7 +38,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#18181b',
+  themeColor: '#0f1011',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="it" suppressHydrationWarning>
       <body className={`${geist.className} ${geistMono.variable} ${fraunces.variable} antialiased overflow-x-hidden w-full max-w-full`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <SplashApertura />
           <SessionGuardian />
           <OfflineSyncProvider>
             {children}

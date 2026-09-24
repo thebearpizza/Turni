@@ -371,3 +371,4 @@ body {
   );
   background-size: 200% 100%;
 }
+html[data-splash="no"] #splash-apertura { display: none; }
