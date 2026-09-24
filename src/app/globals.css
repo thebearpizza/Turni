@@ -372,3 +372,5 @@ body {
   background-size: 200% 100%;
 }
 html[data-splash="no"] #splash-apertura { display: none; }
+@keyframes splash-rotazione { to { transform: rotate(360deg); } }
+.splash-anello { animation: splash-rotazione 6s linear infinite; will-change: transform; }

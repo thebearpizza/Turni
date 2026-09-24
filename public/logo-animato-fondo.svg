@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="none" viewBox="-8.40921 -7.65921 96.818451 96.818451"><defs>
+    <filter id="filter0_d_1_350" x="1.059" y="2.348" width="75.88" height="75.46" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
+      <feOffset dx="1" dy="1" />
+      <feGaussianBlur stdDeviation="1" />
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.8 0" />
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350" />
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape" />
+    </filter>
+    <filter id="filter1_d_1_350" x="13.43" y="13.66" width="54.14" height="55.81" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
+      <feOffset dx="1" dy="1" />
+      <feGaussianBlur stdDeviation="0.5" />
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0" />
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350" />
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape" />
+    </filter>
+    <filter id="filter2_d_1_350" x="28.66" y="22.77" width="25.96" height="37.52" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
+      <feOffset dx="1" dy="1.5" />
+      <feGaussianBlur stdDeviation="0.75" />
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" />
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_1_350" />
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow_1_350" result="shape" />
+    </filter>
+    <linearGradient id="paint0_linear_1_350" x1="40" x2="40" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E3032" offset="0" />
+      <stop stop-color="#1D1F20" offset=".5401" />
+      <stop stop-color="#0F1011" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint1_linear_1_350" x1="40" x2="40" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#747578" offset="0" />
+      <stop stop-color="#434547" offset=".5401" />
+      <stop stop-color="#636467" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint2_linear_1_350" x1="19.38" x2="54.38" y1="9.375" y2="73.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C8C9CB" offset="0" />
+      <stop stop-color="#535658" offset=".3453" />
+      <stop stop-color="#343637" offset=".6946" />
+      <stop stop-color="#1C1D1E" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint3_linear_1_350" x1="25.62" x2="55.62" y1="12.5" y2="69.38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0" />
+      <stop stop-color="#B9BABC" offset=".4487" />
+      <stop stop-color="#D2D2D4" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint4_linear_1_350" x1="26.88" x2="52.5" y1="17.5" y2="64.38" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0" />
+      <stop stop-color="#B2B3B5" offset=".54" />
+      <stop stop-color="#E9E9EA" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint5_linear_1_350" x1="31.25" x2="33.75" y1="32.5" y2="57.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F5F6" offset="0" />
+      <stop stop-color="#ABACAE" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint6_linear_1_350" x1="39.38" x2="48.12" y1="23.12" y2="57.75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2F2F3" offset="0" />
+      <stop stop-color="#E8E8E9" offset=".431" />
+      <stop stop-color="#BABCBD" offset=".6809" />
+      <stop stop-color="#BFBFC1" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint7_linear_1_350" x1="30.62" x2="33.62" y1="22.88" y2="28.88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0" />
+      <stop stop-color="#EAEAEA" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint8_linear_1_350" x1="53.12" x2="61.56" y1="11.25" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0" />
+      <stop stop-color="#E3E3E4" offset=".5304" />
+      <stop stop-color="#D9D9DB" offset=".7198" />
+      <stop stop-color="#C5C5C7" offset=".8875" />
+    </linearGradient>
+    <linearGradient id="paint9_linear_1_350" x1="59.06" x2="58.25" y1="17.31" y2="21.25" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" offset="0" />
+      <stop stop-color="#fff" stop-opacity="0" offset="1" />
+    </linearGradient>
+    <linearGradient id="paint10_linear_1_350" x1="59.56" x2="56.12" y1="22.06" y2="24.69" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".2" offset="0" />
+      <stop stop-color="#fff" stop-opacity="0" offset="1" />
+    </linearGradient>
+  </defs>
+  <style type="text/css">@keyframes bpPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes ringGlow { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+.anim-pulse { animation: bpPulse 1s ease-in-out infinite; }
+.anim-ring-glow { animation: ringGlow 1s ease-in-out infinite; }
+@keyframes sheenPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 1; } }
+@keyframes blueprintScan { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.95; } }
+.anim-sheen-pulse { animation: sheenPulse 3s ease-in-out infinite; }
+.anim-blueprint-scan { animation: blueprintScan 2s ease-in-out infinite; }</style>
+  <rect x=".2188" y=".2188" width="79.56" height="79.56" rx="12.89" fill="url(#paint0_linear_1_350)" stroke="url(#paint1_linear_1_350)" stroke-width=".4375" />
+  <circle cx="40" cy="40.75" r="37.8" fill="url(#paint2_linear_1_350)" stroke="#747578" stroke-width=".3125" />
+  <rect x="29.58" y="32.27" width="4.75" height="26" fill="url(#paint5_linear_1_350)" stroke="#656668" stroke-width=".3125" />
+  <g filter="url(#filter2_d_1_350)" id="letter-t" class="anim-sheen-pulse">
+    <path d="m46.62 46.97v-8.69h-1.37v8.69c0 3.17 2 5.12 4.73 5.12h1.11v3.29c-5.27 0.55-8.62-2.4-8.62-7.12v-11.79h9.97v-4.16h-5.85v-9.47h-1.37v9.47h-2.72v-9.47h-2.47v9.47h-3.81v4.16h3.81v12.06c0 5.82 4.16 9.59 9.42 9.59h3.11v-7.53h-2.47c-2.02 0-3.47-1.37-3.47-3.62z" fill="url(#paint6_linear_1_350)" stroke="#949598" stroke-width=".3125" />
+  </g>
+  <circle cx="31.94" cy="25.94" r="3.25" fill="#48484B" />
+  <circle cx="31.84" cy="25.84" r="3.062" fill="url(#paint7_linear_1_350)" stroke="#808083" stroke-width=".25" />
+  <g class="anim-pulse" id="blueprint-lines--part-1">
+  <path d="m36.25 36.25h3.75" stroke="#59595C" stroke-linecap="round" stroke-width=".5" />
+  <path d="m42.62 36.31h9.63" stroke="#59595C" stroke-linecap="round" stroke-width=".5" />
+  <path d="m45.5 38.56h1" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25" />
+  <path d="m40.25 36.44v12" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25" />
+  <path d="m51.25 51.94v3.62" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".375" />
+  </g>
+  <path d="m33.88 32.44v25.37" stroke="#656668" stroke-width=".3125" />
+  <path d="m29.75 58.03h4.37" stroke="#252527" stroke-width=".5" />
+  <g class="anim-pulse anim-blueprint-scan" id="blueprint-lines--part-2">
+  <path d="m40.06 22.94v9.37" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25" />
+  <path d="m42.44 22.94v9.44" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25" />
+  <path d="m45.38 22.94v9.44" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25" />
+  <path d="m36.31 32.41h3.72" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25" />
+  <path d="m42.5 32.38h2.75" stroke="#F2F2F3" stroke-linecap="round" stroke-width=".25" />
+  <path d="m46.62 32.38h5.63" stroke="#C5C5C7" stroke-linecap="round" stroke-width=".25" />
+  <path d="m45.44 38.62v8.44c0 3.06 2.06 4.88 4.68 4.88h1" stroke="#D0D0D2" stroke-linecap="round" stroke-width=".375" />
+  </g>
+  </svg>
