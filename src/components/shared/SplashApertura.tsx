@@ -2,16 +2,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 
-// Animazione del logo a tutto schermo. Parte:
+// Animazione del logo a tutto schermo, al posto degli skeleton di caricamento. Parte:
 // - all'apertura dell'app, una volta per sessione (sessionStorage) — non a
 //   ogni ricarica;
 // - quando si entra in una macro area diversa (Turni, Cassa, Acquisti,
 //   Consulente) o si torna all'hub. Muoversi fra le pagine della stessa
 //   area non la fa ripartire.
-// Non blocca il caricamento: la pagina sotto si carica intanto.
-const DURATA_APERTURA_MS = 1400
-const DURATA_CAMBIO_AREA_MS = 900
+// Resta finché la schermata sotto non ha finito di caricare i dati, cioè
+// finché ci sono skeleton nel DOM: la durata è variabile. Un minimo evita
+// un lampo quando i dati sono già pronti, un massimo evita di restare
+// bloccati se una schermata non finisce mai di caricare.
+const DURATA_MINIMA_MS = 700
+const DURATA_MASSIMA_MS = 12000
+// Gli skeleton devono restare assenti per un attimo: fra il loading.tsx
+// della rotta e gli skeleton del componente client c'è un istante senza.
+const STABILITA_MS = 300
 const DISSOLVENZA_MS = 400
+const SELETTORE_SKELETON = '.skeleton-shimmer, [data-skeleton], div.bg-muted.animate-pulse'
 
 const PAGINE_TURNI = ['dashboard', 'account-pendenti', 'approvazioni', 'assenze', 'bacheca', 'dipendenti', 'ods', 'presenze', 'report', 'ristoranti', 'turni']
 
@@ -33,7 +40,6 @@ export function SplashApertura() {
     const cambioArea = !primoRender && area !== null && area !== areaPrecedente.current
     areaPrecedente.current = area
 
-    let durata: number
     if (primoRender) {
       let giaMostrata = false
       try { giaMostrata = sessionStorage.getItem('splash-mostrata') === '1' } catch {}
@@ -42,20 +48,37 @@ export function SplashApertura() {
         return () => clearTimeout(t)
       }
       try { sessionStorage.setItem('splash-mostrata', '1') } catch {}
-      durata = DURATA_APERTURA_MS
     } else if (cambioArea) {
       // Lo script inline ha nascosto lo splash via data-splash su un
       // ricaricamento: va tolto, o il nuovo splash resterebbe invisibile.
       delete document.documentElement.dataset.splash
-      durata = DURATA_CAMBIO_AREA_MS
     } else {
       return
     }
 
+    const inizio = Date.now()
+    let senzaSkeletonDa: number | null = null
+    let chiuso = false
+    let tFine: ReturnType<typeof setTimeout> | undefined
     const t0 = setTimeout(() => setFase('visibile'), 0)
-    const t1 = setTimeout(() => setFase('uscita'), durata)
-    const t2 = setTimeout(() => setFase('finita'), durata + DISSOLVENZA_MS)
-    return () => { clearTimeout(t0); clearTimeout(t1); clearTimeout(t2) }
+    const controlla = setInterval(() => {
+      const trascorso = Date.now() - inizio
+      const caricando = document.querySelector(SELETTORE_SKELETON) !== null
+      if (caricando) senzaSkeletonDa = null
+      else if (senzaSkeletonDa === null) senzaSkeletonDa = Date.now()
+      const pronta = senzaSkeletonDa !== null && Date.now() - senzaSkeletonDa >= STABILITA_MS
+      if ((trascorso >= DURATA_MINIMA_MS && pronta) || trascorso >= DURATA_MASSIMA_MS) {
+        clearInterval(controlla)
+        chiuso = true
+        setFase('uscita')
+        tFine = setTimeout(() => setFase('finita'), DISSOLVENZA_MS)
+      }
+    }, 100)
+    return () => {
+      clearTimeout(t0)
+      clearInterval(controlla)
+      if (chiuso) clearTimeout(tFine)
+    }
   }, [pathname])
 
   // Su un ricaricamento nella stessa sessione lo script, eseguito prima del

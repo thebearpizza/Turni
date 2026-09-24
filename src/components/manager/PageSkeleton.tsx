@@ -9,7 +9,7 @@ interface Props {
 
 export function PageSkeleton({ rows = 6, hasAction = true, hasFilters = true }: Props) {
   return (
-    <div className="p-6 lg:p-8 space-y-5 animate-pulse">
+    <div data-skeleton className="p-6 lg:p-8 space-y-5 animate-pulse">
       <div className="flex items-center justify-between">
         <div className="space-y-2">
           <div className="h-6 w-36 bg-muted rounded" />
