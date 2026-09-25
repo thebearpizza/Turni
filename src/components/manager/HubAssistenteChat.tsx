@@ -85,7 +85,10 @@ export function HubAssistenteChat() {
   }, [])
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-background">
+    // fixed inset-0, non h-[100dvh]: la chat sta dentro il layout dell'hub,
+    // che sopra aggiunge margine e banner delle notifiche; con l'altezza
+    // dello schermo il fondo (e il campo di testo) finiva sotto il bordo.
+    <div className="fixed inset-0 z-40 flex flex-col bg-background">
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <button
           type="button"
