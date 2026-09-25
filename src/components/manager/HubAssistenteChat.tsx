@@ -135,7 +135,10 @@ export function HubAssistenteChat() {
 
       <form
         onSubmit={e => { e.preventDefault(); invia(input) }}
-        className="flex items-center gap-2 border-t border-border px-4 py-3"
+        // Margine sotto generoso: su iPhone la barra di Safari (flottante)
+        // e l'indicatore Home coprono il fondo dello schermo e tagliavano
+        // il campo di testo.
+        className="flex items-center gap-2 border-t border-border px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+28px)]"
       >
         <Input
           value={input}

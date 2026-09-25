@@ -29,7 +29,7 @@ export function HubAiBar() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3 backdrop-blur">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-3 backdrop-blur">
       <div className="mx-auto max-w-3xl">
         <div className="mb-2 flex gap-2 overflow-x-auto">
           {SUGGERIMENTI.map(s => (
