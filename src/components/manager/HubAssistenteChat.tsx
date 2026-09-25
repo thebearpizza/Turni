@@ -136,23 +136,27 @@ export function HubAssistenteChat() {
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
 
-      <form
-        onSubmit={e => { e.preventDefault(); invia(input) }}
-        // Margine sotto generoso: su iPhone la barra di Safari (flottante)
-        // e l'indicatore Home coprono il fondo dello schermo e tagliavano
-        // il campo di testo.
-        className="flex items-center gap-2 border-t border-border px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+28px)]"
-      >
-        <Input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="Scrivi un'altra domanda…"
-          disabled={loading}
-        />
-        <Button type="submit" size="icon" disabled={loading || !input.trim()}>
-          <Send className="h-4 w-4" />
-        </Button>
-      </form>
+      {/* Stessa pillola della barra in home (HubAiBar), stessa altezza:
+          margine sotto generoso perché su iPhone indicatore Home e barra
+          di Safari coprono il fondo dello schermo. */}
+      <div className="border-t border-border px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+28px)]">
+        <form
+          onSubmit={e => { e.preventDefault(); invia(input) }}
+          className="mx-auto flex max-w-3xl items-center gap-2 rounded-full border border-border bg-card px-2 py-1.5 shadow-sm"
+        >
+          <Sparkles className="ml-1 h-4 w-4 shrink-0 text-primary" />
+          <Input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="Scrivi un'altra domanda…"
+            disabled={loading}
+            className="border-none bg-transparent shadow-none focus-visible:ring-0"
+          />
+          <Button type="submit" size="icon" className="shrink-0 rounded-full" disabled={loading || !input.trim()}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </form>
+      </div>
     </div>
   )
 }
