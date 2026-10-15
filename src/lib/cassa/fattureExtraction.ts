@@ -7,7 +7,7 @@ import { SOGLIA_SCOSTAMENTO_TOTALE_DOCUMENTO } from './fattureVerifica'
 // Stesso modello/fallback dell'assistente Telegram e del controllo
 // duplicati spese Cassa — un'unica coppia di env var per l'uso "leggero"
 // di Gemini nell'app (matching articoli qui, chat Telegram, dedup spese).
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
 
 // Coppia separata per l'estrazione dati fattura (e per l'AI di Analisi, che
@@ -22,7 +22,7 @@ const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-f
 // piano Gemini con quota su Pro può impostare
 // GEMINI_MODEL_ESTRAZIONE=gemini-3.1-pro (o gemini-3-pro) e guadagnare
 // accuratezza.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
+const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.8-flash'
 const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
 
 // Budget complessivo per l'estrazione, deliberatamente sotto il

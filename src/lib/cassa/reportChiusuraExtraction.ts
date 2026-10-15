@@ -4,7 +4,7 @@ import { generateWithFallback, EstrazioneTimeoutError, BUDGET_ESTRAZIONE_MS, typ
 // Stessa coppia modello/fallback dell'estrazione fatture (documento
 // analogo per complessità: foto/PDF di un documento stampato) — vedi
 // fattureExtraction.ts per il ragionamento su Flash vs Pro.
-const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
+const GEMINI_MODEL_ESTRAZIONE = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.8-flash'
 const GEMINI_FALLBACK_MODEL_ESTRAZIONE = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
 
 export { EstrazioneTimeoutError }

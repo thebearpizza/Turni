@@ -19,7 +19,7 @@ import { getAiHistory, saveAiHistory } from './aiHistory'
 // nello stesso scope RBAC dei comandi classici.
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
 // Modello di riserva, usato automaticamente se quello principale esaurisce la quota gratuita.
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
 

@@ -33,7 +33,7 @@ function raggruppaPer<T>(righe: T[], chiave: (r: T) => string): Map<string, T[]>
 // ragionare su più chiamate di strumenti in sequenza (periodo → confronto
 // → previsione), non solo trascrivere un documento, quindi conviene lo
 // stesso tier "pesante" invece di quello leggero di Telegram/dedup.
-const GEMINI_MODEL = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.7-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL_ESTRAZIONE || 'gemini-3.8-flash'
 const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL_ESTRAZIONE || 'gemini-3.5-flash-lite'
 
 function isRateLimitError(err: unknown): boolean {
