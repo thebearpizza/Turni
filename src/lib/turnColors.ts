@@ -1,3 +1,6 @@
-export const EXTRAORDINARY_BADGE = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800'
-export const STANDARD_BADGE = 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-700'
-export const RIPOSO_BADGE = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
+// Colori dei turni nelle griglie (design Acciaio): turno su tinta blu
+// dell'area Turni, riposo su tinta negativa, straordinario su tinta
+// attenzione. Testo in Geist Mono dove sono orari.
+export const EXTRAORDINARY_BADGE = 'bg-warn-tint text-warn border-transparent'
+export const STANDARD_BADGE = 'bg-[oklch(0.93_0.04_240)] text-[oklch(0.38_0.1_240)] border-transparent dark:bg-[oklch(0.3_0.05_240)] dark:text-[oklch(0.85_0.08_240)]'
+export const RIPOSO_BADGE = 'bg-neg-tint text-neg border-transparent'

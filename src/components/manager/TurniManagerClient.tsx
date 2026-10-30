@@ -101,10 +101,10 @@ function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
 // Intestazione e colonna dipendente condividono lo stesso trattamento
 // neutro (bg-card + bordo) della Timeline Giornaliera sotto, invece di un
 // blocco colorato a sé stante — stesso linguaggio visivo in tutta la pagina.
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-card text-foreground border-b border-border whitespace-nowrap'
-const tdCls = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
+const thCls = 'px-1.5 py-2 text-center font-medium bg-card text-muted-foreground border-b border-border whitespace-nowrap'
+const tdCls = 'px-1 py-1 text-center text-xs border-b border-border whitespace-nowrap tabular-nums'
 const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-card'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-card z-10'
+const tdNameCls = 'px-3 py-2 text-left text-[13px] font-medium border-b border-border whitespace-nowrap sticky left-0 bg-card z-10'
 
 const TURN_TYPE_OPTIONS = [
   { value: false, label: 'Turno di Lavoro' },
@@ -706,38 +706,29 @@ export function TurniManagerClient({
     <div>
       {/* Header — i tasti vanno su una riga propria sotto il titolo su
           mobile, senza mai sforare la larghezza dello schermo */}
-      <div className="mb-5">
-        <h1 className="titolo-pagina mb-3">Gestione Turni</h1>
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-            <CalendarRange className="w-4 h-4" /> Turni Fissi
+      <div className="mb-3 flex flex-col gap-3">
+        <h1 className="titolo-pagina">Turni</h1>
+        {/* Azioni del design: Nuovo e Turni fissi a sinistra, l'azione
+            principale nera; le altre in fila scorrevole. */}
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <Button size="sm" variant="outline" className="flex-none" onClick={openCreate} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
+            <Plus className="w-4 h-4" /> Nuovo
           </Button>
-          <Button
-            size="sm" variant="outline"
-            onClick={handlePopulateWeek}
-            disabled={isPending || populating}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Genera i turni della settimana visualizzata dai Turni Fissi'}
-          >
-            <CalendarRange className="w-4 h-4" /> {populating ? 'Popolo…' : 'Popola Settimana'}
+          <Button size="sm" variant="outline" className="flex-none" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
+            <CalendarRange className="w-4 h-4" /> Turni fissi
           </Button>
-          <Button
-            size="sm" variant="outline"
-            onClick={handleCopyPreviousWeek}
-            disabled={isPending || copyingWeek}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Copia i turni della settimana precedente su questa'}
-          >
-            <Copy className="w-4 h-4" /> {copyingWeek ? 'Copio…' : 'Copia Sett. Prec.'}
+          <Button size="sm" variant="outline" className="flex-none" onClick={handlePopulateWeek} disabled={isPending || populating}
+            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Genera i turni della settimana visualizzata dai Turni Fissi'}>
+            {populating ? 'Popolo…' : 'Popola settimana'}
           </Button>
-          <Button
-            size="sm" variant="outline"
-            onClick={() => setShowAiDialog(true)}
+          <Button size="sm" variant="outline" className="flex-none" onClick={handleCopyPreviousWeek} disabled={isPending || copyingWeek}
+            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Copia i turni della settimana precedente su questa'}>
+            <Copy className="w-4 h-4" /> {copyingWeek ? 'Copio…' : 'Copia settimana'}
+          </Button>
+          <Button size="sm" className="flex-none" onClick={() => setShowAiDialog(true)}
             disabled={isPending || (isManager && restFilter === 'tutti')}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}
-          >
+            title={isPending ? 'Disponibile dopo l\'attivazione' : isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}>
             <Sparkles className="w-4 h-4" /> Genera con IA
-          </Button>
-          <Button size="sm" onClick={openCreate} className="col-span-2 sm:col-span-1" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-            <Plus className="w-4 h-4" /> Nuovo Turno
           </Button>
         </div>
       </div>
@@ -755,13 +746,11 @@ export function TurniManagerClient({
 
       {/* Department filter — multi-selezione, mostrato solo se c'è più di un reparto */}
       {allDepts.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
+        <div className="mb-3 flex flex-wrap gap-1.5">
           <button
             onClick={() => setDeptFilter([])}
-            className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
-              deptFilter.length === 0
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
+            className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors active:scale-[0.97] ${
+              deptFilter.length === 0 ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
             }`}
           >
             Tutti i reparti
@@ -770,10 +759,8 @@ export function TurniManagerClient({
             <button
               key={dept}
               onClick={() => toggleDeptFilter(dept)}
-              className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
-                deptFilter.includes(dept)
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
+              className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium capitalize transition-colors active:scale-[0.97] ${
+                deptFilter.includes(dept) ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
               }`}
             >
               {dept}
@@ -783,16 +770,16 @@ export function TurniManagerClient({
       )}
 
       {/* Week navigation — frecce simmetriche ai lati, data centrata su una riga */}
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setWeekOffset(w => w - 1)} aria-label="Settimana precedente">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <button type="button" className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-line-strong bg-card active:scale-[0.96]" onClick={() => setWeekOffset(w => w - 1)} aria-label="Settimana precedente">
           <ChevronLeft className="w-4 h-4" />
-        </Button>
-        <div className="text-sm font-medium text-foreground text-center whitespace-nowrap tabular-nums">
-          {formatInTimeZone(weekStart, TZ, "d MMM", { locale: it })} – {formatInTimeZone(addDays(weekStart, 6), TZ, "d MMM yyyy", { locale: it })}
+        </button>
+        <div className="text-center text-[15px] font-semibold tabular-nums">
+          {formatInTimeZone(weekStart, TZ, "d", { locale: it })} – {formatInTimeZone(addDays(weekStart, 6), TZ, "d MMMM", { locale: it })}
         </div>
-        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => setWeekOffset(w => w + 1)} aria-label="Settimana successiva">
+        <button type="button" className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-line-strong bg-card active:scale-[0.96]" onClick={() => setWeekOffset(w => w + 1)} aria-label="Settimana successiva">
           <ChevronRight className="w-4 h-4" />
-        </Button>
+        </button>
       </div>
       {weekOffset !== 0 && (
         <div className="text-center -mt-3 mb-5">
@@ -805,7 +792,7 @@ export function TurniManagerClient({
       {/* Griglia Turni — stile Excel: dipendenti × giorni della settimana.
           Ogni cella mostra i turni (o riposi) del dipendente in quel giorno;
           click su un turno per modificarlo, "+" per aggiungerne uno nuovo. */}
-      <div className="w-full rounded-md border bg-card overflow-auto">
+      <div className="w-full overflow-auto rounded-[12px] border border-border bg-card">
         <table className="border-collapse text-xs w-full" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
@@ -813,7 +800,7 @@ export function TurniManagerClient({
               {weekDays.map(day => (
                 <th key={format(day, 'yyyy-MM-dd')} className={`${thCls} min-w-[100px]`}>
                   <div className="capitalize">{formatInTimeZone(day, TZ, 'EEE', { locale: it })}</div>
-                  <div className="font-normal opacity-80">{formatInTimeZone(day, TZ, 'd/MM', { locale: it })}</div>
+                  <div className="font-mono text-[15px] font-semibold text-foreground">{formatInTimeZone(day, TZ, 'd', { locale: it })}</div>
                 </th>
               ))}
               <th className={`${thCls} min-w-[90px]`}>Monte Ore</th>
@@ -840,7 +827,7 @@ export function TurniManagerClient({
               }, 0)
 
               return (
-                <tr key={member.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                <tr key={member.id}>
                 <td className={tdNameCls}>
                   {member.full_name}
                   {isManager && restFilter === 'tutti' && member.restaurant_id && (
@@ -859,12 +846,12 @@ export function TurniManagerClient({
                           <div
                             key={turn.id}
                             onClick={() => openEdit(turn)}
-                            className={`flex items-center justify-center gap-1 rounded-sm border px-1 py-0.5 text-[10px] font-medium whitespace-nowrap cursor-pointer ${
+                            className={`flex items-center justify-center gap-1 rounded-[6px] border px-1 py-1 font-mono text-[10px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.97] ${
                               turn.is_rest_day ? RIPOSO_BADGE : turn.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE
                             }`}
                           >
                             <span>
-                              {turn.is_rest_day ? 'Riposo' : `${turn.start_time.slice(0, 5)}-${turn.end_time.slice(0, 5)}`}
+                              {turn.is_rest_day ? 'Rip.' : `${turn.start_time.slice(0, 5)}-${turn.end_time.slice(0, 5)}`}
                             </span>
                             <button
                               type="button"
