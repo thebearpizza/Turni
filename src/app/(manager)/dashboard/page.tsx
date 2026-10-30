@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { Users, Clock, CalendarX, CheckCircle, MessageSquare } from 'lucide-react'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
 import Link from 'next/link'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
 import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroManager'
@@ -12,6 +11,8 @@ import { PresenzePreviewClient, type PresenzaPreviewRow } from '@/components/man
 import { RestaurantQrCard } from '@/components/manager/RestaurantQrCard'
 import { TelegramLinkButton } from '@/components/manager/TelegramLinkButton'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
+import { PresenzeOggiLista } from '@/components/presenze/PresenzeOggiLista'
+import { presenzeOggi } from '@/lib/presenzeOggi'
 
 const TZ = 'Europe/Rome'
 
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore, restaurant:restaurants(name, latitude, longitude, qr_secret)')
+    .select('role, restaurant_id, is_direttore, department, restaurant:restaurants(name, latitude, longitude, qr_secret)')
     .eq('id', user!.id)
     .single()
 
@@ -91,15 +92,44 @@ export default async function DashboardPage() {
         { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/approvazioni' },
       ]
 
-  return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-0.5 capitalize">
-          {formatInTimeZone(new Date(), TZ, "EEEE d MMMM yyyy", { locale: it })}
-        </p>
-      </div>
+  const lat = (profile?.restaurant as { latitude?: number | null } | null)?.latitude ?? null
+  const lng = (profile?.restaurant as { longitude?: number | null } | null)?.longitude ?? null
 
+  // Capo servizio e direttore: Home del design (timbratura in alto, sotto le
+  // presenze di oggi). Il capo servizio vede il suo reparto, il direttore
+  // tutto il locale e approva le timbrature con foto dalla riga.
+  if (isCapoServizio && restaurantFilter) {
+    const reparto = isDirettore ? null : ((profile as { department?: string | null }).department ?? null)
+    const [righe, { data: mieiTurni }] = await Promise.all([
+      presenzeOggi(supabase, restaurantFilter, reparto),
+      supabase.from('turns').select('start_time, end_time, is_rest_day, department').eq('user_id', user!.id).eq('date', todayRome).order('start_time'),
+    ])
+    const fasce = (mieiTurni ?? []).filter(t => !t.is_rest_day).map(t => `${t.start_time.slice(0, 5)} – ${t.end_time.slice(0, 5)}`)
+    const turnoOggi = fasce.length ? `Turno di oggi · ${reparto ? reparto + ' ' : ''}${fasce.join(' / ')}` : 'Nessun turno oggi'
+    return (
+      <div className={isDirettore ? 'flex flex-col gap-3 px-4 pt-1' : 'flex flex-col'}>
+        <PushNotificationPrompt />
+        <CapoServizioTimbraturaSection
+          initialOpenAttendance={openAttendanceResult.data ?? null}
+          restaurantLat={lat}
+          restaurantLng={lng}
+          variante={isDirettore ? 'compatta' : 'grande'}
+          turnoOggi={turnoOggi}
+        />
+        <div className={isDirettore ? '' : 'mx-4 mt-6'}>
+          <PresenzeOggiLista
+            titolo={isDirettore ? 'Presenze di oggi' : `Presenze di oggi${reparto ? ` in ${reparto.toLowerCase()}` : ''}`}
+            righe={righe}
+            puoApprovare={isDirettore}
+          />
+        </div>
+        <div className={isDirettore ? 'pb-4' : 'mx-4 mt-4 pb-4'}><TelegramLinkButton /></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 pt-1 lg:px-8">
       {isManager && <PushNotificationPrompt />}
 
       {/* KPI grid */}

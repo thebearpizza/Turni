@@ -1,11 +1,10 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Camera, ImageOff } from 'lucide-react'
-import { differenceInSeconds } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { QRScanner } from '@/components/dipendente/QRScanner'
-import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useGeofence } from '@/hooks/useGeofence'
-import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
+import { toast } from '@/hooks/use-toast'
+import { BloccoTimbratura } from '@/components/timbratura/BloccoTimbratura'
 import { compressImage } from '@/lib/compressImage'
 import type { Attendance } from '@/types'
 
@@ -13,16 +12,13 @@ interface Props {
   initialOpenAttendance: Attendance | null
   restaurantLat?: number | null
   restaurantLng?: number | null
+  /** "grande" per il capo servizio (come il dipendente), "compatta" per il direttore. */
+  variante?: 'grande' | 'compatta'
+  /** Riga sotto l'ora (turno di oggi), per la variante grande. */
+  turnoOggi?: string
 }
 
-function formatDuration(s: number): string {
-  const h   = Math.floor(s / 3600)
-  const m   = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
-}
-
-export function CapoServizioTimbraturaSection({ initialOpenAttendance, restaurantLat, restaurantLng }: Props) {
+export function CapoServizioTimbraturaSection({ initialOpenAttendance, restaurantLat, restaurantLng, variante = 'grande', turnoOggi }: Props) {
   const [attendance, setAttendance] = useState<Attendance | null>(initialOpenAttendance)
   const [showScanner, setShowScanner] = useState(false)
   const [loading, setLoading]         = useState(false)
@@ -31,14 +27,16 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
   const [gpsFailed, setGpsFailed]     = useState(false)
   const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
 
-  // Tick only while a shift is open
+  // L'ora (o il tempo in servizio) avanza ogni secondo.
   useEffect(() => {
-    if (!attendance) return
     const id = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(id)
-  }, [attendance])
+  }, [])
 
-  const elapsed = attendance ? differenceInSeconds(now, new Date(attendance.check_in)) : 0
+  // Esiti nel toast unico del design.
+  useEffect(() => {
+    if (message) toast({ title: message.text, variant: message.type === 'error' ? 'destructive' : 'default' })
+  }, [message])
 
   // Geofence-aware scan trigger — fail-closed
   const handleScanPress = useCallback(async () => {
@@ -131,86 +129,26 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
     }
   }
 
-  const { permission: pushPermission, subscribed: pushSubscribed, subscribe: subscribePush } = usePushNotifications()
-  const isOut = !!attendance
-  const isGeoChecking = geoStatus === 'checking'
+  const sotto = attendance
+    ? `Ingresso ${formatInTimeZone(new Date(attendance.check_in), 'Europe/Rome', 'HH:mm')}`
+    : turnoOggi ?? 'Nessun turno oggi'
 
   return (
     <>
-      <PushNotificationBanner permission={pushPermission} subscribed={pushSubscribed} onSubscribe={subscribePush} />
-      <div className="mt-4 bg-card border border-border rounded-md p-4 flex items-center gap-4">
-        {/* Left: label + status */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold tracking-tight">Timbratura Presenza</p>
-
-          {attendance ? (
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5">
-              Turno in corso · {formatDuration(elapsed)}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground mt-0.5">Nessun turno aperto</p>
-          )}
-
-          {message && (
-            <p className={`text-xs mt-1 font-medium ${
-              message.type === 'success'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'text-destructive'
-            }`}>
-              {message.text}
-            </p>
-          )}
-        </div>
-
-        {/* Right: action button */}
-        <div className="flex items-center gap-2 shrink-0">
-          {process.env.NODE_ENV === 'development' && (
-            <button
-              onClick={() => handleScan('__SIMULATE__')}
-              disabled={loading}
-              className="text-xs text-muted-foreground underline disabled:opacity-50"
-            >
-              [DEV]
-            </button>
-          )}
-          <button
-            onClick={handleScanPress}
-            disabled={loading || isGeoChecking}
-            className={`h-10 px-4 rounded-sm flex items-center gap-2 text-sm font-semibold border transition-colors disabled:opacity-50 ${
-              isOut
-                ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
-                : 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
-            }`}
-          >
-            <Camera className="w-4 h-4" />
-            {isGeoChecking ? 'Verifica posizione...' : loading ? 'Elaborazione...' : isOut ? 'Timbra Uscita' : 'Timbra Ingresso'}
-          </button>
-        </div>
-      </div>
-
-      {/* GPS fallback — shown only when GPS denied/unavailable */}
-      {gpsFailed && (
-        <label className={`mt-2 flex items-center gap-2.5 justify-center h-10 px-4 rounded-sm text-sm font-medium border cursor-pointer transition-colors
-          ${loading ? 'opacity-50 pointer-events-none' : ''}
-          border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100
-          dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50`}
-        >
-          <ImageOff className="w-4 h-4 shrink-0" />
-          Problemi col GPS? Timbra con foto
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            onChange={handleFallbackPhoto}
-            disabled={loading}
-          />
-        </label>
-      )}
-
-      {showScanner && (
-        <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
-      )}
+      <BloccoTimbratura
+        now={now}
+        checkIn={attendance?.check_in ?? null}
+        sotto={sotto}
+        loading={loading}
+        geoStatus={geoStatus}
+        onTimbra={handleScanPress}
+        gpsFailed={gpsFailed}
+        errore={message?.type === 'error' ? message.text : null}
+        onFoto={handleFallbackPhoto}
+        variante={variante}
+        onSimula={() => handleScan('__SIMULATE__')}
+      />
+      {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
     </>
   )
 }
