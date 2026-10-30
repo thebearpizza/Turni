@@ -10,7 +10,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
       <input
         type={type}
         className={cn(
-          "flex h-11 w-full rounded-md border border-input bg-card px-3.5 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 file:border-0 file:bg-transparent file:text-base file:font-medium",
+          "flex h-12 w-full rounded-md border border-input bg-card px-3.5 py-2 text-base ring-offset-background transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-[var(--cassa)] focus-visible:shadow-[0_0_0_3px_color-mix(in_oklch,var(--cassa)_15%,transparent)] aria-invalid:border-neg disabled:cursor-not-allowed disabled:opacity-50 file:border-0 file:bg-transparent file:text-base file:font-medium",
           // Native picker types (month/date/datetime-local/week/time) ship with
           // browser-injected chrome that ignores `h-9` / `w-full`, producing
           // visibly taller and wider controls than sibling SelectTriggers.

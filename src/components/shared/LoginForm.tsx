@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/accesso/AccessoLayout'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Must match the domain used in /api/users POST to generate fake-email accounts.
@@ -46,54 +46,48 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {sessioneScaduta && (
-        <p className="text-sm text-center text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+        <p className="rounded-[12px] bg-warn-tint px-3 py-2.5 text-center text-sm font-medium text-warn text-pretty">
           La sessione è scaduta. Accedi di nuovo per continuare.
         </p>
       )}
-      <div className="space-y-2">
-        <Label htmlFor="credential">Username</Label>
+      <label className="flex flex-col gap-[7px]">
+        <span className="text-[13px] font-medium text-muted-foreground">Username</span>
         <Input
           id="credential"
           type="text"
           value={credential}
-          onChange={e => setCredential(e.target.value)}
+          onChange={e => { setCredential(e.target.value); setError(null) }}
           placeholder="mario.rossi"
           required
           autoComplete="username"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
+          aria-invalid={!!error || undefined}
+          className="h-[50px]"
         />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="password">Password</Label>
+      </label>
+      <label className="flex flex-col gap-[7px]">
+        <span className="text-[13px] font-medium text-muted-foreground">Password</span>
         <Input
           id="password"
           type="password"
           value={password}
-          onChange={e => setPassword(e.target.value)}
+          onChange={e => { setPassword(e.target.value); setError(null) }}
           placeholder="••••••••"
           required
           autoComplete="current-password"
+          aria-invalid={!!error || undefined}
+          className="h-[50px]"
         />
-      </div>
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? 'Accesso in corso...' : 'Accedi'}
+      </label>
+      {error && <p className="anim-swapin text-sm font-medium text-neg">{error}</p>}
+      <Button type="submit" size="lg" className="w-full" disabled={loading} style={{ opacity: loading ? 0.85 : 1 }}>
+        {loading && <Spinner />}
+        {loading ? 'Accesso in corso…' : 'Accedi'}
       </Button>
-      <p className="text-center text-xs text-muted-foreground/70 mt-2">
-        Dipendente? Chiedi le tue credenziali al tuo manager — non serve registrarsi.
-      </p>
-      <p className="text-center text-sm text-muted-foreground">
-        Vuoi provare inTurno per il tuo locale?{' '}
-        <a href="/register" className="underline hover:text-foreground">
-          Registra la tua attività
-        </a>
-      </p>
     </form>
   )
 }
