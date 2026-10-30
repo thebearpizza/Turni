@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { ActivityTrackerMount } from '@/components/consulente/ActivityTrackerMount'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 
 export default async function ConsulenteLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -9,16 +11,17 @@ export default async function ConsulenteLayout({ children }: { children: React.R
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, is_direttore, full_name, department, managed_restaurant_ids, restaurant:restaurants(id, name)')
     .eq('id', user.id)
     .single()
 
   if (!profile || profile.role !== 'consulente_lavoro') redirect('/dashboard')
 
+  const shell = await datiShell(supabase, profile)
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground">
+    <AppShell {...shell}>
       <ActivityTrackerMount />
       {children}
-    </div>
+    </AppShell>
   )
 }

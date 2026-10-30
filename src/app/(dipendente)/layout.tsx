@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { BottomNav } from '@/components/dipendente/BottomNav'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 
 export default async function DipendenteLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -9,16 +10,12 @@ export default async function DipendenteLayout({ children }: { children: React.R
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, is_direttore, full_name, department, managed_restaurant_ids, restaurant:restaurants(id, name)')
     .eq('id', user.id)
     .single()
 
   if (profile?.role !== 'dipendente') redirect('/dashboard')
 
-  return (
-    <div className="pb-14">
-      {children}
-      <BottomNav />
-    </div>
-  )
+  const shell = await datiShell(supabase, profile)
+  return <AppShell {...shell}>{children}</AppShell>
 }

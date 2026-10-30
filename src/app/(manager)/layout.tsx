@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ManagerSidebar } from '@/components/manager/ManagerSidebar'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 import { DemoBanner } from '@/components/manager/DemoBanner'
 import { AccountStatusProvider } from '@/contexts/AccountStatusContext'
 
@@ -21,13 +22,13 @@ export default async function ManagerLayout({ children }: { children: React.Reac
 
   const isPending = profile.account_status === 'pending'
 
+  const shell = await datiShell(supabase, profile)
+
   return (
     <AccountStatusProvider isPending={isPending}>
-      <div className="h-[100dvh] overflow-y-auto bg-background pb-24">
-        {isPending && <DemoBanner />}
+      <AppShell {...shell} banner={isPending ? <DemoBanner /> : undefined}>
         {children}
-      </div>
-      <ManagerSidebar profile={profile} />
+      </AppShell>
     </AccountStatusProvider>
   )
 }

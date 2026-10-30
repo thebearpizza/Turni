@@ -388,3 +388,14 @@ html[data-splash="no"] #splash-apertura { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .anim-swapin, .anim-swapout, .anim-inrise, .dialog-swap[data-state] { animation: none; }
 }
+
+/* Campanella col batacchio: oscilla quando arriva qualcosa di nuovo. */
+@keyframes campanella {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(14deg); }
+  40% { transform: rotate(-12deg); }
+  60% { transform: rotate(7deg); }
+  80% { transform: rotate(-4deg); }
+}
+.anim-campanella { animation: campanella 900ms ease-in-out 400ms 2 both; }
+@media (prefers-reduced-motion: reduce) { .anim-campanella { animation: none; } }

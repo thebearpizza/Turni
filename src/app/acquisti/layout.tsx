@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { AcquistiSidebar } from '@/components/acquisti/AcquistiSidebar'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 import { AreaTheme } from '@/components/shared/AreaTheme'
 
 // Manager (tutto) e direttore (capo_servizio con is_direttore=true, CRUD
@@ -14,7 +15,7 @@ export default async function AcquistiLayout({ children }: { children: React.Rea
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, is_direttore')
+    .select('role, is_direttore, full_name, department, managed_restaurant_ids, restaurant:restaurants(id, name)')
     .eq('id', user.id)
     .single()
 
@@ -22,13 +23,12 @@ export default async function AcquistiLayout({ children }: { children: React.Rea
 
   if (!profile || !(profile.role === 'manager' || isDirettore)) redirect('/dashboard')
 
-  const acquistiRole = profile.role === 'manager' ? 'manager' as const : 'direttore' as const
+  const shell = await datiShell(supabase, profile)
 
   return (
-    <div className="cassa acquisti h-[100dvh] overflow-y-auto bg-background pb-24 text-foreground">
+    <AppShell {...shell}>
       <AreaTheme classes="cassa acquisti" />
-      {children}
-      <AcquistiSidebar role={acquistiRole} userId={user.id} />
-    </div>
+      <div className="cassa acquisti min-h-full bg-background text-foreground">{children}</div>
+    </AppShell>
   )
 }

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { CassaSidebar } from '@/components/cassa/CassaSidebar'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { AreaTheme } from '@/components/shared/AreaTheme'
 
@@ -11,7 +12,7 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, is_direttore')
+    .select('role, is_direttore, full_name, department, managed_restaurant_ids, restaurant:restaurants(id, name)')
     .eq('id', user.id)
     .single()
 
@@ -23,22 +24,15 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   if (!profile || !['manager', 'cassiere', 'hostess'].includes(profile.role)) redirect('/dashboard')
 
-  const cassaRole = profile.role as 'manager' | 'cassiere' | 'hostess'
+  const shell = await datiShell(supabase, profile)
 
+  // Le notifiche push si riallineano a ogni apertura di Cassa (chi ci
+  // lavora tutto il giorno altrimenti non rinnovava mai la registrazione):
+  // il banner resta, ora sotto l'intestazione del guscio.
   return (
-    <div className="cassa h-[100dvh] overflow-y-auto bg-background pb-24 text-foreground">
+    <AppShell {...shell} banner={<PushNotificationPrompt />}>
       <AreaTheme classes="cassa" />
-      {/* Non è (solo) un banner: montarlo qui riallinea la subscription
-          push col server a ogni apertura di Cassa. Chi lavora tutto il
-          giorno qui dentro prima non rinnovava mai la registrazione.
-          Rientrato ai lati: in alto ci sono la casetta (destra) e la
-          campanella del cassiere (sinistra), pulsanti fissi che il banner
-          finiva per coprire in parte, rubandogli i tocchi sui bordi. */}
-      <div className="px-10 pt-3">
-        <PushNotificationPrompt />
-      </div>
-      {children}
-      <CassaSidebar role={cassaRole} userId={user.id} />
-    </div>
+      <div className="cassa min-h-full bg-background text-foreground">{children}</div>
+    </AppShell>
   )
 }

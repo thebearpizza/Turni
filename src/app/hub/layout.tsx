@@ -1,18 +1,28 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
+import { AppShell } from '@/components/shell/AppShell'
+import { datiShell } from '@/components/shell/datiShell'
 
-// Layout minimale per /hub: nessuna sidebar. L'intestazione (logo,
-// wordmark, tema, logout) la monta HubTopBar dentro hub/page.tsx — prima
-// c'era anche qui un header di testo semplice ("inTurno" + tema +
-// logout), che affiancato a HubTopBar produceva due intestazioni
-// identiche una sopra l'altra. L'autenticazione e lo scope per ruolo
-// sono verificati in hub/page.tsx.
-export default function HubLayout({ children }: { children: React.ReactNode }) {
+// Home del manager (e del direttore) dentro il guscio comune: intestazione
+// "Ciao, Nome", barra Home/Turni/Cassa/Acquisti/Altro. Lo scope per ruolo
+// resta verificato in hub/page.tsx.
+export default async function HubLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, is_direttore, full_name, department, managed_restaurant_ids, restaurant:restaurants(id, name)')
+    .eq('id', user.id)
+    .single()
+  if (!profile) redirect('/login')
+
+  const shell = await datiShell(supabase, profile)
   return (
-    <div className="min-h-screen bg-background">
-      <div className="pt-3">
-        <PushNotificationPrompt />
-      </div>
+    <AppShell {...shell} banner={<PushNotificationPrompt />}>
       {children}
-    </div>
+    </AppShell>
   )
 }
