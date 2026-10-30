@@ -156,11 +156,11 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
           </div>
           <div>
             <div className="font-sans text-xs text-muted-foreground">Entrate</div>
-            <div className="font-semibold" style={{ color: 'hsl(var(--primary))' }}>{euro(active.entrate)}</div>
+            <div className="font-semibold" style={{ color: 'var(--primary)' }}>{euro(active.entrate)}</div>
           </div>
           <div>
             <div className="font-sans text-xs text-muted-foreground">Spese</div>
-            <div className="font-semibold" style={{ color: 'hsl(var(--cassa-copper))' }}>{euro(active.spese)}</div>
+            <div className="font-semibold" style={{ color: 'var(--cassa-copper)' }}>{euro(active.spese)}</div>
           </div>
           <div>
             <div className="font-sans text-xs text-muted-foreground">Differenza</div>
@@ -190,15 +190,15 @@ export function TrendChart({ righe, righePrecedenti }: Props) {
             <XAxis dataKey="label" type="category" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} width={60} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
-            <Line type="monotone" dataKey="spese" name="Spese" stroke="hsl(var(--cassa-copper))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
-            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="hsl(var(--cassa-negative))" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            <Line type="monotone" dataKey="entrate" name="Entrate" stroke="var(--primary)" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            <Line type="monotone" dataKey="spese" name="Spese" stroke="var(--cassa-copper)" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
+            <Line type="monotone" dataKey="differenza" name="Differenza" stroke="var(--cassa-negative)" strokeWidth={2} dot={false} isAnimationActive={!reducedMotion} />
             {hasCompare && (
               <Line
                 type="monotone"
                 dataKey="entratePrecedente"
                 name="Entrate (anno precedente)"
-                stroke="hsl(var(--muted-foreground))"
+                stroke="var(--muted-foreground)"
                 strokeWidth={2}
                 strokeDasharray="5 4"
                 dot={false}

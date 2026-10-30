@@ -42,7 +42,7 @@ export function StatoIcona({
 }) {
   if (stato === 'seduta') {
     return (
-      <span className={cn(BASE, 'bg-[hsl(var(--cassa-positive))] text-white', className)}>
+      <span className={cn(BASE, 'bg-[var(--cassa-positive)] text-white', className)}>
         <Armchair className="h-5 w-5" />
       </span>
     )

@@ -98,10 +98,10 @@ export function PagamentoBreakdownChart({ righe }: Props) {
                   <Cell
                     key={f.nome}
                     fill={`url(#cassa-pay-grad-${i})`}
-                    stroke="hsl(var(--card))"
+                    stroke="var(--card)"
                     strokeWidth={1.5}
                     style={{
-                      filter: i === boundedActive ? 'drop-shadow(0 4px 8px hsl(var(--foreground) / 0.3))' : undefined,
+                      filter: i === boundedActive ? 'drop-shadow(0 4px 8px color-mix(in oklch, var(--foreground) 30%, transparent))' : undefined,
                       transition: reducedMotion ? undefined : 'filter 150ms ease',
                     }}
                   />

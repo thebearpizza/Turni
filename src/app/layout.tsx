@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono, Fraunces } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import { ThemeProvider } from '@/components/shared/ThemeProvider'
 import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
 import { SessionGuardian } from '@/components/shared/SessionGuardian'
@@ -9,12 +9,9 @@ import './globals.css'
 
 const geist = Geist({ subsets: ['latin'] })
 
-// Cassa-only typographic voice ("Ledger" design system, see globals.css
-// .cassa-display / .cassa-numeric) — loaded once here as CSS variables so
-// the fonts are only ever *applied* inside the .cassa-scoped subtree, never
-// changing Turni's default sans rendering elsewhere.
+// Geist Mono per importi, totali e intestazioni di colonna (design
+// Acciaio): esposto come variabile e usato da font-mono / .cassa-numeric.
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
-const fraunces = Fraunces({ subsets: ['latin'], weight: ['500', '600', '700'], variable: '--font-fraunces' })
 
 export const metadata: Metadata = {
   title: 'inTurno – Gestione Turni, Presenze e ODS',
@@ -44,7 +41,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="it" suppressHydrationWarning>
-      <body className={`${geist.className} ${geistMono.variable} ${fraunces.variable} antialiased overflow-x-hidden w-full max-w-full`}>
+      <body className={`${geist.className} ${geistMono.variable} antialiased overflow-x-hidden w-full max-w-full`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <SplashApertura />
           <SessionGuardian />

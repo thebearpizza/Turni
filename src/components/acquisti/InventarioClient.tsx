@@ -403,7 +403,7 @@ export function InventarioClient({ role, restaurants }: Props) {
                               <div key={m.id} className="flex items-center justify-between gap-2 text-xs border-b border-border/60 py-1.5 last:border-0">
                                 <div className="min-w-0">
                                   <p>
-                                    <span className={cn('cassa-numeric font-semibold', m.quantita > 0 ? 'text-[hsl(var(--cassa-positive))]' : 'text-[hsl(var(--cassa-negative))]')}>
+                                    <span className={cn('cassa-numeric font-semibold', m.quantita > 0 ? 'text-[var(--cassa-positive)]' : 'text-[var(--cassa-negative)]')}>
                                       {m.quantita > 0 ? '+' : ''}{m.quantita}
                                     </span>
                                     <span className="text-muted-foreground"> · {CAUSALE_LABELS[m.causale]}</span>

@@ -319,8 +319,8 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
               !verifica.confrontoDisponibile
                 ? 'border-border bg-secondary/50 text-muted-foreground'
                 : verifica.quadra
-                  ? 'border-[hsl(var(--cassa-positive))]/40 bg-[hsl(var(--cassa-positive-bg))] text-[hsl(var(--cassa-positive))]'
-                  : 'border-destructive/40 bg-[hsl(var(--cassa-negative-bg))] text-destructive'
+                  ? 'border-[var(--cassa-positive)]/40 bg-[var(--cassa-positive-bg)] text-[var(--cassa-positive)]'
+                  : 'border-destructive/40 bg-[var(--cassa-negative-bg)] text-destructive'
             )}
           >
             {verifica.quadra && verifica.confrontoDisponibile
@@ -358,7 +358,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
             <p className="text-sm">
               <span className="cassa-numeric font-medium">{selezionateCount}</span> di {righe.length} da importare
               {completamenti > 0 && (
-                <span className="text-[hsl(var(--cassa-copper))]"> · {completamenti} completano una prenotazione in coda</span>
+                <span className="text-[var(--cassa-copper)]"> · {completamenti} completano una prenotazione in coda</span>
               )}
               {doppioni > 0 && (
                 <span className="text-muted-foreground"> · {doppioni} già in agenda</span>
@@ -393,12 +393,12 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                         {r.bambini > 0 && <> (di cui <span className="cassa-numeric">{r.bambini}</span> bambini)</>}
                       </span>
                       {r.duplicato && (
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[hsl(var(--cassa-copper))]">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[var(--cassa-copper)]">
                           <Copy className="h-3 w-3 shrink-0" /> {r.duplicato}
                         </span>
                       )}
                       {r.completaLogId && (
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[hsl(var(--cassa-copper))]">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[var(--cassa-copper)]">
                           <Clock className="h-3 w-3 shrink-0" /> Era in coda senza orario: lo assegna questo import
                         </span>
                       )}
@@ -416,8 +416,8 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         )}
 
         {fileCompleto && codaSenzaRiscontro.length > 0 && (
-          <div className="space-y-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2">
-            <p className="flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))]">
+          <div className="space-y-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--cassa-copper)]">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span className="cassa-numeric">{codaSenzaRiscontro.length}</span> in coda ma non in questo export
             </p>

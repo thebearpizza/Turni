@@ -2,8 +2,8 @@
 // categorie, trend categorie nel tempo…) — verde/rame del design system più
 // toni terrosi coerenti, niente arcobaleno neon da dashboard generica.
 export const CASSA_CHART_COLORS = [
-  'hsl(var(--primary))',
-  'hsl(var(--cassa-copper))',
+  'var(--primary)',
+  'var(--cassa-copper)',
   '#8A6D3B',
   '#4A6670',
   '#7C5C4B',

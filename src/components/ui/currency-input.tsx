@@ -85,7 +85,7 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
   if (value === null && isReadOnly) {
     return (
       <div className={cn(
-        "flex h-9 w-full items-center rounded-md border border-input bg-muted px-3 py-1.5 text-base text-muted-foreground",
+        "flex h-11 w-full items-center rounded-md border border-input bg-muted px-3.5 py-2 font-mono text-base text-muted-foreground",
         className
       )}>
         —
@@ -107,7 +107,7 @@ export function CurrencyInput({ value, onChange, step = 1, min = 0, readOnly = f
         readOnly={isReadOnly}
         disabled={disabled}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-background pl-7 py-1.5 text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-11 w-full rounded-md border border-input bg-card pl-7 py-2 font-mono text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
           hideStepper ? "pr-2" : "pr-16",
           isReadOnly && "bg-muted text-muted-foreground cursor-default",
           className

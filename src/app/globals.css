@@ -2,207 +2,150 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Enterprise / Windows-style theme ─────────────────────────── */
+/* ── Design system "Acciaio" (handoff design_handoff_inturno) ──────────
+   Un'unica palette neutra per tutta l'app, chiaro e scuro (OLED). Le
+   aree si distinguono solo per il colore d'accento (--area): Turni blu,
+   Cassa teal, Acquisti corallo — applicato all'icona della sezione e
+   agli indicatori, mai a sfondi interi. L'azione primaria è "ink"
+   (quasi nero in chiaro, quasi bianco in scuro), non l'accento.
+   I token sono colori completi (oklch), non terne HSL: si usano come
+   var(--x) o tramite le utility Tailwind (bg-primary, text-ok...). */
 :root {
-  --background: 0 0% 99%;
-  --foreground: 220 13% 13%;
-  --card: 0 0% 100%;
-  --card-foreground: 220 13% 13%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 220 13% 13%;
-  --primary: 206 100% 42%;        /* Windows 11 blue #0078D4 */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 14% 96%;
-  --secondary-foreground: 220 13% 13%;
-  --muted: 220 14% 96%;
-  --muted-foreground: 220 9% 46%;
-  --accent: 220 14% 93%;
-  --accent-foreground: 220 13% 13%;
-  --destructive: 0 84% 58%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 13% 91%;
-  --input: 220 13% 91%;
-  --ring: 206 100% 42%;
-  --radius: 0.375rem;
+  --bg: oklch(0.975 0.01 250);
+  --surface: oklch(0.995 0.005 250);
+  --ink: oklch(0.2 0.01 250);
+  --ink-muted: oklch(0.47 0.01 250);
+  --line: oklch(0.9 0.01 250);
+  --line-strong: oklch(0.82 0.01 250);
+  --tint: oklch(0.945 0.01 250);
+
+  --turni: oklch(0.58 0.12 240);
+  --cassa: oklch(0.58 0.12 180);
+  --acquisti: oklch(0.58 0.12 30);
+  --area: var(--turni);
+
+  --ok: oklch(0.4 0.08 150);
+  --ok-tint: oklch(0.92 0.04 150);
+  --warn: oklch(0.42 0.08 75);
+  --warn-tint: oklch(0.93 0.045 75);
+  --neg: oklch(0.45 0.1 25);
+  --neg-strong: oklch(0.52 0.1 25);
+  --neg-tint: oklch(0.93 0.04 25);
+
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--surface);
+  --secondary: var(--tint);
+  --secondary-foreground: var(--ink);
+  --muted: var(--tint);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--tint);
+  --accent-foreground: var(--ink);
+  --destructive: var(--neg-strong);
+  --destructive-foreground: oklch(0.995 0.005 250);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--area);
+  --radius: 0.75rem; /* 12px: card, pulsanti e campi nei prototipi v2 */
+
+  /* Ombre: solo per ciò che galleggia (0 card col bordo, 1 toast e dock,
+     2 fogli e dialoghi). */
+  --shadow-1: 0 6px 20px -6px oklch(0.2 0.01 250 / 0.18), 0 1px 2px oklch(0.2 0.01 250 / 0.06);
+  --shadow-2: 0 24px 60px -12px oklch(0.2 0.01 250 / 0.28), 0 2px 6px oklch(0.2 0.01 250 / 0.08);
+
+  /* Compatibilità con i vecchi token di Cassa ("Ledger"): stessi nomi,
+     ora mappati sulla palette unica. */
+  --cassa-copper: var(--area);
+  --cassa-copper-foreground: var(--surface);
+  --cassa-positive: var(--ok);
+  --cassa-positive-bg: var(--ok-tint);
+  --cassa-negative: var(--neg);
+  --cassa-negative-bg: var(--neg-tint);
 }
 
 .dark {
-  --background: 240 5% 10%;    /* #18181b zinc-900 */
-  --foreground: 210 40% 98%;
-  --card: 240 4% 13%;          /* slightly lighter zinc */
-  --card-foreground: 210 40% 98%;
-  --popover: 240 4% 13%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 206 100% 50%;     /* Windows 11 blue — same brand, readable on dark bg */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 206 100% 50%;
+  --bg: oklch(0.13 0.01 250);
+  --surface: oklch(0.18 0.01 250);
+  --ink: oklch(0.95 0.01 250);
+  --ink-muted: oklch(0.7 0.01 250);
+  --line: oklch(0.26 0.01 250);
+  --line-strong: oklch(0.34 0.01 250);
+  --tint: oklch(0.22 0.01 250);
+
+  --turni: oklch(0.7 0.12 240);
+  --cassa: oklch(0.7 0.12 180);
+  --acquisti: oklch(0.7 0.12 30);
+
+  --ok: oklch(0.78 0.08 150);
+  --ok-tint: oklch(0.3 0.04 150);
+  --warn: oklch(0.8 0.08 75);
+  --warn-tint: oklch(0.3 0.04 75);
+  --neg: oklch(0.72 0.1 25);
+  --neg-strong: oklch(0.72 0.1 25);
+  --neg-tint: oklch(0.3 0.05 25);
+
+  --destructive-foreground: oklch(0.13 0.01 250);
+
+  --shadow-1: 0 6px 20px -6px oklch(0 0 0 / 0.6), 0 0 0 1px var(--line);
+  --shadow-2: 0 24px 60px -12px oklch(0 0 0 / 0.7), 0 0 0 1px var(--line);
 }
 
+/* Accento per area: le classi .cassa / .acquisti sono già messe dai
+   layout (e copiate su <html> da AreaTheme per i portali). */
+.cassa { --area: var(--cassa); }
+.acquisti { --area: var(--acquisti); }
+
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
 
-  /* Cassa-only tokens — only ever set inside .cassa, see below */
-  --color-cassa-copper: hsl(var(--cassa-copper));
-  --color-cassa-copper-foreground: hsl(var(--cassa-copper-foreground));
-  --color-cassa-positive: hsl(var(--cassa-positive));
-  --color-cassa-positive-bg: hsl(var(--cassa-positive-bg));
-  --color-cassa-negative: hsl(var(--cassa-negative));
-  --color-cassa-negative-bg: hsl(var(--cassa-negative-bg));
-}
+  --color-area: var(--area);
+  --color-turni: var(--turni);
+  --color-cassa: var(--cassa);
+  --color-acquisti: var(--acquisti);
+  --color-ok: var(--ok);
+  --color-ok-tint: var(--ok-tint);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-neg: var(--neg);
+  --color-neg-tint: var(--neg-tint);
+  --color-line-strong: var(--line-strong);
 
-/* ── Cassa app theme — "Ledger" ───────────────────────────────
-   Scoped under .cassa (mirrors the .dark pattern above) so every
-   shared shadcn primitive (Button/Card/Badge/Input/Select…) picks
-   up this palette automatically inside /cassa, with zero changes
-   to the primitive files and zero effect on the rest of Turni,
-   which never renders inside a .cassa subtree.
-   Warm ledger paper + pine green ("in the black") + copper wax-seal
-   accent for confirmed/stamped states + brick red for out-of-threshold
-   differences — deliberately not another blue corporate dashboard. */
-.cassa {
-  --background: 42 32% 95%;
-  --foreground: 150 18% 14%;
-  --card: 42 28% 97%;
-  --card-foreground: 150 18% 14%;
-  --popover: 42 28% 97%;
-  --popover-foreground: 150 18% 14%;
-  --primary: 152 45% 26%;
-  --primary-foreground: 42 32% 97%;
-  --secondary: 42 20% 90%;
-  --secondary-foreground: 150 18% 14%;
-  --muted: 42 20% 91%;
-  --muted-foreground: 150 8% 38%;
-  --accent: 42 24% 88%;
-  --accent-foreground: 150 18% 14%;
-  --destructive: 8 58% 42%;
-  --destructive-foreground: 42 32% 97%;
-  --border: 42 18% 82%;
-  --input: 42 18% 82%;
-  --ring: 152 45% 26%;
-  --radius: 0.5rem;
+  --color-cassa-copper: var(--cassa-copper);
+  --color-cassa-copper-foreground: var(--cassa-copper-foreground);
+  --color-cassa-positive: var(--cassa-positive);
+  --color-cassa-positive-bg: var(--cassa-positive-bg);
+  --color-cassa-negative: var(--cassa-negative);
+  --color-cassa-negative-bg: var(--cassa-negative-bg);
 
-  --cassa-copper: 18 55% 42%;
-  --cassa-copper-foreground: 42 32% 97%;
-  --cassa-positive: 152 45% 30%;
-  --cassa-positive-bg: 152 40% 92%;
-  --cassa-negative: 8 58% 42%;
-  --cassa-negative-bg: 8 55% 94%;
-}
-
-.cassa.dark, :is(.dark) .cassa {
-  --background: 150 14% 8%;
-  --foreground: 42 24% 92%;
-  --card: 150 12% 11%;
-  --card-foreground: 42 24% 92%;
-  --popover: 150 12% 11%;
-  --popover-foreground: 42 24% 92%;
-  --primary: 152 40% 46%;
-  --primary-foreground: 150 14% 8%;
-  --secondary: 150 10% 16%;
-  --secondary-foreground: 42 24% 92%;
-  --muted: 150 10% 15%;
-  --muted-foreground: 42 10% 62%;
-  --accent: 150 10% 18%;
-  --accent-foreground: 42 24% 92%;
-  --destructive: 8 55% 52%;
-  --destructive-foreground: 150 14% 8%;
-  --border: 150 10% 20%;
-  --input: 150 10% 20%;
-  --ring: 152 40% 46%;
-
-  --cassa-copper: 20 60% 55%;
-  --cassa-copper-foreground: 150 14% 8%;
-  --cassa-positive: 152 40% 50%;
-  --cassa-positive-bg: 152 30% 14%;
-  --cassa-negative: 8 55% 55%;
-  --cassa-negative-bg: 8 40% 16%;
-}
-
-/* ── Acquisti app theme ────────────────────────────────────────
-   Stessa identità visiva di Cassa (Ledger: sfondo caldo, tipografia
-   serif, bordo tratteggiato color rame — tutti scoped sotto .cassa,
-   vedi sotto), solo con l'accento principale ocra invece che verde:
-   ogni area ha il proprio colore, come Turni (blu, il default di
-   :root) e Cassa (verde, .cassa) — qui basta ridefinire i token di
-   colore, non l'intero motivo grafico. Applicata INSIEME a .cassa
-   sullo stesso elemento (non al posto di: vedi acquisti/layout.tsx),
-   quindi dichiarata dopo nel file — a parità di specificità (una sola
-   classe ciascuna) vince l'ultima regola per le proprietà che
-   ridefinisce entrambe, il resto (cassa-copper, i font cassa-display/
-   cassa-numeric) resta quello di .cassa. */
-.acquisti {
-  --background: 36 30% 96%;
-  --foreground: 25 20% 15%;
-  --card: 36 26% 97%;
-  --card-foreground: 25 20% 15%;
-  --popover: 36 26% 97%;
-  --popover-foreground: 25 20% 15%;
-  --primary: 35 68% 52%;
-  --primary-foreground: 36 30% 98%;
-  --secondary: 36 22% 90%;
-  --secondary-foreground: 25 20% 15%;
-  --muted: 36 18% 91%;
-  --muted-foreground: 25 10% 40%;
-  --accent: 36 22% 88%;
-  --accent-foreground: 25 20% 15%;
-  --destructive: 10 60% 45%;
-  --destructive-foreground: 36 30% 98%;
-  --border: 36 18% 83%;
-  --input: 36 18% 83%;
-  --ring: 35 68% 52%;
-}
-
-.acquisti.dark, :is(.dark) .acquisti {
-  --background: 30 12% 9%;
-  --foreground: 36 24% 92%;
-  --card: 30 10% 12%;
-  --card-foreground: 36 24% 92%;
-  --popover: 30 10% 12%;
-  --popover-foreground: 36 24% 92%;
-  --primary: 35 60% 58%;
-  --primary-foreground: 30 14% 8%;
-  --secondary: 30 10% 16%;
-  --secondary-foreground: 36 24% 92%;
-  --muted: 30 10% 15%;
-  --muted-foreground: 36 10% 62%;
-  --accent: 30 10% 18%;
-  --accent-foreground: 36 24% 92%;
-  --destructive: 8 55% 52%;
-  --destructive-foreground: 30 14% 8%;
-  --border: 30 10% 20%;
-  --input: 30 10% 20%;
-  --ring: 35 60% 58%;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  --shadow-float: var(--shadow-1);
+  --shadow-sheet: var(--shadow-2);
 }
 
 /* Scoped under .cassa — vedi il commento in app/layout.tsx: i font
@@ -212,12 +155,16 @@
    sidebar di Turni per il direttore, vedi app/(manager)/fatture) si
    ritroverebbe con la tipografia di Cassa anche se il resto della
    pagina usa i colori di Turni — l'obiettivo lì è l'esatto contrario. */
-.cassa .cassa-display {
-  font-family: var(--font-fraunces), ui-serif, Georgia, serif;
-  font-feature-settings: "ss01";
+/* Niente serif nel design Acciaio: i titoli "display" sono Geist come il
+   resto, con il taglio dei titoli (600, tracking stretto). */
+.cassa-display {
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-.cassa .cassa-numeric {
+/* Importi, totali e intestazioni di colonna: Geist Mono a cifre
+   tabulari, in tutta l'app (non più solo dentro Cassa). */
+.cassa-numeric {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
 }
@@ -231,17 +178,9 @@
    non li raggiungerebbe. */
 .cassa .cassa-perforated-top,
 .cassa.cassa-perforated-top {
-  border-top: none;
-  background-image: repeating-linear-gradient(
-    90deg,
-    hsl(var(--cassa-copper) / 0.55) 0,
-    hsl(var(--cassa-copper) / 0.55) 6px,
-    transparent 6px,
-    transparent 13px
-  );
-  background-size: 13px 2px;
-  background-repeat: repeat-x;
-  background-position: top left;
+  /* Il bordo "a ricevuta" del vecchio tema Ledger non fa parte del design
+     Acciaio: la classe resta (è usata in molti punti) ma non disegna più
+     nulla. */
   /* Nessun padding-top qui apposta: il tratteggio è solo un background,
      non ha bisogno di spazio proprio, e questa classe finisce spesso
      sullo STESSO elemento di un p-6/pt-* del chiamante (es. DialogContent,
@@ -274,7 +213,7 @@
 }
 
 * {
-  border-color: hsl(var(--border));
+  border-color: var(--border);
 }
 
 /* ── DockNav — foglio di navigazione (sostituisce il drawer laterale) ──
@@ -320,7 +259,7 @@
      farebbe apparire semitrasparente rispetto alle altre voci
      trascinate. Il fantasma deve sempre essere opaco, come tutte le
      altre. */
-  background-color: hsl(var(--card)) !important;
+  background-color: var(--card) !important;
 }
 /* In modalità riordino il tocco prolungato su un'icona non deve far
    comparire menu contestuale/selezione di testo/evidenziazione nativa
@@ -347,8 +286,8 @@ html {
 }
 
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: var(--background);
+  color: var(--foreground);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   overflow-x: hidden;
   overscroll-behavior-x: none;
@@ -365,9 +304,9 @@ body {
   animation: shimmer 1.6s ease-in-out infinite;
   background: linear-gradient(
     90deg,
-    hsl(var(--muted))         0%,
-    hsl(var(--accent) / 0.7) 50%,
-    hsl(var(--muted))        100%
+    var(--muted)         0%,
+    color-mix(in oklch, var(--accent) 70%, transparent) 50%,
+    var(--muted)        100%
   );
   background-size: 200% 100%;
 }
@@ -415,4 +354,37 @@ html[data-splash="no"] #splash-apertura { display: none; }
 .logo-giro-inverso { animation: splash-giro-inverso 12s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .logo-giro, .logo-giro-inverso { animation: none; }
+}
+
+/* ── Movimento del design Acciaio ───────────────────────────────────────
+   swapin: ingresso di form, menu, tastierino e modali (680ms, blur 12px →
+   0, leggera salita e scala); swapout: uscita (320ms). inrise: ingressi a
+   cascata delle liste. Con "Riduci movimento" niente animazioni. */
+@keyframes swapin {
+  0% { opacity: 0; filter: blur(12px); transform: translateY(16px) scale(.98); }
+  70% { opacity: 1; filter: blur(0); transform: translateY(-2px) scale(1.003); }
+  100% { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes swapout {
+  0% { opacity: 1; filter: blur(0); transform: none; }
+  100% { opacity: 0; filter: blur(12px); transform: translateY(-8px) scale(.98); }
+}
+@keyframes inrise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* Varianti per i dialoghi centrati, che hanno già translate(-50%,-50%). */
+@keyframes swapin-centro {
+  0% { opacity: 0; filter: blur(12px); transform: translate(-50%, calc(-50% + 16px)) scale(.98); }
+  70% { opacity: 1; filter: blur(0); transform: translate(-50%, calc(-50% - 2px)) scale(1.003); }
+  100% { opacity: 1; filter: blur(0); transform: translate(-50%, -50%); }
+}
+@keyframes swapout-centro {
+  0% { opacity: 1; filter: blur(0); transform: translate(-50%, -50%); }
+  100% { opacity: 0; filter: blur(12px); transform: translate(-50%, calc(-50% - 8px)) scale(.98); }
+}
+.anim-swapin { animation: swapin 680ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-swapout { animation: swapout 320ms cubic-bezier(0.4, 0, 1, 1) both; }
+.anim-inrise { animation: inrise 600ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.dialog-swap[data-state="open"] { animation: swapin-centro 680ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.dialog-swap[data-state="closed"] { animation: swapout-centro 320ms cubic-bezier(0.4, 0, 1, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .anim-swapin, .anim-swapout, .anim-inrise, .dialog-swap[data-state] { animation: none; }
 }

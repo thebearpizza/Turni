@@ -254,11 +254,11 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
         }}
       >
         {major && (
-          <span className="mb-0.5 text-[11px] font-bold whitespace-nowrap" style={{ color: 'hsl(var(--primary))' }}>{n}</span>
+          <span className="mb-0.5 text-[11px] font-bold whitespace-nowrap" style={{ color: 'var(--primary)' }}>{n}</span>
         )}
         <div
           className={cn('rounded-full', major ? 'h-7 w-[3px]' : 'h-4 w-[2px]')}
-          style={{ background: major ? 'hsl(var(--primary))' : 'color-mix(in srgb, hsl(var(--primary)) 40%, transparent)' }}
+          style={{ background: major ? 'var(--primary)' : 'color-mix(in srgb, var(--primary) 40%, transparent)' }}
         />
       </div>
     )
@@ -282,10 +282,10 @@ export function GiacenzaRuler({ value, unit, min = 0, max = Infinity, onCommit }
         <div ref={stripRef} className="absolute inset-x-0 top-2 h-11" style={{ willChange: 'transform' }}>{ticks}</div>
         <div
           className="absolute bottom-1.5 left-1/2 h-0 w-0 -translate-x-1/2 border-x-[6px] border-t-[7px] border-x-transparent"
-          style={{ borderTopColor: 'hsl(var(--primary))', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.6))' }}
+          style={{ borderTopColor: 'var(--primary)', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.6))' }}
         />
       </div>
-      <p className="cassa-numeric mt-2 text-center text-3xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
+      <p className="cassa-numeric mt-2 text-center text-3xl font-bold" style={{ color: 'var(--primary)' }}>
         <span ref={numberRef}>{value}</span>{unit && <span className="ml-1.5 text-base font-normal text-muted-foreground">{unit}</span>}
       </p>
     </div>

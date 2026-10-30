@@ -14,7 +14,8 @@ export interface ToastItem {
   variant?: "default" | "destructive"
 }
 
-const DURATION_MS = 5000
+// Regola unica del design: ogni toast resta 4 secondi.
+const DURATION_MS = 4000
 
 let toasts: ToastItem[] = []
 const listeners = new Set<() => void>()

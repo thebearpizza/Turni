@@ -51,13 +51,13 @@ function CandleShape(props: unknown) {
   const { open, close, high, low } = payload
   if (high === low) {
     // Nessuna variazione nel mese: un solo trattino orizzontale.
-    return <line x1={x} x2={x + width} y1={y + height / 2} y2={y + height / 2} stroke="hsl(var(--muted-foreground))" strokeWidth={2} />
+    return <line x1={x} x2={x + width} y1={y + height / 2} y2={y + height / 2} stroke="var(--muted-foreground)" strokeWidth={2} />
   }
   const priceToY = (price: number) => y + height * (high - price) / (high - low)
   const bodyTop = priceToY(Math.max(open, close))
   const bodyBottom = priceToY(Math.min(open, close))
   const salito = close >= open
-  const colore = salito ? 'hsl(var(--cassa-positive))' : '#9C4B3D'
+  const colore = salito ? 'var(--cassa-positive)' : '#9C4B3D'
   const cx = x + width / 2
   return (
     <g>
@@ -115,7 +115,7 @@ export function ArticoloPrezzoChart({ storico, unitaMisura }: Props) {
               <XAxis dataKey="label" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} width={50} domain={['auto', 'auto']} />
               <Tooltip formatter={(v: unknown) => [`€ ${Number(v).toFixed(2)}${unitaMisura ? ` / ${unitaMisura}` : ''}`, 'Prezzo']} labelFormatter={l => l} />
-              <Line type="stepAfter" dataKey="prezzo" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={!reducedMotion} />
+              <Line type="stepAfter" dataKey="prezzo" stroke="var(--primary)" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={!reducedMotion} />
             </LineChart>
           ) : (
             <ComposedChart data={candele} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>

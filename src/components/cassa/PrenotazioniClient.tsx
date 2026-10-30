@@ -195,7 +195,7 @@ function RigaPrenotazione({
             )}
             {dettaglioBambini(p) && <span>· {dettaglioBambini(p)}</span>}
             {p.sconto_percentuale != null && (
-              <span className="font-medium text-[hsl(var(--cassa-copper))]">
+              <span className="font-medium text-[var(--cassa-copper)]">
                 −{p.sconto_percentuale}% di sconto
               </span>
             )}
@@ -678,7 +678,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
           <button
             type="button"
             onClick={() => setRiepilogoAperto(true)}
-            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--cassa-copper))] hover:underline"
+            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--cassa-copper)] hover:underline"
           >
             <Clock className="h-3.5 w-3.5 shrink-0" />
             <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
@@ -794,14 +794,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         <button
           type="button"
           onClick={() => setServizio(altroServizio)}
-          className="flex w-full items-center gap-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2.5 text-left text-sm"
+          className="flex w-full items-center gap-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2.5 text-left text-sm"
         >
-          <Info className="h-4 w-4 shrink-0 text-[hsl(var(--cassa-copper))]" />
+          <Info className="h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
           <span className="flex-1">
             Nessuna prenotazione a {servizio}. Ce ne sono{' '}
             <span className="cassa-numeric font-medium">{nAltroServizio}</span> a {altroServizio}.
           </span>
-          <span className="shrink-0 font-medium text-[hsl(var(--cassa-copper))]">
+          <span className="shrink-0 font-medium text-[var(--cassa-copper)]">
             Vai a {altroServizio}
           </span>
         </button>

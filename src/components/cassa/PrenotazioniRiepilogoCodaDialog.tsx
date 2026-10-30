@@ -162,11 +162,11 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
             <button
               type="button"
               onClick={() => setGiorno(dataPiuVicina)}
-              className="flex w-full items-center gap-2 rounded-md border border-[hsl(var(--cassa-copper))]/40 bg-[hsl(var(--cassa-copper))]/10 px-3 py-2.5 text-left text-sm"
+              className="flex w-full items-center gap-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2.5 text-left text-sm"
             >
-              <Clock className="h-4 w-4 shrink-0 text-[hsl(var(--cassa-copper))]" />
+              <Clock className="h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
               <span className="flex-1">Nessuna in coda in questo giorno.</span>
-              <span className="shrink-0 font-medium text-[hsl(var(--cassa-copper))]">
+              <span className="shrink-0 font-medium text-[var(--cassa-copper)]">
                 Vai al {etichettaGiorno(dataPiuVicina)}
               </span>
             </button>
@@ -177,7 +177,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
           <div className="space-y-2">
             {delGiorno.map(({ logId, voce }) => (
               <div key={logId} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--cassa-copper))]" />
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
                 <div className="min-w-0 flex-1">
                   <div className="break-words font-medium leading-tight">
                     {[voce.nome, voce.cognome].filter(Boolean).join(' ')}

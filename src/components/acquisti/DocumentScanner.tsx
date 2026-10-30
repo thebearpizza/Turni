@@ -177,7 +177,7 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
           viewBox={`0 0 ${dimensioni.w * scala} ${dimensioni.h * scala}`}
           style={{ touchAction: 'none' }}
         >
-          <polygon points={puntiPoligono} fill="hsl(var(--primary) / 0.15)" stroke="hsl(var(--primary))" strokeWidth={2} />
+          <polygon points={puntiPoligono} fill="color-mix(in oklch, var(--primary) 15%, transparent)" stroke="var(--primary)" strokeWidth={2} />
           {quad.map((p, i) => (
             <g key={i}>
               {/* Area di tocco reale: invisibile e più larga del pallino
@@ -195,7 +195,7 @@ export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
                 cx={p.x * scala}
                 cy={p.y * scala}
                 r={raggioPallino}
-                fill="hsl(var(--primary))"
+                fill="var(--primary)"
                 stroke="white"
                 strokeWidth={2}
                 pointerEvents="none"

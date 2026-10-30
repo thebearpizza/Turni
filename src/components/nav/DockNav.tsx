@@ -37,7 +37,7 @@ interface DockNavProps {
   /** Voci nell'ordine predefinito — MAI includere "Home", gestita a parte. */
   items: DockNavItem[]
   userId: string
-  /** Colore d'accento CSS (qualsiasi valore valido, incluso `hsl(var(--primary))`
+  /** Colore d'accento CSS (qualsiasi valore valido, incluso `var(--primary)`
    *  per ereditare il tema già scopato per area — vedi globals.css .cassa/.acquisti). */
   tone?: string
   /** Se presente, mostra i pulsanti Home (in alto a destra e nel piede del foglio). */
@@ -82,7 +82,7 @@ function persistOrder(userId: string, area: string, order: string[]) {
   try { localStorage.setItem(`dock-order:${userId}:${area}`, JSON.stringify(order)) } catch { /* storage piena/negata: l'ordine resta solo in memoria per questa sessione */ }
 }
 
-export function DockNav({ area, items, userId, tone = 'hsl(var(--primary))', homeHref, areaLinks, onLogout }: DockNavProps) {
+export function DockNav({ area, items, userId, tone = 'var(--primary)', homeHref, areaLinks, onLogout }: DockNavProps) {
   const pathname = usePathname()
   const router = useRouter()
   const itemByKey = useMemo(() => new Map(items.map(it => [it.key, it])), [items])

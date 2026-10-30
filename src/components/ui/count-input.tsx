@@ -82,7 +82,7 @@ export function CountInput({ value, onChange, step = 1, min = 0, readOnly = fals
         readOnly={isReadOnly}
         disabled={disabled}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-background px-3 pr-16 py-1.5 text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-11 w-full rounded-md border border-input bg-card px-3.5 pr-16 py-2 font-mono text-base tabular-nums ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50",
           isReadOnly && "bg-muted text-muted-foreground cursor-default",
           className
         )}
