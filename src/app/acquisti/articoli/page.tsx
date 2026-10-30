@@ -17,8 +17,8 @@ export default async function ArticoliPage() {
   const { data: fornitori } = await supabase.from('fornitori').select('id, nome').order('nome')
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Articoli</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Articoli</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Catalogo articoli per fornitore, con andamento prezzo.</p>
       <ArticoliClient fornitori={fornitori ?? []} canEdit={profile.role !== 'cassiere'} />
     </div>

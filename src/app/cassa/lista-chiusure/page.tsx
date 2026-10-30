@@ -20,8 +20,8 @@ export default async function ListaChiusurePage() {
       : { data: null }
 
     return (
-      <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-        <h1 className="cassa-display text-2xl">Lista Chiusure</h1>
+      <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+        <h1 className="titolo-pagina">Lista Chiusure</h1>
         <p className="text-muted-foreground text-sm mt-2 mb-6">Chiusure cassa confermate del tuo locale, per mese.</p>
         <ListaChiusureClient restaurants={restaurant ? [restaurant] : []} role="cassiere" />
       </div>
@@ -34,8 +34,8 @@ export default async function ListaChiusurePage() {
     .order('name')
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Lista Chiusure</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Lista Chiusure</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Chiusure cassa confermate, per mese e ristorante.</p>
       <ListaChiusureClient restaurants={restaurants ?? []} role="manager" />
     </div>

@@ -276,7 +276,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Ristoranti</h1>
+          <h1 className="titolo-pagina">Ristoranti</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{restaurants.length} ristoranti</p>
         </div>
         <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>

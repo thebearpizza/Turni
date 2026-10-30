@@ -421,7 +421,7 @@ export function PresenzeClient({
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Presenze</h1>
+          <h1 className="titolo-pagina">Presenze</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{presenze.length} timbrature</p>
         </div>
         <div className="flex items-center gap-2">

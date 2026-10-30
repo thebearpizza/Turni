@@ -99,7 +99,7 @@ export default async function PresenzePage() {
   if (presenzeError) console.error('[presenze] query error:', presenzeError.message)
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       {canSeeFallback && (
         <FallbackApprovalSection initialPending={pendingFallback} />
       )}

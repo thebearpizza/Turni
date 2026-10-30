@@ -22,8 +22,8 @@ export default async function FatturePage() {
   if (profile.role === 'manager') {
     const { data: restaurants } = await supabase.from('restaurants').select('id, name').order('name')
     return (
-      <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-        <h1 className="cassa-display text-2xl">Fatture</h1>
+      <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+        <h1 className="titolo-pagina">Fatture</h1>
         <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate, per mese e ristorante.</p>
         <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
       </div>
@@ -35,8 +35,8 @@ export default async function FatturePage() {
     : { data: null }
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Fatture</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Fatture</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
       <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
     </div>

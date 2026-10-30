@@ -17,7 +17,7 @@ export default async function ReportPage() {
     .order('name')
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       <ReportClient
         restaurants={restaurants ?? []}
         currentUserRole={profile?.role ?? 'capo_servizio'}

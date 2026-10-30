@@ -276,7 +276,7 @@ export function DipendentiClient({
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Dipendenti</h1>
+          <h1 className="titolo-pagina">Dipendenti</h1>
           <p className="text-muted-foreground text-sm mt-0.5">{dipendenti.length} utenti</p>
         </div>
         {canManageUsers && (

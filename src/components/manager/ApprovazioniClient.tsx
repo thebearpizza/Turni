@@ -98,7 +98,7 @@ export function ApprovazioniClient({ initialRequests }: Props) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Approvazioni</h1>
+          <h1 className="titolo-pagina">Approvazioni</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             {requests.length} richieste in attesa
           </p>

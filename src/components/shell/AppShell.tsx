@@ -396,7 +396,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
 
       {banner}
 
-      <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+104px)]">
+      <main data-titolo-shell={cfg.intestazioneLocale ? undefined : '1'} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+104px)]">
         {children}
       </main>
 

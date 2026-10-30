@@ -204,7 +204,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Assenze</h1>
+        <h1 className="titolo-pagina">Assenze</h1>
         {canEdit && (
           <Button onClick={openCreate} size="sm">
             <Plus className="w-4 h-4" /> Nuova Assenza

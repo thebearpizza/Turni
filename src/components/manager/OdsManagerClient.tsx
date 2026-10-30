@@ -1,25 +1,20 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { createOdsTask } from '@/app/actions/ods'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, User, Users, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { DEPARTMENTS, ODS_TYPE_LABELS, ODS_DAYS_IT } from '@/types'
 import { LoadingDots } from '@/components/shared/LoadingDots'
-import type { OdsTask, OdsCompletion, OdsTaskType, Department } from '@/types'
+import type { OdsTask, OdsCompletion, OdsTaskType } from '@/types'
 
 const TZ = 'Europe/Rome'
 
@@ -39,13 +34,6 @@ interface Props {
   currentDepartment:  string | null
   currentRestaurantId: string | null
   currentIsDirettore?: boolean
-}
-
-const TYPE_BADGE_CLASS: Record<OdsTaskType, string> = {
-  quotidiana:    'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800',
-  settimanale:   'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800',
-  bisettimanale: 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/30 dark:text-cyan-400 dark:border-cyan-800',
-  straordinaria: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800',
 }
 
 export function OdsManagerClient({
@@ -177,138 +165,114 @@ export function OdsManagerClient({
   const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-semibold tracking-tight">Ordini di Servizio</h1>
-        <Button
-          size="sm"
-          onClick={() => { resetForm(); setShowForm(true) }}
-          disabled={isPending}
-          title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}
-        >
-          <Plus className="w-4 h-4" /> Nuovo Ordine
-        </Button>
-      </div>
+    <div className="flex flex-col gap-3">
+      {/* Titolo grande con avanzamento di oggi (capo servizio e direttore
+          hanno l'intestazione del locale; il manager ha "ODS" nel guscio). */}
+      {(() => {
+        const diOggi = filteredTasks.filter(t => t.type === 'quotidiana' || t.type === 'straordinaria' || t.recurrence_days.some(d => d.toLowerCase() === todayName))
+        const fatti = diOggi.filter(t => (completionMap[t.id] ?? []).length > 0).length
+        return (
+          <div className="flex flex-col gap-3 px-1">
+            <div className="flex items-baseline justify-between">
+              <h1 className="text-[28px] font-semibold tracking-[-0.8px]">
+                {isManager ? 'Ordini di servizio' : `ODS${deptLocked && currentDepartment ? ` ${currentDepartment.toLowerCase()}` : ''}`}
+              </h1>
+              <span className="font-mono text-sm font-medium text-muted-foreground">{fatti}/{diOggi.length}</span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-border">
+              <div className="h-1 bg-turni transition-[width] duration-500" style={{ width: diOggi.length ? `${(fatti / diOggi.length) * 100}%` : '0%' }} />
+            </div>
+          </div>
+        )
+      })()}
 
-      {/* Restaurant filter — manager only */}
       {isManager && restaurants.length > 0 && (
-        <div className="mb-4">
-          <RestaurantFilter
-            restaurants={restaurants}
-            value={restFilter}
-            onChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
-          />
+        <RestaurantFilter
+          restaurants={restaurants}
+          value={restFilter}
+          onChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
+        />
+      )}
+
+      {allDepts.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {['tutti', ...allDepts].map(dept => (
+            <button
+              key={dept}
+              onClick={() => setDeptFilter(dept)}
+              className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium capitalize transition-colors active:scale-[0.97] ${
+                deptFilter === dept ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
+              }`}
+            >
+              {dept === 'tutti' ? 'Tutti' : dept}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Department filter pills */}
-      <div className="flex gap-1.5 flex-wrap mb-5">
-        {['tutti', ...allDepts].map(dept => (
-          <button
-            key={dept}
-            onClick={() => setDeptFilter(dept)}
-            className={`text-xs px-2.5 py-1 rounded-sm border transition-colors capitalize ${
-              deptFilter === dept
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
-            }`}
-          >
-            {dept === 'tutti' ? 'Tutti i reparti' : dept}
-          </button>
-        ))}
-      </div>
-
-      {/* Task list */}
       {filteredTasks.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Nessun ordine di servizio
-          </CardContent>
-        </Card>
+        <div className="rounded-[14px] border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">Nessun ordine di servizio</div>
       ) : (
-        <div className="space-y-2">
-          <AnimatePresence initial={false}>
+        <div className="flex flex-col gap-2">
           {filteredTasks.map((task, i) => {
             const taskCompletions = completionMap[task.id] ?? []
             const isVisibleToday =
               task.type === 'quotidiana' || task.type === 'straordinaria' ||
               task.recurrence_days.some(d => d.toLowerCase() === todayName)
-
+            const fatto = taskCompletions.length > 0
+            const ultimo = taskCompletions[taskCompletions.length - 1]
+            const chi = fatto
+              ? `${ultimo?.profile?.full_name ?? 'Qualcuno'}${ultimo ? ` · ${formatInTimeZone(new Date(ultimo.completed_at), TZ, 'HH:mm')}` : ''}${taskCompletions.length > 1 ? ` e altri ${taskCompletions.length - 1}` : ''}`
+              : task.assignee
+                ? task.assignee.full_name
+                : task.type === 'straordinaria' ? 'Straordinario · da assegnare'
+                : `Tutto il reparto ${task.department.toLowerCase()} · ${task.type === 'quotidiana' ? 'quotidiano' : task.recurrence_days.join(', ')}`
             return (
-              <motion.div
+              <div
                 key={task.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}
-                transition={{ duration: 0.2, delay: i * 0.03 }}
-                className={`bg-card border border-border rounded-sm px-4 py-3 flex items-start gap-3 ${
-                  !isVisibleToday ? 'opacity-50' : ''
-                }`}
+                className={`anim-inrise flex flex-col gap-2 rounded-[12px] border border-border bg-card px-3.5 py-3 ${!isVisibleToday ? 'opacity-50' : ''}`}
+                style={{ animationDelay: `${Math.min(i, 10) * 70}ms` }}
               >
-                {/* Completion indicator */}
-                <div className={`mt-0.5 w-4 h-4 rounded-sm border shrink-0 flex items-center justify-center ${
-                  taskCompletions.length > 0
-                    ? 'bg-emerald-500 border-emerald-500'
-                    : 'border-input bg-background'
-                }`}>
-                  {taskCompletions.length > 0 && <Check className="w-2.5 h-2.5 text-white" />}
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-[15px] font-medium leading-snug">{task.title}</span>
+                  <span className={`flex-none rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.04em] ${
+                    fatto ? 'bg-ok-tint text-ok' : !isVisibleToday ? 'bg-secondary text-muted-foreground' : 'bg-secondary text-muted-foreground'
+                  }`}>
+                    {fatto ? 'Fatto' : isVisibleToday ? 'Da fare' : 'Non oggi'}
+                  </span>
                 </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                    <span className="text-sm font-medium text-foreground leading-snug">
-                      {task.title}
-                    </span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-sm border font-medium whitespace-nowrap ${TYPE_BADGE_CLASS[task.type]}`}>
-                      {ODS_TYPE_LABELS[task.type]}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 h-auto rounded-sm capitalize">
-                      {task.department}
-                    </Badge>
-                  </div>
-
-                  {/* Assignee or days */}
-                  {task.assignee ? (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <User className="w-3 h-3" /> {task.assignee.full_name}
-                    </p>
-                  ) : (task.type === 'settimanale' || task.type === 'bisettimanale') && task.recurrence_days.length > 0 ? (
-                    <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                      {task.recurrence_days.join(', ')}
-                    </p>
-                  ) : null}
-
-                  {/* Completions count — clickable */}
-                  {taskCompletions.length > 0 && (
-                    <button
-                      onClick={() => setViewingTask(task)}
-                      className="text-xs text-muted-foreground/70 hover:text-muted-foreground mt-0.5 flex items-center gap-1"
-                    >
-                      <Users className="w-3 h-3" />
-                      Completato da {taskCompletions.length}{' '}
-                      {taskCompletions.length === 1 ? 'persona' : 'persone'}
-                    </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => fatto && setViewingTask(task)}
+                    className="min-w-0 flex-1 truncate text-left text-[13px] text-muted-foreground"
+                  >
+                    {chi}
+                  </button>
+                  {(isManager || isDirettore) && (
+                    <span className="flex-none text-[11px] font-medium uppercase tracking-[.04em] text-muted-foreground">{task.department}</span>
+                  )}
+                  {canDelete(task) && (
+                    <button type="button" onClick={() => handleDelete(task.id)} className="flex-none text-xs font-semibold text-neg active:scale-[0.97]">Elimina</button>
                   )}
                 </div>
-
-                {/* Delete */}
-                {canDelete(task) && (
-                  <Button
-                    variant="ghost" size="icon"
-                    onClick={() => handleDelete(task.id)}
-                    className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
-              </motion.div>
+              </div>
             )
           })}
-          </AnimatePresence>
         </div>
       )}
+
+      <div className="sticky bottom-0 -mx-1 bg-gradient-to-t from-background via-background to-transparent px-1 pb-1 pt-3">
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={() => { resetForm(); setShowForm(true) }}
+          disabled={isPending}
+          title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}
+        >
+          + Nuovo ordine di servizio
+        </Button>
+      </div>
 
       {/* ── Create modal ───────────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={setShowForm}>

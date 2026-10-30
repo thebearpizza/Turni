@@ -17,8 +17,8 @@ export default async function ProgressivoBustePage() {
     .order('name')
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Progressivo Buste</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Progressivo Buste</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Contanti per banca, per locale e periodo.</p>
       <ProgressivoBusteClient restaurants={restaurants ?? []} />
     </div>

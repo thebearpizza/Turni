@@ -399,3 +399,10 @@ html[data-splash="no"] #splash-apertura { display: none; }
 }
 .anim-campanella { animation: campanella 900ms ease-in-out 400ms 2 both; }
 @media (prefers-reduced-motion: reduce) { .anim-campanella { animation: none; } }
+
+/* Titolo grande delle pagine (28px, design). Quando l'intestazione del
+   guscio mostra già il nome della sezione (manager, cassiere…) il titolo
+   della pagina sarebbe un doppione e si nasconde; resta per chi ha
+   l'intestazione del locale (capo servizio, direttore). */
+.titolo-pagina { font-size: 28px; font-weight: 600; letter-spacing: -0.8px; line-height: 1.15; }
+[data-titolo-shell] .titolo-pagina { display: none; }

@@ -51,7 +51,7 @@ export default async function ApprovazioniPage() {
   if (requestsError) console.error('[approvazioni] query error:', requestsError.message)
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       {canSeeFallback && (
         <FallbackApprovalSection initialPending={pendingFallback} />
       )}

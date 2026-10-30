@@ -75,7 +75,7 @@ export default async function OdsPage() {
     : rawCompletions
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       <OdsManagerClient
         initialTasks={(rawTasks as unknown as import('@/types').OdsTask[]) ?? []}
         completions={(completions ?? []) as unknown as (import('@/types').OdsCompletion & { profile?: { id: string; full_name: string } | null })[]}

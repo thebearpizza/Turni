@@ -707,7 +707,7 @@ export function TurniManagerClient({
       {/* Header — i tasti vanno su una riga propria sotto il titolo su
           mobile, senza mai sforare la larghezza dello schermo */}
       <div className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight mb-3">Gestione Turni</h1>
+        <h1 className="titolo-pagina mb-3">Gestione Turni</h1>
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
             <CalendarRange className="w-4 h-4" /> Turni Fissi

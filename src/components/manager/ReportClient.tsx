@@ -515,7 +515,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Report Excel</h1>
+        <h1 className="titolo-pagina">Report Excel</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Esporta presenze e ore lavorate</p>
       </div>
 

@@ -14,8 +14,8 @@ export default async function FornitoriPage() {
   if (!profile) redirect('/login')
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Fornitori</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Fornitori</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Anagrafica fornitori, fatture e catalogo articoli.</p>
       <FornitoriClient canEdit={profile.role === 'manager'} />
     </div>

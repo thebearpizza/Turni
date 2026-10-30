@@ -50,7 +50,7 @@ export default async function AssenzePage() {
   if (absencesError) console.error('[assenze] query error:', absencesError.message)
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       <AssenzeClient
         initialAbsences={absences ?? []}
         restaurants={restaurants ?? []}

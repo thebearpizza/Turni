@@ -661,7 +661,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   if (restaurants.length === 0) {
     return (
       <div className="mx-auto max-w-3xl p-4 lg:p-8">
-        <h1 className="cassa-display text-2xl">Prenotazioni</h1>
+        <h1 className="titolo-pagina">Prenotazioni</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           Nessun locale ha ancora un libro visite collegato.
         </p>
@@ -684,7 +684,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
             <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
           </button>
         )}
-        <h1 className="cassa-display text-2xl">Prenotazioni</h1>
+        <h1 className="titolo-pagina">Prenotazioni</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           TheFork e Restoo in un&apos;unica agenda di servizio.
         </p>

@@ -41,7 +41,7 @@ export default async function DipendentiPage({
   const { data: dipendenti } = await query
 
   return (
-    <div className="p-6 lg:p-8">
+    <div className="px-4 pt-1 pb-4 lg:px-8">
       <DipendentiClient
         key={restaurantIdParam ?? 'tutti'}
         initialDipendenti={dipendenti ?? []}

@@ -461,7 +461,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="cassa-display text-2xl">Chiusura Cassa</h1>
+          <h1 className="titolo-pagina">Chiusura Cassa</h1>
           <p className="text-muted-foreground text-sm mt-1">Fase {fase} di 3</p>
         </div>
         {existing && (

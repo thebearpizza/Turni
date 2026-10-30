@@ -18,8 +18,8 @@ export default async function ApprovazioniCassaPage() {
     .order('created_at')
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <h1 className="cassa-display text-2xl">Approvazioni Cassa</h1>
+    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+      <h1 className="titolo-pagina">Approvazioni Cassa</h1>
       <p className="text-muted-foreground text-sm mt-2 mb-6">Richieste di modifica alle chiusure già confermate.</p>
       <ModificheApprovalSection initialPending={(data ?? []) as unknown as PendingModifica[]} />
     </div>
