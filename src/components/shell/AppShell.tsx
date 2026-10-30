@@ -16,6 +16,7 @@ import { LogoAnimato } from '@/components/shared/LogoAnimato'
 import type { AppNotification } from '@/types'
 import { NAVIGAZIONE, trovaPosizione, type Area, type IconaChiave, type Ruolo, type Sezione } from './navigazione'
 import { useContatori } from './useContatori'
+import { TelegramLinkButton } from '@/components/manager/TelegramLinkButton'
 
 // Guscio comune del design Acciaio: intestazione (titolo e sottotitolo,
 // assistente AI per il manager, campanella con batacchio, profilo con QR
@@ -69,6 +70,9 @@ function useFuori(aperto: boolean, chiudi: () => void, refs: React.RefObject<HTM
     const h = (e: PointerEvent) => {
       const t = e.target as Node
       if (refs.some(r => r.current?.contains(t))) return
+      // Dialoghi e menu aperti dal pannello (es. collegamento Telegram)
+      // vivono in un portale: un tocco lì non è "fuori".
+      if ((t as Element).closest?.('[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper]')) return
       chiudi()
     }
     const id = setTimeout(() => window.addEventListener('pointerdown', h, true), 0)
@@ -145,9 +149,9 @@ function Notifiche({ onClose, uscita }: { onClose: () => void; uscita: boolean }
   )
 }
 
-function Profilo({ nome, descrizione, ristoranti, uscita, voci, onEsci, onVoce }: {
+function Profilo({ nome, descrizione, ristoranti, uscita, voci, onEsci, onVoce, telegram }: {
   nome: string; descrizione: string; ristoranti: RistoranteQr[]; uscita: boolean
-  voci: Sezione[]; onEsci: () => void; onVoce: () => void
+  voci: Sezione[]; onEsci: () => void; onVoce: () => void; telegram: boolean
 }) {
   const conQr = ristoranti.filter(r => r.qr_secret)
   const [sel, setSel] = useState(0)
@@ -209,6 +213,7 @@ function Profilo({ nome, descrizione, ristoranti, uscita, voci, onEsci, onVoce }
           {v.sottotitolo && <span className="text-[13px] font-normal text-muted-foreground">{v.sottotitolo}</span>}
         </Link>
       ))}
+      {telegram && <TelegramLinkButton />}
       <div className="flex h-[52px] flex-none items-center gap-2.5 border-b border-border px-[18px] text-[15px] font-medium">
         <span className="flex-1">Tema</span>
         <div className="flex gap-0.5 rounded-[10px] bg-secondary p-0.5">
@@ -370,7 +375,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
         <div ref={refPannello} className="absolute inset-x-3 top-[calc(env(safe-area-inset-top)+64px)] z-50 sm:left-auto sm:w-[400px]">
           {ov === 'campanella'
             ? <Notifiche onClose={chiudi} uscita={uscita} />
-            : <Profilo nome={nome} descrizione={descrizione} ristoranti={ristoranti} uscita={uscita} voci={vociProfilo} onEsci={esci} onVoce={chiudi} />}
+            : <Profilo nome={nome} descrizione={descrizione} ristoranti={ristoranti} uscita={uscita} voci={vociProfilo} onEsci={esci} onVoce={chiudi} telegram={ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'} />}
         </div>
       )}
 

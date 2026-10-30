@@ -792,6 +792,9 @@ export function TurniManagerClient({
       {/* Griglia Turni — stile Excel: dipendenti × giorni della settimana.
           Ogni cella mostra i turni (o riposi) del dipendente in quel giorno;
           click su un turno per modificarlo, "+" per aggiungerne uno nuovo. */}
+      {/* Sul telefono il capo servizio lavora sulla timeline del giorno
+          (design "Turni sala"); la griglia settimanale resta su tablet/PC. */}
+      <div className={!isManager && !isDirettore ? 'hidden md:block' : undefined}>
       <div className="w-full overflow-auto rounded-[12px] border border-border bg-card">
         <table className="border-collapse text-xs w-full" style={{ minWidth: 'max-content' }}>
           <thead>
@@ -896,6 +899,7 @@ export function TurniManagerClient({
         <span className="flex items-center gap-1.5">
           <span className={`inline-block w-3 h-3 rounded-sm border ${RIPOSO_BADGE}`} /> Riposo
         </span>
+      </div>
       </div>
 
       {/* Timeline giornaliera — stessa lista dipendenti della griglia (rispetta

@@ -71,10 +71,10 @@ export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTi
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground">
+            <span suppressHydrationWarning className="font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground">
               {inServizio ? 'In servizio da' : formatInTimeZone(now, TZ, 'EEEE d MMMM', { locale: it })}
             </span>
-            <span className="font-mono text-[28px] font-medium leading-tight tabular-nums">{inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}</span>
+            <span suppressHydrationWarning className="font-mono text-[28px] font-medium leading-tight tabular-nums">{inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}</span>
           </div>
           {pulsante}
         </div>
@@ -86,10 +86,10 @@ export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTi
   return (
     <div className="flex flex-col">
       <div className="flex flex-col items-center gap-1.5 px-5 pt-8">
-        <span className="font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
+        <span suppressHydrationWarning className="font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
           {inServizio ? 'In servizio da' : formatInTimeZone(now, TZ, 'EEEE d MMMM', { locale: it })}
         </span>
-        <span className="font-mono text-[64px] font-medium leading-none tracking-[-2px] tabular-nums">
+        <span suppressHydrationWarning className="font-mono text-[64px] font-medium leading-none tracking-[-2px] tabular-nums">
           {inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}
         </span>
         <span className="flex items-center gap-2 text-center text-[15px] text-muted-foreground">

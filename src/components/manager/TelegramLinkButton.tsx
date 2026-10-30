@@ -56,19 +56,16 @@ export function TelegramLinkButton() {
 
   return (
     <>
-      <div className="mt-6 bg-card border border-border rounded-md p-4 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-sm border border-border bg-muted flex items-center justify-center shrink-0">
-          <Send className="w-5 h-5 text-sky-500" />
-        </div>
+      {/* Riga del menu profilo (design: le impostazioni personali stanno
+          lì, non nelle pagine). */}
+      <div className="flex min-h-[52px] items-center gap-3 border-b border-border px-[18px] py-2.5">
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold flex items-center gap-2">
+          <h2 className="text-[15px] font-medium flex items-center gap-2">
             Bot Telegram
             {linked && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {linked
-              ? `Collegato${username ? ` come @${username}` : ''}. Gestisci turni, ODS e presenze in chat.`
-              : 'Collega il tuo account per gestire turni, ODS e presenze direttamente da Telegram.'}
+            {linked ? `Collegato${username ? ` come @${username}` : ''}` : 'Turni, ODS e presenze in chat'}
           </p>
           {error && <p className="text-xs text-red-600 mt-0.5">{error}</p>}
         </div>
@@ -78,7 +75,7 @@ export function TelegramLinkButton() {
           </Button>
         ) : (
           <Button size="sm" onClick={handleConnect} disabled={busy}>
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Collega Telegram
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Collega
           </Button>
         )}
       </div>

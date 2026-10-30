@@ -9,7 +9,6 @@ import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroMa
 import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
 import { PresenzePreviewClient, type PresenzaPreviewRow } from '@/components/manager/PresenzePreviewClient'
 import { RestaurantQrCard } from '@/components/manager/RestaurantQrCard'
-import { TelegramLinkButton } from '@/components/manager/TelegramLinkButton'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { PresenzeOggiLista } from '@/components/presenze/PresenzeOggiLista'
 import { presenzeOggi } from '@/lib/presenzeOggi'
@@ -123,7 +122,6 @@ export default async function DashboardPage() {
             puoApprovare={isDirettore}
           />
         </div>
-        <div className={isDirettore ? 'pb-4' : 'mx-4 mt-4 pb-4'}><TelegramLinkButton /></div>
       </div>
     )
   }
@@ -190,9 +188,6 @@ export default async function DashboardPage() {
         <ConsulenteLavoroManagerSection managerId={user!.id} />
       )}
 
-      {/* Bot Telegram — manager e capi servizio/direttori. Mai per
-          dipendenti o consulenti (questa pagina non è accessibile a loro). */}
-      <TelegramLinkButton />
     </div>
   )
 }

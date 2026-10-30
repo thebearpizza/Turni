@@ -77,7 +77,7 @@ export function PresenzeOggiLista({ titolo, righe, puoApprovare = false, azione 
           <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-secondary font-mono text-xs font-semibold text-muted-foreground">{iniziali(r.nome)}</span>
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[15px] font-medium">{r.nome}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
+            <span className="font-mono text-xs leading-snug text-muted-foreground">
               {[r.turno, r.dettaglio].filter(Boolean).join(' · ')}
             </span>
             {puoApprovare && r.stato === 'foto' && r.presenzaFotoId && (

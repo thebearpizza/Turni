@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { addDays, format, parseISO } from 'date-fns'
@@ -163,16 +162,6 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
     setDate(prev => format(addDays(parseISO(`${prev}T00:00:00`), delta), 'yyyy-MM-dd'))
   }
 
-  const nativeDateRef = useRef<HTMLInputElement>(null)
-  function openDatePicker() {
-    const el = nativeDateRef.current
-    if (!el) return
-    if (typeof el.showPicker === 'function') {
-      try { el.showPicker(); return } catch { /* fallback sotto */ }
-    }
-    el.focus()
-    el.click()
-  }
 
   const effectiveTurns = [
     ...turns.map(t => overrides[t.id] ? { ...t, ...overrides[t.id] } : t),
@@ -406,48 +395,47 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
 
   return (
     <div className="mt-6">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-sm font-semibold text-foreground">Timeline Giornaliera</h2>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => shiftDay(-1)} aria-label="Giorno precedente">
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </Button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={openDatePicker}
-              title="Apri calendario"
-              className="text-xs font-medium text-foreground capitalize whitespace-nowrap tabular-nums min-w-[100px] text-center hover:underline decoration-dotted underline-offset-2"
-            >
-              {formatInTimeZone(`${date}T12:00:00Z`, TZ, 'EEE d MMM', { locale: it })}
-            </button>
-            {/* Input nativo invisibile: al click sulla data apre il calendario
-                del sistema per saltare a un giorno lontano senza cliccare
-                troppe volte sulle frecce. */}
-            <input
-              ref={nativeDateRef}
-              type="date"
-              value={date}
-              onChange={e => e.target.value && setDate(e.target.value)}
-              tabIndex={-1}
-              aria-hidden="true"
-              className="sr-only"
-            />
+      {/* Giorni della settimana a pillole (design "Turni sala"): il giorno
+          scelto in nero, le frecce cambiano settimana. */}
+      {(() => {
+        const d = parseISO(`${date}T12:00:00`)
+        const lun = addDays(d, -((d.getDay() + 6) % 7))
+        const giorni = Array.from({ length: 7 }, (_, i) => addDays(lun, i))
+        const inServizio = staff.filter(m => turns.some(t => t.user_id === m.id && t.date === date && !t.is_rest_day)).length
+        return (
+          <div className="mb-3 flex flex-col gap-2.5">
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => shiftDay(-7)} aria-label="Settimana precedente" className="flex h-9 w-7 flex-none items-center justify-center rounded-full text-muted-foreground active:scale-[0.96]">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div className="grid flex-1 grid-cols-7 gap-1">
+                {giorni.map(g => {
+                  const k = format(g, 'yyyy-MM-dd')
+                  const att = k === date
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setDate(k)}
+                      className={`flex h-[52px] flex-col items-center justify-center rounded-[10px] transition-colors active:scale-[0.96] ${att ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground'} ${k === todayStr && !att ? 'ring-1 ring-turni' : ''}`}
+                    >
+                      <span className="font-mono text-[10px] font-medium uppercase">{formatInTimeZone(`${k}T12:00:00Z`, TZ, 'EEE', { locale: it })}</span>
+                      <span className="font-mono text-base font-semibold">{format(g, 'd')}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <button type="button" onClick={() => shiftDay(7)} aria-label="Settimana successiva" className="flex h-9 w-7 flex-none items-center justify-center rounded-full text-muted-foreground active:scale-[0.96]">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex items-center justify-between px-1 font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
+              <span>{formatInTimeZone(`${date}T12:00:00Z`, TZ, 'EEEE', { locale: it })} · {inServizio} {inServizio === 1 ? 'persona' : 'persone'}</span>
+              {!isToday && <button type="button" onClick={() => setDate(todayStr)} className="normal-case tracking-normal underline">oggi</button>}
+            </div>
           </div>
-          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => shiftDay(1)} aria-label="Giorno successivo">
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Button>
-          {/* Sempre presente (anche su oggi) per non far "saltare" il layout
-              quando appare/scompare cambiando data. */}
-          <button
-            onClick={() => setDate(todayStr)}
-            disabled={isToday}
-            className="text-[11px] underline ml-1 text-muted-foreground hover:text-foreground disabled:no-underline disabled:opacity-40 disabled:cursor-default"
-          >
-            oggi
-          </button>
-        </div>
-      </div>
+        )
+      })()}
 
       {dragError && (
         <p className="text-xs text-destructive mb-2">{dragError}</p>
@@ -459,7 +447,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
           durante il drag arriva sempre troppo tardi. Qui non c'è testo che
           abbia senso copiare, quindi la disattiviamo del tutto. */}
       <div
-        className="w-full rounded-md border bg-card overflow-auto max-h-[420px] select-none [-webkit-user-select:none] [-webkit-touch-callout:none]"
+        className="w-full rounded-[12px] border border-border bg-card overflow-auto max-h-[460px] select-none [-webkit-user-select:none] [-webkit-touch-callout:none]"
         onDragStart={e => e.preventDefault()}
       >
         <div style={{ minWidth: totalWidth + NAME_COL_WIDTH }}>

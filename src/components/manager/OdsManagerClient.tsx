@@ -94,9 +94,12 @@ export function OdsManagerClient({
   // Visible departments derive from the already-restaurant-filtered list
   const allDepts = Array.from(new Set(tasksByRestaurant.map(t => t.department))).sort()
 
-  const filteredTasks = deptFilter === 'tutti'
-    ? tasksByRestaurant
-    : tasksByRestaurant.filter(t => t.department === deptFilter)
+  // Il capo servizio vede gli ODS del suo reparto (design: "ODS sala").
+  const filteredTasks = deptLocked
+    ? tasksByRestaurant.filter(t => t.department === currentDepartment)
+    : deptFilter === 'tutti'
+      ? tasksByRestaurant
+      : tasksByRestaurant.filter(t => t.department === deptFilter)
 
   // Staff scoped to the selected department (for the create form).
   // A direttore can assign to anyone in the currently-selected department.
@@ -194,7 +197,7 @@ export function OdsManagerClient({
         />
       )}
 
-      {allDepts.length > 1 && (
+      {!deptLocked && allDepts.length > 1 && (
         <div className="flex flex-wrap gap-1.5">
           {['tutti', ...allDepts].map(dept => (
             <button

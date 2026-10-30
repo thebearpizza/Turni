@@ -212,8 +212,12 @@
   }
 }
 
-* {
-  border-color: var(--border);
+/* In @layer base: fuori da un layer vincerebbe su tutte le utility
+   border-* (Tailwind v4 le mette in @layer utilities). */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 /* ── DockNav — foglio di navigazione (sostituisce il drawer laterale) ──
