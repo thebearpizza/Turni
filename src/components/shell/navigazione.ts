@@ -19,6 +19,8 @@ export interface Sezione {
   sottotitolo?: string
   /** Chiave del contatore da mostrare come badge (vedi useContatori). */
   badge?: string
+  /** La pagina ha un titolo grande suo: niente intestazione del guscio. */
+  senzaIntestazione?: boolean
 }
 
 export interface Area {
@@ -121,8 +123,8 @@ export const NAVIGAZIONE: Record<Ruolo, ConfigRuolo> = {
     intestazioneLocale: true,
     aree: [
       { key: 'home', label: 'Home', icona: 'home', href: '/home', sezioni: [S('home', 'Home', '/home', 'Home', undefined, { match: ['/home'] })] },
-      { key: 'ods', label: 'ODS', icona: 'ods', href: '/home/ods', sezioni: [S('ods', 'ODS', '/home/ods', 'Ordini di servizio', undefined, { badge: 'ods' })] },
-      { key: 'turni', label: 'Turni', icona: 'turni', href: '/home/miei-turni', sezioni: [S('turni', 'Turni', '/home/miei-turni', 'I miei turni')] },
+      { key: 'ods', label: 'ODS', icona: 'ods', href: '/home/ods', sezioni: [S('ods', 'ODS', '/home/ods', 'Ordini di servizio', undefined, { badge: 'ods', senzaIntestazione: true })] },
+      { key: 'turni', label: 'Turni', icona: 'turni', href: '/home/miei-turni', sezioni: [S('turni', 'Turni', '/home/miei-turni', 'I miei turni', undefined, { senzaIntestazione: true })] },
     ],
   },
   cassiere: {

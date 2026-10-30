@@ -1,12 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { QRScanner } from './QRScanner'
 import { AbsenceRequestDialog } from './AbsenceRequestDialog'
 import { BulletinDrawer } from './BulletinDrawer'
-import { ThemeToggle } from '@/components/shared/ThemeToggle'
-import { LogOut, Camera, UserX, Megaphone, MapPin, ImageOff } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { differenceInSeconds } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -16,7 +13,10 @@ import { useGeofence } from '@/hooks/useGeofence'
 import { PushNotificationBanner } from '@/components/shared/PushNotificationBanner'
 import { compressImage } from '@/lib/compressImage'
 import { saveToOfflineQueue } from '@/lib/offlineSync'
-import type { Profile, Attendance } from '@/types'
+import type { Profile, Attendance, Turn } from '@/types'
+import { raggruppaPerGiornata } from '@/lib/turniGiornata'
+import { toast } from '@/hooks/use-toast'
+import Link from 'next/link'
 
 const TZ = 'Europe/Rome'
 
@@ -24,6 +24,7 @@ interface Props {
   profile: Profile & { restaurant?: { id: string; name: string; latitude?: number | null; longitude?: number | null } | null }
   openAttendance: Attendance | null
   userId: string
+  turni: Turn[]
 }
 
 // Un TypeError generico può derivare da un bug (es. accesso a proprietà di
@@ -44,7 +45,7 @@ function formatDuration(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
+export function EmployeeHomeClient({ profile, openAttendance, userId, turni }: Props) {
   const [now, setNow]             = useState(new Date())
   const [attendance, setAttendance] = useState<Attendance | null>(openAttendance)
   const [showScanner, setShowScanner] = useState(false)
@@ -228,205 +229,123 @@ export function EmployeeHomeClient({ profile, openAttendance, userId }: Props) {
     }
   }
 
-  async function handleLogout() {
-    // Su un dispositivo condiviso, una subscription push lasciata attiva
-    // continuerebbe a ricevere le notifiche destinate a questo utente anche
-    // dopo che un collega ha fatto login sullo stesso device.
-    try {
-      if ('serviceWorker' in navigator && 'PushManager' in window) {
-        const reg = await navigator.serviceWorker.ready
-        const sub = await reg.pushManager.getSubscription()
-        if (sub) {
-          await fetch('/api/push/subscribe', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ endpoint: sub.endpoint }),
-          })
-          await sub.unsubscribe()
-        }
-      }
-    } catch {
-      // Non bloccare il logout se la disiscrizione push fallisce
-    }
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
   function handleOpenBulletin() {
     setShowBulletin(true)
     localStorage.setItem('bulletins_last_seen', new Date().toISOString())
     setUnreadCount(0)
   }
 
-  const timeDisplay = formatInTimeZone(now, TZ, 'HH:mm:ss')
-  const dateDisplay = formatInTimeZone(now, TZ, "EEEE d MMMM yyyy", { locale: it })
+  // Regola unica del design: ogni azione che invia dati mostra il toast
+  // (nero, in basso). Il messaggio resta anche sotto il pulsante quando
+  // serve un'azione (es. GPS fuori zona → foto).
+  useEffect(() => {
+    if (!message) return
+    toast({ title: message.text, variant: message.type === 'error' ? 'destructive' : 'default' })
+  }, [message])
+
+  const oggiStr = formatInTimeZone(now, TZ, 'yyyy-MM-dd')
+  const giornate = raggruppaPerGiornata(turni)
+  const diOggi = giornate.find(g => g.date === oggiStr)
+  const prossime = giornate.filter(g => g.date > oggiStr).slice(0, 3)
+  const reparto = diOggi?.reparto ?? profile.department ?? ''
   const isGeoChecking = geoStatus === 'checking'
 
+  const sotto = attendance
+    ? `Ingresso ${formatInTimeZone(new Date(attendance.check_in), TZ, 'HH:mm')}${diOggi && !diOggi.riposo ? ` · fine prevista ${diOggi.fasce[diOggi.fasce.length - 1].split('–')[1]}` : ''}`
+    : diOggi
+      ? diOggi.riposo ? 'Oggi riposo' : `Turno di oggi · ${reparto ? reparto + ' ' : ''}${diOggi.fasce.join(' / ').replace(/–/g, ' – ')}`
+      : 'Nessun turno oggi'
+
+  const ICONA_INGRESSO = 'M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM200,32H136a8,8,0,0,0,0,16h56V208H136a8,8,0,0,0,0,16h64a8,8,0,0,0,8-8V40A8,8,0,0,0,200,32Z'
+  const ICONA_USCITA = 'M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z'
+
   return (
-    <main className="h-[calc(100dvh-56px)] overflow-hidden bg-background text-foreground flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <div>
-          <p className="text-muted-foreground text-xs capitalize tracking-wide">{dateDisplay}</p>
-          <p className="font-semibold text-sm leading-tight">{profile.full_name}</p>
-          {profile.restaurant?.name && (
-            <p className="text-muted-foreground text-xs">{profile.restaurant.name}</p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          <ThemeToggle />
-          <button
-            onClick={handleOpenBulletin}
-            className="relative w-9 h-9 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
-            aria-label="Bacheca"
-          >
-            <Megaphone className="w-4 h-4" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center leading-none">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-9 h-9 flex items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors border border-border"
-            aria-label="Logout"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
+    <div className="flex flex-col pb-6">
       <PushNotificationBanner permission={pushPermission} subscribed={pushSubscribed} onSubscribe={subscribePush} />
 
-      <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
+      <div className="flex flex-col items-center gap-1.5 px-5 pt-8">
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
+          {attendance ? 'In servizio da' : formatInTimeZone(now, TZ, 'EEEE d MMMM', { locale: it })}
+        </span>
+        <span className="font-mono text-[64px] font-medium leading-none tracking-[-2px] tabular-nums">
+          {attendance ? formatDuration(elapsedSeconds).replace(/^0(\d)/, '$1') : formatInTimeZone(now, TZ, 'HH:mm')}
+        </span>
+        <span className="flex items-center gap-2 text-[15px] text-muted-foreground">
+          <span className={`h-2 w-2 rounded-full ${attendance ? 'animate-pulse bg-[oklch(0.55_0.1_150)]' : 'bg-line-strong'}`} />
+          {sotto}
+        </span>
+      </div>
 
-        {/* Clock */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="text-center"
-        >
-          <div className="text-7xl font-mono font-bold tracking-tight tabular-nums leading-none text-foreground">
-            {timeDisplay}
-          </div>
-          <AnimatePresence>
-            {attendance && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.25 }}
-                className="mt-5 text-center overflow-hidden"
-              >
-                <p className="text-muted-foreground text-xs uppercase tracking-widest mb-1.5">Turno in corso</p>
-                <div className="text-4xl font-mono text-emerald-600 dark:text-emerald-400 tabular-nums font-semibold">
-                  {formatDuration(elapsedSeconds)}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-        {/* Feedback messages */}
-        <AnimatePresence mode="wait">
-          {message && (
-            <motion.div
-              key={message.text}
-              initial={{ opacity: 0, y: 6, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -6, scale: 0.97 }}
-              transition={{ duration: 0.2 }}
-              className={`w-full max-w-xs rounded-md px-4 py-3 text-sm text-center font-medium border ${
-                message.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
-                  : 'bg-destructive/10 text-destructive border-destructive/30'
-              }`}
-            >
-              {message.text}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* QR scan button */}
-        <motion.button
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          whileTap={{ scale: 0.97 }}
+      <div className="flex flex-col gap-2.5 px-4 pt-7">
+        <button
+          type="button"
           onClick={handleScanPress}
           disabled={loading || isGeoChecking}
-          className={`w-full max-w-xs h-14 rounded-md flex items-center justify-center gap-3 text-base font-semibold border transition-colors active:scale-[0.98] disabled:opacity-50 ${
-            attendance
-              ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600'
-              : 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary'
+          className={`flex h-16 items-center justify-center gap-2.5 rounded-[8px] text-lg font-semibold transition-transform active:scale-[0.98] disabled:opacity-60 ${
+            attendance ? 'border-[1.5px] border-primary bg-card text-foreground' : 'bg-primary text-primary-foreground'
           }`}
         >
-          {isGeoChecking
-            ? <><MapPin className="w-5 h-5 animate-pulse" /> Verifica posizione...</>
-            : loading
-            ? 'Elaborazione...'
-            : <><Camera className="w-5 h-5" />{attendance ? 'Scansiona Uscita' : 'Scansiona Ingresso'}</>
-          }
-        </motion.button>
+          <svg width="22" height="22" viewBox="0 0 256 256" fill="currentColor" aria-hidden><path d={attendance ? ICONA_USCITA : ICONA_INGRESSO} /></svg>
+          {isGeoChecking ? 'Verifica posizione…' : loading ? 'Invio in corso…' : attendance ? 'Timbra uscita' : 'Timbra ingresso'}
+        </button>
+        <span className="text-center text-xs text-muted-foreground">
+          {geoStatus === 'inside' ? 'Posizione verificata' : isGeoChecking ? 'Verifica della posizione in corso' : 'La posizione si verifica quando timbri'}
+        </span>
 
         {process.env.NODE_ENV === 'development' && (
-          <button
-            onClick={() => handleScan('__SIMULATE__')}
-            disabled={loading}
-            className="text-xs text-muted-foreground underline"
-          >
+          <button onClick={() => handleScan('__SIMULATE__')} disabled={loading} className="text-xs text-muted-foreground underline">
             [DEV] Simula Scansione
           </button>
         )}
 
-        {/* GPS fallback — shown only when GPS denied/unavailable */}
         {gpsFailed && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-xs"
-          >
-            <label className={`w-full h-11 rounded-md flex items-center justify-center gap-2.5 text-sm font-medium border cursor-pointer transition-colors
-              ${loading ? 'opacity-50 pointer-events-none' : ''}
-              border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100
-              dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50`}
-            >
-              <ImageOff className="w-4 h-4 shrink-0" />
-              Problemi col GPS? Timbra con foto
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                onChange={handleFallbackPhoto}
-                disabled={loading}
-              />
+          <div className="anim-swapin flex flex-col gap-1.5">
+            {message?.type === 'error' && <p className="text-center text-sm font-medium text-neg">{message.text}</p>}
+            <label className={`flex h-12 cursor-pointer items-center justify-center gap-2.5 rounded-[8px] border border-line-strong bg-card text-[15px] font-semibold active:scale-[0.98] ${loading ? 'pointer-events-none opacity-50' : ''}`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+              Timbra con foto
+              <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleFallbackPhoto} disabled={loading} />
             </label>
-            <p className="text-[10px] text-muted-foreground text-center mt-1">
-              La timbratura sarà confermata dal Manager
-            </p>
-          </motion.div>
+            <p className="text-center text-xs text-muted-foreground">La timbratura sarà confermata dal manager</p>
+          </div>
         )}
+      </div>
 
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          onClick={() => setShowAbsence(true)}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm"
+      {/* I comunicati restano raggiungibili da qui: compaiono solo se ce
+          ne sono di nuovi (le notifiche li segnalano anche nella campanella). */}
+      {unreadCount > 0 && (
+        <button
+          type="button"
+          onClick={handleOpenBulletin}
+          className="anim-swapin mx-4 mt-6 flex items-center gap-3 rounded-[14px] border border-border bg-card px-3.5 py-3 text-left active:scale-[0.99]"
         >
-          <UserX className="w-4 h-4" />
-          Richiedi Assenza
-        </motion.button>
+          <span className="flex-1 text-[15px] font-semibold">Bacheca</span>
+          <span className="text-[13px] text-muted-foreground">{unreadCount === 1 ? '1 nuovo comunicato' : `${unreadCount} nuovi comunicati`} →</span>
+        </button>
+      )}
+
+      <div className="mx-4 mt-6 rounded-[14px] border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3.5 py-3">
+          <span className="text-[15px] font-semibold">Prossimi turni</span>
+          <Link href="/home/miei-turni" className="text-[13px] font-medium text-muted-foreground">Tutti →</Link>
+        </div>
+        {prossime.length === 0 ? (
+          <div className="border-b border-border px-3.5 py-3.5 text-sm text-muted-foreground">Nessun turno programmato</div>
+        ) : prossime.map((g, i) => (
+          <div key={g.date} className="anim-inrise grid min-h-12 grid-cols-[72px_1fr_auto] items-center gap-2 border-b border-border px-3.5" style={{ animationDelay: `${i * 70}ms` }}>
+            <span className="font-mono text-[13px] font-medium capitalize text-muted-foreground">{formatInTimeZone(`${g.date}T12:00:00Z`, TZ, 'EEE d', { locale: it })}</span>
+            <span className="font-mono text-[15px] font-medium">{g.riposo ? 'Riposo' : g.fasce[0]}</span>
+            <span className="text-xs text-muted-foreground">{g.riposo ? '' : g.spezzato ? 'Spezzato' : g.reparto ?? ''}</span>
+          </div>
+        ))}
+        <button type="button" onClick={() => setShowAbsence(true)} className="flex h-12 w-full items-center px-3.5 text-left text-sm font-medium text-muted-foreground active:scale-[0.99]">
+          + Richiedi assenza
+        </button>
       </div>
 
       {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
       {showAbsence && <AbsenceRequestDialog userId={userId} restaurantId={profile.restaurant_id} onClose={() => setShowAbsence(false)} />}
       {showBulletin && <BulletinDrawer userId={userId} onClose={() => setShowBulletin(false)} />}
-    </main>
+    </div>
   )
 }

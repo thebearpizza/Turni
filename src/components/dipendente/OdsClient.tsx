@@ -1,23 +1,14 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { saveToOfflineQueue } from '@/lib/offlineSync'
-import { ClipboardList, Check } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { ODS_TYPE_LABELS } from '@/types'
-import type { OdsTask, OdsTaskType } from '@/types'
+import type { OdsTask } from '@/types'
 
 const TZ = 'Europe/Rome'
-
-const FILTERS: { key: 'tutte' | OdsTaskType; label: string }[] = [
-  { key: 'tutte',         label: 'Tutte' },
-  { key: 'quotidiana',    label: 'Quotidiane' },
-  { key: 'settimanale',   label: 'Settimanali' },
-  { key: 'bisettimanale', label: 'Bisettimanali' },
-  { key: 'straordinaria', label: 'Straordinarie' },
-]
 
 interface Props {
   tasks:            OdsTask[]
@@ -29,7 +20,6 @@ interface Props {
 export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: Props) {
   const [taskList, setTaskList]     = useState<OdsTask[]>(tasks)
   const [completed, setCompleted]   = useState<Set<string>>(new Set(completedTaskIds))
-  const [filter, setFilter]         = useState<'tutte' | OdsTaskType>('tutte')
   const [offlineMsg, setOfflineMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -72,9 +62,6 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
 
   const personalTasks   = visible.filter(t => t.assigned_to === userId)
   const departmentTasks = visible.filter(t => t.assigned_to === null)
-  const filtered = filter === 'tutte'
-    ? departmentTasks
-    : departmentTasks.filter(t => t.type === filter)
 
   async function handleToggle(taskId: string) {
     const frozenAt     = new Date().toISOString()
@@ -119,144 +106,97 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
     }
   }
 
+  useEffect(() => {
+    if (offlineMsg) toast({ title: offlineMsg })
+  }, [offlineMsg])
+
+  // Filtri del design: Tutti, Per me, e il reparto.
+  const [vista, setVista] = useState<'tutti' | 'me' | 'reparto'>('tutti')
+  const tutte = [...personalTasks, ...departmentTasks]
+  const mostrate = vista === 'me' ? personalTasks : vista === 'reparto' ? departmentTasks : tutte
+
+  // In attesa dell'animazione (striscia di cancellazione), poi la voce
+  // scende in fondo alla lista: le fatte stanno sotto.
+  const [inCorso, setInCorso] = useState<Set<string>>(new Set())
+  const [mossa, setMossa] = useState<string | null>(null)
+  function tocca(id: string) {
+    if (completed.has(id)) { setMossa(id); handleToggle(id); return }
+    if (inCorso.has(id)) return
+    setInCorso(prev => new Set(prev).add(id))
+    setTimeout(() => {
+      setInCorso(prev => { const n = new Set(prev); n.delete(id); return n })
+      setMossa(id)
+      handleToggle(id)
+    }, 900)
+  }
+  const ordinate = [...mostrate].sort((a, b) => Number(completed.has(a.id)) - Number(completed.has(b.id)))
+  const fatte = tutte.filter(t => completed.has(t.id)).length
+
+  const sotto = (t: OdsTask) => {
+    const chi = t.assigned_to === userId ? 'Per te' : (t.department ?? userDepartment ?? 'Tutti')
+    const quando = t.type === 'straordinaria' ? null
+      : t.type === 'quotidiana' ? 'quotidiano'
+      : t.recurrence_days.join(', ')
+    return t.type === 'straordinaria' ? 'Straordinario' : `${chi} · ${quando}`
+  }
+
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
-      <AnimatePresence>
-        {offlineMsg && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2 }}
-            className="mx-4 mt-3 px-3 py-2 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900"
-          >
-            {offlineMsg}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <div className="flex items-center gap-3 px-4 pt-5 pb-3 border-b border-border">
-        <ClipboardList className="w-5 h-5 text-muted-foreground shrink-0" />
-        <div>
-          <h1 className="font-semibold text-sm leading-tight">Ordine di Servizio</h1>
-          <p className="text-muted-foreground text-xs">{userDepartment ?? 'Tutti i reparti'}</p>
+    <div className="flex flex-col pb-6">
+      <div className="flex flex-col gap-3 px-5 pb-3.5 pt-2">
+        <div className="flex items-baseline justify-between">
+          <h1 className="text-[28px] font-semibold tracking-[-0.8px]">Ordini di servizio</h1>
+          <span className="font-mono text-sm font-medium text-muted-foreground">{fatte}/{tutte.length}</span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-border">
+          <div className="h-1 bg-turni transition-[width] duration-500" style={{ width: tutte.length ? `${(fatte / tutte.length) * 100}%` : '0%' }} />
+        </div>
+        <div className="flex gap-1.5">
+          {([['tutti', 'Tutti'], ['me', 'Per me'], ['reparto', userDepartment ?? 'Reparto']] as const).map(([k, l]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setVista(k)}
+              className={cn('flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors active:scale-[0.97]',
+                vista === k ? 'bg-primary text-primary-foreground' : 'border border-line-strong')}
+            >
+              {l}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-6 space-y-6">
-
-        {personalTasks.length > 0 && (
-          <section>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-              Istruzioni Personali
-            </p>
-            <div className="space-y-1.5">
-              <AnimatePresence initial={false}>
-                {personalTasks.map((t, i) => (
-                  <TaskRow key={t.id} index={i} task={t} completed={completed.has(t.id)} onToggle={() => handleToggle(t.id)} />
-                ))}
-              </AnimatePresence>
-            </div>
-          </section>
-        )}
-
-        <section>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-            Istruzioni di Reparto
-          </p>
-
-          <div className="flex gap-1.5 flex-wrap mb-3">
-            {FILTERS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
-                  filter === f.key
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {filtered.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-10 text-center">
-              <ClipboardList className="w-7 h-7 text-muted-foreground/30 mx-auto mb-2" />
-              <p className="text-muted-foreground text-sm">Nessuna istruzione</p>
-            </motion.div>
-          ) : (
-            <div className="space-y-1.5">
-              <AnimatePresence initial={false}>
-                {filtered.map((t, i) => (
-                  <TaskRow key={t.id} index={i} task={t} completed={completed.has(t.id)} onToggle={() => handleToggle(t.id)} />
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
-  )
-}
-
-function TaskRow({ task, completed, onToggle, index }: {
-  task: OdsTask; completed: boolean; onToggle: () => void; index: number
-}) {
-  return (
-    <motion.button
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6, transition: { duration: 0.15 } }}
-      transition={{ duration: 0.2, delay: index * 0.04 }}
-      whileTap={{ scale: 0.985 }}
-      onClick={onToggle}
-      className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-sm border text-left transition-colors ${
-        completed
-          ? 'bg-muted/50 border-border/50'
-          : 'bg-card border-border hover:bg-accent/30 active:bg-accent/50'
-      }`}
-    >
-      <motion.div
-        animate={completed ? { scale: [1, 1.25, 1] } : { scale: 1 }}
-        transition={{ duration: 0.18 }}
-        className={`mt-0.5 w-4 h-4 rounded-sm border shrink-0 flex items-center justify-center transition-colors ${
-          completed ? 'bg-primary border-primary' : 'border-input bg-background'
-        }`}
-      >
-        <AnimatePresence>
-          {completed && (
-            <motion.div
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              transition={{ duration: 0.15 }}
+      <div className="mx-4 flex flex-col gap-1.5">
+        {ordinate.length === 0 ? (
+          <div className="anim-inrise rounded-[8px] border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">Nessun ordine di servizio per oggi</div>
+        ) : ordinate.map((t, i) => {
+          const v = completed.has(t.id) || inCorso.has(t.id)
+          return (
+            <button
+              key={t.id + (completed.has(t.id) ? 'd' : 'u')}
+              type="button"
+              onClick={() => tocca(t.id)}
+              className={cn('flex min-h-[60px] items-center gap-3 rounded-[8px] border px-3.5 py-2 text-left transition-[background-color,border-color] duration-300 active:scale-[0.99]',
+                mossa === t.id ? 'anim-swapin' : 'anim-inrise',
+                v ? 'border-transparent bg-transparent' : 'border-border bg-card')}
+              style={{ animationDelay: mossa === t.id ? undefined : `${i * 70}ms` }}
             >
-              <Check className="w-2.5 h-2.5 text-primary-foreground" />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm leading-snug ${
-          completed ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-foreground'
-        }`}>
-          {task.title}
-        </p>
-        {(task.type === 'settimanale' || task.type === 'bisettimanale') &&
-          task.recurrence_days.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-            {task.recurrence_days.join(', ')}
-          </p>
-        )}
+              <span className={cn('flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[12px] border-[1.5px] text-white transition-[background-color,border-color] duration-[250ms]',
+                v ? 'border-turni bg-turni' : 'border-line-strong bg-transparent')}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} style={{ strokeDasharray: 1, strokeDashoffset: v ? 0 : 1, transition: 'stroke-dashoffset 300ms cubic-bezier(0.22,1,0.36,1) 120ms' }} />
+                </svg>
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className={cn('relative self-start text-[15px] font-medium transition-colors delay-200 duration-300', v ? 'text-muted-foreground' : 'text-foreground')}>
+                  {t.title}
+                  <span className="absolute left-0 top-[52%] h-[1.5px] rounded-full bg-current transition-[width] delay-150 duration-[420ms] ease-[cubic-bezier(0.65,0,0.35,1)]" style={{ width: v ? '100%' : '0%' }} />
+                </span>
+                <span className="text-xs text-muted-foreground">{sotto(t)}</span>
+              </span>
+            </button>
+          )
+        })}
       </div>
-
-      {task.type === 'straordinaria' && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800 shrink-0 self-start whitespace-nowrap">
-          Straord.
-        </span>
-      )}
-    </motion.button>
+    </div>
   )
 }

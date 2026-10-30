@@ -278,6 +278,25 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   }, [idCanale])
 
   async function esci() {
+    // Su un dispositivo condiviso una subscription push lasciata attiva
+    // continuerebbe a ricevere le notifiche di questo utente anche dopo che
+    // un collega ha fatto l'accesso sullo stesso telefono.
+    try {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        // getRegistration e non .ready: senza service worker .ready non si
+        // risolve mai e l'uscita resterebbe bloccata.
+        const reg = await navigator.serviceWorker.getRegistration()
+        const sub = reg ? await reg.pushManager.getSubscription() : null
+        if (sub) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          })
+          await sub.unsubscribe()
+        }
+      }
+    } catch { /* non bloccare l'uscita */ }
     await createClient().auth.signOut()
     router.push('/login')
   }
@@ -307,7 +326,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   return (
     <div className="flex h-[100dvh] flex-col bg-background text-foreground">
       <div className="h-[env(safe-area-inset-top)] flex-none" />
-      <header ref={refHeader} className="relative z-30 flex min-h-[52px] flex-none items-center gap-2 pb-2 pl-5 pr-2.5 pt-1.5">
+      <header ref={refHeader} className={cn("relative z-30 flex min-h-[52px] flex-none items-center gap-2 pb-2 pl-5 pr-2.5 pt-1.5", sezione?.senzaIntestazione && "hidden")}>
         <span data-logo-intestazione className="mr-1 flex-none"><LogoAnimato size={28} className="rounded-[6px]" /></span>
         <div key={titolo + sottotitolo} className="anim-swapin flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-[22px] font-semibold leading-tight tracking-[-0.01em]">{titolo}</span>

@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { EmployeeHomeClient } from '@/components/dipendente/EmployeeHomeClient'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
+import { formatInTimeZone } from 'date-fns-tz'
+import type { Turn } from '@/types'
 
 export default async function EmployeeHomePage() {
   const supabase = await createClient()
@@ -27,11 +29,23 @@ export default async function EmployeeHomePage() {
     .limit(1)
     .maybeSingle()
 
+  // Turno di oggi e prossimi turni per la scheda sotto il pulsante.
+  const oggi = formatInTimeZone(new Date(), 'Europe/Rome', 'yyyy-MM-dd')
+  const { data: turni } = await supabase
+    .from('turns')
+    .select('*')
+    .eq('user_id', user!.id)
+    .gte('date', oggi)
+    .order('date', { ascending: true })
+    .order('start_time', { ascending: true })
+    .limit(30)
+
   return (
     <EmployeeHomeClient
       profile={profile}
       openAttendance={openAttendance}
       userId={user!.id}
+      turni={(turni ?? []) as Turn[]}
     />
   )
 }
