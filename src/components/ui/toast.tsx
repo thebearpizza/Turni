@@ -28,6 +28,7 @@ const Toast = React.forwardRef<
       "anim-swapin group pointer-events-auto relative flex w-fit max-w-full items-center gap-2.5 overflow-hidden rounded-[12px] bg-[oklch(0.2_0.01_250)] py-3 pl-3.5 pr-[18px] text-[14px] font-medium text-white shadow-[0_10px_30px_rgba(20,30,50,.25)] dark:bg-[oklch(0.95_0.01_250)] dark:text-[oklch(0.2_0.01_250)]",
       className
     )}
+    data-variant={variant}
     {...props}
   />
 ))
