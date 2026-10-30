@@ -26,7 +26,8 @@ const DURATA_MASSIMA_MS = 12000
 // Gli skeleton devono restare assenti per un attimo: fra il loading.tsx
 // della rotta e gli skeleton del componente client c'è un istante senza.
 const STABILITA_MS = 300
-const DISSOLVENZA_MS = 400
+// Durata della "posa": il logo vola sul logo dell'intestazione e lo sfondo sfuma.
+const DURATA_POSA_MS = 700
 const RITARDO_INDIETRO_MS = 3000
 const SELETTORE_SKELETON = '.skeleton-shimmer, [data-skeleton], div.bg-muted.animate-pulse'
 
@@ -54,6 +55,7 @@ export function SplashApertura() {
   const [giro, setGiro] = useState(0)
   const logoRef = useRef<HTMLDivElement | null>(null)
   const [conIndietro, setConIndietro] = useState(false)
+  const [posa, setPosa] = useState<{ x: number; y: number; s: number } | null>(null)
 
   const ferma = useCallback(() => {
     timer.current.forEach(clearTimeout)
@@ -69,8 +71,19 @@ export function SplashApertura() {
     // capo invece di sparire a metà sequenza.
     try { sessionStorage.setItem('splash-mostrata', '1') } catch {}
     ferma()
+    // Design: il logo si rimpicciolisce e si posa sul logo
+    // dell'intestazione, mentre lo sfondo sfuma sulla pagina pronta.
+    const bersaglio = document.querySelector('[data-logo-intestazione]')?.getBoundingClientRect()
+    const da = logoRef.current?.getBoundingClientRect()
+    if (bersaglio && da && bersaglio.width > 0) {
+      setPosa({
+        x: bersaglio.left + bersaglio.width / 2 - (da.left + da.width / 2),
+        y: bersaglio.top + bersaglio.height / 2 - (da.top + da.height / 2),
+        s: bersaglio.width / da.width,
+      })
+    }
     setFase('uscita')
-    timer.current.push(setTimeout(() => setFase('finita'), DISSOLVENZA_MS))
+    timer.current.push(setTimeout(() => setFase('finita'), DURATA_POSA_MS))
   }, [ferma])
 
   const avvia = useCallback((indietroPossibile: boolean) => {
@@ -134,13 +147,9 @@ export function SplashApertura() {
       const t = setTimeout(() => avvia(false), 0)
       return () => clearTimeout(t)
     }
-    if (!cambioArea) return
-    if (saltaProssimo.current) { saltaProssimo.current = false; return }
-    // Lo script inline ha nascosto lo splash via data-splash su un
-    // ricaricamento: va tolto, o il nuovo splash resterebbe invisibile.
-    delete document.documentElement.dataset.splash
-    const t = setTimeout(() => avvia(true), 0)
-    return () => clearTimeout(t)
+    // Design Acciaio: nei cambi di tab e di area niente splash, il
+    // contenuto mostra lo skeleton della pagina.
+    void cambioArea
   }, [pathname, avvia])
 
   function tornaIndietro() {
@@ -168,13 +177,21 @@ export function SplashApertura() {
       {fase !== 'finita' && (
         <div
           id="splash-apertura"
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-10 bg-[#0f1011] transition-opacity ease-out"
-          style={{
-            opacity: fase === 'uscita' ? 0 : 1,
-            pointerEvents: fase === 'uscita' ? 'none' : 'auto',
-            transitionDuration: `${DISSOLVENZA_MS}ms`,
-          }}
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-10"
+          style={{ pointerEvents: fase === 'uscita' ? 'none' : 'auto' }}
         >
+          <div
+            className="absolute inset-0 bg-background transition-opacity ease-out"
+            style={{ opacity: fase === 'uscita' ? 0 : 1, transitionDuration: `${DURATA_POSA_MS}ms` }}
+          />
+          <div
+            className="relative transition-[transform,opacity] ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{
+              transitionDuration: `${DURATA_POSA_MS}ms`,
+              transform: fase === 'uscita' && posa ? `translate(${posa.x}px, ${posa.y}px) scale(${posa.s})` : undefined,
+              opacity: fase === 'uscita' && !posa ? 0 : 1,
+            }}
+          >
           <div key={giro} ref={logoRef} aria-hidden className={`splash-logo ${pronto ? 'splash-pronto' : ''}`}>
             <div className="splash-alone" />
             <div className="splash-onda" />
@@ -186,6 +203,7 @@ export function SplashApertura() {
             <img src="/logo-animato-riflessi.svg" alt="" className="splash-strato splash-riflessi" />
             {/* eslint-enable @next/next/no-img-element */}
             <div className="splash-riflesso" />
+          </div>
           </div>
           {conIndietro && (
             <button
