@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { BachecaClient } from '@/components/manager/BachecaClient'
+import { QrLocaleRiga } from '@/components/manager/QrLocaleRiga'
 
 export default async function BachecaPage() {
   const supabase = await createClient()
@@ -7,7 +8,7 @@ export default async function BachecaPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, can_post_bulletin, is_direttore')
+    .select('role, restaurant_id, can_post_bulletin, is_direttore, restaurant:restaurants(name, qr_secret)')
     .eq('id', user!.id)
     .single()
 
@@ -36,8 +37,13 @@ export default async function BachecaPage() {
   const canPost = profile?.role === 'manager' ||
     (profile?.role === 'capo_servizio' && profile.can_post_bulletin)
 
+  const locale = (Array.isArray(profile?.restaurant) ? profile?.restaurant[0] : profile?.restaurant) as { name: string; qr_secret: string | null } | null | undefined
+  const qr = profile?.role === 'capo_servizio' && locale?.qr_secret
+    ? <QrLocaleRiga nome={locale.name} qrSecret={locale.qr_secret} />
+    : undefined
+
   return (
-    <div className="p-6 lg:p-8">
+    <div className="mx-auto max-w-3xl px-4 pb-4 pt-1">
       <BachecaClient
         initialBulletins={bulletins ?? []}
         restaurants={restaurants ?? []}
@@ -47,6 +53,7 @@ export default async function BachecaPage() {
         currentRestaurantId={profile?.restaurant_id ?? null}
         canPost={canPost ?? false}
         isDirettore={isDirettore}
+        intestazione={qr}
       />
     </div>
   )

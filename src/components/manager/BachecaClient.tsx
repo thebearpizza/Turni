@@ -6,11 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, Trash2, Globe, Store, Users, Eye, ChevronDown } from 'lucide-react'
+import { Globe, Store, Users } from 'lucide-react'
 import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
@@ -34,6 +33,8 @@ interface Props {
   currentRestaurantId: string | null
   canPost: boolean
   isDirettore?: boolean
+  /** Riquadri sopra i messaggi (es. QR del locale per il capo servizio). */
+  intestazione?: React.ReactNode
 }
 
 const SELECTABLE_ROLES: { value: string; label: string }[] = [
@@ -43,7 +44,7 @@ const SELECTABLE_ROLES: { value: string; label: string }[] = [
 
 export function BachecaClient({
   initialBulletins, restaurants, dipendenti,
-  currentUserId, currentUserRole, currentRestaurantId, canPost, isDirettore = false,
+  currentUserId, currentUserRole, currentRestaurantId, canPost, isDirettore = false, intestazione,
 }: Props) {
   const [bulletins, setBulletins] = useState<BulletinWithRelations[]>(initialBulletins)
 
@@ -246,104 +247,64 @@ export function BachecaClient({
     )
   }
 
+  const isManagerVista = currentUserRole === 'manager'
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Bacheca</h1>
-        {canPost && (
-          <Button onClick={() => { resetForm(); setShowForm(true) }} size="sm">
-            <Plus className="w-4 h-4" /> Nuovo
-          </Button>
-        )}
+    <div className="flex flex-col gap-3">
+      {/* Il manager ha già "Bacheca" nell'intestazione del guscio; chi ha
+          l'intestazione del locale (capo servizio, direttore) vede il titolo
+          grande della pagina, come nel design. */}
+      {!isManagerVista && <h1 className="px-1 text-[28px] font-semibold tracking-[-0.8px]">Bacheca</h1>}
+      {intestazione}
+
+      <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-3.5 py-3">
+          <span className="text-[15px] font-semibold">Messaggi</span>
+          {canPost && (
+            <button type="button" onClick={() => { resetForm(); setShowForm(true) }} className="text-[13px] font-medium text-muted-foreground active:scale-[0.97]">
+              + Nuovo
+            </button>
+          )}
+        </div>
+        {bulletins.length === 0 ? (
+          <p className="px-3.5 py-10 text-center text-sm text-muted-foreground">Nessun comunicato pubblicato</p>
+        ) : bulletins.map((b, i) => {
+          const isManager = currentUserRole === 'manager'
+          const isOpen = isManager || expandedId === b.id
+          const canViewReads = isManager || (currentUserRole === 'capo_servizio' && canPost)
+          const mio = b.author?.id === currentUserId
+          const autore = mio ? 'Tu' : (b.author?.full_name ?? 'Direzione')
+          const oggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd') === formatInTimeZone(new Date(b.created_at), TZ, 'yyyy-MM-dd')
+          const quando = oggi ? `oggi ${formatInTimeZone(new Date(b.created_at), TZ, 'HH:mm')}` : formatInTimeZone(new Date(b.created_at), TZ, 'dd/MM HH:mm')
+          const letti = readCounts[b.id] ?? 0
+          return (
+            <div key={b.id} className="anim-inrise border-b border-border px-3.5 py-3 last:border-b-0" style={{ animationDelay: `${Math.min(i, 8) * 70}ms` }}>
+              <div className="flex items-center gap-2">
+                {!mio && <span className="h-2 w-2 flex-none rounded-full bg-turni" />}
+                <button type="button" onClick={() => !isManager && handleToggle(b)} className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold">
+                  {autore}
+                </button>
+                <span className="flex-none font-mono text-xs text-muted-foreground">{quando}</span>
+              </div>
+              <button type="button" onClick={() => !isManager && handleToggle(b)} className="mt-1 block w-full text-left">
+                <span className="block text-[15px] font-medium leading-snug">{b.title}</span>
+                {isOpen && <span className="mt-0.5 block whitespace-pre-wrap text-[15px] leading-[1.45] text-foreground/90">{b.body}</span>}
+              </button>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <TargetBadge b={b} />
+                {canViewReads && (
+                  <button type="button" onClick={() => openReads(b)} className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline">
+                    {letti > 0 ? `Letto da ${letti}` : 'Chi ha letto'}
+                  </button>
+                )}
+                {isManager && (
+                  <button type="button" onClick={() => handleDelete(b.id)} className="ml-auto text-xs font-semibold text-neg active:scale-[0.97]">Elimina</button>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {bulletins.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Nessun comunicato pubblicato
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {bulletins.map(b => {
-            const isManager = currentUserRole === 'manager'
-            const isOpen = isManager || expandedId === b.id
-            const canViewReads = isManager || (currentUserRole === 'capo_servizio' && canPost)
-            return (
-              <Card key={b.id}>
-                <CardHeader className={isOpen ? 'pb-2' : 'pb-3'}>
-                  <div className="flex items-start justify-between gap-3">
-                    {!isManager ? (
-                      <button
-                        onClick={() => handleToggle(b)}
-                        className="flex-1 text-left flex items-start gap-2 min-w-0"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 text-muted-foreground shrink-0 mt-0.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <CardTitle className="text-base">{b.title}</CardTitle>
-                            <TargetBadge b={b} />
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {b.author?.full_name && <>{b.author.full_name} · </>}
-                            {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
-                          </p>
-                        </div>
-                      </button>
-                    ) : (
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <CardTitle className="text-base">{b.title}</CardTitle>
-                          <TargetBadge b={b} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {b.author?.full_name && <>{b.author.full_name} · </>}
-                          {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
-                        </p>
-                        {(readCounts[b.id] ?? 0) > 0 && (
-                          <p className="text-xs text-muted-foreground/70 mt-0.5">
-                            Letto da {readCounts[b.id]} {readCounts[b.id] === 1 ? 'persona' : 'persone'}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-1 shrink-0">
-                      {canViewReads && (
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={() => openReads(b)}
-                          className="text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-700/50"
-                          title="Visualizza letture"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {isManager && (
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={() => handleDelete(b.id)}
-                          className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                {isOpen && (
-                  <CardContent className="pt-0">
-                    <p className="text-sm whitespace-pre-wrap">{b.body}</p>
-                  </CardContent>
-                )}
-              </Card>
-            )
-          })}
-        </div>
-      )}
-
-      {/* New bulletin dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Nuovo Comunicato</DialogTitle></DialogHeader>
