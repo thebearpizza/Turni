@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/shared/ThemeProvider'
 import { OfflineSyncProvider } from '@/components/shared/OfflineSyncProvider'
 import { SessionGuardian } from '@/components/shared/SessionGuardian'
 import { Toaster } from '@/components/shared/Toaster'
+import { ConfermaHost } from '@/components/shared/Conferma'
 import { SplashApertura } from '@/components/shared/SplashApertura'
 import './globals.css'
 
@@ -49,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </OfflineSyncProvider>
           <Toaster />
+          <ConfermaHost />
         </ThemeProvider>
       </body>
     </html>

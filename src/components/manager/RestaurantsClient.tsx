@@ -16,6 +16,7 @@ import { Plus, QrCode, Pencil, Trash2, MapPin, Clock, X } from 'lucide-react'
 import QRCode from 'qrcode'
 import type { Restaurant, ShiftSlot, Department } from '@/types'
 import { DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 // 0=Dom..6=Sab — mostrati come Lun→Dom per convenzione
 const DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 0] as const
@@ -145,7 +146,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questo ristorante?')) return
+    if (!(await chiediConferma({ titolo: 'Eliminare il ristorante?', testo: "L'azione è irreversibile." }))) return
     setDeleting(id)
     const supabase = createClient()
     const { error } = await supabase.from('restaurants').delete().eq('id', id)

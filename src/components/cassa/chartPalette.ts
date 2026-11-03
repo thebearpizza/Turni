@@ -1,15 +1,14 @@
-// Palette qualitativa "Ledger" condivisa da tutti i grafici Cassa (donut
-// categorie, trend categorie nel tempo…) — verde/rame del design system più
-// toni terrosi coerenti, niente arcobaleno neon da dashboard generica.
+// Palette qualitativa dei grafici Cassa (design Acciaio): toni oklch a pari
+// luminosità, distinguibili tra loro e leggibili sia in chiaro che in scuro.
 export const CASSA_CHART_COLORS = [
-  'var(--primary)',
-  'var(--cassa-copper)',
-  '#8A6D3B',
-  '#4A6670',
-  '#7C5C4B',
-  '#A8763E',
-  '#5E7A5A',
-  '#9C4B3D',
+  'oklch(0.56 0.1 175)',
+  'oklch(0.72 0.12 75)',
+  'oklch(0.58 0.12 250)',
+  'oklch(0.66 0.11 320)',
+  'oklch(0.62 0.13 30)',
+  'oklch(0.6 0.1 140)',
+  'oklch(0.55 0.08 280)',
+  'oklch(0.65 0.09 100)',
 ]
 
 export function cassaChartColor(index: number): string {

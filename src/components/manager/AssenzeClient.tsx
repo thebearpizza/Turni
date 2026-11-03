@@ -17,6 +17,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { formatDate } from '@/lib/utils'
 import type { Absence, Restaurant, AbsenceType, AbsenceStatus } from '@/types'
 import { ABSENCE_LABELS } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const TZ = 'Europe/Rome'
 
@@ -182,7 +183,7 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
 
   async function handleDelete(id: string) {
     if (!canEdit) { showUnauthorized(); return }
-    if (!confirm('Eliminare questa assenza?')) return
+    if (!(await chiediConferma({ titolo: "Eliminare l'assenza?" }))) return
     const supabase = createClient()
     const { error } = await supabase.from('absences').delete().eq('id', id)
     if (error) {

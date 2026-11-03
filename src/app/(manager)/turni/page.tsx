@@ -44,7 +44,7 @@ export default async function TurniPage() {
   // Dipendenti assegnabili al turno — stesso scoping dei turni stessi
   let staffQuery = supabase
     .from('profiles')
-    .select('id, full_name, department, restaurant_id')
+    .select('id, full_name, department, restaurant_id, role, weekly_hours_target')
     .in('role', ['dipendente', 'capo_servizio'])
     .order('full_name')
   staffQuery = scopeStaffQuery(staffQuery, scopeProfile)

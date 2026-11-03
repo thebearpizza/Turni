@@ -20,6 +20,7 @@ import { Plus, User, MoreVertical, Pencil, KeyRound, Trash2, CheckCircle2, Loade
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Profile, Restaurant, Role, Department, SecondaryDepartment, ShiftSlot } from '@/types'
 import { ROLE_LABELS, DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const USERNAME_RE = /^[a-z0-9._-]+$/
 
@@ -241,7 +242,7 @@ export function DipendentiClient({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questo utente? Questa azione è irreversibile.')) return
+    if (!(await chiediConferma({ titolo: "Eliminare l'utente?", testo: "L'azione è irreversibile: l'account non potrà più accedere." }))) return
     const res = await fetch(`/api/users?id=${id}`, { method: 'DELETE' })
     if (!res.ok) {
       const e = await res.json().catch(() => null)

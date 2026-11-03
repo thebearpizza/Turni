@@ -14,6 +14,7 @@ import { LoadingDots } from '@/components/shared/LoadingDots'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Bulletin, BulletinRead, BulletinTarget, Restaurant, Role } from '@/types'
 import { ROLE_LABELS, DEPARTMENTS } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const TZ = 'Europe/Rome'
 
@@ -193,7 +194,7 @@ export function BachecaClient({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questo comunicato?')) return
+    if (!(await chiediConferma({ titolo: 'Eliminare il comunicato?', testo: 'Sparisce dalla bacheca di tutti.' }))) return
     const supabase = createClient()
     await supabase.from('bulletins').delete().eq('id', id)
     setBulletins(bs => bs.filter(b => b.id !== id))

@@ -10,10 +10,15 @@ interface Riga {
   differenza: number
   coperti: number
   incasso_asporto: number
+  entrate_contanti: number
+  entrate_pos: number
+  entrate_bonifico: number
 }
 
 interface Props {
   righe: Riga[]
+  /** Colore del locale come nelle pillole dei filtri. */
+  colori?: Record<string, string>
 }
 
 interface Confronto {
@@ -25,6 +30,9 @@ interface Confronto {
   totaleDifferenza: number
   totaleCoperti: number
   totaleIncassoAsporto: number
+  contanti: number
+  pos: number
+  bonifico: number
   mediaEntrate: number
   mediaSpese: number
   mediaScontrino: number | null
@@ -39,7 +47,7 @@ interface Confronto {
 // periodo, non come media delle medie giornaliere (che pesa ogni giorno
 // allo stesso modo indipendentemente dai coperti/incassi reali e
 // distorcerebbe il risultato su periodi con giornate molto diverse tra loro).
-export function ConfrontoSediTable({ righe }: Props) {
+export function ConfrontoSediTable({ righe, colori = {} }: Props) {
   const confronti = useMemo<Confronto[]>(() => {
     const byRestaurant = new Map<string, Confronto>()
 
@@ -55,6 +63,9 @@ export function ConfrontoSediTable({ righe }: Props) {
           totaleDifferenza: 0,
           totaleCoperti: 0,
           totaleIncassoAsporto: 0,
+          contanti: 0,
+          pos: 0,
+          bonifico: 0,
           mediaEntrate: 0,
           mediaSpese: 0,
           mediaScontrino: null,
@@ -68,6 +79,9 @@ export function ConfrontoSediTable({ righe }: Props) {
       c.totaleDifferenza += r.differenza
       c.totaleCoperti += r.coperti
       c.totaleIncassoAsporto += r.incasso_asporto
+      c.contanti += r.entrate_contanti ?? 0
+      c.pos += r.entrate_pos ?? 0
+      c.bonifico += r.entrate_bonifico ?? 0
     }
 
     return Array.from(byRestaurant.values())
@@ -82,48 +96,64 @@ export function ConfrontoSediTable({ righe }: Props) {
   }, [righe])
 
   if (confronti.length === 0) return null
+  const massimo = Math.max(...confronti.map(c => c.totaleEntrate), 1)
+  const eur = (n: number) => `${n < 0 ? '−' : ''}€ ${eur2(Math.abs(n))}`
+  const th = 'px-3 py-2.5 text-right font-medium whitespace-nowrap'
+  const td = 'px-3 py-3 text-right font-mono text-[14px] whitespace-nowrap'
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="-mx-4 overflow-x-auto overscroll-x-contain sm:-mx-5">
+      <table className="w-full min-w-max border-collapse text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-muted-foreground">
-            <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium">Ristorante</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Giorni</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Entrate</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Entrate/Giorno</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Totale Spese</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Spese/Giorno</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Media Scontrino</th>
-            <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Margine Operativo</th>
-            <th className="py-2 font-medium text-right whitespace-nowrap">Differenza Totale</th>
+          <tr className="border-y border-border bg-background text-xs text-muted-foreground">
+            <th className="sticky left-0 z-10 bg-background py-2.5 pl-4 pr-3 text-left font-medium sm:pl-5">Ristorante</th>
+            <th className={th}>Giorni</th>
+            <th className={th}>Totale entrate</th>
+            <th className={th}>Contanti</th>
+            <th className={th}>POS</th>
+            <th className={th}>Bonifico</th>
+            <th className={th}>Asporto</th>
+            <th className={th}>Coperti</th>
+            <th className={th}>Media / giorno</th>
+            <th className={th}>Totale spese</th>
+            <th className={th}>Spese / giorno</th>
+            <th className={th}>Media scontrino</th>
+            <th className={th}>Margine operativo</th>
+            <th className={`${th} pr-4 sm:pr-5`}>Differenza</th>
           </tr>
         </thead>
         <tbody>
           {confronti.map(c => {
-            const isBalanced = Math.abs(c.totaleDifferenza) < 0.005
+            const pari = Math.abs(c.totaleDifferenza) < 0.005
             return (
               <tr key={c.restaurant_id} className="border-b border-border last:border-0">
-                <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium whitespace-nowrap">{c.restaurant_name}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">{c.giorni}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.totaleEntrate)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.mediaEntrate)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.totaleSpese)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.mediaSpese)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">
-                  {c.mediaScontrino === null ? '—' : `€ ${c.mediaScontrino.toFixed(2)}`}
+                <td className="sticky left-0 z-10 bg-card py-3 pl-4 pr-3 sm:pl-5">
+                  <span className="flex items-center gap-2.5 whitespace-nowrap text-[14px] font-semibold">
+                    <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colori[c.restaurant_id] ?? 'var(--muted-foreground)' }} />
+                    {c.restaurant_name}
+                  </span>
                 </td>
-                <td className={cn(
-                  'cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium',
-                  c.margineOperativo >= 0 ? 'text-cassa-positive' : 'text-cassa-negative'
-                )}>
-                  {c.margineOperativo >= 0 ? '' : '−'}€ {eur2(Math.abs(c.margineOperativo))}
+                <td className={td}>{c.giorni}</td>
+                <td className={td}>
+                  <span className="flex flex-col items-end gap-1">
+                    {eur(c.totaleEntrate)}
+                    <span className="flex h-1 w-full justify-end overflow-hidden rounded-full bg-secondary">
+                      <span className="rounded-full" style={{ width: `${(c.totaleEntrate / massimo) * 100}%`, background: colori[c.restaurant_id] ?? 'var(--muted-foreground)' }} />
+                    </span>
+                  </span>
                 </td>
-                <td className={cn(
-                  'cassa-numeric py-2 text-right font-medium whitespace-nowrap',
-                  isBalanced ? 'text-cassa-positive' : 'text-cassa-negative'
-                )}>
-                  {isBalanced ? '0,00 €' : `${c.totaleDifferenza > 0 ? '+' : ''}${eur2(c.totaleDifferenza)} €`}
+                <td className={td}>{eur(c.contanti)}</td>
+                <td className={td}>{eur(c.pos)}</td>
+                <td className={td}>{eur(c.bonifico)}</td>
+                <td className={td}>{eur(c.totaleIncassoAsporto)}</td>
+                <td className={td}>{c.totaleCoperti}</td>
+                <td className={td}>{eur(c.mediaEntrate)}</td>
+                <td className={td}>{eur(c.totaleSpese)}</td>
+                <td className={td}>{eur(c.mediaSpese)}</td>
+                <td className={td}>{c.mediaScontrino === null ? '—' : eur(c.mediaScontrino)}</td>
+                <td className={cn(td, c.margineOperativo < 0 && 'text-neg')}>{eur(c.margineOperativo)}</td>
+                <td className={cn(td, 'pr-4 sm:pr-5', pari ? 'text-ok' : 'text-neg')}>
+                  {pari ? '€ 0,00' : `${c.totaleDifferenza > 0 ? '+' : ''}${eur(c.totaleDifferenza)}`}
                 </td>
               </tr>
             )

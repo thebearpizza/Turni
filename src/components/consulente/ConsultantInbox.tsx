@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ConsultantMessage } from '@/types'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
@@ -124,7 +125,7 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: attachment.path, name: attachment.name }),
     })
-    if (!res.ok) { alert('Impossibile scaricare il file'); return }
+    if (!res.ok) { toast({ title: 'Impossibile scaricare il file', variant: 'destructive' }); return }
 
     const { signedUrl, downloaded_at } = await res.json()
 

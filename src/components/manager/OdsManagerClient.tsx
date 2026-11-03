@@ -15,6 +15,7 @@ import { it } from 'date-fns/locale'
 import { DEPARTMENTS, ODS_TYPE_LABELS, ODS_DAYS_IT } from '@/types'
 import { LoadingDots } from '@/components/shared/LoadingDots'
 import type { OdsTask, OdsCompletion, OdsTaskType } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const TZ = 'Europe/Rome'
 
@@ -150,7 +151,7 @@ export function OdsManagerClient({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questo ordine di servizio?')) return
+    if (!(await chiediConferma({ titolo: "Eliminare l'ordine di servizio?", testo: 'Sparisce dalla lista di tutto il reparto.' }))) return
     const supabase = createClient()
     const { error } = await supabase.from('ods_tasks').delete().eq('id', id)
     if (error) {

@@ -1,14 +1,14 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
-import { TrendChart } from '@/components/cassa/TrendChart'
+import { AndamentoEntrateChart } from '@/components/cassa/AndamentoEntrateChart'
+import { GiorniSettimanaHeatmap } from '@/components/cassa/GiorniSettimanaHeatmap'
+import { SchedaAnalisi } from '@/components/cassa/SchedaAnalisi'
 import { CategorieBreakdownChart } from '@/components/cassa/CategorieBreakdownChart'
 import { CategorieTrendChart } from '@/components/cassa/CategorieTrendChart'
 import { PagamentoBreakdownChart } from '@/components/cassa/PagamentoBreakdownChart'
@@ -254,6 +254,9 @@ export function AnalisiClient({ restaurants }: Props) {
     [selectedRestaurants, restaurants]
   )
   const targetsKey = useMemo(() => JSON.stringify(targets), [targets])
+  // Un colore per locale, lo stesso delle pillole dei filtri.
+  const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
+  const coloriLocali = useMemo(() => Object.fromEntries(locali.map(l => [l.id, l.colore])), [locali])
 
   function handleExport(exportFormat: 'pdf' | 'xlsx') {
     setExporting(exportFormat)
@@ -425,105 +428,74 @@ export function AnalisiClient({ restaurants }: Props) {
       <AnalisiAiDialog open={aiOpen} onOpenChange={setAiOpen} restaurantIds={targets} />
 
       {!loading && righe.length > 0 && (
+        <AnalisiKpiRow righe={righe} righePeriodoPrecedente={righePeriodoPrecedente} />
+      )}
+
+      {loading ? (
+        <div className="rounded-[12px] border border-border bg-card p-5">
+          <Skeleton className="mb-4 h-5 w-48" />
+          <div className="flex h-48 items-end gap-2">
+            {[45, 65, 40, 80, 55, 70, 35, 60, 50, 75, 45, 65].map((h, i) => (
+              <Skeleton key={i} className="flex-1" style={{ height: `${h}%` }} />
+            ))}
+          </div>
+        </div>
+      ) : righe.length === 0 ? (
+        <div className="rounded-[12px] border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground">
+          Nessuna chiusura confermata nel periodo selezionato.
+        </div>
+      ) : (
         <>
-          <AnalisiKpiRow righe={righe} righePeriodoPrecedente={righePeriodoPrecedente} />
-          <BestWorstDayHighlight righe={righe} />
-        </>
-      )}
-
-      {!loading && righe.length > 0 && <RecurringAlertsSection righe={righe} />}
-
-      {!loading && righe.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-2">
-            <Label className="text-[15px] font-semibold">Confronto per locale nel periodo</Label>
-            <ConfrontoSediTable righe={righe} />
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="space-y-3">
-              <div className="flex items-end gap-2 h-48">
-                {[45, 65, 40, 80, 55, 70, 35, 60, 50, 75, 45, 65].map((h, i) => (
-                  <Skeleton key={i} className="flex-1" style={{ height: `${h}%` }} />
-                ))}
-              </div>
-              <div className="flex justify-between">
-                <Skeleton className="h-3 w-12" />
-                <Skeleton className="h-3 w-12" />
-                <Skeleton className="h-3 w-12" />
-              </div>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+            <AndamentoEntrateChart righe={righe} righePrecedenti={compareYoY ? righePrecedenti : undefined} locali={locali} />
+            <div className="flex flex-col gap-4">
+              <BestWorstDayHighlight righe={righe} />
+              <PagamentoBreakdownChart righe={righe} />
             </div>
-          ) : righe.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessuna chiusura confermata nel periodo selezionato.</p>
-          ) : (
-            <TrendChart righe={righe} righePrecedenti={compareYoY ? righePrecedenti : undefined} />
-          )}
-        </CardContent>
-      </Card>
+          </div>
 
-      {!loading && righe.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-3">
-            <Label className="cassa-display text-base">Ripartizione entrate per tipo di pagamento</Label>
-            <PagamentoBreakdownChart righe={righe} />
-          </CardContent>
-        </Card>
-      )}
+          <SchedaAnalisi titolo="Confronto per ristorante" sotto="totali e medie del periodo" ritardo={120}>
+            <ConfrontoSediTable righe={righe} colori={coloriLocali} />
+          </SchedaAnalisi>
 
-      {!loading && righe.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-3">
-            <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
-            {speseError ? (
-              <p className="text-sm text-cassa-negative">Caricamento delle spese non riuscito. Riprova.</p>
-            ) : (
-              <CategorieBreakdownChart spese={spese} multiRestaurant={targets.length > 1} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <GiorniSettimanaHeatmap righe={righe} locali={locali} />
+            <RecurringAlertsSection righe={righe} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SchedaAnalisi titolo="Spese per categoria" sotto="pagate in contanti dalle chiusure" ritardo={300}>
+              {speseError ? (
+                <p className="text-sm text-neg">Caricamento delle spese non riuscito. Riprova.</p>
+              ) : (
+                <CategorieBreakdownChart spese={spese} multiRestaurant={targets.length > 1} />
+              )}
+            </SchedaAnalisi>
+            {vendite.length > 0 && (
+              <SchedaAnalisi titolo="Vendite per categoria" sotto="dai report di chiusura" ritardo={360}>
+                {venditeError ? (
+                  <p className="text-sm text-neg">Caricamento delle vendite non riuscito. Riprova.</p>
+                ) : (
+                  <CategorieBreakdownChart spese={vendite} multiRestaurant={targets.length > 1} />
+                )}
+              </SchedaAnalisi>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
 
-      {!loading && righe.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-3">
-            <Label className="cassa-display text-base">Spese per categoria nel tempo</Label>
+          <SchedaAnalisi titolo="Spese per categoria nel tempo" ritardo={420}>
             {speseError ? (
-              <p className="text-sm text-cassa-negative">Caricamento delle spese non riuscito. Riprova.</p>
+              <p className="text-sm text-neg">Caricamento delle spese non riuscito. Riprova.</p>
             ) : (
               <CategorieTrendChart spese={spese} />
             )}
-          </CardContent>
-        </Card>
-      )}
+          </SchedaAnalisi>
 
-      {!loading && righe.length > 0 && vendite.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-3">
-            <Label className="cassa-display text-base">Vendite per categoria</Label>
-            {venditeError ? (
-              <p className="text-sm text-cassa-negative">Caricamento delle vendite non riuscito. Riprova.</p>
-            ) : (
-              <CategorieBreakdownChart spese={vendite} multiRestaurant={targets.length > 1} />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && righe.length > 0 && vendite.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-3">
-            <Label className="cassa-display text-base">Vendite per categoria nel tempo</Label>
-            {venditeError ? (
-              <p className="text-sm text-cassa-negative">Caricamento delle vendite non riuscito. Riprova.</p>
-            ) : (
+          {vendite.length > 0 && !venditeError && (
+            <SchedaAnalisi titolo="Vendite per categoria nel tempo" ritardo={480}>
               <CategorieTrendChart spese={vendite} />
-            )}
-          </CardContent>
-        </Card>
+            </SchedaAnalisi>
+          )}
+        </>
       )}
     </div>
   )

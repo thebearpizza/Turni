@@ -12,6 +12,7 @@ import { X, CheckCircle2, AlertTriangle, ArrowRightLeft, Zap, Coffee } from 'luc
 import { confirmAiDraft, discardAiDraft, updateDraftTurn, rejectDraftTurn } from '@/app/actions/aiTurni'
 import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
 import type { AiScheduleDraft, AiScheduleDraftTurn, AiScheduleWarning } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 interface Props {
   draft:    AiScheduleDraft & { turns: AiScheduleDraftTurn[] }
@@ -105,7 +106,7 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
   }
 
   async function handleDiscard() {
-    if (!confirm('Scartare questa bozza? L\'azione non può essere annullata.')) return
+    if (!(await chiediConferma({ titolo: 'Scartare la proposta?', testo: "L'azione non può essere annullata.", conferma: 'Scarta' }))) return
     await discardAiDraft(draft.id)
     onClose()
   }

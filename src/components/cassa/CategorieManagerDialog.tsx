@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pencil, Trash2, Plus, Tags, Loader2 } from 'lucide-react'
 import type { CassaCategoria } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 interface Props {
   ownerId: string
@@ -74,7 +75,7 @@ export function CategorieManagerDialog({ ownerId, onChange }: Props) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questa categoria? Le spese già registrate la manterranno come riferimento storico.')) return
+    if (!(await chiediConferma({ titolo: 'Eliminare la categoria?', testo: 'Le spese già registrate la manterranno come riferimento storico.' }))) return
     const supabase = createClient()
     await supabase.from('cassa_categorie').delete().eq('id', id)
     await load()

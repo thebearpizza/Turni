@@ -24,6 +24,7 @@ import {
 import { chiaveCliente } from '@/lib/cassa/prenotazioniImport'
 import { cn } from '@/lib/utils'
 import { ROLE_LABELS, type Prenotazione, type PrenotazioneServizio, type PrenotazioneStato, type Role } from '@/types'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const TZ = 'Europe/Rome'
 
@@ -561,8 +562,8 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   // Unica azione possibile su un passante: cancellarlo (stesso percorso
   // delle altre prenotazioni — stato 'eliminata', non una riga cancellata
   // dal database — così resta comunque nella sezione Cancellate).
-  function eliminaPassante(p: Prenotazione) {
-    if (!window.confirm(`Eliminare il tavolo da ${p.persone} passanti?`)) return
+  async function eliminaPassante(p: Prenotazione) {
+    if (!(await chiediConferma({ titolo: 'Eliminare il tavolo?', testo: `${p.persone} passanti. Il tavolo esce dalla sala e dal conteggio coperti.` }))) return
     cambiaStato(p, 'eliminata').catch(err => setAvviso(err instanceof Error ? err.message : 'Eliminazione non riuscita'))
   }
 

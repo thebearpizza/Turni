@@ -18,6 +18,7 @@ import { getDaysInMonth, differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 import type { Restaurant, AbsenceType } from '@/types'
 import { ABSENCE_CODES, ABSENCE_LABELS } from '@/types'
+import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
 const TARGET_HOURS_PER_DAY = 8.5
@@ -153,7 +154,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
 
       if (!res.ok) {
         const err = await res.json()
-        alert(err.error || 'Errore nel download del report')
+        toast({ title: err.error || 'Errore nel download del report', variant: 'destructive' })
         return
       }
 

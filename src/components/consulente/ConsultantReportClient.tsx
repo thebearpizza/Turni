@@ -13,6 +13,7 @@ import { getDaysInMonth, differenceInMinutes } from 'date-fns'
 import { it } from 'date-fns/locale'
 import type { Restaurant, AbsenceType } from '@/types'
 import { ABSENCE_CODES } from '@/types'
+import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
 const TARGET_HOURS_PER_DAY = 8.5
@@ -209,7 +210,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: selectedMonth, restaurantIds: effectiveRestaurants, type }),
       })
-      if (!res.ok) { const e = await res.json(); alert(e.error || 'Errore download'); return }
+      if (!res.ok) { const e = await res.json(); toast({ title: e.error || 'Errore download', variant: 'destructive' }); return }
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
       const a = document.createElement('a')

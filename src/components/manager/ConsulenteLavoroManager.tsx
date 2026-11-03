@@ -15,6 +15,7 @@ import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect
 import type { Profile, Restaurant, ConsultantMessage } from '@/types'
 import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
@@ -358,7 +359,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: att.path, name: att.name }),
     })
-    if (!res.ok) { alert('Impossibile generare il link'); return }
+    if (!res.ok) { toast({ title: 'Impossibile generare il link', variant: 'destructive' }); return }
     const { signedUrl, downloaded_at } = await res.json()
     if (downloaded_at) {
       setThreads(prev => ({

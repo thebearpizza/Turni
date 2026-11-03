@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
@@ -28,10 +28,11 @@ import { AiScheduleDialog } from './AiScheduleDialog'
 import { AiScheduleDraftView } from './AiScheduleDraftView'
 import { TurniTimeline } from './TurniTimeline'
 import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
+import { chiediConferma } from '@/components/shared/Conferma'
 
 const TZ = 'Europe/Rome'
 
-type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null }
+type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null; role?: string | null; weekly_hours_target?: number | null }
 type RestaurantItem = { id: string; name: string }
 type MultiDayEntry = {
   date: string
@@ -72,7 +73,16 @@ function segmentMinutes(start: string, end: string): number {
 function formatMinutes(total: number): string {
   const h = Math.floor(total / 60)
   const m = total % 60
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
+  return m > 0 ? `${h}h ${String(m).padStart(2, '0')}` : `${h}h`
+}
+
+// Ordine dei reparti nella griglia (design MTTurni): sala prima, cucina in
+// fondo; reparti sconosciuti in ordine alfabetico, chi non ne ha per ultimo.
+const ORDINE_REPARTI = ['sala', 'pizzeria', 'bar', 'cucina']
+function pesoReparto(d: string | null): number {
+  if (!d) return 999
+  const i = ORDINE_REPARTI.indexOf(d.toLowerCase())
+  return i === -1 ? 100 : i
 }
 
 // Una fascia spezzata è incompleta se ha un solo orario compilato tra i due.
@@ -104,7 +114,6 @@ function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
 const thCls = 'px-1.5 py-2 text-center font-medium bg-card text-muted-foreground border-b border-border whitespace-nowrap'
 const tdCls = 'px-1 py-1 text-center text-xs border-b border-border whitespace-nowrap tabular-nums'
 const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap bg-card'
-const tdNameCls = 'px-2 py-2 text-left text-[12px] sm:px-3 sm:text-[13px] font-medium border-b border-border sticky left-0 bg-card z-10'
 
 const TURN_TYPE_OPTIONS = [
   { value: false, label: 'Turno di Lavoro' },
@@ -303,6 +312,18 @@ export function TurniManagerClient({
   const gridStaff = deptFilter.length === 0
     ? staffByRestaurant
     : staffByRestaurant.filter(s => s.department && deptFilter.includes(s.department))
+
+  // Righe raggruppate per reparto con intestazione di sezione (design MTTurni).
+  const gruppiReparto = Array.from(
+    gridStaff.reduce((m, s) => {
+      const k = s.department ?? null
+      if (!m.has(k)) m.set(k, [])
+      m.get(k)!.push(s)
+      return m
+    }, new Map<string | null, StaffMember[]>())
+  )
+    .map(([reparto, membri]) => ({ reparto, membri }))
+    .sort((a, b) => pesoReparto(a.reparto) - pesoReparto(b.reparto) || (a.reparto ?? '').localeCompare(b.reparto ?? ''))
 
   function toggleDeptFilter(dept: string) {
     setDeptFilter(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
@@ -594,12 +615,16 @@ export function TurniManagerClient({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Eliminare questo turno?')) return
+    if (!(await chiediConferma({ titolo: 'Eliminare il turno?', testo: 'Il dipendente non lo vedrà più tra i suoi turni.' }))) return false
     try {
       await deleteTurn(id)
       setTurns(prev => prev.filter(t => t.id !== id))
+      toast({ title: 'Turno eliminato' })
+      return true
     } catch (err) {
       console.error('Errore eliminazione turno:', err)
+      toast({ title: 'Eliminazione non riuscita. Riprova.', variant: 'destructive' })
+      return false
     }
   }
 
@@ -649,7 +674,7 @@ export function TurniManagerClient({
   }
 
   async function handleDeleteStandardShift(id: string) {
-    if (!confirm('Eliminare questo turno fisso?')) return
+    if (!(await chiediConferma({ titolo: 'Eliminare il turno fisso?', testo: 'Non verrà più proposto nelle settimane successive.' }))) return
     try {
       await deleteStandardShift(id)
       setStandardShifts(prev => prev.filter(s => s.id !== id))
@@ -796,95 +821,124 @@ export function TurniManagerClient({
           (design "Turni sala"); la griglia settimanale resta su tablet/PC. */}
       <div className={!isManager && !isDirettore ? 'hidden md:block' : undefined}>
       <div className="w-full overflow-auto rounded-[12px] border border-border bg-card">
-        <table className="border-collapse text-xs w-full" style={{ minWidth: 'max-content' }}>
+        <table className="w-full border-collapse text-xs" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
-              <th className={`${thCls} sticky left-0 z-20 text-left min-w-[96px] sm:min-w-[150px]`}>Dipendente</th>
-              {weekDays.map(day => (
-                <th key={format(day, 'yyyy-MM-dd')} className={`${thCls} min-w-[48px] sm:min-w-[100px]`}>
-                  <div className="capitalize">{formatInTimeZone(day, TZ, 'EEE', { locale: it })}</div>
-                  <div className="font-mono text-[15px] font-semibold text-foreground">{formatInTimeZone(day, TZ, 'd', { locale: it })}</div>
-                </th>
-              ))}
-              <th className={`${thCls} min-w-[90px]`}>Monte Ore</th>
+              <th className="sticky left-0 z-20 min-w-[104px] border-b border-r border-border bg-background px-2.5 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground sm:min-w-[170px] sm:px-4">Dipendente</th>
+              {weekDays.map(day => {
+                const dateStr = format(day, 'yyyy-MM-dd')
+                const persone = gridStaff.filter(m => (turnsByUserDate[`${m.id}|${dateStr}`] ?? []).some(t => !t.is_rest_day)).length
+                const oggi = dateStr === formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+                return (
+                  <th key={dateStr} className={`min-w-[52px] border-b border-r border-border px-1.5 py-2 text-left font-normal sm:min-w-[120px] sm:px-2.5 ${oggi ? 'bg-[oklch(0.95_0.03_240)] dark:bg-[oklch(0.25_0.04_240)]' : 'bg-background'}`}>
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="flex flex-col text-[11px] capitalize text-muted-foreground sm:flex-row sm:items-baseline sm:gap-1 sm:text-[13px]">
+                        {formatInTimeZone(day, TZ, 'EEE', { locale: it })}
+                        <span className="font-mono text-[14px] font-semibold text-foreground">{formatInTimeZone(day, TZ, 'd', { locale: it })}</span>
+                      </span>
+                      <span className="hidden items-center gap-0.5 font-mono text-[10px] text-muted-foreground sm:flex" title={`${persone} in turno`}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
+                        {persone}
+                      </span>
+                    </div>
+                  </th>
+                )
+              })}
+              <th className="min-w-[72px] border-b border-border bg-background px-2.5 py-2 text-right font-mono text-[10px] font-medium uppercase leading-tight tracking-[1px] text-muted-foreground sm:min-w-[92px] sm:px-3">Monte<br />ore</th>
             </tr>
           </thead>
           <tbody>
             {gridStaff.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-6 text-muted-foreground text-xs">
+                <td colSpan={9} className="py-6 text-center text-xs text-muted-foreground">
                   Nessun dipendente
                 </td>
               </tr>
-            ) : gridStaff.map(member => {
-              // Monte ore settimanale stimato: somma di tutte le fasce non-riposo
-              // della settimana visualizzata, turni spezzati inclusi (ogni fascia
-              // dello stesso giorno è una voce a parte in cellTurns), gestendo
-              // anche i turni notturni (fine ≤ inizio → si estendono a mezzanotte).
-              const weeklyMinutes = weekDays.reduce((sum, day) => {
-                const dateStr = format(day, 'yyyy-MM-dd')
-                const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
-                return sum + cellTurns
-                  .filter(t => !t.is_rest_day)
-                  .reduce((s, t) => s + segmentMinutes(t.start_time.slice(0, 5), t.end_time.slice(0, 5)), 0)
-              }, 0)
-
-              return (
-                <tr key={member.id}>
-                <td className={tdNameCls}>
-                  {member.full_name}
-                  {isManager && restFilter === 'tutti' && member.restaurant_id && (
-                    <span className="block text-[10px] font-normal text-muted-foreground">
-                      {restaurants.find(r => r.id === member.restaurant_id)?.name ?? ''}
-                    </span>
-                  )}
-                </td>
-                {weekDays.map(day => {
-                  const dateStr = format(day, 'yyyy-MM-dd')
-                  const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
-                  return (
-                    <td key={dateStr} className={`${tdCls} align-top p-1`}>
-                      <div className="flex flex-col gap-1 items-stretch min-w-[44px] sm:min-w-[80px]">
-                        {cellTurns.map(turn => (
-                          <div
-                            key={turn.id}
-                            onClick={() => openEdit(turn)}
-                            className={`flex items-center justify-center gap-1 rounded-[6px] border px-1 py-1 font-mono text-[10px] font-medium whitespace-nowrap cursor-pointer active:scale-[0.97] ${
-                              turn.is_rest_day ? RIPOSO_BADGE : turn.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE
-                            }`}
-                          >
-                            {/* Sul telefono orari su due righe, come nel design. */}
-                            <span className="flex flex-col leading-tight sm:block">
-                              {turn.is_rest_day ? 'Rip.' : <><span>{turn.start_time.slice(0, 5)}</span><span className="sm:before:content-['-']">{turn.end_time.slice(0, 5)}</span></>}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={e => { e.stopPropagation(); handleDelete(turn.id) }}
-                              className="hidden opacity-50 hover:opacity-100 hover:text-destructive sm:inline"
-                              aria-label="Elimina turno"
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => openCreateForCell(member.id, dateStr)}
-                          className="flex items-center justify-center h-5 rounded-sm border border-dashed border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                          aria-label="Aggiungi turno"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      </div>
+            ) : gruppiReparto.map(gruppo => (
+              <Fragment key={gruppo.reparto ?? '_'}>
+                {gruppiReparto.length > 1 && (
+                  <tr>
+                    <td colSpan={9} className="border-b border-border bg-background px-2.5 py-1.5 sm:px-4">
+                      <span className="sticky left-2.5 font-mono text-[10px] font-semibold uppercase tracking-[1px] text-muted-foreground sm:left-4">
+                        {gruppo.reparto ?? 'Senza reparto'} <span className="ml-1 font-normal">{gruppo.membri.length}</span>
+                      </span>
                     </td>
+                  </tr>
+                )}
+                {gruppo.membri.map(member => {
+                  // Monte ore settimanale: somma di tutte le fasce non-riposo
+                  // della settimana visualizzata, turni spezzati inclusi,
+                  // gestendo i turni notturni (fine ≤ inizio → oltre mezzanotte).
+                  const weeklyMinutes = weekDays.reduce((sum, day) => {
+                    const dateStr = format(day, 'yyyy-MM-dd')
+                    const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
+                    return sum + cellTurns
+                      .filter(t => !t.is_rest_day)
+                      .reduce((s, t) => s + segmentMinutes(t.start_time.slice(0, 5), t.end_time.slice(0, 5)), 0)
+                  }, 0)
+                  // Obiettivo: ore del part-time, 40 per chi è a tempo pieno.
+                  const obiettivo = member.weekly_hours_target ?? 40
+                  const oltre = weeklyMinutes > obiettivo * 60
+                  const sottotitolo = isManager && restFilter === 'tutti' && member.restaurant_id
+                    ? restaurants.find(r => r.id === member.restaurant_id)?.name ?? ''
+                    : member.role === 'capo_servizio' ? 'Capo servizio' : member.department ?? ''
+
+                  return (
+                    <tr key={member.id}>
+                      <td className="sticky left-0 z-10 border-b border-r border-border bg-card px-2.5 py-2 text-left sm:px-4">
+                        <span className="block max-w-[110px] truncate text-[13px] font-medium sm:max-w-[180px] sm:text-[14px]">{member.full_name}</span>
+                        {sottotitolo && <span className="block max-w-[110px] truncate text-[11px] capitalize text-muted-foreground sm:max-w-[180px]">{sottotitolo}</span>}
+                      </td>
+                      {weekDays.map(day => {
+                        const dateStr = format(day, 'yyyy-MM-dd')
+                        const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
+                        const doppio = cellTurns.length > 1
+                        return (
+                          <td key={dateStr} className="group border-b border-r border-border p-1 align-middle sm:p-1.5">
+                            {cellTurns.length === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => openCreateForCell(member.id, dateStr)}
+                                className="flex h-12 w-full items-center justify-center rounded-[8px] border border-dashed border-transparent text-muted-foreground opacity-0 transition-opacity hover:border-line-strong hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-40"
+                                aria-label="Aggiungi turno"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                {cellTurns.map(turn => (
+                                  <button
+                                    type="button"
+                                    key={turn.id}
+                                    onClick={() => openEdit(turn)}
+                                    className={`flex w-full items-center justify-center rounded-[7px] border px-1 font-mono text-[10px] font-medium leading-tight whitespace-nowrap active:scale-[0.97] sm:text-[12px] ${
+                                      doppio ? 'min-h-[22px] py-0.5' : 'h-12'
+                                    } ${turn.is_rest_day ? RIPOSO_BADGE : turn.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE}`}
+                                  >
+                                    {turn.is_rest_day ? 'Riposo' : (
+                                      <span className={`flex leading-tight sm:flex-row ${doppio ? 'flex-row' : 'flex-col'}`}>
+                                        <span>{turn.start_time.slice(0, 5)}</span>
+                                        <span className={doppio ? "before:content-['–']" : "sm:before:content-['–']"}>{turn.end_time.slice(0, 5)}</span>
+                                      </span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        )
+                      })}
+                      <td className="border-b border-border px-2.5 py-2 text-right sm:px-3">
+                        <span className={`block whitespace-nowrap font-mono text-[13px] font-semibold sm:text-[14px] ${oltre ? 'text-neg' : ''}`}>
+                          {weeklyMinutes > 0 ? formatMinutes(weeklyMinutes) : '–'}
+                        </span>
+                        <span className="block whitespace-nowrap text-[10px] text-muted-foreground">su {obiettivo}h</span>
+                      </td>
+                    </tr>
                   )
                 })}
-                <td className={`${tdCls} font-semibold`}>
-                  {weeklyMinutes > 0 ? formatMinutes(weeklyMinutes) : '–'}
-                </td>
-              </tr>
-              )
-            })}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1183,7 +1237,7 @@ export function TurniManagerClient({
           <DialogFooter>
             {/* Elimina anche da qui: sul telefono la ✕ nella cella non c'è. */}
             {editingTurn && (
-              <Button variant="destructive-soft" className="sm:mr-auto" onClick={async () => { const id = editingTurn.id; await handleDelete(id); setShowForm(false) }}>
+              <Button variant="destructive-soft" className="sm:mr-auto" onClick={async () => { const id = editingTurn.id; if (await handleDelete(id)) setShowForm(false) }}>
                 Elimina
               </Button>
             )}
