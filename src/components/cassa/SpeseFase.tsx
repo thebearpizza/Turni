@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategorieManagerDialog } from '@/components/cassa/CategorieManagerDialog'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
-import { Trash2 } from 'lucide-react'
 import type { CassaChiusura, CassaCategoria, CassaSpesa } from '@/types'
 
 interface Suggerimento {
@@ -183,116 +182,113 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
     setSpesaDaEliminare(null)
   }
 
+  const eur = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   return (
-    <Card className="cassa-perforated-top">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="cassa-display text-lg">Spese e categorie</CardTitle>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+        <CardTitle>Spese pagate in contanti</CardTitle>
         {role === 'manager' && <CategorieManagerDialog ownerId={ownerId} onChange={loadCategorie} />}
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-3 border border-border rounded-lg p-3">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+        {/* Elenco con totale a sinistra, nuova spesa a destra (tablet);
+            su telefono uno sotto l'altro. */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="overflow-hidden rounded-[12px] border border-border">
+            {loadingSpese && Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between border-b border-border px-3.5 py-3">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-14" />
+              </div>
+            ))}
+            {!loadingSpese && spese.length === 0 && (
+              <p className="border-b border-border px-3.5 py-6 text-center text-sm text-muted-foreground">Nessuna spesa per questa giornata.</p>
+            )}
+            {spese.map(s => {
+              const cat = categorie.find(c => c.id === s.categoria_id)
+              return (
+                <button
+                  type="button"
+                  key={s.id}
+                  onClick={() => setSpesaDaEliminare(s)}
+                  className="flex w-full items-start justify-between gap-3 border-b border-border px-3.5 py-2.5 text-left active:scale-[0.99]"
+                >
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="break-words text-sm font-medium">{s.nome_spesa}</span>
+                    {cat && <span className="self-start rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.04em] text-muted-foreground">{cat.nome}</span>}
+                  </span>
+                  <span className="whitespace-nowrap font-mono text-sm">{eur(s.importo)}</span>
+                </button>
+              )
+            })}
+            <div className="flex items-center justify-between bg-background px-3.5 py-3">
+              <span className="text-sm font-semibold">Totale spese</span>
+              <span className="font-mono text-base font-semibold">€ {eur(chiusura.totale_spese_giornaliere)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-[12px] border border-border p-3.5">
+            <span className="text-sm font-semibold">Nuova spesa</span>
             <div className="relative space-y-1.5">
-              <Label>Voce di spesa</Label>
+              <Label>Descrizione</Label>
               <Input
                 value={nome}
                 onChange={e => { setNome(e.target.value); setShowSuggestions(true) }}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                placeholder="Es. Trasporto merci"
+                placeholder="Es. Ghiaccio"
               />
               {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-48 overflow-y-auto">
+                <div className="anim-swapin absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-[10px] border border-border bg-popover p-1 shadow-float">
                   {suggestions.map(s => (
                     <button
                       type="button"
                       key={s.nome_spesa}
                       onMouseDown={() => pickSuggestion(s)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-accent"
+                      className="flex w-full items-center justify-between rounded-[8px] px-3 py-2 text-left text-sm hover:bg-[oklch(0.94_0.04_180)] dark:hover:bg-[oklch(0.3_0.05_180)]"
                     >
                       <span>{s.nome_spesa}</span>
-                      {s.categoria_nome && <span className="text-xs text-muted-foreground">{s.categoria_nome}</span>}
+                      {s.categoria_nome && <span className="text-[10px] font-semibold uppercase tracking-[.04em] text-muted-foreground">{s.categoria_nome}</span>}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <div className="space-y-1.5 sm:w-48">
-              <Label>Importo</Label>
-              <CurrencyInput value={importo} onChange={setImporto} className="cassa-numeric" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Categoria</Label>
+                <Select value={categoriaId} onValueChange={setCategoriaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Scegli" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categorie.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Importo</Label>
+                <CurrencyInput value={importo} onChange={setImporto} className="cassa-numeric" />
+              </div>
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Categoria</Label>
-            <Select value={categoriaId} onValueChange={setCategoriaId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleziona una categoria" />
-              </SelectTrigger>
-              <SelectContent>
-                {categorie.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-          <div className="flex justify-end">
-            <Button type="button" onClick={handleAddSpesa} disabled={saving || checking}>
+            {formError && <p className="text-sm text-neg">{formError}</p>}
+            <Button type="button" className="w-full" onClick={handleAddSpesa} disabled={saving || checking}>
               {checking ? 'Verifica…' : saving ? 'Salvataggio…' : 'Aggiungi spesa'}
             </Button>
           </div>
         </div>
 
-        <div className="space-y-2">
-          {loadingSpese && Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <Skeleton className="h-4 w-40" />
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-4 w-14" />
-                <Skeleton className="h-8 w-8 rounded-md" />
-              </div>
-            </div>
-          ))}
-          {!loadingSpese && spese.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nessuna spesa registrata per questa giornata.</p>
-          )}
-          {spese.map(s => {
-            const cat = categorie.find(c => c.id === s.categoria_id)
-            return (
-              <div key={s.id} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
-                <div className="min-w-0 flex-1 break-words">
-                  <span className="font-medium">{s.nome_spesa}</span>
-                  {cat && <span className="text-muted-foreground ml-2">({cat.nome})</span>}
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="cassa-numeric whitespace-nowrap">€ {s.importo.toFixed(2)}</span>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSpesaDaEliminare(s)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Totale Spese Giornaliere</Label>
-          <CurrencyInput value={chiusura.totale_spese_giornaliere} readOnly className="cassa-numeric" />
-        </div>
-
-        <div className="flex justify-between pt-2">
+        <div className="flex justify-between gap-2 pt-1">
           <Button type="button" variant="outline" onClick={onBack}>Indietro</Button>
-          <Button type="button" onClick={onNext}>Avanti</Button>
+          <Button type="button" className="flex-1 sm:flex-none" onClick={onNext}>Avanti: quadratura</Button>
         </div>
       </CardContent>
 
       <Dialog open={!!confirmMatch} onOpenChange={o => { if (!o) setConfirmMatch(null) }}>
-        <DialogContent className="cassa cassa-perforated-top">
+        <DialogContent className="cassa">
           <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Voce simile trovata</DialogTitle>
+            <DialogTitle>Voce simile trovata</DialogTitle>
             <DialogDescription>
               Intendevi &laquo;{confirmMatch?.nome}&raquo;? Sembra la stessa voce di spesa già usata in passato.
             </DialogDescription>
@@ -327,9 +323,9 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
       </Dialog>
 
       <Dialog open={!!spesaDaEliminare} onOpenChange={o => { if (!o) { setSpesaDaEliminare(null); setDeleteSpesaError(null) } }}>
-        <DialogContent className="cassa cassa-perforated-top">
+        <DialogContent className="cassa">
           <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Eliminare questa spesa?</DialogTitle>
+            <DialogTitle>Eliminare questa spesa?</DialogTitle>
           </DialogHeader>
           {spesaDaEliminare && (
             <p className="text-sm text-muted-foreground">

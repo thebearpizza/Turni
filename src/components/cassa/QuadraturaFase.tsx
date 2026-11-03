@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { toast } from '@/hooks/use-toast'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -32,6 +33,9 @@ interface Props {
   onRequestSent: () => void
   contantiPerBancaTouched: boolean
   onContantiPerBancaTouched: () => void
+  /** Il fondo cassa finale si compila qui (design: fase 3). */
+  fondoFinaleTouched: boolean
+  onFondoFinaleTouched: () => void
 }
 
 function formatEuro(n: number): string {
@@ -46,8 +50,9 @@ function formatEuro(n: number): string {
 //   (cassa_chiusure_modifiche), la riga originale resta invariata finché non approvata.
 export function QuadraturaFase({
   chiusura, fields, onFieldsChange, role, userId, onBack, onSaved, onRequestSent,
-  contantiPerBancaTouched, onContantiPerBancaTouched,
+  contantiPerBancaTouched, onContantiPerBancaTouched, fondoFinaleTouched, onFondoFinaleTouched,
 }: Props) {
+  const pronta = contantiPerBancaTouched && fondoFinaleTouched
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestSent, setRequestSent] = useState(false)
@@ -99,7 +104,7 @@ export function QuadraturaFase({
   }
 
   async function handleSubmit() {
-    if (!contantiPerBancaTouched) return
+    if (!pronta) return
     setSaving(true)
     setError(null)
 
@@ -125,6 +130,7 @@ export function QuadraturaFase({
       }
       onSaved(data as CassaChiusura)
       setJustSaved(true)
+      toast({ title: isDraft ? 'Chiusura inviata' : 'Modifiche salvate' })
       // Solo alla prima conferma (bozza → confermata): notifica i manager.
       // Fire-and-forget, un errore qui non deve bloccare il cassiere.
       if (isDraft) notificaChiusuraConfermata(chiusura.id).catch(() => {})
@@ -151,6 +157,7 @@ export function QuadraturaFase({
         return
       }
       setRequestSent(true)
+      toast({ title: 'Modifica inviata al manager' })
       onRequestSent()
     } catch {
       setSaving(false)
@@ -164,25 +171,38 @@ export function QuadraturaFase({
       ? 'Salva modifiche'
       : 'Invia richiesta di modifica'
 
+  useEffect(() => {
+    if (error) toast({ title: error, variant: 'destructive' })
+  }, [error])
+
   return (
-    <Card className="cassa-perforated-top">
-      <CardHeader>
-        <CardTitle className="cassa-display text-lg">Quadratura</CardTitle>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle>Fondo e contanti per la banca</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {requestSent ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 rounded-md px-3 py-2">
-            Richiesta di modifica inviata al manager. I valori originali restano validi finché non verrà approvata.
+          <p className="rounded-[10px] bg-ok-tint px-3 py-2.5 text-sm font-medium text-ok">
+            Modifica in revisione dal manager. I valori originali restano validi finché non viene approvata.
           </p>
         ) : (
           <>
             <div className="space-y-1.5">
-              <Label>Banca Teorica</Label>
+              <Label>Fondo cassa finale <span className="text-cassa-copper">*</span></Label>
+              <CurrencyInput
+                value={fields.fondoCassaFinale}
+                onChange={v => { onFieldsChange(f => ({ ...f, fondoCassaFinale: v })); onFondoFinaleTouched(); setJustSaved(false) }}
+                className="cassa-numeric"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between"><Label>Banca teorica</Label><span className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Auto</span></div>
               <CurrencyInput value={bancaTeorica} readOnly className="cassa-numeric" />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Contanti per Banca <span className="text-cassa-copper">*</span></Label>
+              <Label>Contanti per banca <span className="text-cassa-copper">*</span></Label>
               <CurrencyInput
                 value={fields.contantiPerBanca}
                 onChange={v => { onFieldsChange(f => ({ ...f, contantiPerBanca: v })); onContantiPerBancaTouched(); setJustSaved(false) }}
@@ -190,33 +210,30 @@ export function QuadraturaFase({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Differenza</Label>
-              <div className={cn(
-                'cassa-numeric flex h-9 w-full items-center whitespace-nowrap rounded-md border px-3 text-base font-medium',
-                isBalanced
-                  ? 'border-cassa-positive/30 bg-cassa-positive-bg text-cassa-positive'
-                  : 'border-cassa-negative/30 bg-cassa-negative-bg text-cassa-negative'
-              )}>
-                {isBalanced ? '0,00 €' : formatEuro(differenza)}
+            {/* La differenza è il blocco più grande della fase e diventa
+                verde quando la cassa quadra (design). */}
+            <div className={cn('flex items-center justify-between rounded-[10px] px-4 py-3.5',
+              !contantiPerBancaTouched ? 'bg-secondary text-muted-foreground' : isBalanced ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold">{isBalanced && contantiPerBancaTouched ? 'Differenza · quadra' : 'Differenza'}</span>
+                {!isBalanced && contantiPerBancaTouched && <span className="text-xs opacity-90">Ricontrolla i contanti o le spese prima di confermare.</span>}
               </div>
+              <span className="font-mono text-2xl font-semibold">{!contantiPerBancaTouched ? '—' : isBalanced ? '0,00 €' : formatEuro(differenza)}</span>
             </div>
 
-            {!contantiPerBancaTouched && (
+            {!pronta && (
               <p className="text-xs text-muted-foreground">
-                Compila i campi contrassegnati con <span className="text-cassa-copper">*</span> per continuare (anche con valore 0, se corretto).
+                Compila fondo finale e contanti per banca per confermare (anche con valore 0, se corretto).
               </p>
             )}
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
           </>
         )}
 
-        <div className="flex justify-between pt-2">
+        <div className="flex justify-between gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onBack} disabled={saving}>Indietro</Button>
           {!requestSent && (
-            <Button type="button" onClick={handleSubmit} disabled={saving || !contantiPerBancaTouched || justSaved}>
-              {saving ? 'Salvataggio…' : justSaved ? 'Salvato!' : submitLabel}
+            <Button type="button" className="flex-1 sm:flex-none" onClick={handleSubmit} disabled={saving || !pronta || justSaved}>
+              {saving ? 'Invio in corso…' : justSaved ? 'Salvato' : submitLabel}
             </Button>
           )}
         </div>

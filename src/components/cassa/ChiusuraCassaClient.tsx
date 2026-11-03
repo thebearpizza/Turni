@@ -20,6 +20,7 @@ import { SpeseBozzaCard } from '@/components/cassa/SpeseBozzaCard'
 import { ReportChiusuraCapture, type ReportChiusuraEstratto } from '@/components/cassa/ReportChiusuraCapture'
 import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
+import { cn } from '@/lib/utils'
 import type { CassaChiusura } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -60,7 +61,9 @@ const emptyFields = () => ({
 // onChange di CurrencyInput/CountInput scattano solo dopo un parsing
 // riuscito in blur (mai su un blur senza digitazione), quindi sono già il
 // segnale giusto per marcare un campo come compilato.
-const FASE1_FIELDS = ['entrateContanti', 'entratePos', 'entrateBonifico', 'coperti', 'incassoAsporto', 'fondoCassaFinale'] as const
+// Design: il fondo cassa finale si inserisce in quadratura (fase 3), accanto
+// alla banca teorica che ne dipende.
+const FASE1_FIELDS = ['entrateContanti', 'entratePos', 'entrateBonifico', 'coperti', 'incassoAsporto'] as const
 const FASE3_FIELDS = ['contantiPerBanca'] as const
 const ALL_FIELDS = [...FASE1_FIELDS, 'fondoCassaIniziale', ...FASE3_FIELDS] as const
 
@@ -434,7 +437,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const altreBozze = bozzeInSospeso.filter(b => !(b.restaurant_id === restaurantId && b.data === date))
 
   return (
-    <div className="p-6 lg:p-8 max-w-2xl mx-auto">
+    <div className="mx-auto px-4 pb-4 pt-1 md:max-w-6xl lg:px-8">
       {altreBozze.length > 0 && (
         <div className="mb-4 flex flex-col gap-2">
           {altreBozze.map(b => (
@@ -459,23 +462,16 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         </div>
       )}
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="titolo-pagina">Chiusura Cassa</h1>
-          <p className="text-muted-foreground text-sm mt-1">Fase {fase} di 3</p>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="titolo-pagina">Chiusura cassa</h1>
+        <FasiChiusura fase={fase} />
         {existing && (
-          <Badge
-            variant={isConfermata ? undefined : 'secondary'}
-            className={isConfermata ? 'border-transparent bg-cassa-copper text-cassa-copper-foreground hover:bg-cassa-copper/90' : undefined}
-          >
-            {isConfermata ? '✓ Confermata' : 'Bozza'}
-          </Badge>
+          <Badge variant={isConfermata ? 'ok' : 'warn'}>{isConfermata ? 'Confermata' : 'Bozza'}</Badge>
         )}
       </div>
 
-      <Card className="cassa-perforated-top mb-4">
-        <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <Card className="mb-4">
+        <CardContent className="grid grid-cols-1 gap-4 pt-5 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Ristorante</Label>
             {role === 'cassiere' ? (
@@ -573,6 +569,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         </Card>
       )}
 
+      <div className="md:grid md:grid-cols-[minmax(0,1fr)_300px] md:items-start md:gap-5">
+      <div className="flex min-w-0 flex-col gap-4">
       {restaurantId && !loading && fase === 1 && !isConfermata && (
         <ReportChiusuraCapture
           restaurantId={restaurantId}
@@ -599,9 +597,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       )}
 
       {restaurantId && !loading && fase === 1 && (
-        <Card className="cassa-perforated-top">
-          <CardHeader>
-            <CardTitle className="cassa-display text-lg">Entrate</CardTitle>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Incassi della giornata</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {isConfermata && (
@@ -612,7 +610,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             )}
 
             <div className="space-y-1.5">
-              <Label>Fondo Cassa Iniziale</Label>
+              <Label>Fondo cassa iniziale</Label>
               <CurrencyInput
                 value={fields.fondoCassaIniziale}
                 onChange={v => { setFields(f => ({ ...f, fondoCassaIniziale: v })); markTouched('fondoCassaIniziale') }}
@@ -623,7 +621,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label>Entrate Contanti <span className="text-cassa-copper">*</span></Label>
+                <Label>Contanti <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entrateContanti}
                   onChange={v => { setFields(f => ({ ...f, entrateContanti: v })); markTouched('entrateContanti') }}
@@ -631,7 +629,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Entrate POS <span className="text-cassa-copper">*</span></Label>
+                <Label>POS <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entratePos}
                   onChange={v => { setFields(f => ({ ...f, entratePos: v })); markTouched('entratePos') }}
@@ -639,18 +637,13 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Entrate Bonifico <span className="text-cassa-copper">*</span></Label>
+                <Label>Bonifico <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.entrateBonifico}
                   onChange={v => { setFields(f => ({ ...f, entrateBonifico: v })); markTouched('entrateBonifico') }}
                   className="cassa-numeric"
                 />
               </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Totale Entrate</Label>
-              <CurrencyInput value={totaleEntrate} readOnly className="cassa-numeric" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -663,7 +656,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Incasso Asporto <span className="text-cassa-copper">*</span></Label>
+                <Label>Incasso asporto <span className="text-cassa-copper">*</span></Label>
                 <CurrencyInput
                   value={fields.incassoAsporto}
                   onChange={v => { setFields(f => ({ ...f, incassoAsporto: v })); markTouched('incassoAsporto') }}
@@ -672,18 +665,11 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Media Scontrino</Label>
-              <CurrencyInput value={mediaScontrino} readOnly className="cassa-numeric" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Fondo Cassa Finale <span className="text-cassa-copper">*</span></Label>
-              <CurrencyInput
-                value={fields.fondoCassaFinale}
-                onChange={v => { setFields(f => ({ ...f, fondoCassaFinale: v })); markTouched('fondoCassaFinale') }}
-                className="cassa-numeric"
-              />
+            {/* Su telefono il totale resta in vista sopra il pulsante;
+                su tablet sta nel riepilogo a destra. */}
+            <div className="flex items-center justify-between border-t border-border pt-3 text-sm md:hidden">
+              <span className="text-muted-foreground">Totale incassi</span>
+              <span className="font-mono text-base font-semibold">€ {totaleEntrate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
 
             {!fase1Complete && (
@@ -697,7 +683,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             <div className="flex justify-between pt-2">
               <Button type="button" variant="outline" onClick={() => router.back()} disabled={saving}>Annulla</Button>
               <Button onClick={handleAvanti} disabled={saving || !fase1Complete}>
-                {saving ? 'Salvataggio…' : 'Avanti'}
+                {saving ? 'Salvataggio…' : 'Avanti: spese'}
               </Button>
             </div>
           </CardContent>
@@ -727,13 +713,29 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           onRequestSent={() => loadChiusura()}
           contantiPerBancaTouched={touched.has('contantiPerBanca')}
           onContantiPerBancaTouched={() => markTouched('contantiPerBanca')}
+          fondoFinaleTouched={touched.has('fondoCassaFinale') || isConfermata}
+          onFondoFinaleTouched={() => markTouched('fondoCassaFinale')}
         />
       )}
+      </div>
+
+      {restaurantId && !loading && (
+        <RiepilogoChiusura
+          fase={fase}
+          totaleEntrate={totaleEntrate}
+          mediaScontrino={mediaScontrino}
+          spese={fase >= 2 ? existing?.totale_spese_giornaliere ?? null : null}
+          fondoFinale={fase >= 3 ? fields.fondoCassaFinale : null}
+          bancaTeorica={fase >= 3 && existing ? fields.entrateContanti + fields.fondoCassaIniziale - fields.fondoCassaFinale - existing.totale_spese_giornaliere : null}
+          contantiPerBanca={fase >= 3 && touched.has('contantiPerBanca') ? fields.contantiPerBanca : null}
+        />
+      )}
+      </div>
 
       <Dialog open={!!bozzaDaEliminare} onOpenChange={open => { if (!open) { setBozzaDaEliminare(null); setDeleteBozzaError(null) } }}>
-        <DialogContent className="cassa-perforated-top">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Eliminare questa bozza?</DialogTitle>
+            <DialogTitle>Eliminare questa bozza?</DialogTitle>
           </DialogHeader>
           {bozzaDaEliminare && (
             <p className="text-sm text-muted-foreground">
@@ -753,5 +755,63 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+const eur = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// Fasi della chiusura come pillole numerate (design Chiusura Tablet v2):
+// fatte con la spunta, corrente su tinta teal.
+function FasiChiusura({ fase }: { fase: number }) {
+  return (
+    <div className="flex gap-1">
+      {['Incassi', 'Spese', 'Quadratura'].map((l, i) => {
+        const n = i + 1, fatta = n < fase, corrente = n === fase
+        return (
+          <span key={l} className={cn('flex h-9 items-center gap-2 rounded-full px-3 text-[13px] font-medium',
+            corrente ? 'bg-[oklch(0.94_0.04_180)] text-foreground dark:bg-[oklch(0.3_0.05_180)]' : fatta ? 'text-foreground' : 'text-muted-foreground')}>
+            <span className={cn('flex h-5 w-5 items-center justify-center rounded-full font-mono text-[11px] font-semibold',
+              corrente || fatta ? 'bg-cassa text-white' : 'bg-border text-muted-foreground')}>
+              {fatta ? '✓' : n}
+            </span>
+            {l}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+// Riepilogo sempre visibile a destra su tablet: totali e differenza si
+// aggiornano mentre si scrive; le voci delle fasi non ancora raggiunte
+// restano a "—".
+function RiepilogoChiusura({ fase, totaleEntrate, mediaScontrino, spese, fondoFinale, bancaTeorica, contantiPerBanca }: {
+  fase: number; totaleEntrate: number; mediaScontrino: number | null; spese: number | null
+  fondoFinale: number | null; bancaTeorica: number | null; contantiPerBanca: number | null
+}) {
+  const righe: [string, number | null][] = [
+    ['Totale entrate', totaleEntrate], ['Media scontrino', mediaScontrino], ['Spese', spese],
+    ['Fondo finale', fondoFinale], ['Banca teorica', bancaTeorica],
+  ]
+  const diff = bancaTeorica !== null && contantiPerBanca !== null ? contantiPerBanca - bancaTeorica : null
+  const quadra = diff !== null && Math.abs(diff) < 0.005
+  return (
+    <aside className="hidden flex-col gap-3 rounded-[12px] border border-border bg-card p-4 md:sticky md:top-2 md:flex">
+      <span className="text-[15px] font-semibold">Riepilogo</span>
+      <div className="flex flex-col">
+        {righe.map(([l, v]) => (
+          <div key={l} className="flex items-center justify-between border-b border-border py-2 text-[13px] last:border-b-0">
+            <span className="text-muted-foreground">{l}</span>
+            <span className={cn('font-mono', v === null && 'text-muted-foreground')}>{v === null ? '—' : eur(v)}</span>
+          </div>
+        ))}
+      </div>
+      <div className={cn('mt-6 flex flex-col gap-1 rounded-[10px] p-3.5',
+        diff === null ? 'bg-secondary text-muted-foreground' : quadra ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
+        <span className="text-[13px] font-semibold">{quadra ? 'Differenza · quadra' : 'Differenza'}</span>
+        <span className="font-mono text-2xl font-semibold">{diff === null ? '—' : `${diff > 0 ? '+' : ''}${eur(diff)} €`}</span>
+      </div>
+      {fase < 3 && <span className="text-xs text-muted-foreground">La differenza compare in quadratura.</span>}
+    </aside>
   )
 }
