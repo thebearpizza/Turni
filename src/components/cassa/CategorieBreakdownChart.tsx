@@ -1,6 +1,5 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import { ChevronDown } from 'lucide-react'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { CASSA_CHART_COLORS as COLORS } from '@/components/cassa/chartPalette'
@@ -67,8 +66,6 @@ function buildDrilldown(spese: SpesaRow[], categoriaNome: string, multiRestauran
   return groups
 }
 
-const BASE_RADIUS = 88
-const ACTIVE_RADIUS = 99
 
 export function CategorieBreakdownChart({ spese, multiRestaurant }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
@@ -113,61 +110,43 @@ export function CategorieBreakdownChart({ spese, multiRestaurant }: Props) {
     setExpandedCategoria(prev => (prev === nome ? null : nome))
   }
 
+  // Ciambella del design: anello SVG a spessore fisso, totale al centro,
+  // fetta selezionata più spessa. Legenda accanto quando c'è spazio,
+  // altrimenti sotto (flex-wrap), mai compressa fino a nascondere i nomi.
+  const CIRC = 2 * Math.PI * 66
+  const totale = fette.reduce((s, f) => s + f.totale, 0)
+  const lunghezze = fette.map(f => (totale > 0 ? (f.totale / totale) * CIRC : 0))
+  const archi = lunghezze.map((lung, i) => ({
+    i,
+    lung,
+    off: -lunghezze.slice(0, i).reduce((s, l) => s + l, 0),
+  }))
+
   return (
     <div className="space-y-3">
-      {/* Dettaglio della fetta selezionata: area dedicata sopra il grafico,
-          mai sovrapposta alle fette o alla legenda. */}
-      <div className="cassa-numeric flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
-        <span className="font-sans font-semibold text-foreground truncate" style={{ color: selectedColor }}>
-          {selected.nome}
-        </span>
-        <span className="font-semibold whitespace-nowrap">€ {eur2(selected.totale)} · {selected.percentuale.toFixed(0)}%</span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <defs>
-                {fette.map((f, i) => (
-                  <linearGradient key={f.nome} id={`cassa-pie-grad-${i}`} x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={1} />
-                    <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.7} />
-                  </linearGradient>
-                ))}
-              </defs>
-              <Pie
-                data={fette}
-                dataKey="totale"
-                nameKey="nome"
-                innerRadius={50}
-                // outerRadius per-fetta: la fetta selezionata cresce e si
-                // "solleva" (drop-shadow sul Cell sotto), invece del solito
-                // tilt 3D — evidenzia la selezione al click, non al passaggio.
-                outerRadius={(entry: Fetta) => (fette.indexOf(entry) === boundedActive ? ACTIVE_RADIUS : BASE_RADIUS)}
-                paddingAngle={2}
-                isAnimationActive={!reducedMotion}
-                onClick={(_, i) => toggle(i)}
-                style={{ cursor: 'pointer' }}
-              >
-                {fette.map((f, i) => (
-                  <Cell
-                    key={f.nome}
-                    fill={`url(#cassa-pie-grad-${i})`}
-                    stroke="var(--card)"
-                    strokeWidth={1.5}
-                    style={{
-                      filter: i === boundedActive ? 'drop-shadow(0 4px 8px color-mix(in oklch, var(--foreground) 30%, transparent))' : undefined,
-                      transition: reducedMotion ? undefined : 'filter 150ms ease',
-                    }}
-                  />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-4">
+        <div className="relative h-[170px] w-[170px] flex-none">
+          <svg width="170" height="170" viewBox="0 0 170 170" className="-rotate-90">
+            <circle cx="85" cy="85" r="66" fill="none" stroke="var(--secondary)" strokeWidth="22" />
+            {archi.map(a => (
+              <circle key={a.i} cx="85" cy="85" r="66" fill="none"
+                stroke={COLORS[a.i % COLORS.length]}
+                strokeWidth={a.i === boundedActive ? 28 : 22}
+                strokeDasharray={`${Math.max(0, a.lung - (fette.length > 1 ? 2 : 0))} ${CIRC}`}
+                strokeDashoffset={a.off}
+                onClick={() => toggle(a.i)}
+                className="cursor-pointer"
+                style={{ transition: reducedMotion ? undefined : 'stroke-width 200ms ease' }} />
+            ))}
+          </svg>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5 px-8 text-center">
+            <span className="max-w-full truncate text-xs" style={{ color: selectedColor }}>{selected.nome}</span>
+            <span className="font-mono text-[15px] font-semibold">€ {eur2(selected.totale)}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{selected.percentuale.toFixed(0)}% di € {eur2(totale)}</span>
+          </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="flex min-w-[220px] flex-1 flex-col">
           {fette.map((f, i) => (
             <button
               type="button"
@@ -175,23 +154,16 @@ export function CategorieBreakdownChart({ spese, multiRestaurant }: Props) {
               onClick={() => { toggle(i); toggleExpand(f.nome) }}
               aria-expanded={expandedCategoria === f.nome}
               className={cn(
-                'flex w-full items-center justify-between text-sm rounded-md px-1.5 py-1 -mx-1.5 transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-                boundedActive === i ? 'bg-accent' : 'hover:bg-accent/60'
+                'flex w-full items-center gap-2.5 rounded-[8px] px-2 py-2 text-left text-[14px] transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                boundedActive === i ? 'bg-secondary' : 'hover:bg-secondary/60'
               )}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <ChevronDown className={cn(
-                  'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-                  expandedCategoria === f.nome && 'rotate-180'
-                )} />
-                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                <span className="truncate">{f.nome}</span>
-              </div>
-              <div className="cassa-numeric flex items-center gap-2 shrink-0 whitespace-nowrap text-muted-foreground">
-                <span>€ {eur2(f.totale)}</span>
-                <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
-              </div>
+              <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+              <span className="min-w-0 flex-1 truncate">{f.nome}</span>
+              <span className="whitespace-nowrap font-mono text-[13px]">€ {eur2(f.totale)}</span>
+              <span className="w-10 text-right font-mono text-xs text-muted-foreground">{f.percentuale.toFixed(0)}%</span>
+              <ChevronDown className={cn('h-3.5 w-3.5 flex-none text-muted-foreground transition-transform', expandedCategoria === f.nome && 'rotate-180')} />
             </button>
           ))}
         </div>
@@ -201,7 +173,7 @@ export function CategorieBreakdownChart({ spese, multiRestaurant }: Props) {
           a piena larghezza, cosi' l'elenco (eventualmente raggruppato per
           locale) ha spazio invece di stringersi nella colonna stretta. */}
       {drilldown && (
-        <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+        <div className="rounded-[10px] bg-background p-3 space-y-3">
           {drilldown.map(group => (
             <div key={group.restaurant_name || '_'} className="space-y-1.5">
               {multiRestaurant && (

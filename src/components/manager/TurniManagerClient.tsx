@@ -887,7 +887,7 @@ export function TurniManagerClient({
                     <tr key={member.id}>
                       <td className="sticky left-0 z-10 border-b border-r border-border bg-card px-2.5 py-2 text-left sm:px-4">
                         <span className="block max-w-[110px] truncate text-[13px] font-medium sm:max-w-[180px] sm:text-[14px]">{member.full_name}</span>
-                        {sottotitolo && <span className="block max-w-[110px] truncate text-[11px] capitalize text-muted-foreground sm:max-w-[180px]">{sottotitolo}</span>}
+                        {sottotitolo && <span className="block max-w-[110px] truncate text-[11px] text-muted-foreground first-letter:uppercase sm:max-w-[180px]">{sottotitolo}</span>}
                       </td>
                       {weekDays.map(day => {
                         const dateStr = format(day, 'yyyy-MM-dd')

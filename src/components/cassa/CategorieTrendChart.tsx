@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import type { MouseHandlerDataParam } from 'recharts/types/synchronisation/types'
-import { CassaPill } from '@/components/cassa/CassaPill'
 import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { format, startOfWeek, startOfMonth } from 'date-fns'
@@ -122,12 +121,13 @@ export function CategorieTrendChart({ spese }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-1 self-start rounded-[10px] bg-secondary p-1 w-fit">
         {(Object.keys(GRANULARITY_LABELS) as Granularity[]).map(g => (
-          <CassaPill key={g} active={granularity === g} onClick={() => setGranularity(g)}>
+          <button key={g} type="button" onClick={() => setGranularity(g)}
+            className={`h-8 rounded-[7px] px-3 text-[13px] font-medium ${granularity === g ? 'bg-card shadow-sm' : 'text-muted-foreground'}`}>
             {GRANULARITY_LABELS[g]}
-          </CassaPill>
+          </button>
         ))}
       </div>
 
@@ -136,7 +136,7 @@ export function CategorieTrendChart({ spese }: Props) {
         // limite) tarata sul caso peggiore — MAX_CATEGORIE + "Altro" righe
         // andate a capo su mobile — cosi' il riquadro non salta di altezza
         // passando da un giorno con 2 categorie a uno con 5+.
-        <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 min-h-32">
+        <div className="rounded-[10px] bg-background px-3.5 py-2.5 min-h-[72px]">
           <p className="text-sm font-semibold mb-2">{active.label}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5">
             {categorie.map((cat, i) => {
@@ -144,9 +144,9 @@ export function CategorieTrendChart({ spese }: Props) {
               if (!v) return null
               return (
                 <div key={cat} className="flex items-center gap-1.5 text-xs">
-                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: cassaChartColor(i) }} />
+                  <span className="h-2 w-2 rounded-[2px] shrink-0" style={{ backgroundColor: cassaChartColor(i) }} />
                   <span className="text-muted-foreground">{cat}</span>
-                  <span className="cassa-numeric font-medium whitespace-nowrap">€ {eur2(v)}</span>
+                  <span className="font-mono font-medium whitespace-nowrap">€ {eur2(v)}</span>
                 </div>
               )
             })}
@@ -167,12 +167,14 @@ export function CategorieTrendChart({ spese }: Props) {
             onTouchStart={handleActive}
             onTouchMove={handleActive}
           >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="label" type="category" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} width={60} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <CartesianGrid vertical={false} stroke="var(--border)" />
+            <XAxis dataKey="label" type="category" tickLine={false} axisLine={{ stroke: 'var(--border)' }}
+              tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: 'var(--muted-foreground)' }} />
+            <YAxis tickLine={false} axisLine={false} width={44}
+              tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: 'var(--muted-foreground)' }} />
+            <Legend iconType="square" iconSize={10} wrapperStyle={{ fontSize: 12, color: 'var(--muted-foreground)' }} formatter={v => <span style={{ color: 'var(--muted-foreground)' }}>{v}</span>} />
             {categorie.map((cat, i) => (
-              <Bar key={cat} dataKey={cat} name={cat} stackId="categorie" fill={cassaChartColor(i)} isAnimationActive={!reducedMotion} />
+              <Bar key={cat} dataKey={cat} name={cat} stackId="categorie" fill={cassaChartColor(i)} maxBarSize={56} stroke="var(--card)" strokeWidth={1} radius={i === categorie.length - 1 ? [5, 5, 0, 0] : 0} isAnimationActive={!reducedMotion} />
             ))}
           </BarChart>
         </ResponsiveContainer>
