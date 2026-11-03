@@ -218,7 +218,7 @@ export function GraficoEntrate({ asse, etichette, locali, ser, serB, etichetteB,
       </div>
       <div className="absolute bottom-0 right-0 flex h-[26px] items-center" style={{ left: X0 }}>
         {asse.map((l, j) => (
-          <span key={j} className={cn('min-w-0 flex-1 text-center font-mono text-[11px]', hi === j ? 'font-bold text-foreground' : 'text-muted-foreground')}>
+          <span key={j} className={cn('min-w-0 flex-1 overflow-visible whitespace-nowrap text-center font-mono text-[11px]', hi === j ? 'font-bold text-foreground' : 'text-muted-foreground')}>
             {j % ogni === 0 || j === N - 1 ? l : ''}
           </span>
         ))}
@@ -228,7 +228,7 @@ export function GraficoEntrate({ asse, etichette, locali, ser, serB, etichetteB,
           className={cn('pointer-events-none absolute top-2 z-10 flex w-[220px] flex-col gap-1.5 rounded-[10px] bg-foreground px-3.5 py-3 text-background shadow-float transition-[left,opacity] duration-150', esce && 'opacity-0')}
           style={{ left: tel ? (fx > 0.5 ? X0 : 'calc(100% - 240px)') : `calc(${X0}px + (100% - ${X0}px) * ${fx.toFixed(4)} ${fx > 0.62 ? '- 252px' : '+ 28px'})` }}
         >
-          <span className="text-[13px] font-semibold capitalize">{etichette[hi]}</span>
+          <span className="text-[13px] font-semibold">{etichette[hi]}</span>
           {affiancate ? (
             <>
               <div className="flex justify-between text-xs"><span className="opacity-80">A · {etichette[hi]}</span><span className="font-mono">€ {Math.round(tot[hi]).toLocaleString('it-IT')}</span></div>

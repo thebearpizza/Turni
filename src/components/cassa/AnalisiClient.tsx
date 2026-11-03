@@ -448,10 +448,10 @@ interface Ctx {
   nomeLoc: Record<string, { id: string; nome: string; colore: string }>
 }
 
-function Card({ titolo, sotto, destra, children, ritardo = 0, className }: { titolo: React.ReactNode; sotto?: string; destra?: React.ReactNode; children: React.ReactNode; ritardo?: number; className?: string }) {
+function Card({ titolo, sotto, destra, children, ritardo = 0, className, piena }: { titolo: React.ReactNode; sotto?: string; destra?: React.ReactNode; children: React.ReactNode; ritardo?: number; className?: string; piena?: boolean }) {
   return (
-    <section className={cn('anim-swapin flex min-w-0 flex-col gap-3 rounded-[12px] border border-border bg-card px-4 py-4 sm:px-5 sm:py-[18px]', className)} style={{ animationDelay: `${ritardo}ms` }}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1.5">
+    <section className={cn('anim-swapin flex min-w-0 flex-col gap-3 overflow-hidden rounded-[12px] border border-border bg-card py-4 sm:py-[18px]', !piena && 'px-4 sm:px-5', className)} style={{ animationDelay: `${ritardo}ms` }}>
+      <div className={cn('flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1.5', piena && 'px-4 sm:px-5')}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="text-[17px] font-semibold">{titolo}</span>
           {sotto && <span className="text-[13px] text-muted-foreground">{sotto}</span>}
@@ -597,7 +597,7 @@ function VistaNormale({ c }: { c: Ctx }) {
         )}
       </Card>
 
-      <Card titolo="Confronto per ristorante" sotto="tocca una riga per il dettaglio" ritardo={360} className="px-0 sm:px-0">
+      <Card titolo="Confronto per ristorante" sotto="tocca una riga per il dettaglio" ritardo={360} piena>
         <div className="-mt-1 overflow-x-auto overscroll-x-contain">
           <table className="w-full min-w-max border-collapse">
             <thead>
@@ -876,7 +876,7 @@ function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: () => voi
         </Card>
       </div>
 
-      <Card titolo="Ristoranti" sotto="A contro B · tocca una riga per il dettaglio" destra={<Legenda />} className="px-0 sm:px-0">
+      <Card titolo="Ristoranti" sotto="A contro B · tocca una riga per il dettaglio" destra={<Legenda />} piena>
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full min-w-max border-collapse text-sm">
             <thead>
