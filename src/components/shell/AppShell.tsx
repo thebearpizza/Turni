@@ -1,4 +1,5 @@
 'use client'
+import { useIntestazioneDinamica } from '@/components/shell/intestazioneDinamica'
 import { forwardRef, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -309,6 +310,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const badgeSezione = (s: Sezione) => (s.badge ? contatori[s.badge] ?? 0 : 0)
   const badgeArea = (a: Area) => a.sezioni.reduce((t, s) => t + badgeSezione(s), 0)
 
+  const dinamica = useIntestazioneDinamica()
   // Titolo e sottotitolo dell'intestazione.
   const oggi = formatInTimeZone(new Date(), TZ, 'EEEE d MMMM', { locale: it })
   let titolo = sezione?.titolo ?? 'inTurno'
@@ -320,6 +322,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   } else if (!sottotitolo && (ruolo === 'cassiere' || ruolo === 'hostess')) {
     sottotitolo = `${oggi.charAt(0).toUpperCase()}${oggi.slice(1)}`
   }
+  if (dinamica.sottotitolo) sottotitolo = dinamica.sottotitolo
 
   // Segmenti: le sezioni dell'area corrente (mai per le aree-menu dei ruoli a schede).
   const segmenti = area && area.sezioni.length > 1 && !(cfg.stile === 'schede' && area.menu) ? area.sezioni.filter(s => s.key !== 'account' || isPlatformOwner) : []
@@ -333,16 +336,20 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
       <div className="h-[env(safe-area-inset-top)] flex-none" />
       <header ref={refHeader} className={cn("relative z-30 flex min-h-[52px] flex-none items-center gap-2 pb-2 pl-5 pr-2.5 pt-1.5", sezione?.senzaIntestazione && "hidden")}>
         <span data-logo-intestazione className="mr-1 flex-none"><LogoAnimato size={28} className="rounded-[6px]" /></span>
-        <div key={titolo + sottotitolo} className="anim-swapin flex min-w-0 flex-col gap-0.5">
+        <div key={titolo + (sezione?.key ?? '')} className="anim-swapin flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-[22px] font-semibold leading-tight tracking-[-0.01em]">{titolo}</span>
           {sottotitolo && <span className="truncate text-[13px] text-muted-foreground">{sottotitolo}</span>}
         </div>
         <span className="flex-1" />
-        {cfg.assistente && (
+        {cfg.assistente && (dinamica.assistente ? (
+          <button type="button" onClick={dinamica.assistente} aria-label="Assistente" className="flex h-11 w-11 flex-none items-center justify-center rounded-full text-[oklch(0.45_0.1_180)] active:scale-[0.96] dark:text-[oklch(0.75_0.1_180)]">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
+          </button>
+        ) : (
           <Link href="/hub/assistente" aria-label="Assistente" className="flex h-11 w-11 flex-none items-center justify-center rounded-full text-[oklch(0.45_0.1_180)] active:scale-[0.96] dark:text-[oklch(0.75_0.1_180)]">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
           </Link>
-        )}
+        ))}
         {conCampanella && (
           <button
             type="button"

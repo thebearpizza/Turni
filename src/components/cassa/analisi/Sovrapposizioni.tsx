@@ -41,9 +41,9 @@ function RigaEspandibile({ r }: { r: Extract<Riga, { tipo: 'espandi' }> }) {
   const [aperta, setAperta] = useState(false)
   const [sub, setSub] = useState<string | null>(null)
   return (
-    <div className={cn('flex flex-col rounded-[10px] transition-colors', aperta && 'bg-background')}>
+    <div className={cn('flex flex-col rounded-[10px] transition-colors duration-200', aperta && 'bg-[oklch(0.965_0.01_250)] dark:bg-secondary')}>
       <button type="button" onClick={() => setAperta(a => !a)} className="flex min-h-10 items-center gap-2.5 rounded-[10px] px-3 py-1 text-left active:scale-[0.98]">
-        <span className="flex-1 text-[14px] text-foreground/80">{r.l}</span>
+        <span className="flex-1 text-[14px] text-[oklch(0.35_0.01_250)] dark:text-foreground/80">{r.l}</span>
         <span className="font-mono text-[14px] font-medium">{r.v}</span>
         <Chevron giu aperto={aperta} />
       </button>
@@ -98,11 +98,11 @@ export function FoglioDettaglio({ pila, esce, onIndietro, onChiudi }: { pila: Sc
 
   if (!sc) return null
   return createPortal(
-    <div className={cn('fixed inset-0 z-[80] transition-colors duration-300', esce ? 'bg-transparent' : 'bg-[oklch(0.2_0.01_250/0.22)]')} onClick={onChiudi}>
+    <div className={cn('fixed inset-0 z-[80] transition-colors duration-300', esce ? 'bg-transparent' : 'bg-[rgba(15,20,30,.22)]')} onClick={onChiudi}>
       <div
         role="dialog" aria-modal="true" aria-label={sc.titolo}
         onClick={e => e.stopPropagation()}
-        className={cn('absolute inset-2 flex flex-col overflow-hidden rounded-[16px] border border-border bg-card shadow-sheet sm:inset-auto sm:bottom-6 sm:right-6 sm:top-[84px] sm:w-[520px]', esce ? 'anim-swapout' : 'anim-swapin')}
+        className={cn('absolute inset-2 flex flex-col overflow-hidden rounded-[16px] border border-border bg-card shadow-[0_20px_60px_rgba(20,30,50,.18)] sm:inset-auto sm:bottom-6 sm:right-6 sm:top-[84px] sm:w-[520px]', esce ? 'anim-swapout' : 'anim-swapin')}
       >
         <div className="flex flex-none items-center gap-1.5 border-b border-border py-3 pl-3.5 pr-3">
           {pila.length > 1 && (
@@ -149,14 +149,14 @@ export function FoglioDettaglio({ pila, esce, onIndietro, onChiudi }: { pila: Sc
                   </button>
                 ) : r.tipo === 'stat' ? (
                   <div key={i} className="flex min-h-10 items-center gap-2.5 px-3">
-                    <span className="flex-1 text-[14px] text-foreground/80">{r.l}</span>
+                    <span className="flex-1 text-[14px] text-[oklch(0.35_0.01_250)] dark:text-foreground/80">{r.l}</span>
                     <span className={cn('whitespace-nowrap font-mono text-[14px] font-medium', r.tono && r.tono !== 'neutro' && TONO_TESTO[r.tono])}>{r.v}</span>
                   </div>
                 ) : <RigaEspandibile key={i} r={r} />)}
               </div>
             ))}
             {sc.azione && (
-              <button type="button" onClick={sc.azione.fai} className="mx-1 flex h-12 items-center justify-center rounded-[10px] bg-primary text-[15px] font-medium text-primary-foreground active:scale-[0.98]">
+              <button type="button" onClick={sc.azione.fai} className="mx-1 flex h-[52px] items-center justify-center rounded-[12px] bg-primary text-[15px] font-medium text-primary-foreground active:scale-[0.98]">
                 {sc.azione.l}
               </button>
             )}
@@ -170,7 +170,8 @@ export function FoglioDettaglio({ pila, esce, onIndietro, onChiudi }: { pila: Sc
 
 // ── Fumetto ──────────────────────────────────────────────────────────
 
-export interface RigaFumetto { l: string; v: string; p?: string; dot?: string; tono?: Tono; figli?: Figlio[] }
+export interface Pannello { titolo: string; sotto: string; figli: Figlio[] }
+export interface RigaFumetto { l: string; v: string; p?: string; dot?: string; tono?: Tono; figli?: Figlio[]; pannello?: Pannello }
 export interface Fumetto { id: number; titolo: string; sotto: string; righe: RigaFumetto[]; ancora: DOMRect }
 
 export function FumettoAncorato({ f, esce, onChiudi }: { f: Fumetto | null; esce: boolean; onChiudi: () => void }) {
@@ -187,61 +188,89 @@ export function FumettoAncorato({ f, esce, onChiudi }: { f: Fumetto | null; esce
   return createPortal(<CorpoFumetto key={f.id} f={f} esce={esce} onChiudi={onChiudi} />, document.body)
 }
 
-// Posizione senza misurare il fumetto: sotto l'elemento se sta nella metà
-// alta dello schermo, sopra altrimenti, con l'altezza massima disponibile.
+// Posizione come nel prototipo: centrato sull'elemento (entro i bordi),
+// sotto se l'elemento sta nei primi 300 px dello schermo, sopra altrimenti.
+// Il pannello laterale (voci di una categoria) va a destra se c'è spazio,
+// a sinistra altrimenti; su telefono scivola sotto/sopra il fumetto.
 function CorpoFumetto({ f, esce, onChiudi }: { f: Fumetto; esce: boolean; onChiudi: () => void }) {
   const [aperta, setAperta] = useState<number | null>(null)
-  const r = f.ancora, vw = window.innerWidth, vh = window.innerHeight
+  const [lato, setLato] = useState<number | null>(null)
+  const r = f.ancora, vw = window.innerWidth
+  const tel = vw < 640
+  const cx = Math.max(Math.min(172, vw / 2), Math.min(vw - Math.min(172, vw / 2), r.left + r.width / 2))
+  const sotto = r.top < 300
+  const y = sotto ? r.bottom + 8 : r.top - 8
   const w = Math.min(320, vw - 24)
-  const left = Math.max(12, Math.min(vw - w - 12, r.left + r.width / 2 - w / 2))
-  const sotto = r.top + r.height / 2 < vh / 2
-  const stile: React.CSSProperties = sotto
-    ? { left, top: r.bottom + 8, maxHeight: Math.min(460, vh - r.bottom - 20) }
-    : { left, bottom: vh - r.top + 8, maxHeight: Math.min(460, r.top - 20) }
+  const box: React.CSSProperties = { left: cx, top: y, width: w, transform: sotto ? 'translateX(-50%)' : 'translate(-50%,-100%)' }
+  const pan = lato !== null ? f.righe[lato]?.pannello : undefined
+  const aDestra = cx + 160 + 10 + 300 <= vw - 16
+  const boxPan: React.CSSProperties = tel
+    ? { left: Math.max(12, cx - 150), top: y + (sotto ? 56 : -56), width: Math.min(300, vw - 24), transform: sotto ? 'none' : 'translateY(-100%)' }
+    : { left: aDestra ? cx + 170 : cx - 170 - 300, top: y, width: 300, transform: sotto ? 'none' : 'translateY(-100%)' }
+  const anim = esce ? 'anim-swapout' : 'anim-swapin'
+
   return (
     <div className="fixed inset-0 z-[82]" onClick={onChiudi}>
-      <div
-        role="dialog" aria-label={f.titolo}
-        onClick={e => e.stopPropagation()}
-        className={cn('fixed w-[min(320px,calc(100vw-24px))] overflow-y-auto overscroll-contain rounded-[14px] border border-border bg-card shadow-float', esce ? 'anim-swapout' : 'anim-swapin')}
-        style={stile}
-      >
-        <div className="flex flex-col gap-2 px-4 py-3.5">
-          <div className="flex flex-col gap-px">
-            <span className="text-[15px] font-semibold">{f.titolo}</span>
-            <span className="text-xs text-muted-foreground">{f.sotto}</span>
+      <div className="fixed" style={box} onClick={e => e.stopPropagation()} role="dialog" aria-label={f.titolo}>
+        <div className={cn('max-h-[460px] overflow-y-auto overscroll-contain rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
+          <div className="flex flex-col gap-2 px-4 py-3.5">
+            <div className="flex flex-col gap-px">
+              <span className="text-[15px] font-semibold">{f.titolo}</span>
+              <span className="text-xs text-muted-foreground">{f.sotto}</span>
+            </div>
+            {f.righe.map((x, i) => (x.figli || x.pannello) ? (
+              <div key={i} className={cn('-mx-2 flex flex-col rounded-[8px] transition-colors duration-200', (aperta === i || lato === i) && 'bg-[oklch(0.965_0.01_250)] dark:bg-secondary')}>
+                <button type="button"
+                  onClick={() => { if (x.pannello) setLato(lato === i ? null : i); else setAperta(aperta === i ? null : i) }}
+                  className="flex min-h-9 items-center gap-2 rounded-[8px] px-2 text-left active:scale-[0.98]">
+                  <span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: x.dot }} />
+                  <span className="flex-1 truncate text-[13px] font-medium">{x.l}</span>
+                  <span className="whitespace-nowrap font-mono text-[13px] font-medium">{x.v}</span>
+                  {x.p !== undefined && <span className="min-w-11 text-right font-mono text-[11px] font-medium text-muted-foreground">{x.p}</span>}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                    className="flex-none text-[oklch(0.6_0.01_250)] transition-transform duration-300 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]"
+                    style={{ transform: `rotate(${x.pannello ? -90 : aperta === i ? 180 : 0}deg)` }}><path d="M6 9l6 6 6-6" /></svg>
+                </button>
+                {aperta === i && x.figli && (
+                  <div className="flex flex-col px-2 pb-1.5 pl-6">
+                    {x.figli.map((k, j) => (
+                      <div key={j} className="anim-swapin flex min-h-8 items-center gap-2 border-t border-[oklch(0.93_0.01_250)] dark:border-border" style={{ animationDelay: `${j * 40}ms` }}>
+                        <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-[12.5px] font-medium">{k.l}</span>{k.s && <span className="text-[11px] text-muted-foreground">{k.s}</span>}</span>
+                        <span className="whitespace-nowrap font-mono text-[12.5px] font-medium">{k.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div key={i} className="flex min-h-6 items-center gap-2">
+                {x.dot && <span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: x.dot }} />}
+                <span className="flex-1 truncate text-[13px] text-[oklch(0.35_0.01_250)] dark:text-[oklch(0.35_0.01_250)] dark:text-foreground/80">{x.l}</span>
+                <span className={cn('whitespace-nowrap font-mono text-[13px] font-medium', x.tono && x.tono !== 'neutro' && TONO_TESTO[x.tono])}>{x.v}</span>
+                {x.p && <span className="min-w-11 text-right font-mono text-[11px] font-medium text-muted-foreground">{x.p}</span>}
+              </div>
+            ))}
           </div>
-          {f.righe.map((x, i) => x.figli ? (
-            <div key={i} className={cn('-mx-2 flex flex-col rounded-[8px] transition-colors', aperta === i && 'bg-background')}>
-              <button type="button" onClick={() => setAperta(aperta === i ? null : i)} className="flex min-h-9 items-center gap-2 rounded-[8px] px-2 text-left active:scale-[0.98]">
-                <span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: x.dot }} />
-                <span className="flex-1 truncate text-[13px] font-medium">{x.l}</span>
-                <span className="whitespace-nowrap font-mono text-[13px] font-medium">{x.v}</span>
-                {x.p !== undefined && <span className="min-w-11 text-right font-mono text-[11px] text-muted-foreground">{x.p}</span>}
-                <Chevron giu aperto={aperta === i} />
-              </button>
-              {aperta === i && (
-                <div className="flex flex-col px-2 pb-1.5 pl-6">
-                  {x.figli.length === 0 && <span className="py-1.5 text-xs text-muted-foreground">Nessuna voce</span>}
-                  {x.figli.map((k, j) => (
-                    <div key={j} className="anim-swapin flex min-h-8 items-center gap-2 border-t border-border" style={{ animationDelay: `${Math.min(j, 10) * 40}ms` }}>
-                      <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-[12.5px] font-medium">{k.l}</span>{k.s && <span className="text-[11px] text-muted-foreground">{k.s}</span>}</span>
-                      <span className="whitespace-nowrap font-mono text-[12.5px] font-medium">{k.v}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div key={i} className="flex min-h-6 items-center gap-2">
-              {x.dot && <span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: x.dot }} />}
-              <span className="flex-1 truncate text-[13px] text-foreground/80">{x.l}</span>
-              <span className={cn('whitespace-nowrap font-mono text-[13px] font-medium', x.tono && x.tono !== 'neutro' && TONO_TESTO[x.tono])}>{x.v}</span>
-              {x.p && <span className="min-w-11 text-right font-mono text-[11px] text-muted-foreground">{x.p}</span>}
-            </div>
-          ))}
         </div>
       </div>
+      {pan && (
+        <div key={lato} className="fixed" style={boxPan} onClick={e => e.stopPropagation()}>
+          <div className={cn('flex max-h-[420px] flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
+            <div className="flex flex-none flex-col gap-px px-4 pb-2 pt-3.5">
+              <span className="text-[15px] font-semibold">{pan.titolo}</span>
+              <span className="text-xs text-muted-foreground">{pan.sotto}</span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2.5">
+              {pan.figli.map((k, q) => (
+                <div key={q} className="anim-swapin flex min-h-10 items-center gap-2 border-t border-[oklch(0.93_0.01_250)] dark:border-border" style={{ animationDelay: `${Math.min(q, 10) * 30}ms` }}>
+                  <span className="flex min-w-0 flex-1 flex-col"><span className="truncate text-[13px] font-medium">{k.l}</span>{k.s && <span className="text-[11px] text-muted-foreground">{k.s}</span>}</span>
+                  <span className="whitespace-nowrap font-mono text-[13px] font-medium">{k.v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

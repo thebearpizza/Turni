@@ -410,3 +410,11 @@ html[data-splash="no"] #splash-apertura { display: none; }
    l'intestazione del locale (capo servizio, direttore). */
 .titolo-pagina { font-size: 28px; font-weight: 600; letter-spacing: -0.8px; line-height: 1.15; }
 [data-titolo-shell] .titolo-pagina { display: none; }
+
+/* ── Skeleton a forma di contenuto (design Skeleton.dc.html) ────────── */
+:root { --sk-a: oklch(0.93 0.01 250); --sk-b: oklch(0.965 0.008 250); }
+.dark { --sk-a: oklch(0.24 0.008 250); --sk-b: oklch(0.3 0.008 250); }
+@keyframes sk-sh { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+@keyframes sk-out { from { opacity: 1; } to { opacity: 0; } }
+[data-sk-on] > :not([data-sk-keep]):not([data-sk-layer]):not(:has([data-sk-layer])),
+[data-sk-on] > :not([data-sk-keep]):not([data-sk-layer]):not(:has([data-sk-layer])) * { animation: none !important; transition: none !important; }

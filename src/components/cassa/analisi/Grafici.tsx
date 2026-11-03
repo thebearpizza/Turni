@@ -104,13 +104,13 @@ export function KpiCard(p: KpiProps) {
         </svg>
         {attivo && (
           <>
-            <div className="pointer-events-none absolute inset-y-0 w-px bg-line-strong" style={{ left: `${fx * 100}%` }} />
+            <div className="pointer-events-none absolute inset-y-0 w-px bg-[oklch(0.82_0.01_250)] dark:bg-line-strong" style={{ left: `${fx * 100}%` }} />
             <div className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-card" style={{ left: `${fx * 100}%`, top: `${(pts[i!][1] / 30) * 100}%`, borderColor: p.colore }} />
             <div
-              className={cn('pointer-events-none absolute bottom-[calc(100%+6px)] z-30 flex flex-col gap-0.5 whitespace-nowrap rounded-[8px] bg-foreground px-2.5 py-1.5 text-background shadow-float', esce ? 'anim-swapout' : 'anim-swapin')}
+              className={cn('pointer-events-none absolute bottom-[calc(100%+6px)] z-30 flex flex-col gap-0.5 whitespace-nowrap rounded-[8px] bg-[oklch(0.2_0.01_250)] px-2.5 py-1.5 text-white shadow-[0_6px_20px_oklch(0.2_0.01_250/.18)] dark:bg-[oklch(0.32_0.01_250)]', esce ? 'anim-swapout' : 'anim-swapin')}
               style={{ left: `${fx * 100}%`, transform: `translateX(${fx < 0.25 ? '-12%' : fx > 0.75 ? '-88%' : '-50%'})`, animationDuration: esce ? '170ms' : '360ms' }}
             >
-              <span className="text-[11px] font-medium opacity-75">{p.etichette[i!]}</span>
+              <span className="text-[11px] font-medium text-[oklch(0.8_0.01_250)]">{p.etichette[i!]}</span>
               <span className="font-mono text-[13px] font-semibold">{p.fmt(p.serie[i!])}</span>
             </div>
           </>
@@ -122,59 +122,67 @@ export function KpiCard(p: KpiProps) {
 
 // ── Andamento entrate ────────────────────────────────────────────────
 
-export interface LocaleG { id: string; nome: string; colore: string }
+export interface LocaleG { id: string; nome: string; colore: string; tenue: string }
 
 const X0 = 44
 const H = 260
 
-function scala(max: number) {
+/** Scala "tonda" a quattro tacche come nel prototipo. */
+export function scala(max: number) {
   const mx0 = max * 1.08 || 1
   const step = Math.pow(10, Math.floor(Math.log10(mx0 / 4)))
   const nice = Math.ceil(mx0 / 4 / step) * step
   return { nice, mx: nice * 4 }
 }
-const etichettaAsse = (v: number) => (v >= 1000 ? `${(v / 1000).toLocaleString('it-IT')}k` : String(v))
+const etichettaAsse = (v: number) => (v >= 1000 ? `${(v / 1000).toLocaleString('it-IT', { useGrouping: 'always' } as Intl.NumberFormatOptions)}k` : String(v))
+const yp = (v: number, mx: number) => 270 - (v / mx) * H
 
-function Griglia({ nice, mx }: { nice: number; mx: number }) {
+/** Griglia orizzontale con le etichette dell'asse a sinistra (34 px + 10). */
+export function Griglia({ nice, mx }: { nice: number; mx: number }) {
   return (
-    <>
+    <div className="pointer-events-none absolute left-0 right-0 top-0 h-[280px]">
       {[4, 3, 2, 1, 0].map(g => (
-        <div key={g} className="pointer-events-none absolute left-0 right-0 flex items-center" style={{ top: 270 - (g * nice / mx) * H - 0.5 }}>
-          <span className="w-10 pr-2 text-right font-mono text-[10px] text-muted-foreground">{g ? etichettaAsse(nice * g) : '0'}</span>
-          <span className={cn('h-px flex-1', g ? 'bg-border/70' : 'bg-line-strong')} />
+        <div key={g} className="absolute left-0 right-0 flex items-center gap-2.5" style={{ top: yp(g * nice, mx) - 0.5 }}>
+          <span className="w-[34px] text-right font-mono text-[11px] font-medium text-[oklch(0.6_0.01_250)]">{g ? etichettaAsse(nice * g) : '0'}</span>
+          <span className={cn('h-px flex-1', g ? 'bg-[oklch(0.94_0.008_250)] dark:bg-border/60' : 'bg-[oklch(0.86_0.01_250)] dark:bg-line-strong')} />
         </div>
       ))}
-    </>
+    </div>
   )
 }
 
-const larghezza = (N: number, tel: boolean) => tel
+export const larghezzaBarra = (N: number, tel: boolean) => tel
   ? (N <= 8 ? 26 : N <= 12 ? 16 : N <= 20 ? 9 : 6)
   : (N <= 8 ? 44 : N <= 12 ? 40 : N <= 20 ? 22 : 16)
+export const spazioColonne = (N: number, tel: boolean) => (tel ? (N > 20 ? 2 : 4) : N > 20 ? 3 : 8)
+export const ogniEtichetta = (N: number, tel: boolean) => (tel ? (N > 20 ? 6 : N > 12 ? 2 : 1) : N > 20 ? 3 : 1)
 
 export interface GraficoProps {
   asse: string[]
   etichette: string[]
+  /** Locali selezionati, nell'ordine dei filtri. */
   locali: LocaleG[]
   /** ser[j][k]: entrate del bucket j per il locale k (stesso ordine di locali). */
   ser: number[][]
-  /** Entrate del periodo B per posizione, o null senza confronto. */
+  /** Entrate del periodo B per posizione (riquadro tratteggiato), o null. */
   serB: number[] | null
   etichetteB: string[]
+  /** Bucket con almeno una chiusura (solo quelli si aprono al tocco). */
+  conDati: boolean[]
   onApri: (j: number) => void
-  /** Confronto A/B: barre affiancate invece che impilate per locale. */
-  affiancate?: boolean
+  tel: boolean
 }
 
-export function GraficoEntrate({ asse, etichette, locali, ser, serB, etichetteB, onApri, affiancate }: GraficoProps) {
+/** Barre impilate per locale; scrub col dito o col mouse, tocco apre il giorno. */
+export function GraficoEntrate({ asse, etichette, locali, ser, serB, etichetteB, conDati, onApri, tel }: GraficoProps) {
   const N = asse.length
-  const tel = typeof window !== 'undefined' && window.innerWidth < 640
   const tot = ser.map(v => v.reduce((a, b) => a + b, 0))
   const { nice, mx } = scala(Math.max(...tot, ...(serB ?? [0])))
   const { i: hi, esce, handlers } = useScrub(N, (e, r) => Math.floor(((e.clientX - r.left - X0) / (r.width - X0)) * N))
-  const ogni = tel ? (N > 20 ? 6 : N > 12 ? 2 : 1) : N > 20 ? 3 : 1
-  const bw = larghezza(N, tel)
+  const ogni = ogniEtichetta(N, tel)
+  const bw = larghezzaBarra(N, tel), gap = spazioColonne(N, tel)
   const fx = hi !== null ? (hi + 0.5) / N : 0
+  const sinistra = tel ? (fx > 0.5 ? `${X0}px` : 'calc(100% - 240px)') : `calc(${X0}px + (100% - ${X0}px) * ${fx.toFixed(4)} ${fx > 0.62 ? '- 252px' : '+ 28px'})`
 
   return (
     <div
@@ -183,71 +191,53 @@ export function GraficoEntrate({ asse, etichette, locali, ser, serB, etichetteB,
         const r = e.currentTarget.getBoundingClientRect(), x = e.clientX - r.left - X0
         if (x < 0) return
         const j = Math.max(0, Math.min(N - 1, Math.floor((x / (r.width - X0)) * N)))
-        if (tot[j] > 0) onApri(j)
+        if (conDati[j]) onApri(j)
       }}
-      className="relative h-[300px] cursor-pointer touch-none select-none"
+      className="relative h-[310px] cursor-pointer touch-none select-none"
     >
       <Griglia nice={nice} mx={mx} />
-      <div className="absolute bottom-[30px] right-0 top-[10px] flex items-end" style={{ left: X0, gap: tel ? (N > 20 ? 2 : 4) : N > 20 ? 3 : 8 }}>
+      <div className="absolute right-0 top-0 flex h-[280px] items-end" style={{ left: X0, gap }}>
         {ser.map((v, j) => {
-          const op = hi === null || hi === j ? 1 : 0.38
-          if (affiancate) {
-            const ha = tot[j] > 0 ? Math.max(2, (tot[j] / mx) * H) : 0
-            const hb = serB && serB[j] > 0 ? Math.max(2, (serB[j] / mx) * H) : 0
-            const w = Math.max(2, Math.round(bw / 1.8))
-            return (
-              <div key={j} className="flex h-full min-w-0 flex-1 items-end justify-center gap-0.5 transition-opacity" style={{ opacity: op }}>
-                <div className="rounded-t-[4px] bg-[oklch(0.58_0.12_180)] transition-[height] duration-500" style={{ width: w, height: ha }} />
-                <div className="rounded-t-[4px] border border-dashed border-muted-foreground/60 bg-secondary transition-[height] duration-500" style={{ width: w, height: hb }} />
-              </div>
-            )
-          }
           const segs = locali.map((l, k) => ({ l, v: v[k] })).filter(x => x.v > 0).reverse()
           return (
-            <div key={j} className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-end transition-opacity" style={{ opacity: op }}>
+            <div key={j} className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-end transition-opacity duration-[180ms] ease-out" style={{ opacity: hi === null || hi === j ? 1 : 0.38 }}>
               {serB && serB[j] > 0 && (
-                <div className="pointer-events-none absolute border-t-2 border-dashed border-muted-foreground/70" style={{ bottom: (serB[j] / mx) * H, width: bw + 8 }} />
+                <div className="absolute bottom-0 left-1/2 box-border -translate-x-1/2 rounded-[8px_8px_3px_3px] border-[1.5px] border-dashed border-[oklch(0.7_0.01_250)]" style={{ width: bw + 8, height: (serB[j] / mx) * H + 4 }} />
               )}
-              {segs.map((x, q) => (
-                <div key={x.l.id} className={cn('flex-none transition-[height,background] duration-500', q === 0 && 'rounded-t-[5px]')}
-                  style={{ width: bw, height: Math.max(2, (x.v / mx) * H - 2), marginTop: q ? 2 : 0, background: hi === j ? x.l.colore : `color-mix(in oklch, ${x.l.colore} 62%, var(--card))` }} />
-              ))}
+              <div className="relative flex flex-col gap-0.5 overflow-hidden rounded-[8px_8px_4px_4px] transition-[height] duration-500" style={{ width: bw }}>
+                {segs.map(x => (
+                  <div key={x.l.id} className="flex-none" style={{ height: Math.max(2, (x.v / mx) * H - 2), background: hi === j ? x.l.colore : x.l.tenue }} />
+                ))}
+              </div>
             </div>
           )
         })}
       </div>
-      <div className="absolute bottom-0 right-0 flex h-[26px] items-center" style={{ left: X0 }}>
+      <div className="absolute right-0 top-[288px] flex" style={{ left: X0, gap }}>
         {asse.map((l, j) => (
-          <span key={j} className={cn('min-w-0 flex-1 overflow-visible whitespace-nowrap text-center font-mono text-[11px]', hi === j ? 'font-bold text-foreground' : 'text-muted-foreground')}>
+          <span key={j} className={cn('min-w-0 flex-1 whitespace-nowrap text-center font-mono text-[11px]', hi === j ? 'font-bold text-foreground' : 'font-medium text-[oklch(0.58_0.01_250)]')}>
             {j % ogni === 0 || j === N - 1 ? l : ''}
           </span>
         ))}
       </div>
       {hi !== null && (
         <div
-          className={cn('pointer-events-none absolute top-2 z-10 flex w-[220px] flex-col gap-1.5 rounded-[10px] bg-foreground px-3.5 py-3 text-background shadow-float transition-[left,opacity] duration-150', esce && 'opacity-0')}
-          style={{ left: tel ? (fx > 0.5 ? X0 : 'calc(100% - 240px)') : `calc(${X0}px + (100% - ${X0}px) * ${fx.toFixed(4)} ${fx > 0.62 ? '- 252px' : '+ 28px'})` }}
+          className="pointer-events-none absolute top-2 z-[5] flex w-[220px] flex-col gap-1.5 rounded-[10px] bg-[oklch(0.2_0.01_250)] px-3.5 py-3 text-white shadow-[0_8px_24px_rgba(20,30,50,.2)] transition-[opacity,left] duration-[160ms,120ms] dark:bg-[oklch(0.32_0.01_250)]"
+          style={{ left: sinistra, opacity: esce ? 0 : 1 }}
         >
           <span className="text-[13px] font-semibold">{etichette[hi]}</span>
-          {affiancate ? (
-            <>
-              <div className="flex justify-between text-xs"><span className="opacity-80">A · {etichette[hi]}</span><span className="font-mono">€ {Math.round(tot[hi]).toLocaleString('it-IT')}</span></div>
-              <div className="flex justify-between text-xs"><span className="opacity-80">B · {etichetteB[hi] ?? '—'}</span><span className="font-mono">{serB && etichetteB[hi] ? `€ ${Math.round(serB[hi]).toLocaleString('it-IT')}` : '—'}</span></div>
-            </>
-          ) : locali.map((l, k) => (
+          {locali.map((l, k) => (
             <div key={l.id} className="flex items-center gap-2 text-xs">
               <span className="h-2 w-2 rounded-[2px]" style={{ background: l.colore }} />
               <span className="flex-1 truncate opacity-80">{l.nome}</span>
               <span className="font-mono font-medium">€ {Math.round(ser[hi][k]).toLocaleString('it-IT')}</span>
             </div>
           ))}
-          <div className="flex justify-between border-t border-background/20 pt-1.5 text-xs font-semibold">
-            <span>{affiancate ? 'Differenza' : 'Totale'}</span>
-            <span className="font-mono">
-              {affiancate && serB ? `${tot[hi] - serB[hi] >= 0 ? '+' : '−'}€ ${Math.round(Math.abs(tot[hi] - serB[hi])).toLocaleString('it-IT')}` : `€ ${Math.round(tot[hi]).toLocaleString('it-IT')}`}
-            </span>
+          <div className="flex justify-between border-t border-white/[.18] pt-1.5 text-xs font-semibold">
+            <span>Totale</span>
+            <span className="font-mono">€ {Math.round(tot[hi]).toLocaleString('it-IT')}</span>
           </div>
-          {!affiancate && serB && (
+          {serB && (
             <div className="flex justify-between text-[11px] opacity-75"><span>B · {etichetteB[hi] ?? '—'}</span><span className="font-mono">€ {Math.round(serB[hi] ?? 0).toLocaleString('it-IT')}</span></div>
           )}
         </div>

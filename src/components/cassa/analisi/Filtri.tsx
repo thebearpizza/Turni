@@ -1,100 +1,42 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { MESI, capit, giorni, intervallo, t, s } from '@/lib/analisi'
+import { MESI, capit, fd, giorni, intervallo, t, s } from '@/lib/analisi'
 
-// Filtri del design Manager Analisi: pillole dei locali (riordinabili con
-// una pressione lunga), periodo a segmenti con "Date" (calendario) e
-// "Altri mesi", poi Confronta ed Esporta con i loro pannelli.
-
-export interface LocaleF { id: string; nome: string; colore: string }
-
-const CHIAVE_ORDINE = 'inturno.locOrderL'
-
-export function leggiOrdine(): string[] {
-  try { return JSON.parse(localStorage.getItem(CHIAVE_ORDINE) || '[]') } catch { return [] }
-}
-
-export function PilloleLocali({ locali, sel, onSel, ordine, onOrdine }: {
-  locali: LocaleF[]; sel: string[]; onSel: (s: string[]) => void; ordine: string[]; onOrdine: (o: string[]) => void
-}) {
-  const [trascina, setTrascina] = useState<string | null>(null)
-  const trascinato = useRef(false)
-  const rk = (id: string) => { const i = ordine.indexOf(id); return i < 0 ? 999 : i }
-  const lista = [...locali].map((l, i) => ({ l, i })).sort((a, b) => rk(a.l.id) - rk(b.l.id) || a.i - b.i).map(x => x.l)
-  const corrente = useRef<string[]>([])
-  const idLista = lista.map(l => l.id).join(',')
-  useEffect(() => { corrente.current = idLista.split(',') }, [idLista])
-
-  function premi(e: React.PointerEvent, id: string) {
-    const x0 = e.clientX, y0 = e.clientY
-    let attivo = false
-    const tm = setTimeout(() => { attivo = true; trascinato.current = true; navigator.vibrate?.(10); setTrascina(id) }, 420)
-    const blocca = (ev: TouchEvent) => { if (attivo) ev.preventDefault() }
-    const muovi = (ev: PointerEvent) => {
-      if (!attivo) { if (Math.abs(ev.clientX - x0) > 8 || Math.abs(ev.clientY - y0) > 8) fine(); return }
-      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-li]')
-      if (!el?.dataset.li || el.dataset.li === id) return
-      const o = corrente.current.slice(), a = o.indexOf(id), b = o.indexOf(el.dataset.li)
-      if (a < 0 || b < 0) return
-      o.splice(a, 1); o.splice(b, 0, id)
-      onOrdine(o)
-    }
-    const fine = () => {
-      clearTimeout(tm)
-      window.removeEventListener('pointermove', muovi); window.removeEventListener('pointerup', fine)
-      window.removeEventListener('pointercancel', fine); window.removeEventListener('touchmove', blocca)
-      if (attivo) {
-        try { localStorage.setItem(CHIAVE_ORDINE, JSON.stringify(corrente.current)) } catch { /* memoria non disponibile */ }
-        setTrascina(null)
-        setTimeout(() => { trascinato.current = false }, 50)
-      }
-    }
-    window.addEventListener('pointermove', muovi); window.addEventListener('pointerup', fine)
-    window.addEventListener('pointercancel', fine); window.addEventListener('touchmove', blocca, { passive: false })
-  }
-
-  const pill = 'flex h-10 flex-none select-none items-center gap-2 rounded-full border px-4 text-sm font-medium transition-[transform,box-shadow] active:scale-[0.97]'
-  return (
-    <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden" onContextMenu={e => e.preventDefault()}>
-      <button type="button" onClick={() => onSel([])}
-        className={cn(pill, sel.length === 0 ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>
-        Tutti i locali
-      </button>
-      {lista.map(l => {
-        const on = sel.includes(l.id), drag = trascina === l.id
-        return (
-          <button key={l.id} type="button" data-li={l.id}
-            onPointerDown={e => premi(e, l.id)}
-            onClick={() => {
-              if (trascinato.current) { trascinato.current = false; return }
-              const n = on ? sel.filter(x => x !== l.id) : [...sel, l.id]
-              onSel(n.length === locali.length ? [] : n)
-            }}
-            className={cn(pill, on ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card', drag && 'relative z-[2] scale-[1.08] shadow-float')}
-            style={{ touchAction: drag ? 'none' : undefined }}>
-            <span className="h-2 w-2 rounded-full" style={{ background: on ? 'currentColor' : l.colore }} />{l.nome}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-/** Chiude il pannello al tocco fuori da [data-pop]. */
-function useFuori(aperto: boolean, chiudi: () => void) {
-  useEffect(() => {
-    if (!aperto) return
-    const h = (e: PointerEvent) => { if (!(e.target as HTMLElement).closest('[data-pop]')) chiudi() }
-    const id = setTimeout(() => window.addEventListener('pointerdown', h, true), 0)
-    return () => { clearTimeout(id); window.removeEventListener('pointerdown', h, true) }
-  }, [aperto, chiudi])
-}
+// Filtri del design Manager Analisi: periodo a segmenti (Oggi, Settimana,
+// Mese, Anno, Date con calendario, Altri mesi), Confronta ed Esporta.
+// I pannelli si aprono con swapin (680 ms) e si chiudono con swapout
+// (320 ms); un tocco fuori da [data-pop] li chiude.
 
 export interface Intervallo { a: string; b: string }
+export type Periodo = { k: 'oggi' | 'sett' | 'mese' | 'anno' } | { k: 'mesi'; mese: string } | { k: 'custom'; r: Intervallo }
+export type ModoConfronto = null | 'prev' | 'yoy' | 'custom'
+
+const USCITA = 320
+const SPUNTA = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="oklch(0.45 0.1 180)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+
+/** Apertura/chiusura animata di un pannello e chiusura al tocco fuori. */
+function usePannello(selettore: string) {
+  const [aperto, setAperto] = useState(false)
+  const [esce, setEsce] = useState(false)
+  const tm = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chiudi = useCallback(() => {
+    setEsce(true)
+    if (tm.current) clearTimeout(tm.current)
+    tm.current = setTimeout(() => { setAperto(false); setEsce(false) }, USCITA)
+  }, [])
+  const apri = useCallback(() => { if (tm.current) clearTimeout(tm.current); setEsce(false); setAperto(true) }, [])
+  useEffect(() => {
+    if (!aperto || esce) return
+    const h = (e: PointerEvent) => { if (!(e.target as HTMLElement).closest(selettore)) chiudi() }
+    const id = setTimeout(() => window.addEventListener('pointerdown', h, true), 0)
+    return () => { clearTimeout(id); window.removeEventListener('pointerdown', h, true) }
+  }, [aperto, esce, selettore, chiudi])
+  return { aperto, esce, apri, chiudi, alterna: () => (aperto && !esce ? chiudi() : apri()) }
+}
 
 /** Calendario a intervallo del design: primo tocco inizio, secondo fine. */
-export function Calendario({ iniziale, ultimo, riepilogoVuoto, onApplica }: { iniziale: Intervallo | null; ultimo: string; riepilogoVuoto: string; onApplica: (r: Intervallo) => void }) {
+export function Calendario({ iniziale, ultimo, riepilogoVuoto, onApplica, bordo }: { iniziale: Intervallo | null; ultimo: string; riepilogoVuoto: string; onApplica: (r: Intervallo) => void; bordo?: boolean }) {
   const base = new Date(t(iniziale?.a ?? ultimo))
   const [y, setY] = useState(base.getUTCFullYear())
   const [m, setM] = useState(base.getUTCMonth())
@@ -105,15 +47,16 @@ export function Calendario({ iniziale, ultimo, riepilogoVuoto, onApplica }: { in
   const fine = b ?? a
   const celle: ({ d: string; n: number } | null)[] = [...Array(lead).fill(null), ...Array.from({ length: dim }, (_, q) => ({ d: s(Date.UTC(y, m, q + 1)), n: q + 1 }))]
   while (celle.length % 7) celle.push(null)
+  const freccia = 'flex h-11 w-11 cursor-pointer items-center justify-center rounded-full active:scale-[0.97]'
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn('flex flex-col gap-1.5', bordo && 'border-t border-[oklch(0.93_0.01_250)] pt-2.5 dark:border-border')}>
       <div className="flex items-center">
-        <button type="button" aria-label="Mese precedente" onClick={() => { if (m) setM(m - 1); else { setM(11); setY(y - 1) } }} className="flex h-11 w-11 items-center justify-center rounded-full active:scale-[0.97]">
+        <button type="button" aria-label="Mese precedente" onClick={() => { if (m) setM(m - 1); else { setM(11); setY(y - 1) } }} className={freccia}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
         </button>
         <span className="flex-1 text-center text-[15px] font-semibold">{capit(MESI[m])} {y}</span>
-        <button type="button" aria-label="Mese successivo" disabled={!puoAvanti} onClick={() => { if (m === 11) { setM(0); setY(y + 1) } else setM(m + 1) }} className="flex h-11 w-11 items-center justify-center rounded-full active:scale-[0.97] disabled:opacity-30">
+        <button type="button" aria-label="Mese successivo" onClick={() => { if (!puoAvanti) return; if (m === 11) { setM(0); setY(y + 1) } else setM(m + 1) }} className={freccia} style={{ opacity: puoAvanti ? 1 : 0.3 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
         </button>
       </div>
@@ -121,124 +64,152 @@ export function Calendario({ iniziale, ultimo, riepilogoVuoto, onApplica }: { in
       <div className="grid grid-cols-7 gap-y-0.5">
         {celle.map((c, i) => {
           if (!c) return <div key={i} className="h-10" />
-          const dis = c.d > ultimo
-          if (dis) return <div key={i} className="flex h-10 items-center justify-center font-mono text-[13px] text-muted-foreground/50">{c.n}</div>
-          const st = c.d === a, en = c.d === fine, dentro = a && b && c.d > a && c.d < b, bordo = st || (b && c.d === b)
+          if (c.d > ultimo) return <div key={i} className="flex h-10 items-center justify-center font-mono text-[13px] font-medium text-[oklch(0.78_0.01_250)] dark:text-muted-foreground/40">{c.n}</div>
+          const st = c.d === a, en = c.d === fine, dentro = !!a && !!b && c.d > a && c.d < b, bordoC = st || (!!b && c.d === b)
           const entrambi = st && (!b || b === a)
+          const raggio = entrambi ? '10px' : st ? '10px 0 0 10px' : bordoC && en ? '0 10px 10px 0' : dentro ? '0' : '10px'
           return (
             <button key={i} type="button"
               onClick={() => { if (!a || b) { setA(c.d); setB(null) } else if (c.d < a) { setB(a); setA(c.d) } else setB(c.d) }}
-              className={cn('flex h-10 items-center justify-center font-mono text-[13px] font-medium transition-colors',
-                bordo ? 'bg-primary text-primary-foreground' : dentro ? 'bg-[oklch(0.93_0.04_180)] dark:bg-[oklch(0.3_0.04_180)]' : '',
-                entrambi ? 'rounded-[10px]' : st ? 'rounded-l-[10px]' : bordo && en ? 'rounded-r-[10px]' : dentro ? '' : 'rounded-[10px]')}>
+              className={cn('flex h-10 cursor-pointer items-center justify-center font-mono text-[13px] font-medium transition-[background] duration-150',
+                bordoC ? 'bg-primary text-primary-foreground' : dentro ? 'bg-[oklch(0.93_0.04_180)] dark:bg-[oklch(0.3_0.04_180)]' : 'bg-transparent')}
+              style={{ borderRadius: raggio }}>
               {c.n}
             </button>
           )
         })}
       </div>
-      <div className="flex items-center gap-2 border-t border-border pt-1.5">
-        <span className="flex-1 text-xs font-medium text-foreground/80">
+      <div className="flex items-center gap-2 border-t border-[oklch(0.93_0.01_250)] pt-1.5 dark:border-border">
+        <span className="flex-1 text-xs font-medium text-[oklch(0.35_0.01_250)] dark:text-foreground/80">
           {a ? `${intervallo(a, fine!)} · ${giorni(a, fine!)} ${giorni(a, fine!) === 1 ? 'giorno' : 'giorni'}` : riepilogoVuoto}
         </span>
-        <button type="button" disabled={!a} onClick={() => a && onApplica({ a, b: fine! })} className="h-11 rounded-[10px] bg-primary px-[18px] text-sm font-medium text-primary-foreground transition-opacity active:scale-[0.97] disabled:opacity-35">Applica</button>
+        <button type="button" onClick={() => a && onApplica({ a, b: fine! })} className="flex h-11 cursor-pointer items-center rounded-[10px] bg-primary px-[18px] text-sm font-medium text-primary-foreground transition-opacity duration-200 active:scale-[0.97]" style={{ opacity: a ? 1 : 0.35 }}>Applica</button>
       </div>
     </div>
   )
 }
 
-export type Periodo = { k: 'oggi' | 'sett' | 'mese' | 'anno' } | { k: 'mesi'; mese: string } | { k: 'custom'; r: Intervallo }
-export type ModoConfronto = null | 'prev' | 'yoy' | 'custom'
+const pannello = 'absolute z-[46] rounded-[14px] border border-border bg-card p-3 shadow-[0_14px_40px_rgba(20,30,50,.16)]'
 
 export function BarraPeriodo({ periodo, onPeriodo, mesi, oggi, tel }: {
   periodo: Periodo; onPeriodo: (p: Periodo) => void; mesi: { k: string; l: string }[]; oggi: string; tel: boolean
 }) {
-  const [pop, setPop] = useState<null | 'mesi' | 'date'>(null)
-  const chiudi = () => setPop(null)
-  useFuori(!!pop, chiudi)
-  const seg = (on: boolean) => cn('flex h-9 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[9px] px-3 text-[13px] font-medium', on ? 'bg-card shadow-sm' : 'text-muted-foreground')
+  const mm = usePannello('[data-mm]')
+  const cal = usePannello('[data-pop]')
+  const voce = (on: boolean) => cn(
+    'flex h-[34px] cursor-pointer items-center justify-center whitespace-nowrap rounded-[7px] text-[13px] font-medium transition-[background] duration-200',
+    tel ? 'flex-auto px-2' : 'flex-none px-3',
+    on ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'bg-transparent text-muted-foreground'
+  )
   const meseSel = periodo.k === 'mesi' ? mesi.find(x => x.k === periodo.mese) : undefined
+  const etichettaDate = !tel && periodo.k === 'custom' ? (periodo.r.a === periodo.r.b ? fd(periodo.r.a) : `${fd(periodo.r.a)} – ${fd(periodo.r.b)}`) : 'Date'
+
   return (
-    <div className="relative" data-pop>
-      <div className="flex items-center gap-0.5 overflow-x-auto rounded-[12px] bg-secondary p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {([['oggi', 'Oggi'], ['sett', tel ? 'Sett.' : 'Settimana'], ['mese', 'Mese'], ['anno', 'Anno']] as const).map(([k, l]) => (
-          <button key={k} type="button" onClick={() => onPeriodo({ k })} className={cn(seg(periodo.k === k), 'flex-1 sm:flex-none')}>{l}</button>
-        ))}
-        <button type="button" onClick={() => setPop(pop === 'date' ? null : 'date')} className={cn(seg(periodo.k === 'custom'), 'flex-1 sm:flex-none')}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M9 3v4M15 3v4" /></svg>
-          {!tel && periodo.k === 'custom' ? (periodo.r.a === periodo.r.b ? intervallo(periodo.r.a, periodo.r.a).replace(/ \d{4}$/, '') : `${intervallo(periodo.r.a, periodo.r.b).replace(/ \d{4}/g, '').replace(' → ', ' – ')}`) : 'Date'}
+    <div className={cn('relative flex gap-0.5 rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] dark:bg-secondary', tel ? 'flex-[1_1_100%]' : 'flex-none')}>
+      {([['oggi', 'Oggi'], ['sett', tel ? 'Sett.' : 'Settimana'], ['mese', 'Mese'], ['anno', 'Anno']] as const).map(([k, l]) => (
+        <button key={k} type="button" onClick={() => onPeriodo({ k })} className={voce(periodo.k === k)}>{l}</button>
+      ))}
+      <div data-pop className="contents">
+        <button type="button" onClick={() => { mm.chiudi(); cal.alterna() }} className={cn(voce(periodo.k === 'custom'), 'gap-[7px]')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17" /><path d="M8 3v4" /><path d="M16 3v4" /></svg>
+          {etichettaDate}
         </button>
-        <button type="button" onClick={() => setPop(pop === 'mesi' ? null : 'mesi')} className={cn(seg(!!meseSel), 'flex-1 sm:flex-none')}>
+        {cal.aperto && (
+          <div className={cn(pannello, 'top-[calc(100%+8px)] flex flex-col gap-2.5', tel ? 'left-0 right-0' : 'right-0 w-[348px]', cal.esce ? 'anim-swapout' : 'anim-swapin')}>
+            <Calendario iniziale={periodo.k === 'custom' ? periodo.r : null} ultimo={oggi} riepilogoVuoto="Scegli inizio e fine"
+              onApplica={r => { onPeriodo({ k: 'custom', r }); cal.chiudi() }} />
+          </div>
+        )}
+      </div>
+      <div data-mm className={cn('relative', tel ? 'flex flex-auto' : 'flex flex-none')}>
+        <button type="button" onClick={() => { cal.chiudi(); mm.alterna() }} className={cn(voce(!!meseSel), 'w-full gap-1.5', tel ? 'pl-2 pr-2.5' : 'pl-3 pr-2.5')}>
           {meseSel ? (tel ? meseSel.l.slice(0, 3) : meseSel.l) : tel ? 'Mesi' : 'Altri mesi'}
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 9l6 6 6-6" /></svg>
         </button>
+        {mm.aperto && (
+          <div className={cn('absolute right-0 top-[calc(100%+8px)] z-40 flex w-[180px] flex-col gap-0.5 rounded-[10px] border border-border bg-card p-1.5 shadow-[0_10px_30px_rgba(20,30,50,.12)]', mm.esce ? 'anim-swapout' : 'anim-swapin')}>
+            {mesi.map(x => (
+              <button key={x.k} type="button" onClick={() => { onPeriodo({ k: 'mesi', mese: x.k }); mm.chiudi() }}
+                className={cn('flex h-11 cursor-pointer items-center justify-between rounded-[7px] px-3 text-left text-sm font-medium text-foreground active:scale-[0.98]', meseSel?.k === x.k ? 'bg-[oklch(0.96_0.02_180)] dark:bg-[oklch(0.28_0.03_180)]' : 'bg-transparent')}>
+                {x.l}{meseSel?.k === x.k && SPUNTA}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {pop === 'mesi' && (
-        <div className="anim-swapin absolute right-0 top-[calc(100%+6px)] z-[46] flex w-48 flex-col gap-0.5 rounded-[14px] border border-border bg-card p-1.5 shadow-float">
-          {mesi.map(x => (
-            <button key={x.k} type="button" onClick={() => { onPeriodo({ k: 'mesi', mese: x.k }); chiudi() }}
-              className={cn('flex h-11 items-center rounded-[8px] px-3 text-left text-sm font-medium', meseSel?.k === x.k ? 'bg-[oklch(0.96_0.02_180)] dark:bg-[oklch(0.28_0.03_180)]' : 'hover:bg-background')}>
-              {x.l}
-            </button>
-          ))}
-        </div>
-      )}
-      {pop === 'date' && (
-        <div className="anim-swapin absolute right-0 top-[calc(100%+6px)] z-[46] w-[min(348px,calc(100vw-32px))] rounded-[14px] border border-border bg-card p-3 shadow-float">
-          <Calendario iniziale={periodo.k === 'custom' ? periodo.r : null} ultimo={oggi} riepilogoVuoto="Scegli inizio e fine"
-            onApplica={r => { onPeriodo({ k: 'custom', r }); chiudi() }} />
-        </div>
-      )}
     </div>
   )
 }
 
-export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, children, apriRef, oggi }: {
-  oggi: string
-  apriRef?: React.MutableRefObject<(() => void) | null>
+export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef, oggi, tel }: {
   modo: ModoConfronto
   onModo: (m: ModoConfronto) => void
   custom: Intervallo | null
   onCustom: (r: Intervallo) => void
-  opzioni: { prev: string; yoy: string }
-  children: (apri: () => void, attivo: boolean) => React.ReactNode
+  opzioni: { prev: string; yoy: string; customDefault: Intervallo }
+  apriRef?: React.MutableRefObject<(() => void) | null>
+  oggi: string
+  tel: boolean
 }) {
-  const [aperto, setAperto] = useState(false)
+  const p = usePannello('[data-pop]')
   const [cal, setCal] = useState(false)
-  const chiudi = () => { setAperto(false); setCal(false) }
-  useFuori(aperto, chiudi)
-  useEffect(() => { if (apriRef) apriRef.current = () => setTimeout(() => setAperto(true), 0) }, [apriRef])
+  useEffect(() => { if (apriRef) apriRef.current = () => setTimeout(() => { setCal(modo === 'custom'); p.apri() }, 0) })
   const voci: [ModoConfronto, string, string][] = [
     [null, 'Nessun confronto', ''],
     ['prev', 'Periodo precedente', opzioni.prev],
     ['yoy', 'Stesso periodo anno prima', opzioni.yoy],
     ['custom', 'Personalizzato', custom ? intervallo(custom.a, custom.b) : 'scegli le date'],
   ]
+  const attivo = !!modo
   return (
-    <div className="relative" data-pop>
-      {children(() => (aperto ? chiudi() : setAperto(true)), !!modo)}
-      {aperto && (
-        <div className="anim-swapin absolute right-0 top-[calc(100%+6px)] z-[46] flex w-[min(348px,calc(100vw-32px))] flex-col gap-2.5 rounded-[14px] border border-border bg-card p-3 shadow-float">
+    <div data-pop className={cn('relative', tel ? 'flex flex-[1_1_0]' : 'flex-none')}>
+      <button type="button" onClick={() => { setCal(modo === 'custom'); p.alterna() }}
+        className={cn('flex h-10 w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background,color] duration-200 active:scale-[0.97]',
+          attivo ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.82_0.01_250)] bg-card text-foreground dark:border-line-strong')}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 4v16" /><path d="M3 8l4-4 4 4" /><path d="M17 20V4" /><path d="M13 16l4 4 4-4" /></svg>
+        {attivo ? 'Confronto attivo' : 'Confronta'}
+      </button>
+      {p.aperto && (
+        <div className={cn(pannello, 'top-[calc(100%+8px)] flex flex-col gap-2.5', tel ? 'right-0 w-[calc(100vw-32px)]' : 'right-0 w-[348px]', p.esce ? 'anim-swapout' : 'anim-swapin')}>
           <div className="flex flex-col gap-0.5">
             {voci.map(([k, l, sub]) => (
               <button key={l} type="button"
-                onClick={() => { if (k === 'custom') { setCal(true); return } onModo(k); chiudi() }}
-                className={cn('flex min-h-11 items-center gap-2.5 rounded-[8px] px-3 py-1 text-left', modo === k ? 'bg-[oklch(0.96_0.02_180)] dark:bg-[oklch(0.28_0.03_180)]' : 'hover:bg-background')}>
+                onClick={() => { if (k === 'custom') { setCal(true); return } onModo(k); p.chiudi() }}
+                className={cn('flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[8px] px-3 py-1 text-left active:scale-[0.98]', modo === k ? 'bg-[oklch(0.96_0.02_180)] dark:bg-[oklch(0.28_0.03_180)]' : 'bg-transparent')}>
                 <span className="flex flex-1 flex-col gap-px">
                   <span className="text-sm font-medium">{l}</span>
                   {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
                 </span>
-                {modo === k && !(k === 'custom' && cal) && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="oklch(0.45 0.1 180)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-                )}
+                {modo === k && !(k === 'custom' && cal) && SPUNTA}
               </button>
             ))}
           </div>
           {cal && (
-            <div className="border-t border-border pt-2.5">
-              <Calendario iniziale={custom} ultimo={oggi} riepilogoVuoto="Scegli il periodo B"
-                onApplica={r => { onCustom(r); onModo('custom'); chiudi() }} />
-            </div>
+            <Calendario bordo iniziale={custom ?? opzioni.customDefault} ultimo={oggi} riepilogoVuoto="Scegli il periodo B"
+              onApplica={r => { onCustom(r); onModo('custom'); p.chiudi() }} />
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function PulsanteEsporta({ disabilitato, onScegli, tel }: { disabilitato: boolean; onScegli: (f: 'xlsx' | 'pdf') => void; tel: boolean }) {
+  const p = usePannello('[data-esporta]')
+  return (
+    <div data-esporta className={cn('relative', tel ? 'flex flex-[1_1_0]' : 'flex-none')}>
+      <button type="button" disabled={disabilitato} onClick={p.alterna}
+        className="flex h-10 w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border border-[oklch(0.82_0.01_250)] bg-card px-3.5 text-[13px] font-medium active:scale-[0.97] disabled:cursor-default disabled:opacity-45 dark:border-line-strong">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 4v11" /><path d="M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+        Esporta
+      </button>
+      {p.aperto && (
+        <div className={cn('absolute right-0 top-[calc(100%+8px)] z-40 flex w-[180px] flex-col gap-0.5 rounded-[10px] border border-border bg-card p-1.5 shadow-[0_10px_30px_rgba(20,30,50,.12)]', p.esce ? 'anim-swapout' : 'anim-swapin')}>
+          {(['xlsx', 'pdf'] as const).map(f => (
+            <button key={f} type="button" onClick={() => { onScegli(f); p.chiudi() }} className="flex h-11 cursor-pointer items-center rounded-[7px] px-3 text-left text-sm font-medium active:scale-[0.98]">
+              {f === 'xlsx' ? 'Excel' : 'PDF'}
+            </button>
+          ))}
         </div>
       )}
     </div>
