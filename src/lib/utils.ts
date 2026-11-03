@@ -19,3 +19,8 @@ export function formatDate(input: string | Date): string {
   const d = typeof input === "string" ? parseISO(input) : input
   return format(d, "dd-MM-yyyy")
 }
+
+// Importo in formato italiano a due decimali ("1.240,50"), come nei prototipi.
+export function eur2(n: number): string {
+  return n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}

@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CategorieManagerDialog } from '@/components/cassa/CategorieManagerDialog'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import type { CassaChiusura, CassaCategoria, CassaSpesa } from '@/types'
+import { eur2 } from '@/lib/utils'
 
 interface Suggerimento {
   nome_spesa: string
@@ -329,7 +330,7 @@ export function SpeseFase({ chiusura, ownerId, role, userId, onBack, onNext }: P
           </DialogHeader>
           {spesaDaEliminare && (
             <p className="text-sm text-muted-foreground">
-              {spesaDaEliminare.nome_spesa} · € {spesaDaEliminare.importo.toFixed(2)}
+              {spesaDaEliminare.nome_spesa} · € {eur2(spesaDaEliminare.importo)}
               {' '}— l&apos;operazione non è reversibile.
             </p>
           )}

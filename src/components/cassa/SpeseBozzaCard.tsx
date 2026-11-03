@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import { ChevronDown, ChevronUp, Trash2, Pencil, Check, Loader2, X } from 'lucide-react'
 import type { CassaCategoria, CassaSpesaBozza, CassaChiusura } from '@/types'
+import { eur2 } from '@/lib/utils'
 
 interface Suggerimento {
   nome_spesa: string
@@ -272,7 +273,7 @@ export function SpeseBozzaCard({ restaurantId, giorno, ownerId, userId, chiusura
         <div className="flex items-center gap-2">
           <CardTitle className="cassa-display text-lg">Spese da inserire</CardTitle>
           {!loadingBozze && bozze.length > 0 && (
-            <Badge variant="secondary">{bozze.length} · € {totale.toFixed(2)}</Badge>
+            <Badge variant="secondary">{bozze.length} · € {eur2(totale)}</Badge>
           )}
         </div>
         <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={e => { e.stopPropagation(); setExpanded(x => !x) }}>
@@ -395,7 +396,7 @@ export function SpeseBozzaCard({ restaurantId, giorno, ownerId, userId, chiusura
                     {cat && <span className="text-muted-foreground ml-2">({cat.nome})</span>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className="cassa-numeric whitespace-nowrap mr-1">€ {b.importo.toFixed(2)}</span>
+                    <span className="cassa-numeric whitespace-nowrap mr-1">€ {eur2(b.importo)}</span>
                     <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" title="Modifica" onClick={() => iniziaModifica(b)} disabled={busy}>
                       <Pencil className="w-4 h-4" />
                     </Button>
@@ -429,7 +430,7 @@ export function SpeseBozzaCard({ restaurantId, giorno, ownerId, userId, chiusura
             <DialogTitle className="cassa-display text-lg">Eliminare questa spesa in bozza?</DialogTitle>
             {bozzaDaEliminare && (
               <DialogDescription>
-                {bozzaDaEliminare.nome_spesa} · € {bozzaDaEliminare.importo.toFixed(2)} — l&apos;operazione non è reversibile.
+                {bozzaDaEliminare.nome_spesa} · € {eur2(bozzaDaEliminare.importo)} — l&apos;operazione non è reversibile.
               </DialogDescription>
             )}
           </DialogHeader>

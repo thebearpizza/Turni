@@ -10,7 +10,7 @@ import { CurrencyInput } from '@/components/ui/currency-input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Camera, Upload, X, Loader2, AlertTriangle, FileText, Crop } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta, RiquadroArticolo } from '@/types'
 
 const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
@@ -847,7 +847,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-normal text-muted-foreground">IVA</Label>
-              <p className="cassa-numeric flex h-8 items-center text-sm text-muted-foreground">€ {current.fattura.totale_iva.toFixed(2)}</p>
+              <p className="cassa-numeric flex h-8 items-center text-sm text-muted-foreground">€ {eur2(current.fattura.totale_iva)}</p>
             </div>
             <div className="space-y-1">
               <Label className={cn('text-xs font-normal', verificheFattura.some(v => v.campo === 'totale_lordo') && 'text-warn font-medium')}>Lordo</Label>
@@ -858,7 +858,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
             <Label className="text-xs font-normal">Vuoti ritirati (facoltativo)</Label>
             <CurrencyInput value={vuotiRitirati} onChange={setVuotiRitirati} hideStepper className="h-8 cassa-numeric max-w-32" />
             {!!vuotiRitirati && (
-              <p className="text-xs text-muted-foreground">Da pagare € {(totaleLordoEffettivo - vuotiRitirati).toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground">Da pagare € {eur2((totaleLordoEffettivo - vuotiRitirati))}</p>
             )}
           </div>
           {verificheFattura.map((v, i) => (
@@ -919,7 +919,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                       />
                     </div>
                     <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      = € {prezzoRiga.toFixed(2)}{modificato && ' · corretto'}
+                      = € {eur2(prezzoRiga)}{modificato && ' · corretto'}
                     </span>
                   </div>
                   {confirmingIndex === i ? (

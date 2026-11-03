@@ -6,7 +6,7 @@ import { DocumentScanner } from '@/components/acquisti/DocumentScanner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Camera, Upload, X, Loader2, FileText } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 
 export interface ReportChiusuraEstratto {
   data: string | null
@@ -152,7 +152,7 @@ export function ReportChiusuraCapture({ restaurantId, data, onEstratto }: Props)
         {status === 'done' && risultato ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Letto: Contanti € {risultato.entrate_contanti.toFixed(2)} · POS € {risultato.entrate_pos.toFixed(2)} · Bonifico € {risultato.entrate_bonifico.toFixed(2)}
+              Letto: Contanti € {eur2(risultato.entrate_contanti)} · POS € {eur2(risultato.entrate_pos)} · Bonifico € {eur2(risultato.entrate_bonifico)}
               {risultato.coperti != null && <> · Coperti {risultato.coperti}</>}. Controlla i campi qui sotto prima di proseguire.
             </p>
             <Button type="button" variant="outline" size="sm" onClick={reset}>Carica un altro documento</Button>

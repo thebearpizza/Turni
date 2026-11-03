@@ -1,6 +1,6 @@
 'use client'
 import { useMemo } from 'react'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 
 interface Riga {
   restaurant_id: string
@@ -106,10 +106,10 @@ export function ConfrontoSediTable({ righe }: Props) {
               <tr key={c.restaurant_id} className="border-b border-border last:border-0">
                 <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-4 pl-1 font-medium whitespace-nowrap">{c.restaurant_name}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">{c.giorni}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleEntrate.toFixed(2)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaEntrate.toFixed(2)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.totaleSpese.toFixed(2)}</td>
-                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {c.mediaSpese.toFixed(2)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.totaleEntrate)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.mediaEntrate)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.totaleSpese)}</td>
+                <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">€ {eur2(c.mediaSpese)}</td>
                 <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap">
                   {c.mediaScontrino === null ? '—' : `€ ${c.mediaScontrino.toFixed(2)}`}
                 </td>
@@ -117,13 +117,13 @@ export function ConfrontoSediTable({ righe }: Props) {
                   'cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium',
                   c.margineOperativo >= 0 ? 'text-cassa-positive' : 'text-cassa-negative'
                 )}>
-                  {c.margineOperativo >= 0 ? '' : '−'}€ {Math.abs(c.margineOperativo).toFixed(2)}
+                  {c.margineOperativo >= 0 ? '' : '−'}€ {eur2(Math.abs(c.margineOperativo))}
                 </td>
                 <td className={cn(
                   'cassa-numeric py-2 text-right font-medium whitespace-nowrap',
                   isBalanced ? 'text-cassa-positive' : 'text-cassa-negative'
                 )}>
-                  {isBalanced ? '0,00 €' : `${c.totaleDifferenza > 0 ? '+' : ''}${c.totaleDifferenza.toFixed(2)} €`}
+                  {isBalanced ? '0,00 €' : `${c.totaleDifferenza > 0 ? '+' : ''}${eur2(c.totaleDifferenza)} €`}
                 </td>
               </tr>
             )

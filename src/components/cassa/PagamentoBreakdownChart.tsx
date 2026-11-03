@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { CASSA_CHART_COLORS as COLORS } from '@/components/cassa/chartPalette'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 
 interface EntrateRow {
   entrate_contanti: number
@@ -68,7 +68,7 @@ export function PagamentoBreakdownChart({ righe }: Props) {
         <span className="font-sans font-semibold text-foreground truncate" style={{ color: selectedColor }}>
           {selected.nome}
         </span>
-        <span className="font-semibold whitespace-nowrap">€ {selected.totale.toFixed(2)} · {selected.percentuale.toFixed(0)}%</span>
+        <span className="font-semibold whitespace-nowrap">€ {eur2(selected.totale)} · {selected.percentuale.toFixed(0)}%</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
@@ -128,7 +128,7 @@ export function PagamentoBreakdownChart({ righe }: Props) {
                 <span className="truncate">{f.nome}</span>
               </div>
               <div className="cassa-numeric flex items-center gap-2 shrink-0 whitespace-nowrap text-muted-foreground">
-                <span>€ {f.totale.toFixed(2)}</span>
+                <span>€ {eur2(f.totale)}</span>
                 <span className="w-12 text-right">{f.percentuale.toFixed(0)}%</span>
               </div>
             </button>

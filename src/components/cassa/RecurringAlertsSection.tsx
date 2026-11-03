@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { AlertTriangle } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
+import { eur2 } from '@/lib/utils'
 
 const TZ = 'Europe/Rome'
 
@@ -82,9 +83,9 @@ export function RecurringAlertsSection({ righe }: Props) {
                     {a.restaurant_name} — {a.count} giorni oltre soglia
                   </p>
                   <p className="cassa-numeric text-xs text-cassa-negative/80 flex flex-wrap gap-x-1.5">
-                    <span className="whitespace-nowrap">Media {a.media > 0 ? '+' : ''}{a.media.toFixed(2)} €</span>
+                    <span className="whitespace-nowrap">Media {a.media > 0 ? '+' : ''}{eur2(a.media)} €</span>
                     <span>·</span>
-                    <span className="whitespace-nowrap">Totale {a.totale > 0 ? '+' : ''}{a.totale.toFixed(2)} €</span>
+                    <span className="whitespace-nowrap">Totale {a.totale > 0 ? '+' : ''}{eur2(a.totale)} €</span>
                   </p>
                 </div>
                 <p className="text-xs text-cassa-negative/70 mt-1">

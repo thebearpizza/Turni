@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 
 const TZ = 'Europe/Rome'
 
@@ -45,7 +45,7 @@ export function BestWorstDayHighlight({ righe }: Props) {
         <div className="min-w-0">
           <p className="text-xs text-cassa-positive/80">Giorno migliore · {best.restaurant_name}</p>
           <p className="cassa-numeric text-sm font-semibold text-cassa-positive whitespace-nowrap">
-            {fmt(best)} · € {best.totale_entrate.toFixed(2)}
+            {fmt(best)} · € {eur2(best.totale_entrate)}
           </p>
         </div>
       </div>
@@ -54,7 +54,7 @@ export function BestWorstDayHighlight({ righe }: Props) {
         <div className="min-w-0">
           <p className="text-xs text-cassa-negative/80">Giorno peggiore · {worst.restaurant_name}</p>
           <p className="cassa-numeric text-sm font-semibold text-cassa-negative whitespace-nowrap">
-            {fmt(worst)} · € {worst.totale_entrate.toFixed(2)}
+            {fmt(worst)} · € {eur2(worst.totale_entrate)}
           </p>
         </div>
       </div>

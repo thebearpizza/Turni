@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import { Eye, Merge, Loader2, Pencil, Check, X } from 'lucide-react'
 import type { ArticoloTipologia } from '@/types'
+import { eur2 } from '@/lib/utils'
 
 const TZ = 'Europe/Rome'
 
@@ -125,7 +126,7 @@ export function FornitoriClient({ canEdit }: Props) {
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <Badge variant="secondary">{r.numero_fatture} {r.numero_fatture === 1 ? 'fattura' : 'fatture'}</Badge>
-              <Badge variant="secondary" className="cassa-numeric">€ {r.totale_periodo.toFixed(2)} nel mese</Badge>
+              <Badge variant="secondary" className="cassa-numeric">€ {eur2(r.totale_periodo)} nel mese</Badge>
               <Badge variant="secondary">{r.numero_articoli} a catalogo</Badge>
               <Button type="button" variant="outline" size="sm" onClick={() => setDettaglioId(r.id)}>
                 <Eye className="h-4 w-4" /> Dettagli
@@ -269,7 +270,7 @@ function FornitoreDettaglioDialog({ fornitoreId, canEdit, onClose, onSaved }: De
               {fatture.map(f => (
                 <div key={f.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
                   <span>Doc. {f.numero_documento} · {formatInTimeZone(`${f.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}</span>
-                  <span className="cassa-numeric">€ {f.totale_lordo.toFixed(2)}</span>
+                  <span className="cassa-numeric">€ {eur2(f.totale_lordo)}</span>
                 </div>
               ))}
             </div>

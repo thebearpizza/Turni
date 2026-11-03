@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { Trash2, FileText, Pencil, Loader2, Plus } from 'lucide-react'
@@ -147,9 +147,6 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
             <div className="space-y-2">
               <Label>Ristoranti</Label>
               <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
-              {selectedRestaurants.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
-              )}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -214,24 +211,24 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
                       </div>
                       <p className="sr-only">{r.restaurant_name} · {dataLabel}</p>
                       <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
-                        <span className="whitespace-nowrap">Entrate € {r.totale_entrate.toFixed(2)}</span>
+                        <span className="whitespace-nowrap">Entrate € {eur2(r.totale_entrate)}</span>
                         <span>·</span>
-                        <span className="whitespace-nowrap">Spese € {r.totale_spese_giornaliere.toFixed(2)}</span>
+                        <span className="whitespace-nowrap">Spese € {eur2(r.totale_spese_giornaliere)}</span>
                         <span>·</span>
                         <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium whitespace-nowrap')}>
-                          {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2)} €`}
+                          {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${eur2(r.differenza)} €`}
                         </span>
                       </p>
                       <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
-                        <span className="whitespace-nowrap">Contanti € {r.entrate_contanti.toFixed(2)}</span>
+                        <span className="whitespace-nowrap">Contanti € {eur2(r.entrate_contanti)}</span>
                         <span>·</span>
-                        <span className="whitespace-nowrap">POS € {r.entrate_pos.toFixed(2)}</span>
+                        <span className="whitespace-nowrap">POS € {eur2(r.entrate_pos)}</span>
                         <span>·</span>
-                        <span className="whitespace-nowrap">Bonifico € {r.entrate_bonifico.toFixed(2)}</span>
+                        <span className="whitespace-nowrap">Bonifico € {eur2(r.entrate_bonifico)}</span>
                         <span>·</span>
                         <span className="whitespace-nowrap">
                           Margine Operativo{' '}
-                          {(r.totale_entrate - r.totale_spese_giornaliere) < 0 ? '−' : ''}€ {Math.abs(r.totale_entrate - r.totale_spese_giornaliere).toFixed(2)}
+                          {(r.totale_entrate - r.totale_spese_giornaliere) < 0 ? '−' : ''}€ {eur2(Math.abs(r.totale_entrate - r.totale_spese_giornaliere))}
                         </span>
                       </p>
                     </div>

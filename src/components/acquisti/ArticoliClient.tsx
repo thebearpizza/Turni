@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
 import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
 import { Boxes, ChevronDown, Eye, GitMerge, Loader2, Pencil, Plus } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn , eur2 } from '@/lib/utils'
 import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
 
 const TZ = 'Europe/Rome'
@@ -423,7 +423,7 @@ export function ArticoliClient({ fornitori, canEdit }: Props) {
                         <div className="flex shrink-0 items-center gap-0.5">
                           <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
                             {prezzoRecente != null ? (
-                              <>€ {prezzoRecente.toFixed(2)}{r.unita_misura && <span className="text-muted-foreground text-xs"> / {r.unita_misura}</span>}</>
+                              <>€ {eur2(prezzoRecente)}{r.unita_misura && <span className="text-muted-foreground text-xs"> / {r.unita_misura}</span>}</>
                             ) : (
                               <span className="text-muted-foreground text-xs">nessun acquisto</span>
                             )}

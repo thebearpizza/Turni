@@ -17,6 +17,7 @@ import { friendlySaveError } from '@/lib/supabase/friendlyError'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { Camera, Eye, Upload, Trash2, Loader2, Pencil } from 'lucide-react'
+import { eur2 } from '@/lib/utils'
 
 const TZ = 'Europe/Rome'
 
@@ -468,9 +469,6 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
             <div className="space-y-2">
               <Label>Ristoranti</Label>
               <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
-              {selectedRestaurants.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
-              )}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -533,7 +531,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
             >
               <CardContent className="pt-4 pb-3 px-3 space-y-1">
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="cassa-numeric text-lg font-semibold">€ {value.toFixed(2)}</p>
+                <p className="cassa-numeric text-lg font-semibold">€ {eur2(value)}</p>
               </CardContent>
             </Card>
           ))}
@@ -580,25 +578,25 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                         </td>
                         <td className="cassa-numeric py-2 pr-4 pl-3 whitespace-nowrap align-top">{dataLabel}</td>
                         <td className="cassa-numeric py-2 pr-4 whitespace-nowrap text-muted-foreground align-top">{r.numero_documento}</td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">€ {r.totale_netto.toFixed(2)}</td>
+                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">€ {eur2(r.totale_netto)}</td>
                         <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">
                           {ivaPerAliquota.length > 0 ? (
                             <div className="space-y-0.5">
                               {ivaPerAliquota.map(([aliquota, iva]) => (
                                 <div key={aliquota}>
-                                  <span className="text-muted-foreground text-xs">{aliquota}%</span> € {iva.toFixed(2)}
+                                  <span className="text-muted-foreground text-xs">{aliquota}%</span> € {eur2(iva)}
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <>€ {r.totale_iva.toFixed(2)}</>
+                            <>€ {eur2(r.totale_iva)}</>
                           )}
                         </td>
                         <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">
-                          € {r.totale_lordo.toFixed(2)}
+                          € {eur2(r.totale_lordo)}
                           {!!r.vuoti_ritirati && (
                             <div className="text-[10px] font-normal text-muted-foreground">
-                              −€{r.vuoti_ritirati.toFixed(2)} vuoti · da pagare € {(r.totale_lordo - r.vuoti_ritirati).toFixed(2)}
+                              −€{eur2(r.vuoti_ritirati)} vuoti · da pagare € {eur2((r.totale_lordo - r.vuoti_ritirati))}
                             </div>
                           )}
                         </td>
@@ -737,7 +735,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                           Doc. {r.numero_documento} · {formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
                         </p>
                       </div>
-                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {r.totale_netto.toFixed(2)}</p>
+                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {eur2(r.totale_netto)}</p>
                     </div>
                   ))}
                 </div>
@@ -755,7 +753,7 @@ export function FattureClient({ role, restaurants, categorieDirette, fornitori }
                           {p.fornitore} · {p.quantita % 1 === 0 ? p.quantita : p.quantita.toFixed(2)}{p.unita ? ` ${p.unita}` : ''}
                         </p>
                       </div>
-                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {p.totale.toFixed(2)}</p>
+                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {eur2(p.totale)}</p>
                     </div>
                   ))}
                 </div>

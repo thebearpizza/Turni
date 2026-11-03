@@ -7,6 +7,7 @@ import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { usePrefersReducedMotion } from '@/components/cassa/usePrefersReducedMotion'
 import { format, startOfWeek, startOfMonth } from 'date-fns'
 import { it } from 'date-fns/locale'
+import { eur2 } from '@/lib/utils'
 
 interface SpesaRow {
   importo: number
@@ -145,7 +146,7 @@ export function CategorieTrendChart({ spese }: Props) {
                 <div key={cat} className="flex items-center gap-1.5 text-xs">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: cassaChartColor(i) }} />
                   <span className="text-muted-foreground">{cat}</span>
-                  <span className="cassa-numeric font-medium whitespace-nowrap">€ {v.toFixed(2)}</span>
+                  <span className="cassa-numeric font-medium whitespace-nowrap">€ {eur2(v)}</span>
                 </div>
               )
             })}
