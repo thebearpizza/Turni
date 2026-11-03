@@ -141,8 +141,8 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
 
   return (
     <div className="space-y-4">
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6 space-y-4">
+      <Card>
+        <CardContent className="space-y-4 pt-5">
           {role === 'manager' ? (
             <div className="space-y-2">
               <Label>Ristoranti</Label>
@@ -169,12 +169,15 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
 
       <div className="flex justify-end">
         <Button type="button" onClick={() => router.push('/cassa/chiusura')}>
-          <Plus className="w-4 h-4" /> Nuova Chiusura
+          <Plus className="w-4 h-4" /> Nuova chiusura
         </Button>
       </div>
 
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6">
+      <Card className="overflow-hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-border bg-background px-4 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground">
+          <span>Giorno</span><span className="text-right">Incasso</span><span className="w-[92px] text-right">Stato</span>
+        </div>
+        <CardContent className="px-4 pt-0">
           {loading ? (
             <div className="divide-y divide-border">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -201,8 +204,15 @@ export function ListaChiusureClient({ restaurants, role }: Props) {
                 const busy = workingId === r.id
                 return (
                   <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{r.restaurant_name} · {dataLabel}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
+                        <span className="min-w-0 truncate"><span className="font-mono text-sm font-medium">{dataLabel.slice(0, 5)}</span>{role === 'manager' && <span className="ml-2 text-sm text-muted-foreground">{r.restaurant_name}</span>}</span>
+                        <span className="text-right font-mono text-sm">€ {r.totale_entrate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className={cn('w-[92px] rounded-full px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-[.04em]', isBalanced ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
+                          {isBalanced ? 'Quadra' : `${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2).replace('.', ',')}`}
+                        </span>
+                      </div>
+                      <p className="sr-only">{r.restaurant_name} · {dataLabel}</p>
                       <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
                         <span className="whitespace-nowrap">Entrate € {r.totale_entrate.toFixed(2)}</span>
                         <span>·</span>
