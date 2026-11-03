@@ -22,9 +22,9 @@ export default async function HomePage() {
   } else if (profile.role === 'cassiere' || profile.role === 'hostess') {
     redirect('/cassa')
   } else if (profile.role === 'capo_servizio' && profile.is_direttore === true) {
-    // Il direttore ha una Home come il manager (Turni/Acquisti, non Cassa) —
-    // vedi hub/page.tsx.
-    redirect('/hub')
+    // Design Direttore v2: la Home del direttore è la sua timbratura con le
+    // presenze di oggi e le approvazioni (dashboard), non l'indice delle aree.
+    redirect('/dashboard')
   } else {
     redirect('/dashboard')
   }
