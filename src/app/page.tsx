@@ -18,7 +18,9 @@ export default async function HomePage() {
   if (profile.role === 'dipendente') {
     redirect('/home')
   } else if (profile.role === 'manager') {
-    redirect('/hub')
+    // Il manager apre l'app sulle Analisi di cassa: è la schermata che
+    // consulta ogni mattina; la Home resta un tocco più in là nel dock.
+    redirect('/cassa/analisi')
   } else if (profile.role === 'cassiere' || profile.role === 'hostess') {
     redirect('/cassa')
   } else if (profile.role === 'capo_servizio' && profile.is_direttore === true) {

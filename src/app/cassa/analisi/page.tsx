@@ -17,9 +17,8 @@ export default async function AnalisiCassaPage() {
     .order('name')
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
+    <div className="mx-auto w-full max-w-[1400px] px-4 pb-28 pt-1 lg:px-8">
       <h1 className="titolo-pagina">Analisi</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Chiusure cassa confermate, per ristorante e periodo.</p>
       <AnalisiClient restaurants={restaurants ?? []} />
     </div>
   )
