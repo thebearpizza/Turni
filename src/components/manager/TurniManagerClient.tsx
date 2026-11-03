@@ -104,7 +104,7 @@ function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
 const thCls = 'px-1.5 py-2 text-center font-medium bg-card text-muted-foreground border-b border-border whitespace-nowrap'
 const tdCls = 'px-1 py-1 text-center text-xs border-b border-border whitespace-nowrap tabular-nums'
 const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-card'
-const tdNameCls = 'px-3 py-2 text-left text-[13px] font-medium border-b border-border whitespace-nowrap sticky left-0 bg-card z-10'
+const tdNameCls = 'px-2 py-2 text-left text-[12px] sm:px-3 sm:text-[13px] font-medium border-b border-border sticky left-0 bg-card z-10'
 
 const TURN_TYPE_OPTIONS = [
   { value: false, label: 'Turno di Lavoro' },
@@ -799,9 +799,9 @@ export function TurniManagerClient({
         <table className="border-collapse text-xs w-full" style={{ minWidth: 'max-content' }}>
           <thead>
             <tr>
-              <th className={`${thCls} sticky left-0 z-20 text-left min-w-[150px]`}>Dipendente</th>
+              <th className={`${thCls} sticky left-0 z-20 text-left min-w-[96px] sm:min-w-[150px]`}>Dipendente</th>
               {weekDays.map(day => (
-                <th key={format(day, 'yyyy-MM-dd')} className={`${thCls} min-w-[100px]`}>
+                <th key={format(day, 'yyyy-MM-dd')} className={`${thCls} min-w-[48px] sm:min-w-[100px]`}>
                   <div className="capitalize">{formatInTimeZone(day, TZ, 'EEE', { locale: it })}</div>
                   <div className="font-mono text-[15px] font-semibold text-foreground">{formatInTimeZone(day, TZ, 'd', { locale: it })}</div>
                 </th>
@@ -844,7 +844,7 @@ export function TurniManagerClient({
                   const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
                   return (
                     <td key={dateStr} className={`${tdCls} align-top p-1`}>
-                      <div className="flex flex-col gap-1 items-stretch min-w-[80px]">
+                      <div className="flex flex-col gap-1 items-stretch min-w-[44px] sm:min-w-[80px]">
                         {cellTurns.map(turn => (
                           <div
                             key={turn.id}
@@ -853,13 +853,14 @@ export function TurniManagerClient({
                               turn.is_rest_day ? RIPOSO_BADGE : turn.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE
                             }`}
                           >
-                            <span>
-                              {turn.is_rest_day ? 'Rip.' : `${turn.start_time.slice(0, 5)}-${turn.end_time.slice(0, 5)}`}
+                            {/* Sul telefono orari su due righe, come nel design. */}
+                            <span className="flex flex-col leading-tight sm:block">
+                              {turn.is_rest_day ? 'Rip.' : <><span>{turn.start_time.slice(0, 5)}</span><span className="sm:before:content-['-']">{turn.end_time.slice(0, 5)}</span></>}
                             </span>
                             <button
                               type="button"
                               onClick={e => { e.stopPropagation(); handleDelete(turn.id) }}
-                              className="opacity-50 hover:opacity-100 hover:text-destructive"
+                              className="hidden opacity-50 hover:opacity-100 hover:text-destructive sm:inline"
                               aria-label="Elimina turno"
                             >
                               <X className="w-2.5 h-2.5" />
@@ -1180,6 +1181,12 @@ export function TurniManagerClient({
             )}
           </div>
           <DialogFooter>
+            {/* Elimina anche da qui: sul telefono la ✕ nella cella non c'è. */}
+            {editingTurn && (
+              <Button variant="destructive-soft" className="sm:mr-auto" onClick={async () => { const id = editingTurn.id; await handleDelete(id); setShowForm(false) }}>
+                Elimina
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
             <Button
               onClick={handleSave}

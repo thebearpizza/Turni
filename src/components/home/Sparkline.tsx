@@ -16,7 +16,7 @@ export function Sparkline({ valori, colore, w = 96, h = 28, pieno = false }: { v
   const area = `M${validi[0][0]} ${h}` + validi.map(p => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join('') + `L${validi[validi.length - 1][0]} ${h}Z`
   return (
     <svg width={pieno ? '100%' : w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden className="overflow-visible">
-      <path d={area} fill={colore} opacity={0.12} />
+      {valori.every(v => v !== null) && <path d={area} fill={colore} opacity={0.12} />}
       {segmenti.map((d, i) => <path key={i} d={d} fill="none" stroke={colore} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />)}
     </svg>
   )

@@ -28,7 +28,7 @@ function PerLocale({ locali, valore }: { locali: LocaleHome[]; valore: (l: Local
         return (
           <span key={l.id} className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5"><span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: l.colore }} /><span className="truncate">{l.nome}</span></span>
-            <span className={cn('font-mono', v === null && 'text-neg')}>{v === null ? 'manca' : eur0(v)}</span>
+            <span className={cn('flex-none whitespace-nowrap font-mono', v === null && 'text-neg')}>{v === null ? 'manca' : eur0(v)}</span>
           </span>
         )
       })}
@@ -91,18 +91,18 @@ export function HomeManager({ d }: { d: DatiHome }) {
             <span className="text-[17px] font-semibold">Locali</span>
             <span className="text-[13px] text-muted-foreground">{d.ieriBreve}</span>
           </div>
-          <div className="hidden grid-cols-[minmax(0,1fr)_110px_100px_110px_96px] gap-3 border-b border-border bg-background px-[18px] py-2.5 font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(0,1fr)_140px_100px_110px_96px] gap-3 border-b border-border bg-background px-[18px] py-2.5 font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground md:grid">
             <span>Locale</span><span className="text-right">Incasso</span><span>7 giorni</span><span className="text-right">Contanti</span><span className="text-right">Chiusura</span>
           </div>
           {d.locali.map(l => {
             const p = percento(l.ieri, l.ieriPrima)
             const [st, cls] = STATO[l.stato]
             return (
-              <div key={l.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-border px-[18px] py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_110px_100px_110px_96px]">
+              <div key={l.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-border px-[18px] py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_140px_100px_110px_96px]">
                 <span className="flex items-center gap-2 text-[15px]"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: l.colore }} />{l.nome}</span>
                 <span className="flex flex-col items-end">
                   <span className="font-mono text-[15px] font-medium">{l.ieri === null ? '—' : eur0(l.ieri)}</span>
-                  <span className={cn('font-mono text-[10px]', l.ieri === null ? 'text-neg' : 'text-muted-foreground')}>
+                  <span className={cn('whitespace-nowrap font-mono text-[10px]', l.ieri === null ? 'text-neg' : 'text-muted-foreground')}>
                     {l.ieri === null ? 'chiusura non inviata' : p !== null ? `${p >= 0 ? '+' : ''}${p.toFixed(1).replace('.', ',')}% vs sett. prima` : ''}
                   </span>
                 </span>
