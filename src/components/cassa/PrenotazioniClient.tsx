@@ -33,10 +33,10 @@ const TZ = 'Europe/Rome'
 // hash sulla sigla, così qualunque locale futuro ottiene comunque un
 // colore diverso da quelli già in uso sullo stesso giorno.
 const PALETTE_INSEGNA = [
-  { pillola: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300', punto: 'bg-indigo-500' },
-  { pillola: 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300',         punto: 'bg-rose-500' },
-  { pillola: 'bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-300',         punto: 'bg-teal-500' },
-  { pillola: 'bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300', punto: 'bg-violet-500' },
+  { pillola: 'bg-secondary text-muted-foreground', punto: 'bg-primary' },
+  { pillola: 'bg-neg-tint text-neg',         punto: 'bg-destructive' },
+  { pillola: 'bg-ok-tint text-ok',         punto: 'bg-primary' },
+  { pillola: 'bg-secondary text-muted-foreground', punto: 'bg-primary' },
 ]
 
 function indiceInsegna(codice: string): number {

@@ -130,7 +130,7 @@ export function PresenzePreviewClient({ initialRows, dipendenti, isDirettore }: 
                     Uscito
                   </Badge>
                 ) : (
-                  <Badge className="text-[10px] px-1.5 py-0.5 h-auto rounded-sm bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800">
+                  <Badge className="text-[10px] px-1.5 py-0.5 h-auto rounded-sm bg-ok-tint text-ok border-ok/30">
                     In corso
                   </Badge>
                 )}

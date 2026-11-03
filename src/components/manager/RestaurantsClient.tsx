@@ -415,9 +415,9 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
             {/* Elenco slot esistenti */}
             {slotsLoading ? (
               <div className="w-full rounded-md border overflow-hidden">
-                <div className="h-8 bg-zinc-900 dark:bg-zinc-800" />
+                <div className="h-8 bg-secondary" />
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 px-2 py-2 border-t border-zinc-200 dark:border-zinc-700">
+                  <div key={i} className="flex items-center gap-4 px-2 py-2 border-t border-border">
                     <Skeleton className="h-3.5 w-16" />
                     <Skeleton className="h-3.5 w-20" />
                     <Skeleton className="h-3.5 w-16" />
@@ -432,7 +432,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
               <div className="w-full rounded-md border overflow-auto max-h-[240px]">
                 <table className="border-collapse text-xs w-full">
                   <thead>
-                    <tr className="bg-zinc-900 text-white dark:bg-zinc-800">
+                    <tr className="bg-secondary text-white">
                       <th className="px-2 py-1.5 text-left">Reparto</th>
                       <th className="px-2 py-1.5 text-left">Nome</th>
                       <th className="px-2 py-1.5 text-center">Orario</th>
@@ -443,23 +443,23 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                   </thead>
                   <tbody>
                     {slots.map(s => (
-                      <tr key={s.id} className={`even:bg-zinc-50 dark:even:bg-zinc-900/20 ${editingSlot?.id === s.id ? 'ring-2 ring-inset ring-primary/30' : ''}`}>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700">{s.department}</td>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700">{s.name}</td>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center whitespace-nowrap tabular-nums">
+                      <tr key={s.id} className={`even:bg-background dark:even:bg-secondary ${editingSlot?.id === s.id ? 'ring-2 ring-inset ring-primary/30' : ''}`}>
+                        <td className="px-2 py-1 border border-border">{s.department}</td>
+                        <td className="px-2 py-1 border border-border">{s.name}</td>
+                        <td className="px-2 py-1 border border-border text-center whitespace-nowrap tabular-nums">
                           {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
                           {isOvernight(s.start_time, s.end_time) && (
-                            <span className="ml-0.5 text-[10px] text-amber-600 dark:text-amber-400" title="Termina il giorno successivo">(+1)</span>
+                            <span className="ml-0.5 text-[10px] text-warn" title="Termina il giorno successivo">(+1)</span>
                           )}
                         </td>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center">{s.required_count}</td>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-xs text-muted-foreground">
+                        <td className="px-2 py-1 border border-border text-center">{s.required_count}</td>
+                        <td className="px-2 py-1 border border-border text-xs text-muted-foreground">
                           {s.days_of_week.length === 0
                             ? 'Tutti'
                             : [1,2,3,4,5,6,0].filter(d => s.days_of_week.includes(d)).map(d => WEEK_DAYS_SHORT[d]).join(', ')
                           }
                         </td>
-                        <td className="px-2 py-1 border border-zinc-200 dark:border-zinc-700 text-center">
+                        <td className="px-2 py-1 border border-border text-center">
                           <div className="flex items-center justify-center gap-2">
                             <Button
                               variant="ghost" size="icon"
@@ -560,7 +560,7 @@ export function RestaurantsClient({ initialRestaurants }: Props) {
                 </div>
               </div>
               {slotForm.start_time && slotForm.end_time && isOvernight(slotForm.start_time, slotForm.end_time) && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
+                <p className="text-xs text-warn">
                   ⚠ Turno notturno: termina il giorno successivo (+1)
                 </p>
               )}

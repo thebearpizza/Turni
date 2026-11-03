@@ -26,8 +26,8 @@ const TURN_BADGE: Record<string, string> = {
   standard:    STANDARD_BADGE,
   extraordinary: EXTRAORDINARY_BADGE,
   rest:        RIPOSO_BADGE,
-  cross:       'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800',
-  rejected:    'opacity-30 line-through bg-zinc-100 text-zinc-400 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-500',
+  cross:       'bg-secondary text-muted-foreground border-border',
+  rejected:    'opacity-30 line-through bg-secondary text-muted-foreground border-border',
 }
 
 function getTurnBadge(t: AiScheduleDraftTurn): string {
@@ -39,9 +39,9 @@ function getTurnBadge(t: AiScheduleDraftTurn): string {
 }
 
 // ── thCls / tdCls — stesse classi dell'app ────────────────────────────────
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap text-xs'
-const tdCls = 'px-1 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 align-top'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-white dark:bg-zinc-950 z-10'
+const thCls = 'px-2 py-1.5 text-center font-semibold bg-secondary text-white whitespace-nowrap text-xs'
+const tdCls = 'px-1 py-1 text-center text-xs border border-border align-top'
+const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap sticky left-0 bg-white z-10'
 
 export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Props) {
   const [turns, setTurns] = useState<AiScheduleDraftTurn[]>(draft.turns)
@@ -169,14 +169,14 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
 
       {/* Warning panel */}
       {activeWarnings.length > 0 && (
-        <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-amber-800 dark:text-amber-300">
+        <div className="rounded-md border border-warn/30 bg-warn-tint p-3 space-y-1.5">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-warn">
             <AlertTriangle className="w-4 h-4" />
             {activeWarnings.length} avvisi di copertura
           </div>
           <ul className="space-y-1 pl-5">
             {activeWarnings.map((w, i) => (
-              <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
+              <li key={i} className="text-xs text-warn">
                 <span className="font-medium">{w.day} · {w.department} · {w.slot_name}:</span> {w.message}
               </li>
             ))}
@@ -193,7 +193,7 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
           <span className={`inline-block w-3 h-3 rounded-sm border ${TURN_BADGE.extraordinary}`} /> Straordinario
         </span>
         <span className="flex items-center gap-1.5">
-          <ArrowRightLeft className="w-3 h-3 text-purple-600" /> Jolly (altro reparto)
+          <ArrowRightLeft className="w-3 h-3 text-muted-foreground" /> Jolly (altro reparto)
         </span>
         <span className="flex items-center gap-1.5">
           <span className={`inline-block w-3 h-3 rounded-sm border ${TURN_BADGE.rest}`} /> Riposo
@@ -225,7 +225,7 @@ export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Prop
                 </td>
               </tr>
             ) : gridStaff.map(member => (
-              <tr key={member.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+              <tr key={member.id} className="even:bg-background dark:even:bg-secondary">
                 <td className={tdNameCls}>
                   {member.full_name}
                   {member.department && (

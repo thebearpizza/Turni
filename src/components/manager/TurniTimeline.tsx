@@ -476,7 +476,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
             const createPreview = activePreview?.mode === 'create' && activePreview.member.id === member.id ? activePreview : null
 
             return (
-              <div key={member.id} className="flex border-b border-border last:border-b-0 even:bg-zinc-50 dark:even:bg-zinc-900/20">
+              <div key={member.id} className="flex border-b border-border last:border-b-0 even:bg-background dark:even:bg-secondary">
                 <div
                   className="shrink-0 sticky left-0 bg-inherit z-10 border-r border-border px-2 py-2 text-xs font-medium text-foreground flex items-center truncate"
                   style={{ width: NAME_COL_WIDTH }}
@@ -566,7 +566,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
                   )}
 
                   {nowInRange && (
-                    <div className="absolute inset-y-0 w-px bg-red-500 z-10 pointer-events-none" style={{ left: nowLeftPx }} />
+                    <div className="absolute inset-y-0 w-px bg-destructive z-10 pointer-events-none" style={{ left: nowLeftPx }} />
                   )}
                 </div>
               </div>
@@ -586,7 +586,7 @@ export function TurniTimeline({ staff, turns, onEditTurn }: Props) {
           <span className={`inline-block w-3 h-3 rounded-sm border ${RIPOSO_BADGE}`} /> Riposo
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-0.5 bg-red-500" /> Adesso
+          <span className="inline-block w-3 h-0.5 bg-destructive" /> Adesso
         </span>
         <span className="text-muted-foreground/70 hidden md:inline">
           Trascina i bordi per allungare/accorciare · trascina dal centro per spostare · trascina un&apos;area vuota per crearne uno nuovo

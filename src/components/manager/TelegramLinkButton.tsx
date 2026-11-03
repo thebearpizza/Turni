@@ -62,12 +62,12 @@ export function TelegramLinkButton() {
         <div className="flex-1 min-w-0">
           <h2 className="text-[15px] font-medium flex items-center gap-2">
             Bot Telegram
-            {linked && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+            {linked && <CheckCircle2 className="w-4 h-4 text-ok" />}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             {linked ? `Collegato${username ? ` come @${username}` : ''}` : 'Turni, ODS e presenze in chat'}
           </p>
-          {error && <p className="text-xs text-red-600 mt-0.5">{error}</p>}
+          {error && <p className="text-xs text-neg mt-0.5">{error}</p>}
         </div>
         {linked ? (
           <Button size="sm" variant="outline" onClick={handleUnlink} disabled={busy}>

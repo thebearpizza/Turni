@@ -118,7 +118,7 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
             transition={{ duration: 0.2 }}
             className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-4 py-3 rounded-md text-sm font-medium border shadow-lg max-w-xs w-[calc(100%-2rem)] text-center pointer-events-none ${
               toast.type === 'success'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900'
+                ? 'bg-ok-tint text-ok border-ok/30'
                 : 'bg-primary/10 text-primary border-primary/30'
             }`}
           >

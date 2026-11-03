@@ -575,7 +575,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                           </ul>
                         )}
                         {composeMerging[c.id] && (
-                          <p className="text-[10px] text-amber-600 dark:text-amber-400 animate-pulse">
+                          <p className="text-[10px] text-warn animate-pulse">
                             Elaborazione e unificazione file in corso...
                           </p>
                         )}
@@ -672,7 +672,7 @@ export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
                                   <button
                                     onClick={() => setDeleteMsgTarget({ consultantId: c.id, msg })}
                                     disabled={msgDeleting[msg.id]}
-                                    className="shrink-0 p-1.5 rounded transition-colors disabled:opacity-50 text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                                    className="shrink-0 p-1.5 rounded transition-colors disabled:opacity-50 text-destructive hover:text-destructive"
                                     title="Elimina messaggio"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />

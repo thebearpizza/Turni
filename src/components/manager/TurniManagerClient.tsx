@@ -103,7 +103,7 @@ function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
 // blocco colorato a sé stante — stesso linguaggio visivo in tutta la pagina.
 const thCls = 'px-1.5 py-2 text-center font-medium bg-card text-muted-foreground border-b border-border whitespace-nowrap'
 const tdCls = 'px-1 py-1 text-center text-xs border-b border-border whitespace-nowrap tabular-nums'
-const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap bg-card'
+const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap bg-card'
 const tdNameCls = 'px-2 py-2 text-left text-[12px] sm:px-3 sm:text-[13px] font-medium border-b border-border sticky left-0 bg-card z-10'
 
 const TURN_TYPE_OPTIONS = [
@@ -1241,7 +1241,7 @@ export function TurniManagerClient({
                       </td>
                     </tr>
                   ) : standardShifts.map(s => (
-                    <tr key={s.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                    <tr key={s.id} className="even:bg-background dark:even:bg-secondary">
                       <td className={tdNameStaticCls}>{s.profile?.full_name ?? '—'}</td>
                       <td className={tdCls}>{WEEK_DAY_OPTIONS.find(d => d.value === s.day_of_week)?.label}</td>
                       <td className={tdCls}>{s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}</td>
@@ -1249,7 +1249,7 @@ export function TurniManagerClient({
                         <Button
                           variant="ghost" size="icon"
                           onClick={() => handleDeleteStandardShift(s.id)}
-                          className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300 h-6 w-6"
+                          className="text-destructive hover:text-destructive h-6 w-6"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>

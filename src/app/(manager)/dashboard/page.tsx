@@ -79,16 +79,16 @@ export default async function DashboardPage() {
   // delle Richieste in Attesa (riservate ad Assenze/Approvazioni del manager)
   const stats = isCapoServizio
     ? [
-        { label: 'Dipendenti Totali',   value: totalDipendenti ?? 0, icon: Users,          color: 'text-blue-600',    href: '/dipendenti' },
-        { label: 'Presenti Oggi',       value: presenti        ?? 0, icon: CheckCircle,    color: 'text-emerald-600', href: '/dashboard'  },
-        { label: 'Assenti Oggi',        value: assenzeOggi     ?? 0, icon: CalendarX,      color: 'text-red-600',     href: '/dashboard'  },
-        { label: 'Messaggi in Bacheca', value: bachecaCount    ?? 0, icon: MessageSquare,  color: 'text-violet-600',  href: '/bacheca'    },
+        { label: 'Dipendenti Totali',   value: totalDipendenti ?? 0, icon: Users,          color: 'text-muted-foreground',    href: '/dipendenti' },
+        { label: 'Presenti Oggi',       value: presenti        ?? 0, icon: CheckCircle,    color: 'text-ok', href: '/dashboard'  },
+        { label: 'Assenti Oggi',        value: assenzeOggi     ?? 0, icon: CalendarX,      color: 'text-neg',     href: '/dashboard'  },
+        { label: 'Messaggi in Bacheca', value: bachecaCount    ?? 0, icon: MessageSquare,  color: 'text-muted-foreground',  href: '/bacheca'    },
       ]
     : [
-        { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-blue-600',    href: '/dipendenti' },
-        { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-emerald-600', href: '/presenze'   },
-        { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-red-600',     href: '/assenze'    },
-        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-amber-600',   href: '/approvazioni' },
+        { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-muted-foreground',    href: '/dipendenti' },
+        { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-ok', href: '/presenze'   },
+        { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-neg',     href: '/assenze'    },
+        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-warn',   href: '/approvazioni' },
       ]
 
   const lat = (profile?.restaurant as { latitude?: number | null } | null)?.latitude ?? null
@@ -139,7 +139,7 @@ export default async function DashboardPage() {
             className="bg-card border border-border rounded-md p-4 block
               transition-all duration-200 cursor-pointer
               hover:shadow-md hover:-translate-y-0.5
-              hover:bg-zinc-50 dark:hover:bg-zinc-800/50
+              hover:bg-background
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <p className="text-xs text-muted-foreground font-medium">{label}</p>

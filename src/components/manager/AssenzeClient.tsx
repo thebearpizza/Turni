@@ -21,16 +21,16 @@ import { ABSENCE_LABELS } from '@/types'
 const TZ = 'Europe/Rome'
 
 const typeBadgeClass: Record<AbsenceType, string> = {
-  ferie: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
-  malattia: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  riposo: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  assenza_ingiustificata: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  ferie: 'bg-secondary text-muted-foreground',
+  malattia: 'bg-secondary text-muted-foreground',
+  riposo: 'bg-neg-tint text-neg',
+  assenza_ingiustificata: 'bg-secondary text-muted-foreground',
 }
 
 const statusBadgeClass: Record<AbsenceStatus, string> = {
-  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-  rejected: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400',
+  pending: 'bg-warn-tint text-warn',
+  approved: 'bg-ok-tint text-ok',
+  rejected: 'bg-secondary text-muted-foreground',
 }
 
 const statusLabels: Record<AbsenceStatus, string> = {
@@ -254,8 +254,8 @@ export function AssenzeClient({ initialAbsences, restaurants, dipendenti, curren
                 </div>
                 {canEdit && (
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(a)} className="text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-700/50"><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(a)} className="text-muted-foreground hover:text-foreground"><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 )}
               </CardContent>

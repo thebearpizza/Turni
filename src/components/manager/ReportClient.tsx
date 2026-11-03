@@ -57,24 +57,24 @@ function minutesToLabel(minutes: number): string {
 
 // ── Cell styles — identical to Excel colour mapping ─────────────────────
 const PRESENZE_CELL_BG: Record<string, string> = {
-  P:  'bg-green-100  text-green-900  dark:bg-green-900/30  dark:text-green-300',
-  PP: 'bg-green-200  text-green-900  dark:bg-green-800/40  dark:text-green-200',
-  F:  'bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-300',
-  M:  'bg-blue-100   text-blue-900   dark:bg-blue-900/30   dark:text-blue-300',
-  R:  'bg-red-100    text-red-900    dark:bg-red-900/30    dark:text-red-300',
-  AI: 'bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300',
+  P:  'bg-ok-tint  text-ok  ',
+  PP: 'bg-ok-tint  text-ok  ',
+  F:  'bg-secondary text-muted-foreground',
+  M:  'bg-secondary   text-muted-foreground    ',
+  R:  'bg-neg-tint    text-neg      ',
+  AI: 'bg-secondary text-muted-foreground',
 }
 
 const ORE_CELL_BG: Record<string, string> = {
-  F:  'bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-300',
-  M:  'bg-blue-100   text-blue-900   dark:bg-blue-900/30   dark:text-blue-300',
-  R:  'bg-red-100    text-red-900    dark:bg-red-900/30    dark:text-red-300',
-  AI: 'bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300',
+  F:  'bg-secondary text-muted-foreground',
+  M:  'bg-secondary   text-muted-foreground    ',
+  R:  'bg-neg-tint    text-neg      ',
+  AI: 'bg-secondary text-muted-foreground',
 }
 
-const thCls     = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
-const tdCls     = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-white dark:bg-zinc-950 z-10'
+const thCls     = 'px-2 py-1.5 text-center font-semibold bg-secondary text-white whitespace-nowrap'
+const tdCls     = 'px-1.5 py-1 text-center text-xs border border-border whitespace-nowrap tabular-nums'
+const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap sticky left-0 bg-white z-10'
 // Interactive day cell: keeps the colour bg, signals clickability via an inset ring
 const cellInteractive = 'cursor-pointer transition-shadow hover:ring-2 hover:ring-inset hover:ring-primary/50'
 
@@ -546,7 +546,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
             onClick={() => downloadReport('presenze')}
           >
             <CardContent className="pt-6 pb-5 text-center">
-              <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-emerald-500" />
+              <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-ok" />
               <p className="font-medium text-sm">Report Presenze</p>
               <p className="text-xs text-muted-foreground mt-1">P · F · M · R · AI</p>
               <Button size="sm" className="mt-4 w-full" disabled={loading === 'presenze'}>
@@ -561,7 +561,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
               onClick={() => downloadReport('ore')}
             >
               <CardContent className="pt-6 pb-5 text-center">
-                <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-blue-500" />
+                <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
                 <p className="font-medium text-sm">Report Ore</p>
                 <p className="text-xs text-muted-foreground mt-1">Ore · Totale · Delta</p>
                 <Button size="sm" className="mt-4 w-full" disabled={loading === 'ore'}>
@@ -583,7 +583,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
         {/* Riquadro 1 — Preview Presenze/Turni */}
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
+            <FileSpreadsheet className="w-4 h-4 text-ok shrink-0" />
             <h2 className="text-sm font-semibold">Preview Presenze / Turni</h2>
             <span className="text-xs text-muted-foreground">({monthLabel})</span>
             {previewLoading && (
@@ -622,7 +622,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                     </td>
                   </tr>
                 ) : previewPresenze.map(row => (
-                  <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                  <tr key={row.id} className="even:bg-background dark:even:bg-secondary">
                     <td className={tdNameCls}>{row.full_name}</td>
                     {days.map(d => {
                       const code = row.cells[d] ?? ''
@@ -654,7 +654,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
         {canSeeHours && (
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
+            <FileSpreadsheet className="w-4 h-4 text-muted-foreground shrink-0" />
             <h2 className="text-sm font-semibold">Preview Ore Lavorate</h2>
             <span className="text-xs text-muted-foreground">({monthLabel})</span>
             {previewLoading && (
@@ -697,7 +697,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                     </td>
                   </tr>
                 ) : previewOre.map(row => (
-                  <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                  <tr key={row.id} className="even:bg-background dark:even:bg-secondary">
                     <td className={tdNameCls}>{row.full_name}</td>
                     {days.map(d => {
                       const val = row.cells[d] ?? ''
@@ -716,8 +716,8 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                     <td className={`${tdCls} font-medium`}>{row.totalLabel}</td>
                     <td className={`${tdCls} font-semibold ${
                       (row.diffMins ?? 0) >= 0
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-red-700 dark:text-red-400'
+                        ? 'text-ok'
+                        : 'text-neg'
                     }`}>
                       {row.diffLabel}
                     </td>
@@ -800,7 +800,7 @@ export function ReportClient({ restaurants, currentUserRole, currentRestaurantId
                     variant="outline"
                     size="icon"
                     onClick={() => removeShiftRow(idx)}
-                    className="h-9 w-9 shrink-0 text-destructive dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300"
+                    className="h-9 w-9 shrink-0 text-destructive"
                     title="Rimuovi turno"
                   >
                     <Trash2 className="w-4 h-4" />

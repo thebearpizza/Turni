@@ -87,10 +87,10 @@ export function ModificheApprovalSection({ initialPending }: Props) {
   }
 
   return (
-    <div className="border border-amber-200 dark:border-amber-800 rounded-md overflow-hidden">
-      <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 border-b border-amber-200 dark:border-amber-800">
-        <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-        <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+    <div className="border border-warn/30 rounded-md overflow-hidden">
+      <div className="flex items-center gap-2 bg-warn-tint px-4 py-2.5 border-b border-warn/30">
+        <ShieldAlert className="w-4 h-4 text-warn shrink-0" />
+        <h2 className="text-sm font-semibold text-warn">
           Modifiche in attesa di approvazione ({pending.length})
         </h2>
       </div>
@@ -114,7 +114,7 @@ export function ModificheApprovalSection({ initialPending }: Props) {
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm"
+                    className="h-8 px-3 text-xs bg-primary hover:bg-primary text-primary-foreground rounded-sm"
                     onClick={() => handleAction(item.id, 'approve')}
                     disabled={isWorking}
                   >

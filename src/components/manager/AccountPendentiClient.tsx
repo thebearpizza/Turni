@@ -70,7 +70,7 @@ export function AccountPendentiClient({ initialAccounts }: { initialAccounts: Pe
             key={account.id}
             className={`flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-opacity ${isLoading ? 'opacity-60' : ''}`}
           >
-            <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-sm font-semibold text-amber-700 dark:text-amber-400 shrink-0">
+            <div className="w-10 h-10 rounded-full bg-warn-tint flex items-center justify-center text-sm font-semibold text-warn shrink-0">
               {account.full_name[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">

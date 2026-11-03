@@ -29,19 +29,19 @@ function timeToMinutes(t: string): number {
 }
 
 const roleColors: Record<Role, string> = {
-  manager:           'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  capo_servizio:     'bg-blue-100   text-blue-800  dark:bg-blue-900/30   dark:text-blue-300',
-  dipendente:        'bg-slate-100  text-slate-700 dark:bg-slate-800      dark:text-slate-300',
-  consulente_lavoro: 'bg-amber-100  text-amber-800 dark:bg-amber-900/30  dark:text-amber-300',
-  cassiere:          'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-  hostess:           'bg-pink-100   text-pink-800  dark:bg-pink-900/30   dark:text-pink-300',
+  manager:           'bg-secondary text-muted-foreground',
+  capo_servizio:     'bg-secondary   text-muted-foreground   ',
+  dipendente:        'bg-secondary  text-muted-foreground     ',
+  consulente_lavoro: 'bg-warn-tint  text-warn ',
+  cassiere:          'bg-ok-tint text-ok',
+  hostess:           'bg-neg-tint   text-neg   ',
 }
 
 const deptColors: Record<Department, string> = {
-  Sala:     'bg-amber-100  text-amber-800  dark:bg-amber-900/30  dark:text-amber-300',
-  Pizzeria: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  Bar:      'bg-cyan-100   text-cyan-800   dark:bg-cyan-900/30   dark:text-cyan-300',
-  Cucina:   'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300',
+  Sala:     'bg-warn-tint  text-warn  ',
+  Pizzeria: 'bg-warn-tint text-warn',
+  Bar:      'bg-secondary   text-muted-foreground    ',
+  Cucina:   'bg-neg-tint    text-neg      ',
 }
 
 type DipWithRestaurant = Profile & { restaurant?: { id: string; name: string } | null }
@@ -357,7 +357,7 @@ export function DipendentiClient({
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => handleDelete(d.id)}
-                          className="text-destructive focus:text-destructive dark:text-red-400 dark:focus:text-red-300 dark:focus:bg-red-500/10"
+                          className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="w-4 h-4" /> Elimina
                         </DropdownMenuItem>
@@ -549,7 +549,7 @@ export function DipendentiClient({
                                 <span className="text-sm">{s.name}</span>
                                 <span className="text-xs text-muted-foreground tabular-nums">
                                   {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}
-                                  {overnight && <span className="text-amber-600 dark:text-amber-400 ml-0.5">(+1)</span>}
+                                  {overnight && <span className="text-warn ml-0.5">(+1)</span>}
                                 </span>
                               </label>
                             )
@@ -610,7 +610,7 @@ export function DipendentiClient({
                                       <span className="text-sm">{s.name}</span>
                                       <span className="text-xs text-muted-foreground tabular-nums">
                                         {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}
-                                        {overnight && <span className="text-amber-600 dark:text-amber-400 ml-0.5">(+1)</span>}
+                                        {overnight && <span className="text-warn ml-0.5">(+1)</span>}
                                       </span>
                                     </label>
                                     {existing && (
@@ -665,8 +665,8 @@ export function DipendentiClient({
 
           {pwSuccess ? (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-              <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="w-10 h-10 text-ok" />
+              <p className="text-sm font-medium text-ok">
                 Password aggiornata con successo
               </p>
             </div>

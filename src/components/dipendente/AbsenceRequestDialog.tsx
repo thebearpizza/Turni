@@ -26,9 +26,9 @@ const statusLabels: Record<AbsenceStatus, string> = {
 }
 
 const statusBadgeClass: Record<AbsenceStatus, string> = {
-  pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-  rejected: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400',
+  pending: 'bg-warn-tint text-warn',
+  approved: 'bg-ok-tint text-ok',
+  rejected: 'bg-secondary text-muted-foreground',
 }
 
 /* Dipendenti non possono inserire "Assenza Ingiustificata" — solo il manager la assegna */
@@ -107,7 +107,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
 
         {done ? (
           <div className="py-8 flex flex-col items-center gap-3 text-center">
-            <CheckCircle2 className="w-12 h-12 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2 className="w-12 h-12 text-ok" />
             <p className="text-foreground font-semibold text-lg">Richiesta inviata!</p>
             <p className="text-muted-foreground text-sm">Il manager riceverà la tua richiesta</p>
           </div>

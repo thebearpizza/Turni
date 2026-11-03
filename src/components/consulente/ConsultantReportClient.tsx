@@ -44,25 +44,25 @@ function minutesToLabel(minutes: number): string {
 
 // ── Identical colour mapping to ReportClient ─────────────────────────────────
 const PRESENZE_CELL_BG: Record<string, string> = {
-  P:  'bg-green-100  text-green-900  dark:bg-green-900/30  dark:text-green-300',
-  PP: 'bg-green-200  text-green-900  dark:bg-green-800/40  dark:text-green-200',
-  F:  'bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-300',
-  M:  'bg-blue-100   text-blue-900   dark:bg-blue-900/30   dark:text-blue-300',
-  R:  'bg-red-100    text-red-900    dark:bg-red-900/30    dark:text-red-300',
-  AI: 'bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300',
+  P:  'bg-ok-tint  text-ok  ',
+  PP: 'bg-ok-tint  text-ok  ',
+  F:  'bg-secondary text-muted-foreground',
+  M:  'bg-secondary   text-muted-foreground    ',
+  R:  'bg-neg-tint    text-neg      ',
+  AI: 'bg-secondary text-muted-foreground',
 }
 const ORE_CELL_BG: Record<string, string> = {
-  F:  'bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-300',
-  M:  'bg-blue-100   text-blue-900   dark:bg-blue-900/30   dark:text-blue-300',
-  R:  'bg-red-100    text-red-900    dark:bg-red-900/30    dark:text-red-300',
-  AI: 'bg-purple-100 text-purple-900 dark:bg-purple-900/30 dark:text-purple-300',
+  F:  'bg-secondary text-muted-foreground',
+  M:  'bg-secondary   text-muted-foreground    ',
+  R:  'bg-neg-tint    text-neg      ',
+  AI: 'bg-secondary text-muted-foreground',
 }
 const ORE_ABSENCE_CODES = new Set(['F', 'M', 'R', 'AI'])
 
 // ── CSS classes (no interactive class — cells are strictly read-only) ─────────
-const thCls     = 'px-2 py-1.5 text-center font-semibold bg-zinc-900 text-white dark:bg-zinc-800 whitespace-nowrap'
-const tdCls     = 'px-1.5 py-1 text-center text-xs border border-zinc-200 dark:border-zinc-700 whitespace-nowrap tabular-nums'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-zinc-200 dark:border-zinc-700 whitespace-nowrap sticky left-0 bg-white dark:bg-zinc-950 z-10'
+const thCls     = 'px-2 py-1.5 text-center font-semibold bg-secondary text-white whitespace-nowrap'
+const tdCls     = 'px-1.5 py-1 text-center text-xs border border-border whitespace-nowrap tabular-nums'
+const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap sticky left-0 bg-white z-10'
 
 export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
@@ -241,7 +241,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
         <div className={`grid gap-4 ${canViewHours ? 'grid-cols-2' : 'grid-cols-1 max-w-[200px]'}`}>
           <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('presenze')}>
             <CardContent className="pt-6 pb-5 text-center">
-              <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-emerald-500" />
+              <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-ok" />
               <p className="font-medium text-sm">Report Presenze</p>
               <p className="text-xs text-muted-foreground mt-1">P · F · M · R · AI</p>
               <Button size="sm" className="mt-4 w-full" disabled={loading === 'presenze'}>
@@ -253,7 +253,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
           {canViewHours && (
             <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => downloadReport('ore')}>
               <CardContent className="pt-6 pb-5 text-center">
-                <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-blue-500" />
+                <FileSpreadsheet className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
                 <p className="font-medium text-sm">Report Ore</p>
                 <p className="text-xs text-muted-foreground mt-1">Ore · Totale · Delta</p>
                 <Button size="sm" className="mt-4 w-full" disabled={loading === 'ore'}>
@@ -273,7 +273,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
         {/* Preview Presenze */}
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
+            <FileSpreadsheet className="w-4 h-4 text-ok shrink-0" />
             <h2 className="text-sm font-semibold">Preview Presenze / Turni</h2>
             <span className="text-xs text-muted-foreground">({monthLabel})</span>
             {previewLoading && <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>}
@@ -301,7 +301,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
                 ) : previewPresenze.length === 0 ? (
                   <tr><td colSpan={days.length + 2} className="text-center py-6 text-muted-foreground text-xs">Nessun dipendente trovato</td></tr>
                 ) : previewPresenze.map(row => (
-                  <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                  <tr key={row.id} className="even:bg-background dark:even:bg-secondary">
                     <td className={tdNameCls}>{row.full_name}</td>
                     {/* SECURITY LOCK: no onClick, no cursor-pointer, disabled semantics */}
                     {days.map(d => {
@@ -331,7 +331,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
         {canViewHours && (
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <FileSpreadsheet className="w-4 h-4 text-blue-500 shrink-0" />
+              <FileSpreadsheet className="w-4 h-4 text-muted-foreground shrink-0" />
               <h2 className="text-sm font-semibold">Preview Ore Lavorate</h2>
               <span className="text-xs text-muted-foreground">({monthLabel})</span>
               {previewLoading && <span className="text-xs text-muted-foreground animate-pulse">· Aggiornamento...</span>}
@@ -363,7 +363,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
                   ) : previewOre.length === 0 ? (
                     <tr><td colSpan={days.length + 4} className="text-center py-6 text-muted-foreground text-xs">Nessun dipendente trovato</td></tr>
                   ) : previewOre.map(row => (
-                    <tr key={row.id} className="even:bg-zinc-50 dark:even:bg-zinc-900/20">
+                    <tr key={row.id} className="even:bg-background dark:even:bg-secondary">
                       <td className={tdNameCls}>{row.full_name}</td>
                       {/* SECURITY LOCK: no onClick, no cursor-pointer, disabled semantics */}
                       {days.map(d => {
@@ -380,7 +380,7 @@ export function ConsultantReportClient({ restaurants, canViewHours }: Props) {
                         )
                       })}
                       <td className={`${tdCls} font-medium`}>{row.totalLabel}</td>
-                      <td className={`${tdCls} font-semibold ${(row.diffMins ?? 0) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                      <td className={`${tdCls} font-semibold ${(row.diffMins ?? 0) >= 0 ? 'text-ok' : 'text-neg'}`}>
                         {row.diffLabel}
                       </td>
                       <td className={tdCls} />

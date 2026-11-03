@@ -580,7 +580,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       )}
 
       {reportAvviso && !loading && fase === 1 && (
-        <p className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
+        <p className="flex items-center gap-1.5 text-sm text-warn bg-warn-tint rounded-md px-3 py-2">
           {reportAvviso}
         </p>
       )}
@@ -603,7 +603,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           </CardHeader>
           <CardContent className="space-y-4">
             {isConfermata && (
-              <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2">
+              <p className="text-sm text-warn bg-warn-tint rounded-md px-3 py-2">
                 Questa chiusura è già stata confermata. Il salvataggio delle modifiche avviene in Fase 3
                 {dataCorretta && ' — la correzione della data invece si salva subito, proseguendo con "Avanti"'}.
               </p>

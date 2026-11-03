@@ -58,11 +58,11 @@ export function FallbackApprovalSection({ initialPending }: Props) {
   if (pending.length === 0) return null
 
   return (
-    <div className="mb-6 border border-amber-200 dark:border-amber-800 rounded-md overflow-hidden">
+    <div className="mb-6 border border-warn/30 rounded-md overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 border-b border-amber-200 dark:border-amber-800">
-        <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-        <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+      <div className="flex items-center gap-2 bg-warn-tint px-4 py-2.5 border-b border-warn/30">
+        <ShieldAlert className="w-4 h-4 text-warn shrink-0" />
+        <h2 className="text-sm font-semibold text-warn">
           Timbrature di emergenza in attesa ({pending.length})
         </h2>
       </div>

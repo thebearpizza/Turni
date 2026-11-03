@@ -39,10 +39,10 @@ function monthBoundsUtc(month: string) {
 
 // Absence badge colors matching AssenzeClient
 const ABSENCE_BADGE: Record<string, string> = {
-  ferie:                  'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
-  malattia:               'bg-blue-100   text-blue-800   dark:bg-blue-900/30   dark:text-blue-300',
-  riposo:                 'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-300',
-  assenza_ingiustificata: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  ferie:                  'bg-secondary text-muted-foreground',
+  malattia:               'bg-secondary   text-muted-foreground    ',
+  riposo:                 'bg-neg-tint    text-neg      ',
+  assenza_ingiustificata: 'bg-secondary text-muted-foreground',
 }
 
 type AttendanceRow = Attendance & {
@@ -433,10 +433,10 @@ export function PresenzeClient({
           )}
           <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border ${
             isLive
-              ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/30 dark:border-emerald-800'
+              ? 'text-ok bg-ok-tint border-ok/30'
               : 'text-muted-foreground bg-muted border-border'
           }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
             {isLive ? 'Live' : 'Connessione...'}
           </div>
         </div>
@@ -477,7 +477,7 @@ export function PresenzeClient({
           {groupedPresenze.map(([dayKey, rows]) => (
             <section key={dayKey}>
               <div className="flex items-baseline justify-between border-b border-border pb-1.5 mb-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {formatDayHeader(dayKey)}
                 </h2>
                 <span className="text-xs text-muted-foreground">
@@ -521,12 +521,12 @@ export function PresenzeClient({
                             <div className="flex items-center gap-2 flex-wrap mb-2">
                               <span className="font-medium text-sm">{row.userName}</span>
                               {row.hasOpen && (
-                                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs">
+                                <Badge className="bg-ok-tint text-ok text-xs">
                                   In corso
                                 </Badge>
                               )}
                               {row.hasSplit && (
-                                <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs">
+                                <Badge className="bg-warn-tint text-warn text-xs">
                                   Spezzato
                                 </Badge>
                               )}
@@ -549,8 +549,8 @@ export function PresenzeClient({
                                     title="Modifica turno"
                                     className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border cursor-pointer transition-colors ${
                                       isOpen
-                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
-                                        : 'bg-zinc-100 border-border text-foreground hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                                        ? 'bg-ok-tint border-ok/30 text-ok hover:bg-ok-tint'
+                                        : 'bg-secondary border-border text-foreground hover:bg-secondary'
                                     }`}
                                   >
                                     {checkIn} → {checkOut}
@@ -560,8 +560,8 @@ export function PresenzeClient({
                                     key={b.id}
                                     className={`h-10 px-3 inline-flex items-center justify-center text-xs font-medium tabular-nums rounded-sm border ${
                                       isOpen
-                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-400'
-                                        : 'bg-zinc-100 border-border text-foreground dark:bg-zinc-900'
+                                        ? 'bg-ok-tint border-ok/30 text-ok'
+                                        : 'bg-secondary border-border text-foreground'
                                     }`}
                                   >
                                     {checkIn} → {checkOut}

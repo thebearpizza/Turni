@@ -20,10 +20,10 @@ interface Props {
 }
 
 const typeBadgeClass: Record<AbsenceType, string> = {
-  ferie: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300',
-  malattia: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  riposo: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  assenza_ingiustificata: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  ferie: 'bg-secondary text-muted-foreground',
+  malattia: 'bg-secondary text-muted-foreground',
+  riposo: 'bg-neg-tint text-neg',
+  assenza_ingiustificata: 'bg-secondary text-muted-foreground',
 }
 
 export function ApprovazioniClient({ initialRequests }: Props) {

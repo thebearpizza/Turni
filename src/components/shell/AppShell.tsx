@@ -388,7 +388,8 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
               <Link
                 key={s.key}
                 href={s.href}
-                className={cn('flex h-10 min-w-0 flex-[1_1_auto] items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97]',
+                className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97]',
+                  segmenti.length > 4 ? 'flex-none px-3' : 'min-w-0 flex-[1_1_auto]',
                   att ? 'bg-primary text-primary-foreground' : 'text-foreground')}
               >
                 {s.label}

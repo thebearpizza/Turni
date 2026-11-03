@@ -826,16 +826,16 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1">
             <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', (verificheFattura.some(v => v.campo === 'data') || !dataEffettiva) && 'text-amber-600 dark:text-amber-400 font-medium')}>Data</Label>
+              <Label className={cn('text-xs font-normal', (verificheFattura.some(v => v.campo === 'data') || !dataEffettiva) && 'text-warn font-medium')}>Data</Label>
               <Input type="date" value={dataEffettiva} onChange={e => setDataEditata(e.target.value)} className="h-8 cassa-numeric" />
             </div>
             <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', !numeroDocEffettivo && 'text-amber-600 dark:text-amber-400 font-medium')}>Documento</Label>
+              <Label className={cn('text-xs font-normal', !numeroDocEffettivo && 'text-warn font-medium')}>Documento</Label>
               <Input value={numeroDocEffettivo} onChange={e => setNumeroDocEditato(e.target.value)} className="h-8 cassa-numeric" placeholder="Numero documento" />
             </div>
           </div>
           {!testataCompleta && (
-            <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+            <p className="flex items-center gap-1.5 text-xs text-warn pt-1">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               {!dataEffettiva && !numeroDocEffettivo ? 'Inserisci data e numero documento per poter salvare.' : !dataEffettiva ? 'Inserisci la data per poter salvare.' : 'Inserisci il numero documento per poter salvare.'}
             </p>
@@ -850,7 +850,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
               <p className="cassa-numeric flex h-8 items-center text-sm text-muted-foreground">€ {current.fattura.totale_iva.toFixed(2)}</p>
             </div>
             <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', verificheFattura.some(v => v.campo === 'totale_lordo') && 'text-amber-600 dark:text-amber-400 font-medium')}>Lordo</Label>
+              <Label className={cn('text-xs font-normal', verificheFattura.some(v => v.campo === 'totale_lordo') && 'text-warn font-medium')}>Lordo</Label>
               <CurrencyInput value={totaleLordoEffettivo} onChange={onChangeTotaleLordo} hideStepper className="h-8 cassa-numeric" />
             </div>
           </div>
@@ -862,7 +862,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
             )}
           </div>
           {verificheFattura.map((v, i) => (
-            <p key={i} className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+            <p key={i} className="flex items-center gap-1.5 text-xs text-warn pt-1">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {v.messaggio}
             </p>
           ))}
@@ -948,7 +948,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                         )}
                       </div>
                       {info.sospetto && !modificato && (
-                        <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <p className="flex items-center gap-1.5 text-xs text-warn">
                           <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
                         </p>
                       )}
@@ -971,7 +971,7 @@ export function FatturaCapture({ restaurantId, categorieDirette, fornitori, init
                       </div>
                       {a.esito === 'ambiguo' && !nuovoInfo && a.candidato_nome && (
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-amber-600 dark:text-amber-400">
+                          <span className="text-xs text-warn">
                             È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
                           </span>
                           <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
