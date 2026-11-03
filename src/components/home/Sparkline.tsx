@@ -1,6 +1,6 @@
 // Andamento a 7 giorni (design MTHome): linea con area tenue, i giorni
 // senza chiusura restano un vuoto.
-export function Sparkline({ valori, colore, w = 96, h = 28 }: { valori: (number | null)[]; colore: string; w?: number; h?: number }) {
+export function Sparkline({ valori, colore, w = 96, h = 28, pieno = false }: { valori: (number | null)[]; colore: string; w?: number; h?: number; pieno?: boolean }) {
   const pieni = valori.filter((v): v is number => v !== null)
   if (pieni.length < 2) return <svg width={w} height={h} aria-hidden />
   const min = Math.min(...pieni), max = Math.max(...pieni), r = max - min || 1
@@ -15,7 +15,7 @@ export function Sparkline({ valori, colore, w = 96, h = 28 }: { valori: (number 
   const validi = pts.filter(Boolean) as (readonly [number, number])[]
   const area = `M${validi[0][0]} ${h}` + validi.map(p => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join('') + `L${validi[validi.length - 1][0]} ${h}Z`
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="overflow-visible">
+    <svg width={pieno ? '100%' : w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden className="overflow-visible">
       <path d={area} fill={colore} opacity={0.12} />
       {segmenti.map((d, i) => <path key={i} d={d} fill="none" stroke={colore} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />)}
     </svg>

@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ConfrontoSediTable } from '@/components/cassa/ConfrontoSediTable'
 import { TrendChart } from '@/components/cassa/TrendChart'
@@ -16,13 +15,14 @@ import { PagamentoBreakdownChart } from '@/components/cassa/PagamentoBreakdownCh
 import { RecurringAlertsSection } from '@/components/cassa/RecurringAlertsSection'
 import { AnalisiKpiRow } from '@/components/cassa/AnalisiKpiRow'
 import { BestWorstDayHighlight } from '@/components/cassa/BestWorstDayHighlight'
-import { CassaPill } from '@/components/cassa/CassaPill'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { AnalisiAiDialog } from '@/components/cassa/AnalisiAiDialog'
 import { formatInTimeZone } from 'date-fns-tz'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subYears, subMonths, subDays, differenceInCalendarDays, format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { FileText, FileSpreadsheet, Download, Sparkles } from 'lucide-react'
+import { FileText, FileSpreadsheet, Download, Sparkles, ArrowUpDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import { toast } from '@/hooks/use-toast'
 
 const TZ = 'Europe/Rome'
@@ -340,87 +340,78 @@ export function AnalisiClient({ restaurants }: Props) {
     <div className="space-y-4">
       {/* Filtri: prima cosa selezionabile in pagina, tutto il resto (KPI,
           giorno migliore/peggiore, grafici, export) dipende da questi. */}
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6 space-y-4">
-          <div className="space-y-2">
-            <Label>Ristoranti</Label>
-            <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
-            {selectedRestaurants.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nessuno selezionato: mostro tutti i ristoranti.</p>
-            )}
-          </div>
+      {/* Filtri del design: locali a pillole (più di uno insieme), periodo
+          in un segmentato, poi Confronta / Esporta / Chiedi all'AI. */}
+      <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button type="button" onClick={() => setSelectedRestaurants([])}
+          className={cn('flex h-10 flex-none items-center rounded-full px-4 text-sm font-medium active:scale-[0.97]', selectedRestaurants.length === 0 ? 'bg-primary text-primary-foreground' : 'border border-line-strong bg-card')}>
+          Tutti i locali
+        </button>
+        {restaurants.map((r, i) => {
+          const on = selectedRestaurants.includes(r.id)
+          return (
+            <button key={r.id} type="button"
+              onClick={() => setSelectedRestaurants(on ? selectedRestaurants.filter(x => x !== r.id) : [...selectedRestaurants, r.id])}
+              className={cn('flex h-10 flex-none items-center gap-2 rounded-full px-4 text-sm font-medium active:scale-[0.97]', on ? 'bg-primary text-primary-foreground' : 'border border-line-strong bg-card')}>
+              <span className="h-2 w-2 rounded-full" style={{ background: coloreLocale(i) }} />{r.name}
+            </button>
+          )
+        })}
+      </div>
 
-          <div className="space-y-2">
-            <Label>Periodo</Label>
-            <div className="flex flex-wrap gap-2">
-              {quickPeriods.map(p => (
-                <CassaPill
-                  key={p.key}
-                  active={customStart === p.start && customEnd === p.end}
-                  onClick={() => { setCustomStart(p.start); setCustomEnd(p.end) }}
-                >
-                  {p.label}
-                </CassaPill>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-auto cassa-numeric" />
-              <span className="text-muted-foreground text-sm">→</span>
-              <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-auto cassa-numeric" />
-            </div>
-          </div>
+      <div className="flex flex-wrap items-center gap-1 rounded-[12px] bg-secondary p-1">
+        {quickPeriods.map(p => {
+          const on = customStart === p.start && customEnd === p.end
+          return (
+            <button key={p.key} type="button" onClick={() => { setCustomStart(p.start); setCustomEnd(p.end) }}
+              className={cn('h-9 flex-1 rounded-[9px] px-3 text-[13px] font-medium', on ? 'bg-card shadow-sm' : 'text-muted-foreground')}>
+              {p.label}
+            </button>
+          )
+        })}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className={cn('h-9 flex-1 rounded-[9px] px-3 text-[13px] font-medium', quickMonths.some(m => customStart === m.start && customEnd === m.end) ? 'bg-card shadow-sm' : 'text-muted-foreground')}>
+              {quickMonths.find(m => customStart === m.start && customEnd === m.end)?.label ?? 'Mesi'} ▾
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {quickMonths.map(m => (
+              <DropdownMenuItem key={m.key} onClick={() => { setCustomStart(m.start); setCustomEnd(m.end) }}>{m.label}</DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-10 w-auto font-mono text-sm" />
+        <span className="text-sm text-muted-foreground">→</span>
+        <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-10 w-auto font-mono text-sm" />
+      </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground font-normal">Mese rapido</Label>
-            <div className="flex flex-wrap gap-2">
-              {quickMonths.map(m => (
-                <CassaPill
-                  key={m.key}
-                  active={customStart === m.start && customEnd === m.end}
-                  onClick={() => { setCustomStart(m.start); setCustomEnd(m.end) }}
-                >
-                  {m.label}
-                </CassaPill>
-              ))}
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
-            <input
-              type="checkbox"
-              checked={compareYoY}
-              onChange={e => setCompareYoY(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
-            />
-            Confronta con l&apos;anno precedente
-          </label>
-        </CardContent>
-      </Card>
-
-      {/* Larga quanto una card KPI: stessa griglia di AnalisiKpiRow. Chiedi
-          all'AI occupa la prima colonna (sopra Totale Entrate), Esporta
-          l'ultima — simmetrici agli estremi della riga invece che uno solo
-          allineato a destra con l'altro senza una posizione dichiarata. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Button type="button" variant="outline" size="sm" disabled={restaurants.length === 0} className="col-start-1" onClick={() => setAiOpen(true)}>
-          <Sparkles className="w-4 h-4" /> Chiedi all&apos;AI
+      <div className="grid grid-cols-3 gap-2">
+        <Button type="button" variant="outline" onClick={() => setCompareYoY(v => !v)} className={cn(compareYoY && 'border-primary')}>
+          <ArrowUpDown className="h-4 w-4" /> Confronta
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" disabled={righe.length === 0} className="col-start-2 lg:col-start-4">
-              <Download className="w-4 h-4" /> Esporta
+            <Button type="button" variant="outline" disabled={righe.length === 0}>
+              <Download className="h-4 w-4" /> Esporta
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => handleExport('xlsx')}>
-              <FileSpreadsheet className="w-4 h-4" /> Excel
+              <FileSpreadsheet className="h-4 w-4" /> Excel
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleExport('pdf')}>
-              <FileText className="w-4 h-4" /> PDF
+              <FileText className="h-4 w-4" /> PDF
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <Button type="button" variant="outline" disabled={restaurants.length === 0} onClick={() => setAiOpen(true)}>
+          <Sparkles className="h-4 w-4" /> Chiedi
+        </Button>
       </div>
+      {compareYoY && <p className="-mt-2 text-xs text-muted-foreground">Confronto con lo stesso periodo dell&apos;anno precedente attivo.</p>}
 
       <CassaFileViewer
         open={!!exporting}
@@ -443,15 +434,15 @@ export function AnalisiClient({ restaurants }: Props) {
       {!loading && righe.length > 0 && <RecurringAlertsSection righe={righe} />}
 
       {!loading && righe.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-2">
-            <Label className="cassa-display text-base">Confronto per ristorante nel periodo</Label>
+            <Label className="text-[15px] font-semibold">Confronto per locale nel periodo</Label>
             <ConfrontoSediTable righe={righe} />
           </CardContent>
         </Card>
       )}
 
-      <Card className="cassa-perforated-top">
+      <Card>
         <CardContent className="pt-6">
           {loading ? (
             <div className="space-y-3">
@@ -475,7 +466,7 @@ export function AnalisiClient({ restaurants }: Props) {
       </Card>
 
       {!loading && righe.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Ripartizione entrate per tipo di pagamento</Label>
             <PagamentoBreakdownChart righe={righe} />
@@ -484,7 +475,7 @@ export function AnalisiClient({ restaurants }: Props) {
       )}
 
       {!loading && righe.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Ripartizione spese per categoria</Label>
             {speseError ? (
@@ -497,7 +488,7 @@ export function AnalisiClient({ restaurants }: Props) {
       )}
 
       {!loading && righe.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Spese per categoria nel tempo</Label>
             {speseError ? (
@@ -510,7 +501,7 @@ export function AnalisiClient({ restaurants }: Props) {
       )}
 
       {!loading && righe.length > 0 && vendite.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Vendite per categoria</Label>
             {venditeError ? (
@@ -523,7 +514,7 @@ export function AnalisiClient({ restaurants }: Props) {
       )}
 
       {!loading && righe.length > 0 && vendite.length > 0 && (
-        <Card className="cassa-perforated-top">
+        <Card>
           <CardContent className="pt-6 space-y-3">
             <Label className="cassa-display text-base">Vendite per categoria nel tempo</Label>
             {venditeError ? (
