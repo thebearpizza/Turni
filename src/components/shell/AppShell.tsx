@@ -457,7 +457,7 @@ const Dock = forwardRef<HTMLDivElement, DockProps>(function Dock(
             const att = a.key === attiva || (a.menu && menuAperto)
             const b = badgeArea(a)
             const cls = cn(
-              'relative flex h-[52px] items-center justify-center gap-1.5 rounded-[11px] px-2 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97] md:h-14 md:w-[112px] md:text-[15px]',
+              'relative flex h-[52px] items-center justify-center gap-1.5 whitespace-nowrap rounded-[11px] px-2 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97] md:h-14 md:w-[112px] md:text-[15px]',
               aree.length > 3 ? 'w-[66px]' : 'min-w-[104px] px-4',
               att ? 'bg-primary text-primary-foreground' : 'text-foreground'
             )
