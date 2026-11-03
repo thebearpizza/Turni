@@ -401,11 +401,12 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
 
       {banner}
 
-      <main data-titolo-shell={cfg.intestazioneLocale ? undefined : '1'} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+104px)]">
+      <main data-titolo-shell={cfg.intestazioneLocale ? undefined : '1'} className={cn('relative min-h-0 flex-1 overflow-y-auto overscroll-contain', cfg.aree.length > 1 ? 'pb-[calc(env(safe-area-inset-bottom)+104px)]' : 'pb-[calc(env(safe-area-inset-bottom)+16px)]')}>
         {children}
       </main>
 
-      <Dock
+      {/* Con una sola area (hostess, consulente) la barra non servirebbe a nulla. */}
+      {cfg.aree.length > 1 && <Dock
         ref={refDock}
         stile={cfg.stile}
         aree={cfg.aree}
@@ -421,7 +422,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
         descrizione={descrizione}
         onEsci={esci}
         onChiudi={chiudi}
-      />
+      />}
     </div>
   )
 }
