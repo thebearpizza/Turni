@@ -20,13 +20,6 @@ interface Props {
 export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: Props) {
   const [taskList, setTaskList]     = useState<OdsTask[]>(tasks)
   const [completed, setCompleted]   = useState<Set<string>>(new Set(completedTaskIds))
-  const [offlineMsg, setOfflineMsg] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!offlineMsg) return
-    const t = setTimeout(() => setOfflineMsg(null), 5000)
-    return () => clearTimeout(t)
-  }, [offlineMsg])
 
   // ── Refetch al mount — la pagina è renderizzata lato server e può
   // arrivare da un layer di cache (Service Worker / Router Cache di Next)
@@ -94,7 +87,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
           action:   wasCompleted ? 'uncomplete' : 'complete',
           frozenAt,
         }).catch(() => {})
-        setOfflineMsg('Sei offline. Salvato sul dispositivo, si aggiornerà automaticamente.')
+        toast({ title: 'Sei offline. Salvato sul dispositivo, si aggiornerà automaticamente.' })
       } else {
         // Errore applicativo (es. RLS): annulla l'aggiornamento ottimistico.
         setCompleted(prev => {
@@ -102,13 +95,11 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
           wasCompleted ? next.add(taskId) : next.delete(taskId)
           return next
         })
+        toast({ title: 'Salvataggio non riuscito. Riprova.', variant: 'destructive' })
       }
     }
   }
 
-  useEffect(() => {
-    if (offlineMsg) toast({ title: offlineMsg })
-  }, [offlineMsg])
 
   // Filtri del design: Tutti, Per me, e il reparto.
   const [vista, setVista] = useState<'tutti' | 'me' | 'reparto'>('tutti')
@@ -134,14 +125,14 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
 
   const sotto = (t: OdsTask) => {
     const chi = t.assigned_to === userId ? 'Per te' : (t.department ?? userDepartment ?? 'Tutti')
-    const quando = t.type === 'straordinaria' ? null
-      : t.type === 'quotidiana' ? 'quotidiano'
-      : t.recurrence_days.join(', ')
+    // Le ricorrenti compaiono solo nei loro giorni: come nel design si
+    // indica il giorno di oggi ("Sala · martedì").
+    const quando = t.type === 'quotidiana' ? 'quotidiano' : todayName
     return t.type === 'straordinaria' ? 'Straordinario' : `${chi} · ${quando}`
   }
 
   return (
-    <div className="flex flex-col pb-6">
+    <div className="mx-auto flex w-full max-w-[560px] flex-col pb-6">
       <div className="flex flex-col gap-3 px-5 pb-3.5 pt-2">
         <div className="flex items-baseline justify-between">
           <h1 className="text-[28px] font-semibold tracking-[-0.8px]">Ordini di servizio</h1>
@@ -167,7 +158,10 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
 
       <div className="mx-4 flex flex-col gap-1.5">
         {ordinate.length === 0 ? (
-          <div className="anim-inrise rounded-[8px] border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">Nessun ordine di servizio per oggi</div>
+          <div className="anim-swapin flex flex-col items-center gap-1 rounded-[8px] border border-border bg-card px-[18px] py-12 text-center">
+            <span className="text-[15px] font-semibold">{vista === 'tutti' ? 'Nessun ordine di servizio per oggi' : 'Niente in questa vista'}</span>
+            <span className="text-[13px] text-muted-foreground">Le voci assegnate dal manager compaiono qui.</span>
+          </div>
         ) : ordinate.map((t, i) => {
           const v = completed.has(t.id) || inCorso.has(t.id)
           return (
@@ -176,9 +170,10 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
               type="button"
               onClick={() => tocca(t.id)}
               className={cn('flex min-h-[60px] items-center gap-3 rounded-[8px] border px-3.5 py-2 text-left transition-[background-color,border-color] duration-300 active:scale-[0.99]',
-                mossa === t.id ? 'anim-swapin' : 'anim-inrise',
                 v ? 'border-transparent bg-transparent' : 'border-border bg-card')}
-              style={{ animationDelay: mossa === t.id ? undefined : `${i * 70}ms` }}
+              style={mossa === t.id
+                ? { animation: 'swapin 680ms cubic-bezier(0.22,1,0.36,1) both' }
+                : { animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: `${i * 70}ms` }}
             >
               <span className={cn('flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[12px] border-[1.5px] text-white transition-[background-color,border-color] duration-[250ms]',
                 v ? 'border-turni bg-turni' : 'border-line-strong bg-transparent')}>

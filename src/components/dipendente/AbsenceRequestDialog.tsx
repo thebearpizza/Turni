@@ -1,15 +1,16 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { createClient } from '@/lib/supabase/client'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { LoadingDots } from '@/components/shared/LoadingDots'
-import { CheckCircle2 } from 'lucide-react'
-import { formatDate } from '@/lib/utils'
+import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
+import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
+import { formatInTimeZone } from 'date-fns-tz'
 import type { Absence, AbsenceType, AbsenceStatus } from '@/types'
-import { ABSENCE_LABELS } from '@/types'
+import { Foglio } from './Foglio'
+
+const TZ = 'Europe/Rome'
+const GIORNO = 86_400_000
 
 interface Props {
   userId: string
@@ -17,194 +18,237 @@ interface Props {
   onClose: () => void
 }
 
-const labelCls = 'text-muted-foreground text-xs font-medium uppercase tracking-wide mb-2 block'
+// Colori dei tipi come in MTAssenze (sfondo, bordo, testo). Il dipendente
+// non può segnare un'assenza ingiustificata: la assegna solo il manager.
+const TIPI: { k: AbsenceType; l: string; bg: string; bd: string; fg: string }[] = [
+  { k: 'ferie', l: 'Ferie', bg: 'oklch(0.93 0.04 290)', bd: 'oklch(0.8 0.07 290)', fg: 'oklch(0.4 0.1 290)' },
+  { k: 'malattia', l: 'Malattia', bg: 'oklch(0.93 0.035 250)', bd: 'oklch(0.8 0.06 250)', fg: 'oklch(0.38 0.08 250)' },
+  { k: 'riposo', l: 'Riposo', bg: 'oklch(0.93 0.04 25)', bd: 'oklch(0.82 0.07 25)', fg: 'oklch(0.45 0.1 25)' },
+]
+const TIPO_INGIUSTIFICATA = { l: 'Ingiustificata', bg: 'oklch(0.9 0.02 250)', fg: 'oklch(0.3 0.01 250)' }
 
-const statusLabels: Record<AbsenceStatus, string> = {
-  pending: 'In attesa',
-  approved: 'Approvata',
-  rejected: 'Rifiutata',
+const STATI: Record<AbsenceStatus, { l: string; cls: string }> = {
+  pending: { l: 'In attesa', cls: 'bg-warn-tint text-warn' },
+  approved: { l: 'Approvata', cls: 'bg-ok-tint text-ok' },
+  rejected: { l: 'Rifiutata', cls: 'bg-neg-tint text-neg' },
 }
 
-const statusBadgeClass: Record<AbsenceStatus, string> = {
-  pending: 'bg-warn-tint text-warn',
-  approved: 'bg-ok-tint text-ok',
-  rejected: 'bg-secondary text-muted-foreground',
-}
+const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
+const GSETT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
 
-/* Dipendenti non possono inserire "Assenza Ingiustificata" — solo il manager la assegna */
-const DIPENDENTE_TYPES: AbsenceType[] = ['ferie', 'malattia', 'riposo']
+// Date come giorni UTC a mezzanotte ("2026-10-20" ↔ ms): niente sorprese
+// col cambio dell'ora legale quando si scorre di un giorno.
+const daIso = (s: string) => Date.parse(`${s}T00:00:00Z`)
+const aIso = (t: number) => new Date(t).toISOString().slice(0, 10)
+const fd = (t: number) => { const d = new Date(t); return `${d.getUTCDate()} ${MESI[d.getUTCMonth()]}` }
+const fdw = (t: number) => `${GSETT[new Date(t).getUTCDay()]} ${fd(t)}`
+const nGiorni = (a: number, b: number) => Math.round((b - a) / GIORNO) + 1
+const periodo = (a: number, b: number) => (a === b ? fdw(a) : `Dal ${fd(a)} al ${fd(b)}`) + ` · ${nGiorni(a, b)} ${nGiorni(a, b) === 1 ? 'giorno' : 'giorni'}`
 
+const FRECCIA_SX = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
+const FRECCIA_DX = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+
+// Richiesta di assenza del dipendente: lo stesso foglio "Nuova assenza"
+// del manager (MTAssenze) senza la scelta del dipendente, con la nota per
+// il manager e, sotto, lo stato delle proprie richieste recenti.
 export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
-  const [type, setType] = useState<AbsenceType>('ferie')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [notes, setNotes] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const oggi = daIso(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
+  const [tipo, setTipo] = useState<AbsenceType>('ferie')
+  const [dal, setDal] = useState(oggi)
+  const [al, setAl] = useState(oggi)
+  const [codice, setCodice] = useState('')
+  const [note, setNote] = useState('')
+  const [invio, setInvio] = useState(false)
+  const [mie, setMie] = useState<Absence[] | null>(null)
 
-  const [myAbsences, setMyAbsences] = useState<Absence[]>([])
-
-  const loadMyAbsences = useCallback(async () => {
-    const supabase = createClient()
-    const { data } = await supabase
+  const caricaMie = useCallback(async () => {
+    const { data } = await createClient()
       .from('absences')
       .select('*')
       .eq('user_id', userId)
       .order('start_date', { ascending: false })
       .limit(5)
-    if (data) setMyAbsences(data as Absence[])
+    setMie((data ?? []) as Absence[])
   }, [userId])
 
-  useEffect(() => { loadMyAbsences() }, [loadMyAbsences])
+  useEffect(() => { caricaMie() }, [caricaMie])
 
-  // Realtime — se il manager approva/rifiuta mentre il dipendente ha il
-  // pannello aperto, il badge di stato si aggiorna senza dover riaprire.
+  // Se il manager approva o rifiuta mentre il foglio è aperto, lo stato
+  // della richiesta si aggiorna senza riaprire.
   useEffect(() => {
     const supabase = createClient()
-    const channel = supabase
-      .channel('rt-my-absences')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'absences', filter: `user_id=eq.${userId}` },
-        () => { loadMyAbsences() }
-      )
+    const ch = supabase
+      .channel(`rt-mie-assenze-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'absences', filter: `user_id=eq.${userId}` }, () => { caricaMie() })
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [userId, loadMyAbsences])
+    return () => { supabase.removeChannel(ch) }
+  }, [userId, caricaMie])
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    const supabase = createClient()
-    const { error: insertError } = await supabase.from('absences').insert({
+  // Le frecce spostano un giorno alla volta; "Dal" non supera "Al" e
+  // viceversa, come nel prototipo.
+  const sposta = (campo: 'dal' | 'al', delta: number) => {
+    if (campo === 'dal') {
+      const v = dal + delta * GIORNO
+      setDal(v)
+      if (v > al) setAl(v)
+    } else {
+      const v = al + delta * GIORNO
+      setAl(v)
+      if (v < dal) setDal(v)
+    }
+  }
+
+  async function invia(chiudi: () => void) {
+    if (invio) return
+    setInvio(true)
+    const { error } = await createClient().from('absences').insert({
       user_id: userId,
       restaurant_id: restaurantId,
-      type,
-      start_date: startDate,
-      end_date: endDate,
-      notes: notes || null,
+      type: tipo,
+      start_date: aIso(dal),
+      end_date: aIso(al),
+      certificate_code: tipo === 'malattia' && codice ? codice : null,
+      notes: note.trim() || null,
       created_by: userId,
       status: 'pending',
     })
-    if (insertError) {
-      setError('Errore durante l\'invio. Riprova.')
-      setLoading(false)
+    setInvio(false)
+    if (error) {
+      toast({ title: "Invio non riuscito. Riprova.", variant: 'destructive' })
       return
     }
-    setDone(true)
-    setLoading(false)
-    setTimeout(onClose, 1800)
+    toast({ title: 'Richiesta inviata', description: 'Il manager riceverà la tua richiesta' })
+    chiudi()
   }
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-      <DialogContent className="top-auto bottom-0 left-1/2 translate-x-[-50%] translate-y-0 max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-t-md rounded-b-none sm:rounded-lg data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom">
-        <DialogHeader>
-          <DialogTitle>Richiedi Assenza</DialogTitle>
-        </DialogHeader>
-
-        {done ? (
-          <div className="py-8 flex flex-col items-center gap-3 text-center">
-            <CheckCircle2 className="w-12 h-12 text-ok" />
-            <p className="text-foreground font-semibold text-lg">Richiesta inviata!</p>
-            <p className="text-muted-foreground text-sm">Il manager riceverà la tua richiesta</p>
+    <Foglio titolo="Richiedi assenza" onClose={onClose}>
+      {chiudi => (
+        <div className="flex flex-col gap-4 px-[22px] py-[18px]">
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Tipo</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {TIPI.map(t => {
+                const on = tipo === t.k
+                return (
+                  <button
+                    key={t.k}
+                    type="button"
+                    onClick={() => setTipo(t.k)}
+                    aria-pressed={on}
+                    className="flex h-12 items-center justify-center rounded-[8px] border text-center text-[13px] font-medium transition-[background-color] duration-200 active:scale-[0.97]"
+                    style={on ? { background: t.bg, borderColor: t.bd, color: t.fg } : { background: 'var(--card)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
+                  >
+                    {t.l}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        ) : (
-          <>
-            {myAbsences.length > 0 && (
-              <div className="space-y-1.5">
-                <p className={labelCls}>Le mie richieste recenti</p>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {myAbsences.map(a => (
-                    <div key={a.id} className="flex items-center justify-between gap-2 text-xs bg-muted/40 border border-border rounded-sm px-2.5 py-1.5">
-                      <span className="text-foreground">
-                        {ABSENCE_LABELS[a.type]} · {formatDate(a.start_date)} → {formatDate(a.end_date)}
-                      </span>
-                      <span className={`shrink-0 px-1.5 py-0.5 rounded-full font-medium ${statusBadgeClass[a.status]}`}>
-                        {statusLabels[a.status]}
-                      </span>
-                    </div>
-                  ))}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {([['dal', 'Dal', dal], ['al', 'Al', al]] as const).map(([k, l, v]) => (
+              <div key={k} className="flex flex-col gap-2">
+                <span className="text-sm font-medium">{l}</span>
+                <div className="flex items-center gap-1.5">
+                  <button type="button" aria-label={`${l}: giorno prima`} onClick={() => sposta(k, -1)} className="flex h-12 w-11 flex-none items-center justify-center rounded-[6px] border border-line-strong active:scale-[0.96]">{FRECCIA_SX}</button>
+                  <div className="flex h-12 flex-1 items-center justify-center rounded-[6px] border border-line-strong text-sm font-medium">{fdw(v)}</div>
+                  <button type="button" aria-label={`${l}: giorno dopo`} onClick={() => sposta(k, 1)} className="flex h-12 w-11 flex-none items-center justify-center rounded-[6px] border border-line-strong active:scale-[0.96]">{FRECCIA_DX}</button>
                 </div>
               </div>
+            ))}
+          </div>
+
+          {tipo === 'malattia' && <CampoCodice valore={codice} onChange={setCodice} />}
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Nota per il manager <span className="font-normal text-muted-foreground">(facoltativa)</span></span>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              rows={2}
+              placeholder="Es. matrimonio di mia sorella"
+              className="min-h-[52px] resize-none rounded-[6px] border border-line-strong bg-card px-3.5 py-3 text-[15px] leading-[1.45] outline-none placeholder:text-muted-foreground focus:border-[oklch(0.58_0.12_180)] focus:ring-1 focus:ring-[oklch(0.58_0.12_180)]"
+            />
+          </div>
+
+          <span className="text-sm font-medium">{nGiorni(dal, al)} {nGiorni(dal, al) === 1 ? 'giorno' : 'giorni'}</span>
+
+          <div className="grid grid-cols-[1fr_2fr] gap-2.5">
+            <button type="button" onClick={chiudi} className="flex h-[52px] items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Annulla</button>
+            <button
+              type="button"
+              onClick={() => invia(chiudi)}
+              disabled={invio}
+              className="flex h-[52px] items-center justify-center rounded-[6px] bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity active:scale-[0.98] disabled:opacity-60"
+            >
+              {invio ? 'Invio in corso…' : 'Invia richiesta'}
+            </button>
+          </div>
+
+          {mie && mie.length > 0 && (
+            <div className="mt-2 flex flex-col overflow-hidden rounded-[12px] border border-border">
+              <div className="border-b border-border px-3.5 py-3 text-[15px] font-semibold">Le tue richieste</div>
+              {mie.map((a, i) => {
+                const t = TIPI.find(x => x.k === a.type) ?? TIPO_INGIUSTIFICATA
+                const s = STATI[a.status]
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 border-b border-border px-3.5 py-3 last:border-b-0"
+                    style={{ animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: `${i * 70}ms` }}
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="self-start rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.05em]" style={{ background: t.bg, color: t.fg }}>{t.l}</span>
+                      <span className="text-sm text-[oklch(0.35_0.01_250)] dark:text-[oklch(0.8_0.01_250)]">{periodo(daIso(a.start_date), daIso(a.end_date))}</span>
+                    </span>
+                    <span className={cn('flex-none rounded-full px-[9px] py-[3px] text-[10px] font-semibold uppercase tracking-[.05em]', s.cls)}>{s.l}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </Foglio>
+  )
+}
+
+// Codice del certificato INPS: solo cifre (fino a 12), con il tastierino
+// del design invece della tastiera nativa. Non è un numero: gli zeri
+// iniziali contano, quindi niente CampoNumerico.
+function CampoCodice({ valore, onChange }: { valore: string; onChange: (v: string) => void }) {
+  const [aperto, setAperto] = useState(false)
+  const [digitato, setDigitato] = useState(false)
+  const premi = (k: TastoTastierino) => {
+    const base = digitato ? valore : ''
+    setDigitato(true)
+    if (k === 'del') onChange(base.slice(0, -1))
+    else if (/^\d$/.test(k) && base.length < 12) onChange(base + k)
+    else onChange(base)
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-medium">Codice certificato INPS <span className="font-normal text-muted-foreground">(se ce l&apos;hai)</span></span>
+      <PopoverPrimitive.Root open={aperto} onOpenChange={o => { setAperto(o); if (o) setDigitato(false) }}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'flex h-[52px] items-center rounded-[6px] px-3.5 text-left font-mono text-lg font-medium tracking-[.04em]',
+              aperto ? 'border-[1.5px] border-[oklch(0.58_0.12_180)]' : 'border border-line-strong',
+              valore ? 'text-foreground' : 'text-muted-foreground'
             )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Tipo */}
-              <div>
-                <label className={labelCls}>Tipo di assenza</label>
-                <Select value={type} onValueChange={v => setType(v as AbsenceType)}>
-                  <SelectTrigger className="h-10 rounded-md bg-background border-input text-foreground focus:ring-1 focus:ring-ring">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DIPENDENTE_TYPES.map(t => (
-                      <SelectItem key={t} value={t}>{ABSENCE_LABELS[t]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Dal */}
-              <div>
-                <label className={labelCls}>Dal</label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-
-              {/* Al */}
-              <div>
-                <label className={labelCls}>Al</label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={e => setEndDate(e.target.value)}
-                  required
-                  min={startDate}
-                  className="h-10"
-                />
-              </div>
-
-              {/* Note */}
-              <div>
-                <label className={labelCls}>
-                  Note <span className="normal-case text-muted-foreground/70">(opzionale)</span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  rows={3}
-                  placeholder="Aggiungi una nota..."
-                  className="w-full bg-background border border-input rounded-md px-3 py-2.5 text-foreground text-base placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring resize-none transition-colors"
-                />
-              </div>
-
-              {error && (
-                <p className="text-destructive text-sm bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2.5">
-                  {error}
-                </p>
-              )}
-
-              <DialogFooter>
-                <Button
-                  type="submit"
-                  disabled={loading || !startDate || !endDate}
-                  className="w-full h-14 text-base font-semibold active:scale-[0.98]"
-                >
-                  {loading ? <>Invio in corso<LoadingDots /></> : 'Invia Richiesta'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          >
+            {valore || 'Tocca per inserire'}
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content side="bottom" align="center" sideOffset={8} collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()} className="anim-swapin z-[80] outline-none">
+            <Tastierino senzaVirgola onKey={premi} onDone={() => setAperto(false)} />
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
+    </div>
   )
 }

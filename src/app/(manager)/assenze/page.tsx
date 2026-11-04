@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { AssenzeClient } from '@/components/manager/AssenzeClient'
+import { AssenzeClient, type AssenzaRiga } from '@/components/manager/AssenzeClient'
 import { formatInTimeZone } from 'date-fns-tz'
 
 const TZ = 'Europe/Rome'
+const SELECT_ASSENZE = 'id, user_id, restaurant_id, type, start_date, end_date, certificate_code, notes, status, created_at, profile:profiles!user_id(id, full_name)'
 
 export default async function AssenzePage() {
   const supabase = await createClient()
@@ -16,49 +17,41 @@ export default async function AssenzePage() {
     .single()
 
   // Riservato a manager e direttori
-  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
+  const isManager = profile?.role === 'manager'
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  if (!isManager && !isDirettore) redirect('/dashboard')
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
-    .order('name')
+  // Il direttore lavora su un solo locale (design: `single`, niente pillole).
+  const locale = isDirettore ? profile?.restaurant_id ?? null : null
 
-  // Managers can assign absences to capo_servizio too, not just dipendenti
-  const { data: dipendenti } = await supabase
-    .from('profiles')
-    .select('id, full_name, restaurant_id')
-    .in('role', ['dipendente', 'capo_servizio'])
-    .order('full_name')
+  const mese = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
+  const [y, m] = mese.split('-').map(Number)
+  const ultimo = `${mese}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`
 
-  const nowRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
-  const [year, month] = nowRome.split('-').map(Number)
-  const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0]
-  const endDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
-
-  let query = supabase
-    .from('absences')
-    .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
-    .lte('start_date', endDate)
-    .gte('end_date', startDate)
-    .order('start_date', { ascending: false })
-
-  if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
-    query = query.eq('restaurant_id', profile.restaurant_id)
+  let qRist = supabase.from('restaurants').select('id, name').order('name')
+  // Si possono registrare assenze anche ai capi servizio, non solo ai dipendenti.
+  let qDip = supabase.from('profiles').select('id, full_name, restaurant_id').in('role', ['dipendente', 'capo_servizio']).order('full_name')
+  let qApp = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'approved').lte('start_date', ultimo).gte('end_date', `${mese}-01`)
+  let qPen = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'pending').order('created_at', { ascending: false })
+  if (locale) {
+    qRist = qRist.eq('id', locale)
+    qDip = qDip.eq('restaurant_id', locale)
+    qApp = qApp.eq('restaurant_id', locale)
+    qPen = qPen.eq('restaurant_id', locale)
   }
 
-  const { data: absences, error: absencesError } = await query
-  if (absencesError) console.error('[assenze] query error:', absencesError.message)
+  const [{ data: restaurants }, { data: dipendenti }, { data: approvate, error: e1 }, { data: richieste, error: e2 }] = await Promise.all([qRist, qDip, qApp, qPen])
+  if (e1 || e2) console.error('[assenze] query error:', (e1 ?? e2)?.message)
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <AssenzeClient
-        initialAbsences={absences ?? []}
-        restaurants={restaurants ?? []}
-        dipendenti={dipendenti ?? []}
-        currentUserRole={profile?.role ?? 'capo_servizio'}
-        currentRestaurantId={profile?.restaurant_id ?? null}
-        isDirectore={profile?.is_direttore ?? false}
-      />
-    </div>
+    <AssenzeClient
+      initialApproved={(approvate ?? []) as unknown as AssenzaRiga[]}
+      initialPending={(richieste ?? []) as unknown as AssenzaRiga[]}
+      initialMonth={mese}
+      restaurants={restaurants ?? []}
+      dipendenti={dipendenti ?? []}
+      single={isDirettore}
+      restaurantId={locale}
+    />
   )
 }

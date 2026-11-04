@@ -49,3 +49,19 @@ export function formatOre(minuti: number): string {
   const h = Math.floor(minuti / 60), m = minuti % 60
   return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`
 }
+
+/**
+ * Orari della giornata come nel design: una sola fascia con il trattino
+ * spaziato ("18:00 – 23:30"), un turno spezzato con le fasce compatte
+ * separate da barra ("11:00–15:00 / 19:00–23:30") perché stia su una riga.
+ */
+export function orariGiornata(g: Giornata): string {
+  if (g.riposo || g.fasce.length === 0) return '—'
+  return g.fasce.length === 1 ? g.fasce[0].replace('–', ' – ') : g.fasce.join(' / ')
+}
+
+/** Ora di fine dell'ultima fascia lavorativa ("23:30"), o null. */
+export function fineGiornata(g: Giornata): string | null {
+  const ultima = g.fasce[g.fasce.length - 1]
+  return ultima ? ultima.split('–')[1] : null
+}

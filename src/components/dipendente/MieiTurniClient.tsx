@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { raggruppaPerGiornata, formatOre, type Giornata } from '@/lib/turniGiornata'
+import { raggruppaPerGiornata, formatOre, orariGiornata, type Giornata } from '@/lib/turniGiornata'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import type { Turn } from '@/types'
@@ -64,9 +64,10 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
 
   const todayStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const giornate = raggruppaPerGiornata(turns)
-  const [passati, setPassati] = useState(false)
 
-  // Raggruppate per settimana (lunedì–domenica), oggi in evidenza.
+  // Raggruppate per settimana (lunedì–domenica) dalla settimana in corso
+  // in avanti, oggi in evidenza (Dipendente v2, 6c). Il selettore
+  // Prossimi/Passati della 3a nella v2 non c'è più.
   const lunediDi = (d: string) => {
     const dt = new Date(`${d}T12:00:00Z`)
     const dow = (dt.getUTCDay() + 6) % 7
@@ -76,12 +77,11 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
   const lunediOggi = lunediDi(todayStr)
   const settimane = new Map<string, Giornata[]>()
   for (const g of giornate) {
-    if (passati ? g.date >= todayStr : g.date < lunediOggi) continue
+    if (g.date < lunediOggi) continue
     const k = lunediDi(g.date)
     settimane.set(k, [...(settimane.get(k) ?? []), g])
   }
-  const elenco = Array.from(settimane).sort((a, b) => (passati ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])))
-  if (passati) elenco.forEach(([, gs]) => gs.reverse())
+  const elenco = Array.from(settimane).sort((a, b) => a[0].localeCompare(b[0]))
 
   function etichettaSettimana(lun: string): string {
     if (lun === lunediOggi) return 'Questa settimana'
@@ -94,26 +94,26 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
 
   let indice = 0
   return (
-    <div className="flex flex-col gap-3 px-4 pb-6 pt-2">
-      <div className="flex items-center justify-between px-1">
+    <div className="mx-auto flex w-full max-w-[560px] flex-col pb-6">
+      <div className="flex flex-col gap-3 px-5 pb-3 pt-2">
         <h1 className="text-[28px] font-semibold tracking-[-0.8px]">I miei turni</h1>
-        <button type="button" onClick={() => setPassati(p => !p)} className="h-9 rounded-full border border-line-strong px-3.5 text-[13px] font-medium active:scale-[0.97]">
-          {passati ? 'Prossimi' : 'Passati'}
-        </button>
       </div>
-      {elenco.length === 0 ? (
-        <div className="anim-inrise rounded-md border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">
-          {passati ? 'Nessun turno passato' : 'Nessun turno programmato'}
-        </div>
-      ) : elenco.map(([lun, gs]) => (
-        <section key={lun} className="flex flex-col gap-2">
-          <div className="flex justify-between px-1 pt-1 font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
-            <span>{etichettaSettimana(lun)}</span>
-            <span>{formatOre(gs.reduce((s, g) => s + g.minuti, 0))}</span>
+      <div className="flex flex-col gap-2 px-4">
+        {elenco.length === 0 ? (
+          <div className="anim-swapin flex flex-col items-center gap-1 rounded-[8px] border border-border bg-card px-[18px] py-12 text-center">
+            <span className="text-[15px] font-semibold">Nessun turno programmato</span>
+            <span className="text-[13px] text-muted-foreground">I turni compaiono qui appena il manager li inserisce.</span>
           </div>
-          {gs.map(g => <RigaTurno key={g.date} g={g} oggi={g.date === todayStr} ritardo={indice++ * 70} />)}
-        </section>
-      ))}
+        ) : elenco.map(([lun, gs], si) => (
+          <section key={lun} className={cn('flex flex-col gap-2', si > 0 && 'mt-2')}>
+            <div className="flex justify-between px-1 pt-1 font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
+              <span>{etichettaSettimana(lun)}</span>
+              <span>{formatOre(gs.reduce((s, g) => s + g.minuti, 0))}</span>
+            </div>
+            {gs.map(g => <RigaTurno key={g.date} g={g} oggi={g.date === todayStr} ritardo={indice++ * 70} />)}
+          </section>
+        ))}
+      </div>
     </div>
   )
 }
@@ -121,7 +121,7 @@ export function MieiTurniClient({ initialTurns, userId }: Props) {
 function RigaTurno({ g, oggi, ritardo }: { g: Giornata; oggi: boolean; ritardo: number }) {
   const giorno = formatInTimeZone(`${g.date}T12:00:00Z`, TZ, 'EEE', { locale: it })
   const numero = formatInTimeZone(`${g.date}T12:00:00Z`, TZ, 'd')
-  const orari = g.riposo ? '—' : g.fasce.join(' / ').replace(/–/g, ' – ')
+  const orari = orariGiornata(g)
   const dettaglio = g.riposo
     ? 'Giorno libero'
     : [g.reparto, oggi ? 'oggi' : null, g.spezzato ? 'Spezzato' : null, g.note || null].filter(Boolean).join(' · ')
@@ -129,10 +129,10 @@ function RigaTurno({ g, oggi, ritardo }: { g: Giornata; oggi: boolean; ritardo: 
   return (
     <div
       className={cn(
-        'anim-inrise grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[8px] border px-3.5 py-3',
+        'grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[8px] border px-3.5 py-3',
         oggi ? 'border-turni bg-card' : g.riposo ? 'border-border bg-transparent' : 'border-border bg-card'
       )}
-      style={{ animationDelay: `${ritardo}ms` }}
+      style={{ animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: `${ritardo}ms` }}
     >
       <div className="flex flex-col items-center">
         <span className="font-mono text-[11px] font-medium uppercase text-muted-foreground">{giorno}</span>

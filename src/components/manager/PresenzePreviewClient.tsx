@@ -1,14 +1,12 @@
 'use client'
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { TimeInput } from '@/components/ui/time-input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
-import { Plus, UserCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
+import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/presenze/comuni'
+
+// Presenze di oggi in sola lettura (Riepilogo del capo servizio): stesse
+// righe della scheda Presenze del design (MTPresenze) — avatar, nome,
+// blocchi orari e badge "In corso" con il contatore che scorre.
 
 const TZ = 'Europe/Rome'
 
@@ -22,166 +20,58 @@ export type PresenzaPreviewRow = {
 
 interface Props {
   initialRows: PresenzaPreviewRow[]
-  dipendenti:  { id: string; full_name: string }[]
-  isDirettore: boolean
+  /** Non più usati: la lista è in sola lettura per tutti (vedi Riepilogo). */
+  dipendenti?: { id: string; full_name: string }[]
+  isDirettore?: boolean
 }
 
-export function PresenzePreviewClient({ initialRows, dipendenti, isDirettore }: Props) {
-  const [rows, setRows] = useState<PresenzaPreviewRow[]>(initialRows)
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState<PresenzaPreviewRow | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+const ora = (iso: string) => formatInTimeZone(new Date(iso), TZ, 'HH:mm')
+const hh = (m: number) => Math.floor(m / 60) + 'h ' + String(Math.floor(m % 60)).padStart(2, '0')
 
-  const [fUserId, setFUserId] = useState('')
-  const [fDate, setFDate] = useState(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-  const [fCheckIn, setFCheckIn] = useState('')
-  const [fCheckOut, setFCheckOut] = useState('')
+export function PresenzePreviewClient({ initialRows }: Props) {
+  const [adesso, setAdesso] = useState(() => Date.now())
+  useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
 
-  function resetForm() {
-    setEditing(null)
-    setFUserId('')
-    setFDate(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-    setFCheckIn('')
-    setFCheckOut('')
-    setError(null)
-  }
-
-  function openCreate() {
-    resetForm()
-    setShowForm(true)
-  }
-
-  function openEdit(row: PresenzaPreviewRow) {
-    if (!isDirettore) return
-    setEditing(row)
-    setFUserId(row.user_id)
-    setFDate(formatInTimeZone(row.check_in, TZ, 'yyyy-MM-dd'))
-    setFCheckIn(formatInTimeZone(row.check_in, TZ, 'HH:mm'))
-    setFCheckOut(row.check_out ? formatInTimeZone(row.check_out, TZ, 'HH:mm') : '')
-    setError(null)
-    setShowForm(true)
-  }
-
-  async function handleSave() {
-    if (!fUserId || !fDate || !fCheckIn) return
-    setSaving(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/presenze', {
-        method: editing ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          editing
-            ? { id: editing.id, date: fDate, checkIn: fCheckIn, checkOut: fCheckOut || null }
-            : { userId: fUserId, date: fDate, checkIn: fCheckIn, checkOut: fCheckOut || null }
-        ),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Errore sconosciuto')
-
-      const saved = json.attendance as PresenzaPreviewRow
-      setRows(prev => editing
-        ? prev.map(r => r.id === saved.id ? saved : r)
-        : [...prev, saved]
-      )
-      resetForm()
-      setShowForm(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const perUtente = new Map<string, PresenzaPreviewRow[]>()
+  for (const r of [...initialRows].sort((a, b) => a.check_in.localeCompare(b.check_in))) perUtente.set(r.user_id, [...(perUtente.get(r.user_id) ?? []), r])
+  const righe = [...perUtente.values()]
+  const min = (r: PresenzaPreviewRow) => Math.max(0, ((r.check_out ? new Date(r.check_out).getTime() : adesso) - new Date(r.check_in).getTime()) / 60000)
 
   return (
-    <div className="mt-6 bg-card border border-border rounded-md p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <UserCheck className="w-4 h-4 text-muted-foreground" />
-          Presenze di Oggi
-        </h2>
-        {isDirettore && (
-          <Button size="sm" variant="outline" onClick={openCreate}>
-            <Plus className="w-4 h-4" /> Aggiungi
-          </Button>
-        )}
+    <div className="anim-swapin mt-6 flex flex-col overflow-hidden rounded-[12px] border border-border bg-card">
+      <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3.5">
+        <span className="text-[17px] font-semibold">Presenze di oggi</span>
+        <span className="font-mono text-[13px] font-medium text-muted-foreground">{righe.length || ''}</span>
       </div>
-
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-4 text-center">Nessuna presenza registrata oggi</p>
-      ) : (
-        <div className={`space-y-1.5 ${isDirettore ? '' : 'pointer-events-none select-none'}`}>
-          {rows.map(row => (
-            <div
-              key={row.id}
-              onClick={() => openEdit(row)}
-              className={`flex items-center justify-between px-3 py-2 rounded-sm border border-border bg-background ${
-                isDirettore ? 'cursor-pointer hover:bg-accent transition-colors' : ''
-              }`}
-            >
-              <span className="text-sm font-medium text-foreground">{row.profile?.full_name ?? '—'}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Entrata {formatInTimeZone(row.check_in, TZ, 'HH:mm')}
-                </span>
-                {row.check_out ? (
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 h-auto rounded-sm">
-                    Uscito
-                  </Badge>
-                ) : (
-                  <Badge className="text-[10px] px-1.5 py-0.5 h-auto rounded-sm bg-ok-tint text-ok border-ok/30">
-                    In corso
-                  </Badge>
-                )}
-              </div>
-            </div>
-          ))}
+      {righe.length === 0 ? (
+        <div className="flex flex-col items-center gap-1 px-[18px] py-12 text-center text-pretty">
+          <span className="text-[15px] font-semibold">Nessuna presenza registrata oggi</span>
+          <span className="text-[13px] text-muted-foreground">Le timbrature compaiono qui appena arrivano.</span>
         </div>
-      )}
-
-      {/* ── Add / edit dialog — direttore only ─────────────────────── */}
-      {isDirettore && (
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editing ? 'Modifica Presenza' : 'Aggiungi Presenza'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Dipendente *</Label>
-                <Select value={fUserId} onValueChange={setFUserId} disabled={!!editing}>
-                  <SelectTrigger><SelectValue placeholder="Seleziona dipendente" /></SelectTrigger>
-                  <SelectContent>
-                    {dipendenti.map(d => <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Data *</Label>
-                <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Ora ingresso *</Label>
-                  <TimeInput value={fCheckIn} onChange={setFCheckIn} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Ora uscita</Label>
-                  <TimeInput value={fCheckOut} onChange={setFCheckOut} />
-                </div>
-              </div>
-              {error && <p className="text-xs text-destructive">{error}</p>}
+      ) : righe.map(bl => {
+        const nome = bl[0].profile?.full_name ?? '—'
+        const tot = bl.reduce((s, r) => s + min(r), 0)
+        return (
+          <div key={bl[0].user_id} className="grid min-h-16 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-[oklch(0.94_0.01_250)] px-3.5 py-2.5 last:border-b-0 sm:grid-cols-[40px_minmax(0,1fr)_minmax(0,1.4fr)_90px] sm:gap-3.5 sm:px-[18px] sm:py-2 dark:border-border">
+            <Avatar nome={nome} className="row-[1/3] h-9 w-9 self-start sm:row-auto sm:h-10 sm:w-10" />
+            <span className="truncate text-[15px] font-medium">{nome}</span>
+            <div className="col-[2/4] row-[2] flex flex-wrap items-center gap-1.5 sm:col-auto sm:row-auto">
+              {bl.map(b => {
+                const lv = !b.check_out, x = min(b), s = Math.floor(((adesso - new Date(b.check_in).getTime()) / 1000) % 60)
+                return (
+                  <span key={b.id} className={cn('flex h-9 items-center gap-2 rounded-[8px] border px-3 font-mono text-[13px] font-medium',
+                    lv ? 'border-[oklch(0.85_0.06_150)] bg-[oklch(0.97_0.025_150)] dark:border-ok/40 dark:bg-ok-tint/50' : 'border-[oklch(0.9_0.01_250)] bg-[oklch(0.975_0.01_250)] dark:border-border dark:bg-secondary')}>
+                    {ora(b.check_in)} → {b.check_out ? ora(b.check_out) : ''}
+                    {lv && <span className="rounded-full bg-ok-tint px-[7px] py-0.5 font-sans text-[10px] font-semibold uppercase tracking-[.05em] text-ok">In corso {Math.floor(x / 60)}:{String(Math.floor(x % 60)).padStart(2, '0')}:{String(Math.max(0, s)).padStart(2, '0')}</span>}
+                  </span>
+                )
+              })}
+              {bl.length > 1 && <span className="rounded-full bg-[oklch(0.93_0.01_250)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-secondary">Spezzato</span>}
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-              <Button onClick={handleSave} disabled={saving || !fUserId || !fDate || !fCheckIn}>
-                {saving ? 'Salvataggio...' : editing ? 'Salva modifiche' : 'Aggiungi'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+            <span className="col-[3] row-[1] text-right font-mono text-sm font-semibold sm:col-auto">{hh(tot)}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }

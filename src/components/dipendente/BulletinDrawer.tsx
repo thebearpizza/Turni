@@ -1,19 +1,19 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { X, Megaphone, Globe, Store, Users, ChevronDown } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
+import { it } from 'date-fns/locale'
+import { Foglio } from './Foglio'
 
 const TZ = 'Europe/Rome'
 
-type Bulletin = {
+type Comunicato = {
   id: string
   title: string
   body: string
-  target: 'all' | 'restaurant' | 'role' | 'users' | 'department'
-  target_user_ids: string[]
   created_at: string
-  author?: { full_name: string } | null
+  created_by: string | null
+  author?: { full_name: string; role: string; is_direttore: boolean | null } | null
 }
 
 interface Props {
@@ -21,141 +21,105 @@ interface Props {
   onClose: () => void
 }
 
-function TargetChip({ target }: { target: Bulletin['target'] }) {
-  const base = 'shrink-0 flex items-center gap-1 text-muted-foreground text-xs border border-border rounded-sm px-1.5 py-0.5 whitespace-nowrap'
-  if (target === 'all')        return <span className={base}><Globe  className="w-3 h-3" /> Tutti</span>
-  if (target === 'restaurant') return <span className={base}><Store  className="w-3 h-3" /> Ristorante</span>
-  if (target === 'department') return <span className={base}><Store  className="w-3 h-3" /> Reparto</span>
-  return                              <span className={base}><Users  className="w-3 h-3" /> Per te</span>
+const RUOLI: Record<string, string> = { manager: 'Manager', capo_servizio: 'Capo servizio' }
+
+// Autore come nei messaggi del design: "Manager · Paolo", "Direzione", "Tu".
+function autore(c: Comunicato, userId: string): string {
+  if (c.created_by === userId) return 'Tu'
+  const a = c.author
+  if (!a) return 'Direzione'
+  if (a.role === 'capo_servizio' && a.is_direttore) return 'Direzione'
+  const nome = a.full_name?.split(' ')[0]
+  const ruolo = RUOLI[a.role] ?? 'Direzione'
+  return nome ? `${ruolo} · ${nome}` : ruolo
 }
 
+// Ora relativa del design: "oggi 15:20", "ieri 23:40", "lun 9:00".
+function quando(iso: string): string {
+  const d = new Date(iso)
+  const giorno = formatInTimeZone(d, TZ, 'yyyy-MM-dd')
+  const oggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+  const ieri = formatInTimeZone(new Date(Date.now() - 86_400_000), TZ, 'yyyy-MM-dd')
+  const ora = formatInTimeZone(d, TZ, 'H:mm')
+  if (giorno === oggi) return `oggi ${ora}`
+  if (giorno === ieri) return `ieri ${ora}`
+  if (Date.now() - d.getTime() < 6 * 86_400_000) return `${formatInTimeZone(d, TZ, 'EEE', { locale: it })} ${ora}`
+  return formatInTimeZone(d, TZ, 'd MMM', { locale: it })
+}
+
+// Bacheca del dipendente nel foglio del design, con le righe dei
+// "Messaggi" del capo servizio: pallino blu sui non letti, autore,
+// ora, testo. Aprirla vale come lettura (ricevuta in bulletin_reads).
 export function BulletinDrawer({ userId, onClose }: Props) {
-  const [bulletins, setBulletins]   = useState<Bulletin[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  // track IDs already inserted in this session to avoid redundant upserts
-  const [sentReadIds, setSentReadIds] = useState<Set<string>>(new Set())
-
-  // Lock body scroll while drawer is open; restore on unmount
-  useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
-  }, [])
+  const [comunicati, setComunicati] = useState<Comunicato[] | null>(null)
+  const [letti, setLetti] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    try { localStorage.setItem('bulletins_last_seen', new Date().toISOString()) } catch {}
     const supabase = createClient()
-    supabase
-      .from('bulletins')
-      .select('id, title, body, target, target_user_ids, created_at, author:profiles!created_by(full_name)')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setBulletins((data as unknown as Bulletin[]) ?? [])
-        setLoading(false)
-      })
+    let vivo = true
+    Promise.all([
+      supabase
+        .from('bulletins')
+        .select('id, title, body, created_at, created_by, author:profiles!created_by(full_name, role, is_direttore)')
+        .order('created_at', { ascending: false })
+        .limit(50),
+      supabase.from('bulletin_reads').select('bulletin_id').eq('user_id', userId),
+    ]).then(([{ data }, { data: reads }]) => {
+      if (!vivo) return
+      const lista = (data as unknown as Comunicato[]) ?? []
+      const giaLetti = new Set((reads ?? []).map(r => r.bulletin_id as string))
+      setComunicati(lista)
+      setLetti(giaLetti)
+      const nuovi = lista.filter(c => !giaLetti.has(c.id))
+      if (nuovi.length) {
+        supabase
+          .from('bulletin_reads')
+          .upsert(nuovi.map(c => ({ bulletin_id: c.id, user_id: userId })), { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true })
+          .then(() => {})
+      }
+    })
+    return () => { vivo = false }
   }, [userId])
 
-  function handleToggle(b: Bulletin) {
-    const opening = expandedId !== b.id
-    setExpandedId(opening ? b.id : null)
-
-    // Only fire the read receipt on the first open of each bulletin
-    if (opening && !sentReadIds.has(b.id)) {
-      setSentReadIds(prev => new Set(prev).add(b.id))
-      const supabase = createClient()
-      supabase
-        .from('bulletin_reads')
-        .upsert(
-          [{ bulletin_id: b.id, user_id: userId }],
-          { onConflict: 'bulletin_id,user_id', ignoreDuplicates: true }
-        )
-        .then(() => {})
-    }
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-      <div
-        className="relative w-full max-w-lg bg-card border-t border-border rounded-t-md overflow-hidden flex flex-col max-h-[82vh]"
-        onClick={e => e.stopPropagation()}
-        onTouchMove={e => e.stopPropagation()}
-      >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1 shrink-0">
-          <div className="w-10 h-1 rounded-full bg-border" />
-        </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
-            <Megaphone className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-foreground text-base font-semibold tracking-tight">Bacheca</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-md bg-card border border-border flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Lista */}
-        <div className="overflow-y-auto flex-1 px-5 py-4">
-          {loading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-14 bg-muted rounded-md animate-pulse" />
+    <Foglio titolo="Bacheca" onClose={onClose}>
+      {() => (
+        <div className="flex flex-col">
+          {comunicati === null ? (
+            <div className="flex flex-col">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="flex flex-col gap-2 border-b border-border p-3.5">
+                  <div className="skeleton-shimmer h-3 w-1/3 rounded-[3px]" />
+                  <div className="skeleton-shimmer h-3.5 w-full rounded-[5px]" />
+                  <div className="skeleton-shimmer h-3.5 w-2/3 rounded-[5px]" />
+                </div>
               ))}
             </div>
-          ) : bulletins.length === 0 ? (
-            <div className="py-12 text-center">
-              <Megaphone className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">Nessun comunicato</p>
+          ) : comunicati.length === 0 ? (
+            <div className="anim-swapin flex flex-col items-center gap-1 px-[18px] py-12 text-center">
+              <span className="text-[15px] font-semibold">Nessun comunicato</span>
+              <span className="text-[13px] text-muted-foreground">I messaggi del locale compaiono qui.</span>
             </div>
-          ) : (
-            <div className="divide-y divide-border border border-border rounded-md overflow-hidden pb-safe">
-              {bulletins.map(b => {
-                const isOpen = expandedId === b.id
-                return (
-                  <div key={b.id} className="bg-muted">
-                    {/* Row header — always visible, click to toggle */}
-                    <button
-                      onClick={() => handleToggle(b)}
-                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <ChevronDown
-                        className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-foreground text-sm font-semibold leading-tight truncate">
-                          {b.title}
-                        </p>
-                        <p className="text-muted-foreground text-xs mt-0.5 tabular-nums">
-                          {b.author?.full_name && (
-                            <span className="not-italic">{b.author.full_name} · </span>
-                          )}
-                          {formatInTimeZone(new Date(b.created_at), TZ, 'dd-MM-yyyy HH:mm')}
-                        </p>
-                      </div>
-                      <TargetChip target={b.target} />
-                    </button>
-
-                    {/* Expanded body */}
-                    {isOpen && (
-                      <div className="px-4 pb-4 pt-1 border-t border-border bg-card">
-                        <p className="text-foreground/80 text-sm leading-relaxed whitespace-pre-wrap">
-                          {b.body}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+          ) : comunicati.map((c, i) => (
+            <div
+              key={c.id}
+              className="flex flex-col gap-1.5 border-b border-border p-3.5 last:border-b-0"
+              style={{ animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: `${i * 70}ms` }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 flex-none rounded-full" style={{ background: letti.has(c.id) ? 'transparent' : 'var(--turni)' }} />
+                <span className="flex-1 truncate text-[13px] font-semibold">{autore(c, userId)}</span>
+                <span className="flex-none font-mono text-xs text-muted-foreground">{quando(c.created_at)}</span>
+              </div>
+              <span className="whitespace-pre-wrap text-[15px] leading-[1.45] [text-wrap:pretty]">
+                {c.title && <span className="font-semibold">{c.title}{c.body ? ' · ' : ''}</span>}
+                {c.body}
+              </span>
             </div>
-          )}
+          ))}
         </div>
-      </div>
-    </div>
+      )}
+    </Foglio>
   )
 }

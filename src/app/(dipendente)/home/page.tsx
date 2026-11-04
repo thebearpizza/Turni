@@ -4,7 +4,8 @@ import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { formatInTimeZone } from 'date-fns-tz'
 import type { Turn } from '@/types'
 
-export default async function EmployeeHomePage() {
+export default async function EmployeeHomePage({ searchParams }: { searchParams: Promise<{ bacheca?: string }> }) {
+  const { bacheca } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -46,6 +47,7 @@ export default async function EmployeeHomePage() {
       openAttendance={openAttendance}
       userId={user!.id}
       turni={(turni ?? []) as Turn[]}
+      apriBacheca={bacheca === '1'}
     />
   )
 }

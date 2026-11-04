@@ -27,29 +27,47 @@ export interface BloccoTimbraturaProps {
   /** "grande": Home di dipendente e capo servizio; "compatta": riquadro del direttore. */
   variante?: 'grande' | 'compatta'
   onSimula?: () => void
+  /** Distanza dal locale dell'ultima verifica GPS, in metri (facoltativa). */
+  distanza?: number | null
 }
+
+// Riga sotto il pulsante: "Posizione verificata · 24 m dal locale" come nel
+// design, appena il GPS ha dato una posizione dentro il raggio.
+function rigaGps(geoStatus: string, distanza: number | null | undefined): string {
+  if (geoStatus === 'checking') return 'Verifica della posizione in corso'
+  if (geoStatus === 'inside') return distanza != null ? `Posizione verificata · ${Math.round(distanza)} m dal locale` : 'Posizione verificata'
+  if (geoStatus === 'outside') return distanza != null ? `Fuori dal locale · ${Math.round(distanza)} m` : 'Fuori dal locale'
+  if (geoStatus === 'denied' || geoStatus === 'unsupported') return 'Posizione non disponibile'
+  return 'La posizione si verifica quando timbri'
+}
+
+// Pallino "in servizio": il pulse del design (opacità 1 → .35 in 2 s),
+// diverso da quello di Tailwind (.5 con altra curva).
+const STILE_PULSE = '@keyframes timbra-pulse{0%,100%{opacity:1}50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.timbra-pulse{animation:none!important}}'
 
 // Blocco di timbratura del design (Dipendente v2, Capo servizio, Direttore v2):
 // ora grande (o tempo in servizio), un solo pulsante nero o bordato, stato
 // del GPS sotto; la foto compare solo quando il GPS non basta.
-export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTimbra, gpsFailed, errore, onFoto, variante = 'grande', onSimula }: BloccoTimbraturaProps) {
+export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTimbra, gpsFailed, errore, onFoto, variante = 'grande', onSimula, distanza }: BloccoTimbraturaProps) {
   const inServizio = !!checkIn
   const sec = checkIn ? Math.max(0, Math.floor((now.getTime() - new Date(checkIn).getTime()) / 1000)) : 0
   const verifica = geoStatus === 'checking'
   const etichetta = verifica ? 'Verifica posizione…' : loading ? 'Invio in corso…' : inServizio ? (variante === 'compatta' ? 'Uscita' : 'Timbra uscita') : (variante === 'compatta' ? 'Timbra' : 'Timbra ingresso')
 
+  // Grande (Dipendente v2, Capo servizio): 64 px a tutta larghezza, 18 px.
+  // Compatta (Direttore v2): 60 px, padding 0 26, 17 px, icona 20.
   const pulsante = (
     <button
       type="button"
       onClick={onTimbra}
       disabled={loading || verifica}
       className={cn(
-        'flex items-center justify-center gap-2.5 font-semibold transition-transform active:scale-[0.98] disabled:opacity-60',
-        variante === 'compatta' ? 'h-14 rounded-[8px] px-5 text-base' : 'h-16 rounded-[8px] text-lg',
+        'flex flex-none items-center justify-center font-semibold transition-transform active:scale-[0.98] disabled:opacity-60',
+        variante === 'compatta' ? 'h-[60px] gap-2 whitespace-nowrap rounded-[8px] px-[26px] text-[17px]' : 'h-16 gap-2.5 rounded-[8px] text-lg',
         inServizio ? 'border-[1.5px] border-primary bg-card text-foreground' : 'bg-primary text-primary-foreground'
       )}
     >
-      <svg width="22" height="22" viewBox="0 0 256 256" fill="currentColor" aria-hidden><path d={inServizio ? ICONA_USCITA : ICONA_INGRESSO} /></svg>
+      <svg width={variante === 'compatta' ? 20 : 22} height={variante === 'compatta' ? 20 : 22} viewBox="0 0 256 256" fill="currentColor" aria-hidden><path d={inServizio ? ICONA_USCITA : ICONA_INGRESSO} /></svg>
       {etichetta}
     </button>
   )
@@ -69,12 +87,12 @@ export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTi
   if (variante === 'compatta') {
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span suppressHydrationWarning className="font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground">
+        <div className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-[8px] border border-border bg-card px-4 py-[18px]">
+          <div className="flex min-w-0 flex-col gap-2">
+            <span suppressHydrationWarning className="whitespace-nowrap font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
               {inServizio ? 'In servizio da' : formatInTimeZone(now, TZ, 'EEEE d MMMM', { locale: it })}
             </span>
-            <span suppressHydrationWarning className="font-mono text-[28px] font-medium leading-tight tabular-nums">{inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}</span>
+            <span suppressHydrationWarning className="font-mono text-[40px] font-medium leading-none tracking-[-1.5px] tabular-nums">{inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}</span>
           </div>
           {pulsante}
         </div>
@@ -93,14 +111,18 @@ export function BloccoTimbratura({ now, checkIn, sotto, loading, geoStatus, onTi
           {inServizio ? durata(sec) : formatInTimeZone(now, TZ, 'HH:mm')}
         </span>
         <span className="flex items-center gap-2 text-center text-[15px] text-muted-foreground">
-          <span className={cn('h-2 w-2 flex-none rounded-full', inServizio ? 'animate-pulse bg-[oklch(0.55_0.1_150)]' : 'bg-line-strong')} />
+          <style href="timbra-pulse" precedence="default">{STILE_PULSE}</style>
+          <span
+            className={cn('h-2 w-2 flex-none rounded-full', inServizio ? 'timbra-pulse bg-[oklch(0.55_0.1_150)]' : 'bg-line-strong')}
+            style={inServizio ? { animation: 'timbra-pulse 2s ease-in-out infinite' } : undefined}
+          />
           {sotto}
         </span>
       </div>
       <div className="flex flex-col gap-2.5 px-4 pt-7">
         {pulsante}
         <span className="text-center text-xs text-muted-foreground">
-          {geoStatus === 'inside' ? 'Posizione verificata' : verifica ? 'Verifica della posizione in corso' : 'La posizione si verifica quando timbri'}
+          {rigaGps(geoStatus, distanza)}
         </span>
         {onSimula && process.env.NODE_ENV === 'development' && (
           <button onClick={onSimula} disabled={loading} className="text-xs text-muted-foreground underline">[DEV] Simula Scansione</button>

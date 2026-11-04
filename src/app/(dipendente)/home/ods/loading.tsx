@@ -1,32 +1,34 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
 
+// Scheletro a forma di contenuto: sagoma degli Ordini di servizio
+// (titolo, barra di avanzamento, filtri, righe) ridisegnata da ScheletroForma.
 export default function Loading() {
   return (
-    <main className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 pt-5 pb-3 border-b border-border">
-        <Skeleton className="w-5 h-5 rounded shrink-0" />
-        <div className="space-y-1">
-          <Skeleton className="h-4 w-36" />
-          <Skeleton className="h-3 w-20" />
+    <div data-sk-root="" data-sk-on="1" className="relative mx-auto flex w-full max-w-[560px] flex-col pb-6">
+      <div className="flex flex-col gap-3 px-5 pb-3.5 pt-2">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[28px] font-semibold tracking-[-0.8px]">Ordini di servizio</span>
+          <span className="font-mono text-sm text-muted-foreground">—/—</span>
         </div>
-      </div>
-
-      <div className="px-4 pt-4 space-y-6">
-        {/* Filter pills */}
-        <div className="flex gap-1.5 flex-wrap">
-          {[72, 88, 96, 80, 104].map((w, i) => (
-            <Skeleton key={i} className="h-7 rounded-sm" style={{ width: w }} />
-          ))}
-        </div>
-
-        {/* Task rows */}
-        <div className="space-y-1.5">
-          {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-11 rounded-sm" />
+        <div className="h-1 rounded-full bg-border" />
+        <div className="flex gap-1.5">
+          {['Tutti', 'Per me', 'Reparto'].map(l => (
+            <span key={l} className="flex h-9 items-center rounded-full border border-line-strong px-3.5 text-[13px] font-medium">{l}</span>
           ))}
         </div>
       </div>
-    </main>
+      <div className="mx-4 flex flex-col gap-1.5">
+        {[0, 1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="flex min-h-[60px] items-center gap-3 rounded-[8px] border border-border bg-card px-3.5 py-2">
+            <span className="h-[26px] w-[26px] flex-none rounded-[12px] border-[1.5px] border-line-strong" />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[15px] font-medium">——————————————</span>
+              <span className="text-xs text-muted-foreground">————————</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <ScheletroForma esce={false} />
+    </div>
   )
 }

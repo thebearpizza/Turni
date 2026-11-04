@@ -1,24 +1,32 @@
-import { Skeleton } from '@/components/ui/skeleton'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
 
+// Scheletro a forma di contenuto: sagoma di "I miei turni" (titolo,
+// intestazione della settimana, sei righe) ridisegnata da ScheletroForma.
 export default function Loading() {
   return (
-    <main className="min-h-screen bg-background flex flex-col">
-      <div className="flex items-center gap-3 px-4 pt-5 pb-3 border-b border-border">
-        <Skeleton className="w-5 h-5 rounded shrink-0" />
-        <Skeleton className="h-4 w-32" />
+    <div data-sk-root="" data-sk-on="1" className="relative mx-auto flex w-full max-w-[560px] flex-col pb-6">
+      <div className="px-5 pb-3 pt-2">
+        <span className="text-[28px] font-semibold tracking-[-0.8px]">I miei turni</span>
       </div>
-
-      <div className="px-4 pt-4 space-y-2.5">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="border rounded-md p-3 flex items-center justify-between">
-            <div className="space-y-1.5">
-              <Skeleton className="h-3.5 w-24" />
-              <Skeleton className="h-3 w-32" />
+      <div className="flex flex-col gap-2 px-4">
+        <div className="flex justify-between px-1 pt-1 font-mono text-[11px] font-medium uppercase tracking-[1px] text-muted-foreground">
+          <span>Questa settimana</span><span>——</span>
+        </div>
+        {[0, 1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="grid grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[8px] border border-border bg-card px-3.5 py-3">
+            <div className="flex flex-col items-center">
+              <span className="font-mono text-[11px] text-muted-foreground">———</span>
+              <span className="font-mono text-xl font-semibold">——</span>
             </div>
-            <Skeleton className="h-6 w-16 rounded-full" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-mono text-[15px]">———————————</span>
+              <span className="text-xs text-muted-foreground">——————</span>
+            </div>
+            <span className="text-[10px]">————</span>
           </div>
         ))}
       </div>
-    </main>
+      <ScheletroForma esce={false} />
+    </div>
   )
 }
