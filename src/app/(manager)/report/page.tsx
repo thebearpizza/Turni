@@ -7,24 +7,30 @@ export default async function ReportPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore')
+    .select('role, restaurant_id, is_direttore, managed_restaurant_ids')
     .eq('id', user!.id)
     .single()
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
-    .order('name')
+  const isManager = profile?.role === 'manager'
+  const isDirettore = profile?.role === 'capo_servizio' && !!profile?.is_direttore
+
+  // Il manager vede i locali che gestisce (tutti se proprietario della
+  // piattaforma); direttore e capo servizio solo il proprio locale, senza
+  // pillole (come nel design: MTReport "single").
+  let query = supabase.from('restaurants').select('id, name').order('name')
+  if (!isManager) query = query.eq('id', profile?.restaurant_id ?? '00000000-0000-0000-0000-000000000000')
+  else if (profile?.managed_restaurant_ids) query = query.in('id', profile.managed_restaurant_ids as string[])
+  const { data: restaurants } = await query
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <ReportClient
-        restaurants={restaurants ?? []}
-        currentUserRole={profile?.role ?? 'capo_servizio'}
-        currentRestaurantId={profile?.restaurant_id ?? null}
-        currentUserId={user!.id}
-        isDirectore={profile?.is_direttore ?? false}
-      />
-    </div>
+    <ReportClient
+      restaurants={restaurants ?? []}
+      singolo={!isManager}
+      // Il capo servizio non direttore consulta solo le presenze, senza modificare.
+      puoModificare={isManager || isDirettore}
+      vedeOre={isManager || isDirettore}
+      utenteId={user!.id}
+      localeIniziale={profile?.restaurant_id ?? null}
+    />
   )
 }

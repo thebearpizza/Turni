@@ -3,20 +3,20 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { differenceInMinutes, getDaysInMonth } from 'date-fns'
-import { it } from 'date-fns/locale'
-import { ABSENCE_CODES } from '@/types'
-import type { AbsenceType } from '@/types'
+import { fromZonedTime } from 'date-fns-tz'
+import { calcolaGriglia, giorniDelMese, TZ_REPORT } from './calcolo'
+import type { AssenzaRep, DipendenteRep, PresenzaRep } from './calcolo'
 
-const TZ = 'Europe/Rome'
-const TARGET_HOURS_PER_DAY = 8.5
-
-function minutesToHours(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return `${h}h ${String(m).padStart(2, '0')}m`
+// Stili dell'export del design (xlsx.js): intestazione blu notte con testo
+// bianco, codici colorati, ore in decimale "0.0#", bordi sottili grigi.
+const RIEMPI: Record<string, string> = {
+  head: 'FF1F2A44', P: 'FFD9EFE0', PP: 'FF86DFA5', R: 'FFF6D5D5', F: 'FFE7DCF7', M: 'FFD7E5F6', I: 'FFE4E4E4',
 }
+const BORDO: Partial<ExcelJS.Borders> = (() => {
+  const b = { style: 'thin' as const, color: { argb: 'FFD9D9D9' } }
+  return { top: b, left: b, bottom: b, right: b }
+})()
+const CENTRO: Partial<ExcelJS.Alignment> = { horizontal: 'center', vertical: 'middle' }
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, managed_restaurant_ids, consultant_restaurant_ids, can_view_hours')
+    .select('role, restaurant_id, is_direttore, managed_restaurant_ids, consultant_restaurant_ids, can_view_hours')
     .eq('id', user.id)
     .single()
 
@@ -49,6 +49,11 @@ export async function POST(request: Request) {
   if (profile.role === 'consulente_lavoro' && type === 'ore' && !profile.can_view_hours) {
     return NextResponse.json({ error: 'Non autorizzato a visualizzare le ore lavorate' }, { status: 403 })
   }
+  // Stessa regola della schermata: il capo servizio che non è direttore
+  // vede solo le presenze, mai le ore.
+  if (profile.role === 'capo_servizio' && type === 'ore' && !profile.is_direttore) {
+    return NextResponse.json({ error: 'Non autorizzato a visualizzare le ore lavorate' }, { status: 403 })
+  }
 
   // Ogni ruolo vede solo i ristoranti che gli competono davvero — mai
   // l'elenco grezzo arrivato dal client:
@@ -69,202 +74,96 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Nessun ristorante autorizzato per questa richiesta' }, { status: 403 })
   }
 
-  const [year, monthNum] = month.split('-').map(Number)
-  const daysInMonth = getDaysInMonth(new Date(year, monthNum - 1))
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
+  }
+  const nd = giorniDelMese(month)
   const startDate = `${month}-01`
-  const endDate = `${month}-${String(daysInMonth).padStart(2, '0')}`
-  // Use Rome-midnight boundaries so after-midnight check-ins are included correctly
-  const rangeStart = fromZonedTime(`${startDate}T00:00:00`, TZ).toISOString()
-  const rangeEnd = fromZonedTime(`${endDate}T23:59:59`, TZ).toISOString()
+  const endDate = `${month}-${String(nd).padStart(2, '0')}`
+  // Confini a mezzanotte di Roma, così gli ingressi dopo mezzanotte cadono nel giorno giusto
+  const rangeStart = fromZonedTime(`${startDate}T00:00:00`, TZ_REPORT).toISOString()
+  const rangeEnd = fromZonedTime(`${endDate}T23:59:59`, TZ_REPORT).toISOString()
+  const P = type === 'presenze'
 
   const admin = createAdminClient()
 
-  // Close forgotten check-outs (shifts open >16h) so reported hours don't show
-  // an open/zero session for an employee who simply forgot to timbrare l'uscita.
+  // Chiude le uscite dimenticate (turni aperti da oltre 16h), così le ore
+  // non riportano una sessione aperta a zero per chi ha scordato l'uscita.
   await autoCloseStaleShifts(admin)
 
+  const { data: ristoranti } = await admin.from('restaurants').select('id, name').in('id', allowedIds).order('name')
+  // L'ordine dei fogli segue quello chiesto dal client (l'ordine delle pillole).
+  const ordinati = allowedIds.map(id => (ristoranti ?? []).find(r => r.id === id)).filter(Boolean) as { id: string; name: string }[]
+
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'Turni App'
+  workbook.creator = 'inTurno'
   workbook.created = new Date()
+  const usati = new Set<string>()
 
-  const monthName = formatInTimeZone(new Date(year, monthNum - 1, 1), TZ, 'MMMM yyyy', { locale: it })
-
-  for (const restaurantId of allowedIds) {
-    const { data: restaurant } = await admin
-      .from('restaurants')
-      .select('id, name')
-      .eq('id', restaurantId)
-      .single()
-
-    if (!restaurant) continue
-
-    // Dipendenti del ristorante
-    const { data: employees } = await admin
-      .from('profiles')
-      .select('id, full_name')
-      .eq('restaurant_id', restaurantId)
-      .in('role', ['dipendente', 'capo_servizio'])
-      .order('full_name')
-
+  for (const restaurant of ordinati) {
+    const [{ data: employees }, { data: attendances }, { data: absences }] = await Promise.all([
+      admin.from('profiles').select('id, full_name, restaurant_id')
+        .eq('restaurant_id', restaurant.id).in('role', ['dipendente', 'capo_servizio']).order('full_name'),
+      admin.from('attendances').select('id, user_id, restaurant_id, check_in, check_out')
+        .eq('restaurant_id', restaurant.id).gte('check_in', rangeStart).lte('check_in', rangeEnd),
+      admin.from('absences').select('id, user_id, restaurant_id, type, start_date, end_date')
+        .eq('restaurant_id', restaurant.id).eq('status', 'approved').lte('start_date', endDate).gte('end_date', startDate),
+    ])
     if (!employees?.length) continue
 
-    // Presenze del mese per il ristorante
-    const { data: attendances } = await admin
-      .from('attendances')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .gte('check_in', rangeStart)
-      .lte('check_in', rangeEnd)
+    const dip = employees as DipendenteRep[]
+    const griglia = calcolaGriglia(month, dip, (attendances ?? []) as PresenzaRep[], (absences ?? []) as AssenzaRep[])
 
-    // Assenze del mese per il ristorante
-    const { data: absences } = await admin
-      .from('absences')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .eq('status', 'approved')
-      .lte('start_date', endDate)
-      .gte('end_date', startDate)
+    // Nome del foglio = nome del locale (max 31 caratteri, senza i simboli vietati da Excel, univoco)
+    let nome = restaurant.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Locale'
+    for (let i = 2; usati.has(nome); i++) nome = `${nome.slice(0, 28)} ${i}`
+    usati.add(nome)
+    const sheet = workbook.addWorksheet(nome, { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] })
+    sheet.properties.defaultRowHeight = 20
+    sheet.columns = [{ width: 24 }, ...Array.from({ length: nd }, () => ({ width: P ? 5 : 6 })), ...(P ? [] : [{ width: 9 }])]
 
-    const sheet = workbook.addWorksheet(restaurant.name.substring(0, 31))
+    const head = sheet.addRow(['Dipendente', ...Array.from({ length: nd }, (_, i) => i + 1), ...(P ? [] : ['Totale'])])
+    head.height = 20
+    head.eachCell(c => {
+      c.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RIEMPI.head } }
+      c.alignment = CENTRO
+      c.border = BORDO
+    })
 
-    // Header row: dipendente + giorni + extra colonne
-    const extraCols = type === 'ore' ? ['Totale Ore', 'Differenza', 'Note'] : ['Note']
-    const headers = ['Dipendente', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1)), ...extraCols]
-    const headerRow = sheet.addRow(headers)
-    headerRow.font = { bold: true, size: 11 }
-    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } }
-    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    headerRow.alignment = { horizontal: 'center' }
-
-    // Freeze prima colonna e prima riga
-    sheet.views = [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
-
-    // Larghezza colonne
-    sheet.getColumn(1).width = 22
-    for (let d = 2; d <= daysInMonth + 1; d++) {
-      sheet.getColumn(d).width = 5
-    }
-    if (type === 'ore') {
-      sheet.getColumn(daysInMonth + 2).width = 12
-      sheet.getColumn(daysInMonth + 3).width = 12
-      sheet.getColumn(daysInMonth + 4).width = 20
-    } else {
-      sheet.getColumn(daysInMonth + 2).width = 25
-    }
-
-    const CELL_COLORS: Record<string, string> = {
-      P: 'FFd4edda',   // verde pastello
-      PP: 'FF86efac',  // verde intenso (doppio turno >12h)
-      F: 'FFe8d5f5',   // lilla
-      M: 'FFd0e8f5',   // azzurro
-      R: 'FFf5d0d0',   // rosso pastello
-      AI: 'FFd8c5f0',  // viola
-    }
-
-    for (const emp of employees) {
-      const row: (string | number)[] = [emp.full_name]
-      let totalMinutes = 0
-      let workDays = 0
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = `${month}-${String(day).padStart(2, '0')}`
-
-        // Tutte le sessioni di questo dipendente in questo giorno (Rome time).
-        // Le timbrature vincono sempre su un'eventuale assenza approvata: un
-        // riposo registrato non deve far sparire ore davvero lavorate (es.
-        // un cambio turno dell'ultimo minuto), l'assenza è solo il ripiego
-        // quando non risulta nessuna timbratura.
-        const daySessions = attendances?.filter(a => {
-          if (a.user_id !== emp.id) return false
-          const dayRome = formatInTimeZone(new Date(a.check_in), TZ, 'yyyy-MM-dd')
-          return dayRome === dateStr
-        }) ?? []
-
-        if (daySessions.length === 0) {
-          const absence = absences?.find(a =>
-            a.user_id === emp.id &&
-            a.start_date <= dateStr &&
-            a.end_date >= dateStr
-          )
-          if (absence) {
-            const code = ABSENCE_CODES[absence.type as AbsenceType]
-            row.push(type === 'presenze' ? code : '')
-            continue
-          }
-        }
-
-        if (daySessions.length > 0) {
-          const hasOpen = daySessions.some(a => !a.check_out)
-          const dayMinutes = daySessions.reduce((sum, a) => {
-            if (!a.check_out) return sum
-            return sum + differenceInMinutes(new Date(a.check_out), new Date(a.check_in))
-          }, 0)
-
-          if (type === 'presenze') {
-            row.push(dayMinutes > 720 ? 'PP' : 'P')
-          } else {
-            if (hasOpen && dayMinutes === 0) {
-              row.push('In corso')
-            } else {
-              totalMinutes += dayMinutes
-              workDays++
-              row.push(minutesToHours(dayMinutes))
-            }
-          }
-        } else {
-          row.push('')
+    for (const e of dip) {
+      const giorni = griglia.get(e.id) ?? []
+      let tot = 0
+      const valori: (string | number | null)[] = giorni.map(g => {
+        if (!g) return null
+        if (g.tipo === 'assenza') return g.codice
+        const h = Math.round(g.minuti / 60 * 100) / 100
+        tot += h
+        return P ? (g.fasce.length > 1 ? 'PP' : 'P') : h
+      })
+      const riga = sheet.addRow([e.full_name, ...valori, ...(P ? [] : [Math.round(tot * 100) / 100])])
+      riga.height = 20
+      riga.getCell(1).alignment = { vertical: 'middle' }
+      riga.getCell(1).border = BORDO
+      for (let d = 0; d < nd; d++) {
+        const c = riga.getCell(d + 2), v = valori[d]
+        c.alignment = CENTRO
+        c.border = BORDO
+        if (typeof v === 'string') {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RIEMPI[v] } }
+          c.font = { bold: true, color: { argb: 'FF1A1A1A' } }
+        } else if (typeof v === 'number') {
+          // Nel design le ore stanno sul verde della presenza
+          c.numFmt = '0.0#'
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RIEMPI.P } }
         }
       }
-
-      if (type === 'ore') {
-        const targetMinutes = workDays * TARGET_HOURS_PER_DAY * 60
-        const diffMinutes = totalMinutes - targetMinutes
-        const diffSign = diffMinutes >= 0 ? '+' : '-'
-        row.push(minutesToHours(totalMinutes))
-        row.push(`${diffSign}${minutesToHours(Math.abs(diffMinutes))}`)
-        row.push('')
-      } else {
-        row.push('')
-      }
-
-      const dataRow = sheet.addRow(row)
-      dataRow.alignment = { horizontal: 'center' }
-      dataRow.getCell(1).alignment = { horizontal: 'left' }
-
-      // Colora celle
-      for (let colIdx = 2; colIdx <= daysInMonth + 1; colIdx++) {
-        const cell = dataRow.getCell(colIdx)
-        const val = String(cell.value ?? '')
-        const color = CELL_COLORS[val]
-        if (color) {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } }
-          cell.font = { color: { argb: 'FF1a1a1a' }, bold: true }
-        }
-      }
-
-      // Colora totale e differenza per ore
-      if (type === 'ore') {
-        const diffCell = dataRow.getCell(daysInMonth + 3)
-        const diffVal = String(diffCell.value ?? '')
-        if (diffVal.startsWith('+')) {
-          diffCell.font = { color: { argb: 'FF166534' }, bold: true }
-        } else if (diffVal.startsWith('-')) {
-          diffCell.font = { color: { argb: 'FF991B1B' }, bold: true }
-        }
-      }
-    }
-
-    // Bordi
-    const totalRows = sheet.rowCount
-    const totalCols = headers.length
-    for (let r = 1; r <= totalRows; r++) {
-      for (let c = 1; c <= totalCols; c++) {
-        sheet.getCell(r, c).border = {
-          top: { style: 'thin', color: { argb: 'FFe2e8f0' } },
-          left: { style: 'thin', color: { argb: 'FFe2e8f0' } },
-          bottom: { style: 'thin', color: { argb: 'FFe2e8f0' } },
-          right: { style: 'thin', color: { argb: 'FFe2e8f0' } },
-        }
+      if (!P) {
+        const c = riga.getCell(nd + 2)
+        c.numFmt = '0.0#'
+        c.font = { bold: true, color: { argb: 'FF1A1A1A' } }
+        c.alignment = CENTRO
+        c.border = BORDO
       }
     }
   }

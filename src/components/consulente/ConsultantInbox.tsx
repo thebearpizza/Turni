@@ -1,12 +1,9 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronUp, Paperclip, Send, CornerDownLeft, X } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import type { ConsultantMessage } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
@@ -16,8 +13,31 @@ const MAX_BYTES = 10 * 1024 * 1024
 
 function fmtDate(iso: string | null) {
   if (!iso) return null
-  return formatInTimeZone(new Date(iso), TZ, 'dd-MM-yyyy HH:mm', { locale: it })
+  return formatInTimeZone(new Date(iso), TZ, 'd MMM · HH:mm', { locale: it })
 }
+
+function useTelefono() {
+  return useSyncExternalStore(
+    cb => { const mq = window.matchMedia('(max-width: 639px)'); mq.addEventListener('change', cb); return () => mq.removeEventListener('change', cb) },
+    () => window.matchMedia('(max-width: 639px)').matches,
+    () => false
+  )
+}
+
+const SWAPIN = 'swapin 680ms cubic-bezier(0.22,1,0.36,1) both'
+const SWAPOUT = 'swapout 320ms cubic-bezier(0.4,0,1,1) both'
+const Clip = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9" /></svg>
+)
+const IconaX = ({ s = 20 }: { s?: number }) => (
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12" /><path d="M18 6L6 18" /></svg>
+)
+const Piu = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+)
+const Rispondi = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 14l-5-5 5-5" /><path d="M4 9h10a6 6 0 0 1 6 6v5" /></svg>
+)
 
 interface Props {
   userId: string
@@ -27,7 +47,22 @@ interface Props {
   initialManagerId?: string | null
 }
 
+// Messaggi del consulente con il manager, nello stesso linguaggio della
+// scheda Report (MTReport): lista in un riquadro con scroll interno, voci
+// a 68px con badge a pillola, nuovo messaggio in un foglio che entra con
+// swapin come il foglio "Salva giorno".
 export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
+  const tel = useTelefono()
+  const [composeEsce, setComposeEsce] = useState(false)
+  const tC = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  function apriCompose() { if (tC.current) clearTimeout(tC.current); setComposeEsce(false); setShowCompose(true) }
+  function chiudiCompose(forza = false) {
+    if (sending && !forza) return
+    setComposeEsce(true)
+    if (tC.current) clearTimeout(tC.current)
+    tC.current = setTimeout(() => { setShowCompose(false); setComposeEsce(false); setReplyToMsg(null); setSendError(null) }, 320)
+  }
   const [messages, setMessages]       = useState<ConsultantMessage[]>([])
   const [loading, setLoading]         = useState(true)
   const [loadError, setLoadError]     = useState(false)
@@ -102,7 +137,7 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
     // Il banner "In risposta a" mostra il messaggio su cui si è premuto
     // Rispondi (per contesto), ma reply_to_id salvato è quello della radice.
     setReplyToMsg(msg)
-    setShowCompose(true)
+    apriCompose()
     setMsgTitle(prev => prev.trim() ? prev : `Re: ${msg.title}`)
   }
 
@@ -125,7 +160,7 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: attachment.path, name: attachment.name }),
     })
-    if (!res.ok) { toast({ title: 'Impossibile scaricare il file', variant: 'destructive' }); return }
+    if (!res.ok) { toast({ title: 'Download dell’allegato non riuscito', variant: 'destructive' }); return }
 
     const { signedUrl, downloaded_at } = await res.json()
 
@@ -142,11 +177,12 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(e.target.files ?? [])
+    // Gli allegati si aggiungono a quelli già scelti (si tolgono uno per uno).
+    const selected = [...files, ...Array.from(e.target.files ?? [])]
+    e.target.value = ''
     const total = selected.reduce((sum, f) => sum + f.size, 0)
     if (total > MAX_BYTES) {
       setSendError('Il limite massimo per gli allegati è di 10 MB totali')
-      e.target.value = ''
       return
     }
     setSendError(null)
@@ -200,229 +236,215 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
         const err = await res.json()
         throw new Error(err.error ?? 'Errore invio')
       }
-      setMsgTitle(''); setMsgBody(''); setFiles([]); setShowCompose(false); setReplyToMsg(null)
+      setMsgTitle(''); setMsgBody(''); setFiles([])
+      toast({ title: 'Messaggio inviato al manager' })
+      setSending(false)
+      chiudiCompose(true)
       await loadMessages()
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : 'Errore invio')
+      const m = e instanceof Error ? e.message : 'Errore invio'
+      setSendError(m)
+      toast({ title: `Invio non riuscito · ${m}`, variant: 'destructive' })
     } finally {
       setSending(false)
     }
   }
 
-  if (loadError) {
-    return (
-      <div className="max-w-2xl space-y-3">
-        <p className="text-sm text-destructive">Impossibile caricare i messaggi.</p>
-        <Button size="sm" variant="outline" onClick={() => { setLoading(true); loadMessages() }}>Riprova</Button>
-      </div>
-    )
-  }
+  useEffect(() => () => { if (tC.current) clearTimeout(tC.current) }, [])
 
-  if (loading) {
-    return (
-      <div className="max-w-2xl space-y-4">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-8 w-36 rounded-md" />
-        </div>
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border border-border rounded-md px-4 py-3 space-y-1.5">
-              <Skeleton className={`h-4 ${i % 2 === 0 ? 'w-48' : 'w-32'}`} />
-              <Skeleton className="h-3 w-28" />
-            </div>
-          ))}
-        </div>
-      </div>
+  const campo = 'box-border w-full rounded-[6px] border border-line-strong bg-card px-3.5 text-[15px] outline-none transition-colors focus:border-[oklch(0.58_0.12_180)]'
+  const thread = (() => {
+    const topLevel = messages
+      .filter(m => !m.reply_to_id)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const replyMap: Record<string, ConsultantMessage[]> = {}
+    messages.filter(m => !!m.reply_to_id).forEach(m => {
+      const pid = m.reply_to_id!
+      if (!replyMap[pid]) replyMap[pid] = []
+      replyMap[pid].push(m)
+    })
+    Object.values(replyMap).forEach(arr =>
+      arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     )
-  }
+    return topLevel.flatMap(msg => [
+      { msg, isReply: false },
+      ...(replyMap[msg.id] ?? []).map(r => ({ msg: r, isReply: true })),
+    ])
+  })()
 
   return (
-    <div className="max-w-2xl space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Messaggi con il Manager</h2>
-        <Button size="sm" variant="outline" onClick={() => setShowCompose(v => !v)}>
-          <Send className="w-3.5 h-3.5 mr-1.5" />
-          Nuovo messaggio
-        </Button>
+    <div className="box-border flex h-full flex-col gap-3 px-4 sm:px-8">
+      <div className="flex flex-none items-center gap-2.5">
+        <span className="flex-1 text-[15px] font-semibold">Messaggi con il manager</span>
+        <button type="button" onClick={() => { setReplyToMsg(null); apriCompose() }}
+          className="flex h-10 flex-none items-center gap-2 rounded-[8px] border border-line-strong px-[14px] text-sm font-medium transition-transform active:scale-[0.97]">
+          <Piu /> Nuovo messaggio
+        </button>
       </div>
 
-      {showCompose && (
-        <div className="border border-border rounded-md p-4 space-y-3 bg-card">
-          {/* Reply context banner */}
-          {replyToMsg && (
-            <div className="flex items-start gap-2 rounded-sm bg-primary/5 border border-primary/20 px-3 py-2 text-xs">
-              <CornerDownLeft className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <span className="text-muted-foreground">In risposta a: </span>
-                <span className="font-medium">&ldquo;{replyToMsg.title}&rdquo;</span>
-                <p className="text-muted-foreground truncate mt-0.5">
-                  {replyToMsg.body.length > 80 ? replyToMsg.body.slice(0, 80) + '…' : replyToMsg.body}
-                </p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-border bg-card"
+        style={{ animation: 'swapin 520ms cubic-bezier(0.22,1,0.36,1) backwards' }}>
+        {loadError ? (
+          <div className="anim-swapin flex flex-1 flex-col items-center justify-center gap-1 px-[18px] py-12 text-center text-pretty">
+            <span className="text-[15px] font-semibold text-[oklch(0.45_0.1_25)] dark:text-neg">Caricamento non riuscito</span>
+            <span className="text-[13px] text-muted-foreground">Impossibile caricare i messaggi. Riprova.</span>
+            <button type="button" onClick={() => { setLoading(true); loadMessages() }} className="mt-3 flex h-11 items-center gap-2 rounded-[12px] border border-line-strong bg-card px-[18px] text-sm font-semibold transition-transform duration-150 active:scale-[0.97]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 12a8 8 0 1 1-2.34-5.66" /><path d="M20 4v5h-5" /></svg>
+              Riprova
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="flex flex-col">
+            {[64, 48, 72, 40].map(w => (
+              <div key={w} className="flex min-h-[68px] flex-col justify-center gap-2 border-b border-border px-[18px]">
+                <div className="h-3.5 rounded-[6px] bg-[linear-gradient(90deg,var(--sk-a)_25%,var(--sk-b)_50%,var(--sk-a)_75%)] bg-[length:200%_100%] [animation:sk-sh_1.4s_linear_infinite]" style={{ width: `${w}%` }} />
+                <div className="h-2.5 w-28 rounded-[5px] bg-[linear-gradient(90deg,var(--sk-a)_25%,var(--sk-b)_50%,var(--sk-a)_75%)] bg-[length:200%_100%] [animation:sk-sh_1.4s_linear_infinite]" />
               </div>
-              <button
-                onClick={() => setReplyToMsg(null)}
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-                title="Annulla risposta"
-              >
-                <X className="w-3 h-3" />
-              </button>
+            ))}
+          </div>
+        ) : thread.length === 0 ? (
+          <div className="anim-swapin flex flex-1 flex-col items-center justify-center gap-1 px-[18px] py-12 text-center text-pretty">
+            <span className="text-[15px] font-semibold">Nessun messaggio</span>
+            <span className="text-[13px] text-muted-foreground">Il manager ti contatterà da qui. Puoi anche scrivergli tu.</span>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {thread.map(({ msg, isReply }, i) => (
+              <MessageRow
+                key={msg.id}
+                msg={msg}
+                ritardo={i * 70}
+                isExpanded={expandedId === msg.id}
+                fromMe={!msg.sent_by_manager}
+                isReply={isReply}
+                onExpand={() => handleExpand(msg)}
+                onDownload={att => handleDownload(msg, att)}
+                onReply={() => handleReply(msg)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showCompose && createPortal(
+        <div onClick={() => chiudiCompose()} className={cn('fixed inset-0 z-[70] box-border flex justify-center', tel ? 'items-end pt-[72px]' : 'items-start px-4 pt-[150px]')}
+          style={{ background: composeEsce ? 'rgba(15,20,30,0)' : 'rgba(15,20,30,.28)', transition: 'background 320ms' }}>
+          <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Nuovo messaggio"
+            className={cn('box-border flex max-h-full flex-col overflow-y-auto overscroll-contain border border-border bg-card text-foreground shadow-[0_20px_60px_rgba(20,30,50,.18)]',
+              tel ? 'w-full rounded-t-[20px] pb-[calc(env(safe-area-inset-bottom)+20px)]' : 'w-[560px] max-w-full rounded-[14px]')}
+            style={{ animation: composeEsce ? SWAPOUT : SWAPIN }}>
+            <div className="flex items-center gap-3 border-b border-border px-[22px] py-[18px]">
+              <div className="flex flex-1 flex-col gap-0.5">
+                <span className="text-xl font-semibold">{replyToMsg ? 'Rispondi' : 'Nuovo messaggio'}</span>
+                <span className="text-sm text-muted-foreground">Al manager dei tuoi locali</span>
+              </div>
+              <button type="button" onClick={() => chiudiCompose()} aria-label="Chiudi" className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-[0.96]"><IconaX /></button>
             </div>
-          )}
-          <div className="space-y-1.5">
-            <Label>Oggetto</Label>
-            <Input value={msgTitle} onChange={e => setMsgTitle(e.target.value)} placeholder="Oggetto del messaggio" className="h-9 rounded-sm" />
+            <div className="flex flex-col gap-4 px-[22px] py-[18px]">
+              {replyToMsg && (
+                <div className="flex items-start gap-2.5 rounded-[8px] bg-secondary px-3 py-2.5">
+                  <span className="mt-0.5 text-muted-foreground"><Rispondi /></span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium">In risposta a “{replyToMsg.title}”</span>
+                    <span className="block truncate text-xs text-muted-foreground">{replyToMsg.body}</span>
+                  </div>
+                  <button type="button" onClick={() => setReplyToMsg(null)} aria-label="Annulla risposta" className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
+                </div>
+              )}
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-medium">Oggetto</span>
+                <input value={msgTitle} onChange={e => setMsgTitle(e.target.value)} placeholder="Oggetto del messaggio" className={cn(campo, 'h-[52px]')} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-medium">Messaggio</span>
+                <textarea value={msgBody} onChange={e => setMsgBody(e.target.value)} placeholder="Scrivi qui…" rows={5} className={cn(campo, 'resize-none py-3 leading-snug')} />
+              </label>
+              <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-medium">Allegati <span className="font-normal text-muted-foreground">· facoltativi, max 10 MB in tutto</span></span>
+                {files.map((f, i) => (
+                  <div key={i} className="flex h-11 items-center gap-2 rounded-[8px] border border-border px-3 text-[13px]">
+                    <span className="text-muted-foreground"><Clip /></span>
+                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} KB</span>
+                    <button type="button" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label={`Togli ${f.name}`} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
+                  </div>
+                ))}
+                <input ref={fileRef} type="file" multiple onChange={handleFileChange} className="hidden" />
+                <button type="button" onClick={() => fileRef.current?.click()}
+                  className="flex h-10 items-center gap-1.5 self-start rounded-[8px] border border-dashed border-[oklch(0.75_0.01_250)] px-3 text-[13px] font-medium transition-transform active:scale-[0.97] dark:border-line-strong">
+                  <Piu /> Aggiungi allegato
+                </button>
+              </div>
+              {sendError && <span className="text-[13px] font-medium text-[oklch(0.45_0.1_25)] dark:text-neg">{sendError}</span>}
+              <div className="grid grid-cols-[1fr_2fr] gap-2.5">
+                <button type="button" onClick={() => chiudiCompose()} disabled={sending} className="flex h-[52px] items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium transition-transform active:scale-[0.98]">Annulla</button>
+                <button type="button" onClick={handleSend} disabled={sending || !msgTitle.trim() || !msgBody.trim()}
+                  className={cn('flex h-[52px] items-center justify-center rounded-[6px] bg-primary text-[15px] font-semibold text-primary-foreground transition-transform active:scale-[0.98]', (sending || !msgTitle.trim() || !msgBody.trim()) && 'opacity-50')}>
+                  {sending ? 'Invio…' : 'Invia'}
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Messaggio</Label>
-            <textarea
-              value={msgBody}
-              onChange={e => setMsgBody(e.target.value)}
-              placeholder="Scrivi qui..."
-              rows={4}
-              className="w-full rounded-sm border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>
-              Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali)</span>
-            </Label>
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-primary file:text-primary-foreground"
-            />
-            {files.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {files.length} file{files.length > 1 ? '' : ''} · {(files.reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB
-              </p>
-            )}
-          </div>
-          {sendError && <p className="text-xs text-destructive">{sendError}</p>}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setShowCompose(false)}>Annulla</Button>
-            <Button size="sm" onClick={handleSend} disabled={sending || !msgTitle.trim() || !msgBody.trim()}>
-              {sending ? 'Invio...' : 'Invia'}
-            </Button>
-          </div>
-        </div>
+        </div>,
+        document.body
       )}
-
-      {messages.length === 0 && (
-        <p className="text-sm text-muted-foreground">Nessun messaggio ancora. Il manager ti contatterà da qui.</p>
-      )}
-
-      {(() => {
-        const topLevel = messages
-          .filter(m => !m.reply_to_id)
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        const replyMap: Record<string, ConsultantMessage[]> = {}
-        messages.filter(m => !!m.reply_to_id).forEach(m => {
-          const pid = m.reply_to_id!
-          if (!replyMap[pid]) replyMap[pid] = []
-          replyMap[pid].push(m)
-        })
-        Object.values(replyMap).forEach(arr =>
-          arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-        )
-        return topLevel.flatMap(msg => [
-          { msg, isReply: false },
-          ...(replyMap[msg.id] ?? []).map(r => ({ msg: r, isReply: true })),
-        ])
-      })().map(({ msg, isReply }) => {
-        const isExpanded = expandedId === msg.id
-        const fromMe = !msg.sent_by_manager
-        return (
-          <div key={msg.id} className={isReply ? 'ml-6 border-l-2 border-primary/20 pl-3' : ''}>
-            <MessageRow
-              msg={msg}
-              isExpanded={isExpanded}
-              fromMe={fromMe}
-              isReply={isReply}
-              onExpand={() => handleExpand(msg)}
-              onDownload={att => handleDownload(msg, att)}
-              onReply={() => handleReply(msg)}
-            />
-          </div>
-        )
-      })}
     </div>
   )
 }
 
 function MessageRow({
-  msg, isExpanded, fromMe, isReply, onExpand, onDownload, onReply,
+  msg, isExpanded, fromMe, isReply, ritardo, onExpand, onDownload, onReply,
 }: {
   msg: ConsultantMessage
   isExpanded: boolean
   fromMe: boolean
   isReply?: boolean
+  ritardo: number
   onExpand: () => void
   onDownload: (att: { name: string; path: string }) => void
   onReply: () => void
 }) {
   const unread = msg.sent_by_manager && !msg.read_at && !fromMe
+  const nAll = msg.attachments?.length ?? 0
 
   return (
-    <div className={`border rounded-md overflow-hidden transition-colors ${unread ? 'border-primary/50 bg-primary/5' : 'border-border bg-card'}`}>
-      <div className="flex items-center gap-1 pr-2">
-        <button
-          onClick={onExpand}
-          className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 transition-colors"
-        >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              {unread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
-              {isReply && <CornerDownLeft className="w-3.5 h-3.5 text-primary/50 shrink-0" />}
-              <p className="text-sm font-medium truncate">{msg.title}</p>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {fromMe ? 'Inviato da te' : 'Dal Manager'} · {fmtDate(msg.created_at)}
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {msg.attachments?.length > 0 && <Paperclip className="w-3.5 h-3.5 text-muted-foreground" />}
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-          </div>
-        </button>
-        {/* Reply button */}
-        <button
-          onClick={onReply}
-          className="shrink-0 p-1.5 rounded transition-colors text-muted-foreground hover:text-primary"
-          title="Rispondi"
-        >
-          <CornerDownLeft className="w-4 h-4" />
-        </button>
-      </div>
+    <div className={cn('border-b border-border', unread && 'bg-[oklch(0.985_0.01_75)] dark:bg-warn-tint/40')}
+      style={{ animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: `${ritardo}ms` }}>
+      <button type="button" onClick={onExpand} aria-expanded={isExpanded}
+        className={cn('grid min-h-[68px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 pr-[18px] text-left transition-transform active:scale-[0.99]', isReply ? 'pl-10' : 'pl-[18px]')}>
+        <span className="truncate text-[15px] font-medium">{msg.title}</span>
+        <span className="flex justify-end">
+          {unread
+            ? <span className="rounded-full bg-warn-tint px-[9px] py-[3px] text-[10px] font-semibold uppercase tracking-[.05em] text-warn">Da leggere</span>
+            : nAll > 0 ? <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground"><Clip />{nAll}</span> : null}
+        </span>
+        <span className="truncate text-xs text-muted-foreground">{isReply ? 'Risposta · ' : ''}{fromMe ? 'Inviato da te' : 'Dal manager'} · {fmtDate(msg.created_at)}</span>
+        <span className="flex justify-end">
+          {unread && nAll > 0 && <span className="flex items-center gap-1 font-mono text-xs text-muted-foreground"><Clip />{nAll}</span>}
+        </span>
+      </button>
 
       {isExpanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
-          <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
-
-          {msg.attachments?.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Allegati</p>
+        <div className={cn('anim-swapin flex flex-col gap-3 pb-4 pr-[18px]', isReply ? 'pl-10' : 'pl-[18px]')}>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.body}</p>
+          {nAll > 0 && (
+            <div className="flex flex-wrap gap-2">
               {msg.attachments.map((att, i) => (
-                <button
-                  key={i}
-                  onClick={() => onDownload(att)}
-                  className="flex items-center gap-2 text-sm text-primary hover:underline"
-                >
-                  <Paperclip className="w-3.5 h-3.5" />
-                  {att.name}
+                <button key={i} type="button" onClick={() => onDownload(att)}
+                  className="flex h-10 max-w-full items-center gap-2 rounded-[8px] border border-line-strong px-3 text-[13px] font-medium transition-transform active:scale-[0.97]">
+                  <Clip /><span className="truncate">{att.name}</span>
                 </button>
               ))}
             </div>
           )}
-
-          <div className="space-y-0.5 pt-1">
-            {msg.read_at && !fromMe && (
-              <p className="text-[11px] text-muted-foreground">Letto il: {fmtDate(msg.read_at)}</p>
-            )}
-            {msg.downloaded_at && !fromMe && (
-              <p className="text-[11px] text-muted-foreground">Allegato scaricato il: {fmtDate(msg.downloaded_at)}</p>
-            )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {msg.read_at && !fromMe && <span className="font-mono text-[11px] text-muted-foreground">letto {fmtDate(msg.read_at)}</span>}
+            {msg.downloaded_at && !fromMe && <span className="font-mono text-[11px] text-muted-foreground">allegato scaricato {fmtDate(msg.downloaded_at)}</span>}
+            <span className="flex-1" />
+            <button type="button" onClick={onReply}
+              className="flex h-10 items-center gap-2 rounded-[8px] bg-primary px-[14px] text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.97]">
+              <Rispondi /> Rispondi
+            </button>
           </div>
         </div>
       )}

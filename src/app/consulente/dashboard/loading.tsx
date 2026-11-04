@@ -1,28 +1,27 @@
-import { Skeleton } from '@/components/ui/skeleton'
+// Caricamento del Report del consulente con la sua sagoma: segmenti
+// Report/Messaggi, barra del mese e foglio (stesso linguaggio di MTReport).
+const ONDA = 'bg-[linear-gradient(90deg,var(--sk-a)_25%,var(--sk-b)_50%,var(--sk-a)_75%)] bg-[length:200%_100%] [animation:sk-sh_1.4s_linear_infinite]'
 
 export default function Loading() {
   return (
-    <div className="min-h-[100dvh] flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-border">
-        <Skeleton className="h-4 w-40" />
-        <div className="flex items-center gap-2">
-          <Skeleton className="w-8 h-8 rounded-md" />
-          <Skeleton className="h-4 w-12" />
+    <div className="flex h-full flex-col" aria-busy="true">
+      <div className={`mx-4 mb-2.5 h-[50px] flex-none rounded-[14px] sm:mx-auto sm:w-[480px] ${ONDA}`} />
+      <div className="box-border flex min-h-0 flex-1 flex-col gap-3 px-4 sm:px-8">
+        <div className="flex flex-none items-center gap-2.5">
+          <div className={`h-10 w-10 rounded-full ${ONDA}`} />
+          <div className={`h-3.5 w-[132px] rounded-[6px] ${ONDA}`} />
+          <div className={`h-10 w-10 rounded-full ${ONDA}`} />
+          <span className="flex-1" />
+          <div className={`h-10 w-[96px] rounded-[8px] ${ONDA}`} />
         </div>
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex gap-4 px-4 border-b border-border py-3">
-        <Skeleton className="h-6 w-20" />
-        <Skeleton className="h-6 w-24" />
-      </div>
-
-      {/* Contenuto */}
-      <div className="p-4 space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-14 w-full rounded-md" />
-        ))}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
+          {Array.from({ length: 9 }, (_, i) => (
+            <div key={i} className="flex h-12 flex-none items-center gap-4 border-b border-border px-3.5">
+              <div className={`h-3 w-[140px] rounded-[5px] ${ONDA}`} />
+              <div className={`h-6 flex-1 rounded-[5px] opacity-60 ${ONDA}`} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

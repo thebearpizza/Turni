@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { FileSpreadsheet, MessageSquare } from 'lucide-react'
-import { ConsultantReportClient } from './ConsultantReportClient'
+import { ReportClient } from '@/components/manager/ReportClient'
 import { ConsultantInbox } from './ConsultantInbox'
 import type { Restaurant } from '@/types'
 
@@ -15,48 +14,42 @@ interface Props {
   initialManagerId: string | null
 }
 
-export function ConsultantDashboard({ userId, fullName, canViewHours, restaurants, initialManagerId }: Props) {
+// Il consulente del lavoro non ha un design proprio: usa la stessa scheda
+// Report del manager (MTReport) in sola lettura, sui locali che gli sono
+// assegnati, e i Messaggi con lo stesso linguaggio visivo.
+export function ConsultantDashboard({ userId, canViewHours, restaurants, initialManagerId }: Props) {
   const [tab, setTab] = useState<Tab>('report')
 
   return (
-    <div className="flex flex-col">
-      {/* Report e Messaggi come segmenti del design (stesso stile dei
-          segmenti di sezione del manager), sotto l'intestazione comune. */}
-      <div className="mx-4 mb-1 flex gap-[3px] rounded-[14px] border border-border bg-card p-1 shadow-[0_4px_20px_rgba(20,30,50,.08)] sm:mx-auto sm:w-[420px]">
-        {([['report', 'Report', FileSpreadsheet], ['messaggi', 'Messaggi', MessageSquare]] as const).map(([k, l, Icona]) => (
+    <div className="flex h-full flex-col">
+      {/* Report e Messaggi come segmenti di sezione del design (stesso
+          stile dei segmenti del manager), sotto l'intestazione comune. */}
+      <div className="mx-4 mb-2.5 flex flex-none gap-[3px] rounded-[14px] border border-border bg-card p-1 shadow-[0_4px_20px_rgba(20,30,50,.08)] sm:mx-auto sm:w-[480px]">
+        {([['report', 'Report'], ['messaggi', 'Messaggi']] as const).map(([k, l]) => (
           <button
             key={k}
             type="button"
             onClick={() => setTab(k)}
-            className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[10px] text-[13px] font-medium transition-colors active:scale-[0.97] ${tab === k ? 'bg-primary text-primary-foreground' : ''}`}
+            className={`flex h-10 flex-1 items-center justify-center rounded-[10px] text-[13px] font-medium transition-colors duration-200 active:scale-[0.97] ${tab === k ? 'bg-primary text-primary-foreground' : 'text-foreground'}`}
           >
-            <Icona className="h-4 w-4" /> {l}
+            {l}
           </button>
         ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1">
-        {tab === 'report' && (
-          <div className="p-4 lg:p-6">
-            <p className="mb-3 text-[13px] text-muted-foreground">Ciao {fullName.split(' ')[0]} · vista in sola lettura</p>
-            {restaurants.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nessun ristorante assegnato al tuo account. Contatta il manager.</p>
-            ) : (
-              <ConsultantReportClient
-                restaurants={restaurants}
-                canViewHours={canViewHours}
-              />
-            )}
-          </div>
-        )}
-        {tab === 'messaggi' && (
-          <div className="p-4 lg:p-6">
-            <ConsultantInbox userId={userId} initialManagerId={initialManagerId} />
-          </div>
+      <div className="min-h-0 flex-1">
+        {tab === 'report' ? (
+          <ReportClient
+            restaurants={restaurants}
+            singolo={restaurants.length <= 1}
+            puoModificare={false}
+            vedeOre={canViewHours}
+            utenteId={userId}
+          />
+        ) : (
+          <ConsultantInbox userId={userId} initialManagerId={initialManagerId} />
         )}
       </div>
     </div>
   )
 }
-
