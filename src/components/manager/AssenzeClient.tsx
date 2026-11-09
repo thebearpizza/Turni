@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
@@ -12,7 +12,7 @@ import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
 import {
   TZ, FRECCIA_SX, FRECCIA_DX, USCITA, TIPI, ORDINE_TIPI,
   BarraMese, PulsanteNero, Avatar, BadgeTipo, Foglio, useFoglio, Etichetta, SceltaDipendente, PulsantiFoglio, Vuoto,
-  useTelefono, piuGiorni, giorniTra, dataBreve, dataConGiorno, spostaMese, ultimoDelMese, daIso,
+  useTelefono, piuGiorni, giorniTra, dataBreve, dataConGiorno, spostaMese, ultimoDelMese, daIso, etichettaMese,
 } from '@/components/presenze/comuni'
 import type { AbsenceType, AbsenceStatus } from '@/types'
 
@@ -137,6 +137,8 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
 
   // ── Calendario del mese ──────────────────────────────────────────────
   const m0 = `${mese}-01`, m1 = ultimoDelMese(mese), nd = daIso(m1).getUTCDate()
+  const tocca = (r: { start_date: string; end_date: string }) => r.start_date <= m1 && r.end_date >= m0
+  const reqsOrdinate = [...reqs.filter(tocca), ...reqs.filter(r => !tocca(r)).sort((a, b) => a.start_date.localeCompare(b.start_date))]
   const giorni = Array.from({ length: nd }, (_, i) => {
     const d = piuGiorni(m0, i), w = daIso(d).getUTCDay()
     return { n: i + 1, oggi: d === oggi, weekend: w === 0 || w === 6 }
@@ -285,10 +287,21 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {reqs.length === 0 && <Vuoto titolo="Nessuna richiesta in attesa" testo="Le nuove richieste compaiono qui in tempo reale." />}
-            {reqs.map(r => {
+            {reqsOrdinate.map((r, i) => {
+              // Le richieste che non toccano il mese a schermo vanno in fondo,
+              // sotto un divisorio col loro mese, così non si confondono.
+              const fuori = !(r.start_date <= m1 && r.end_date >= m0)
+              const meseR = r.start_date.slice(0, 7), prec = reqsOrdinate[i - 1]
+              const divisorio = fuori && (!prec || (prec.start_date <= m1 && prec.end_date >= m0) || prec.start_date.slice(0, 7) !== meseR)
               const n = nomeDi(r), g = giorniTra(r.start_date, r.end_date), rid = locDi(r), l = rid ? infoLoc.get(rid) : undefined
               return (
-                <div key={r.id} className={cn('flex flex-col gap-2.5 border-b border-[oklch(0.93_0.01_250)] py-3.5 dark:border-border', tel ? 'px-3.5' : 'px-[18px]', uscenti.includes(r.id) && 'anim-swapout')}>
+                <Fragment key={r.id}>
+                {divisorio && (
+                  <div className={cn('flex items-center gap-2 border-b border-[oklch(0.93_0.01_250)] bg-[oklch(0.97_0.01_250)] py-2 dark:border-border dark:bg-secondary', tel ? 'px-3.5' : 'px-[18px]')}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Altro mese · {etichettaMese(meseR)}</span>
+                  </div>
+                )}
+                <div className={cn('flex flex-col gap-2.5 border-b border-[oklch(0.93_0.01_250)] py-3.5 dark:border-border', tel ? 'px-3.5' : 'px-[18px]', uscenti.includes(r.id) && 'anim-swapout')}>
                   <div className="flex items-start gap-3">
                     <Avatar nome={n} />
                     <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
@@ -308,6 +321,7 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
                     <button type="button" disabled={uscenti.includes(r.id)} onClick={() => decidi(r, true)} className="flex h-11 items-center justify-center rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97]">Approva</button>
                   </div>
                 </div>
+                </Fragment>
               )
             })}
           </div>

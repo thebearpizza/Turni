@@ -12,7 +12,7 @@ import { useScheletro } from '@/components/shared/useScheletro'
 import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import {
   calcolaGriglia, giorniDelMese, dataDelGiorno, giornoPresenza, oreBrevi,
-  CODICI_ASSENZA, CODICE_DA_TIPO, NOME_ASSENZA, TIPO_DA_CODICE, TZ_REPORT,
+  CODICI_ASSENZA, CODICE_DA_TIPO, NOME_ASSENZA, TIPO_DA_CODICE, TZ_REPORT, MINUTI_DOPPIO_TURNO,
 } from '@/app/api/report/calcolo'
 import type { AssenzaRep, CodiceAssenza, DipendenteRep, Giorno, PresenzaRep } from '@/app/api/report/calcolo'
 
@@ -59,7 +59,7 @@ const CSS = `
 --r-F:oklch(0.93 0.04 290);--r-Ff:oklch(0.4 0.1 290);--r-Fb:oklch(0.8 0.07 290);
 --r-M:oklch(0.93 0.035 250);--r-Mf:oklch(0.38 0.08 250);--r-Mb:oklch(0.8 0.06 250);
 --r-R:oklch(0.93 0.04 25);--r-Rf:oklch(0.45 0.1 25);--r-Rb:oklch(0.82 0.07 25);
---r-I:oklch(0.9 0.02 250);--r-If:oklch(0.3 0.01 250);--r-Ib:oklch(0.7 0.02 250)}
+--r-AI:oklch(0.9 0.02 250);--r-AIf:oklch(0.3 0.01 250);--r-AIb:oklch(0.7 0.02 250)}
 .dark .rep{--r-h:oklch(0.21 0.01 250);--r-we:oklch(0.23 0.01 250);--r-td:oklch(0.3 0.05 180);--r-tdw:oklch(0.78 0.08 180);--r-tdn:oklch(0.86 0.08 180);
 --r-ctd:oklch(0.21 0.02 180);--r-cwe:oklch(0.195 0.006 250);--r-hov:oklch(0.27 0.04 180);--r-l1:oklch(0.23 0.01 250);--r-l2:oklch(0.3 0.01 250);
 --r-l3:oklch(0.25 0.01 250);--r-tot:oklch(0.2 0.008 250);--r-seg:oklch(0.24 0.01 250);--r-thumb:oklch(0.32 0.01 250);--r-leg:oklch(0.8 0.01 250);--r-split:oklch(0.26 0.02 250);
@@ -68,7 +68,7 @@ const CSS = `
 --r-F:oklch(0.3 0.05 290);--r-Ff:oklch(0.84 0.08 290);--r-Fb:oklch(0.45 0.07 290);
 --r-M:oklch(0.3 0.04 250);--r-Mf:oklch(0.84 0.07 250);--r-Mb:oklch(0.45 0.06 250);
 --r-R:oklch(0.3 0.05 25);--r-Rf:oklch(0.82 0.09 25);--r-Rb:oklch(0.45 0.07 25);
---r-I:oklch(0.3 0.02 250);--r-If:oklch(0.88 0.01 250);--r-Ib:oklch(0.45 0.02 250)}
+--r-AI:oklch(0.3 0.02 250);--r-AIf:oklch(0.88 0.01 250);--r-AIb:oklch(0.45 0.02 250)}
 .rep-cella:hover{background:var(--r-hov)!important}
 `
 
@@ -109,7 +109,7 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
   const v: Vista = vedeOre ? vista : 'pres'
   const P = v === 'pres'
   const primo = localeIniziale && restaurants.some(r => r.id === localeIniziale) ? localeIniziale : restaurants[0]?.id
-  const [sel, setSelStato] = useState<string[]>(primo && restaurants.length > 1 ? [primo] : [])
+  const [sel, setSelStato] = useState<string[]>(localeIniziale && primo === localeIniziale && restaurants.length > 1 ? [primo] : [])
 
   const { stato: sk, avvia: avviaScheletro, pronto: scheletroPronto } = useScheletro()
   const [dati, setDati] = useState<Dati>({ dip: [], pres: [], ass: [] })
@@ -201,7 +201,8 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
     setScarica(true)
     const tipo = P ? 'presenze' : 'ore'
     const o = ordinePillole(), rk = (n: string) => { const i = o.indexOf(n); return i < 0 ? 999 : i }
-    const ids = singolo ? target : restaurants.map((r, i) => ({ r, i })).sort((a, b) => rk(a.r.name) - rk(b.r.name) || a.i - b.i).map(x => x.r.id)
+    // Solo i locali selezionati nelle pillole (Tutti = tutti), nell'ordine delle pillole.
+    const ids = singolo ? target : restaurants.filter(r => target.includes(r.id)).map((r, i) => ({ r, i })).sort((a, b) => rk(a.r.name) - rk(b.r.name) || a.i - b.i).map(x => x.r.id)
     try {
       const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month: mese, restaurantIds: ids, type: tipo }) })
       if (!res.ok) {
@@ -526,7 +527,7 @@ function Segnaposto({ nd, nx, tp, fondo }: { nd: number; nx: string; tp: string;
 function cella(g: Giorno, P: boolean): { v: string; bg: string; fg: string; fs: string; fw: number } {
   if (!g) return { v: '', bg: 'transparent', fg: 'var(--muted-foreground)', fs: '11px', fw: 500 }
   if (g.tipo === 'assenza') return { v: g.codice, bg: `var(--r-${g.codice})`, fg: `var(--r-${g.codice}f)`, fs: '11px', fw: 600 }
-  if (P) return { v: 'P', bg: 'var(--r-P)', fg: 'var(--r-Pf)', fs: '11px', fw: 600 }
+  if (P) return { v: g.minuti > MINUTI_DOPPIO_TURNO ? 'PP' : 'P', bg: 'var(--r-P)', fg: 'var(--r-Pf)', fs: g.minuti > MINUTI_DOPPIO_TURNO ? '10px' : '11px', fw: 600 }
   // Turno ancora aperto e nessuna fascia chiusa: le ore non si possono ancora contare.
   const v = g.aperta && g.minuti === 0 ? '…' : oreBrevi(g.minuti)
   return { v, bg: g.fasce.length > 1 ? 'var(--r-split)' : 'transparent', fg: 'var(--foreground)', fs: '12px', fw: 500 }

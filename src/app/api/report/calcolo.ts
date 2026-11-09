@@ -7,16 +7,22 @@ import type { AbsenceType } from '@/types'
 
 export const TZ_REPORT = 'Europe/Rome'
 
-// Codici del design: F M R I (non più "AI" per l'ingiustificata).
-export type CodiceAssenza = 'F' | 'M' | 'R' | 'I'
+// Codici delle assenze. L'ingiustificata resta "AI" (non la "I" del
+// prototipo): è il codice che il consulente del lavoro già usa.
+export type CodiceAssenza = 'F' | 'M' | 'R' | 'AI'
 export const CODICE_DA_TIPO: Record<AbsenceType, CodiceAssenza> = {
-  ferie: 'F', malattia: 'M', riposo: 'R', assenza_ingiustificata: 'I',
+  ferie: 'F', malattia: 'M', riposo: 'R', assenza_ingiustificata: 'AI',
 }
 export const TIPO_DA_CODICE: Record<CodiceAssenza, AbsenceType> = {
-  F: 'ferie', M: 'malattia', R: 'riposo', I: 'assenza_ingiustificata',
+  F: 'ferie', M: 'malattia', R: 'riposo', AI: 'assenza_ingiustificata',
 }
-export const CODICI_ASSENZA: CodiceAssenza[] = ['F', 'M', 'R', 'I']
-export const NOME_ASSENZA: Record<CodiceAssenza, string> = { F: 'Ferie', M: 'Malattia', R: 'Riposo', I: 'Ingiustificata' }
+export const CODICI_ASSENZA: CodiceAssenza[] = ['F', 'M', 'R', 'AI']
+export const NOME_ASSENZA: Record<CodiceAssenza, string> = { F: 'Ferie', M: 'Malattia', R: 'Riposo', AI: 'Ingiustificata' }
+
+/** Oltre 12 ore lavorate nel giorno la presenza si segna "PP" (doppio turno). */
+export const MINUTI_DOPPIO_TURNO = 12 * 60
+/** Ore attese per giorno lavorato, per la colonna Differenza dell'Excel. */
+export const ORE_ATTESE_GIORNO = 8.5
 
 export type DipendenteRep = { id: string; full_name: string; restaurant_id: string | null; role?: string | null; department?: string | null }
 export type PresenzaRep = { id: string; user_id: string; restaurant_id: string | null; check_in: string; check_out: string | null }

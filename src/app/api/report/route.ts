@@ -4,13 +4,13 @@ import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { fromZonedTime } from 'date-fns-tz'
-import { calcolaGriglia, giorniDelMese, TZ_REPORT } from './calcolo'
+import { calcolaGriglia, giorniDelMese, TZ_REPORT, MINUTI_DOPPIO_TURNO, ORE_ATTESE_GIORNO } from './calcolo'
 import type { AssenzaRep, DipendenteRep, PresenzaRep } from './calcolo'
 
 // Stili dell'export del design (xlsx.js): intestazione blu notte con testo
 // bianco, codici colorati, ore in decimale "0.0#", bordi sottili grigi.
 const RIEMPI: Record<string, string> = {
-  head: 'FF1F2A44', P: 'FFD9EFE0', PP: 'FF86DFA5', R: 'FFF6D5D5', F: 'FFE7DCF7', M: 'FFD7E5F6', I: 'FFE4E4E4',
+  head: 'FF1F2A44', P: 'FFD9EFE0', PP: 'FF86DFA5', R: 'FFF6D5D5', F: 'FFE7DCF7', M: 'FFD7E5F6', AI: 'FFE4E4E4',
 }
 const BORDO: Partial<ExcelJS.Borders> = (() => {
   const b = { style: 'thin' as const, color: { argb: 'FFD9D9D9' } }
@@ -120,9 +120,9 @@ export async function POST(request: Request) {
     usati.add(nome)
     const sheet = workbook.addWorksheet(nome, { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] })
     sheet.properties.defaultRowHeight = 20
-    sheet.columns = [{ width: 24 }, ...Array.from({ length: nd }, () => ({ width: P ? 5 : 6 })), ...(P ? [] : [{ width: 9 }])]
+    sheet.columns = [{ width: 24 }, ...Array.from({ length: nd }, () => ({ width: P ? 5 : 6 })), ...(P ? [] : [{ width: 9 }, { width: 11 }])]
 
-    const head = sheet.addRow(['Dipendente', ...Array.from({ length: nd }, (_, i) => i + 1), ...(P ? [] : ['Totale'])])
+    const head = sheet.addRow(['Dipendente', ...Array.from({ length: nd }, (_, i) => i + 1), ...(P ? [] : ['Totale', 'Differenza'])])
     head.height = 20
     head.eachCell(c => {
       c.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' }
@@ -133,15 +133,19 @@ export async function POST(request: Request) {
 
     for (const e of dip) {
       const giorni = griglia.get(e.id) ?? []
-      let tot = 0
+      let tot = 0, lavorati = 0
       const valori: (string | number | null)[] = giorni.map(g => {
         if (!g) return null
         if (g.tipo === 'assenza') return g.codice
         const h = Math.round(g.minuti / 60 * 100) / 100
         tot += h
-        return P ? (g.fasce.length > 1 ? 'PP' : 'P') : h
+        if (g.minuti > 0) lavorati++
+        // PP: oltre 12 ore lavorate nel giorno (doppio turno)
+        return P ? (g.minuti > MINUTI_DOPPIO_TURNO ? 'PP' : 'P') : h
       })
-      const riga = sheet.addRow([e.full_name, ...valori, ...(P ? [] : [Math.round(tot * 100) / 100])])
+      // Differenza: ore lavorate meno le 8,5 attese per ogni giorno lavorato
+      const diff = Math.round((tot - lavorati * ORE_ATTESE_GIORNO) * 100) / 100
+      const riga = sheet.addRow([e.full_name, ...valori, ...(P ? [] : [Math.round(tot * 100) / 100, diff])])
       riga.height = 20
       riga.getCell(1).alignment = { vertical: 'middle' }
       riga.getCell(1).border = BORDO
@@ -164,6 +168,11 @@ export async function POST(request: Request) {
         c.font = { bold: true, color: { argb: 'FF1A1A1A' } }
         c.alignment = CENTRO
         c.border = BORDO
+        const d = riga.getCell(nd + 3)
+        d.numFmt = '+0.0#;-0.0#;0'
+        d.font = { bold: true, color: { argb: diff > 0 ? 'FF166534' : diff < 0 ? 'FF991B1B' : 'FF1A1A1A' } }
+        d.alignment = CENTRO
+        d.border = BORDO
       }
     }
   }
