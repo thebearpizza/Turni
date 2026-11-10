@@ -43,11 +43,13 @@ export function usePushNotifications() {
   // Leggi stato iniziale e registra SW silenziosamente (senza chiedere permesso)
   useEffect(() => {
     if (typeof window === 'undefined') return
+    // Letto dopo il montaggio (sul server il permesso non esiste): in un
+    // microtask per non chiamare setState in modo sincrono nell'effect.
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-      setPermission('unsupported')
+      queueMicrotask(() => setPermission('unsupported'))
       return
     }
-    setPermission(Notification.permission as PushPermission)
+    queueMicrotask(() => setPermission(Notification.permission as PushPermission))
     // updateViaCache: 'none' → il browser non usa la cache HTTP per sw.js,
     // così una nuova versione del service worker viene scaricata subito;
     // reg.update() forza il controllo aggiornamenti ad ogni apertura.

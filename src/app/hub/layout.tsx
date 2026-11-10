@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { AppShell } from '@/components/shell/AppShell'
 import { datiShell } from '@/components/shell/datiShell'
 
 // Home del manager (e del direttore) dentro il guscio comune: intestazione
-// "Ciao, Nome", barra Home/Turni/Cassa/Acquisti/Altro. Lo scope per ruolo
-// resta verificato in hub/page.tsx.
+// "Ciao, Nome", barra Home/Turni/Cassa/Acquisti/Altro, banner "Attiva le
+// notifiche" (montato dal guscio). Lo scope per ruolo resta verificato in
+// hub/page.tsx.
 export default async function HubLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -21,7 +21,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
 
   const shell = await datiShell(supabase, profile)
   return (
-    <AppShell {...shell} banner={<PushNotificationPrompt />}>
+    <AppShell {...shell}>
       {children}
     </AppShell>
   )

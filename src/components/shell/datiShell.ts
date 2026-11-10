@@ -25,6 +25,13 @@ export function ruoloDa(p: { role: string; is_direttore?: boolean | null }): Ruo
   return p.role as Ruolo
 }
 
+/** "Laura Bianchi" → "Laura B." (pulsante "Esci · Laura B." del cassiere su tablet). */
+export function nomeBreve(nome: string): string {
+  const parti = nome.trim().split(/\s+/)
+  if (parti.length < 2) return parti[0] ?? ''
+  return `${parti[0]} ${parti[parti.length - 1].charAt(0).toUpperCase()}.`
+}
+
 // Dati che l'intestazione del guscio (AppShell) mostra: nome, riga del
 // profilo, locale e i QR dei locali visibili. Letti lato server nei layout.
 export async function datiShell(supabase: SupabaseClient, profile: ProfiloMinimo) {
@@ -39,11 +46,14 @@ export async function datiShell(supabase: SupabaseClient, profile: ProfiloMinimo
     ristoranti = data ?? []
   }
 
+  // Righe del design: "Manager · 4 locali", "Direttore · Pizzeria Centro",
+  // "Capo servizio · Sala · Pizzeria Centro", "Dipendente · Sala · Pizzeria Centro".
   const etichetta = ETICHETTE[ruolo]
   const reparto = profile.department ? ` · ${profile.department}` : ''
+  const conReparto = ruolo === 'capo_servizio' || ruolo === 'dipendente'
   const descrizione = ruolo === 'manager'
     ? `${etichetta} · ${ristoranti.length} ${ristoranti.length === 1 ? 'locale' : 'locali'}`
-    : `${etichetta}${rest?.name ? ` · ${rest.name}` : ''}`
+    : `${etichetta}${conReparto ? reparto : ''}${rest?.name ? ` · ${rest.name}` : ''}`
 
   return {
     ruolo,

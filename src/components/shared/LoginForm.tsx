@@ -1,9 +1,10 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Spinner } from '@/components/accesso/AccessoLayout'
+import { Spinner, CLASSE_CAMPO } from '@/components/accesso/AccessoLayout'
+import { toast } from '@/hooks/use-toast'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Must match the domain used in /api/users POST to generate fake-email accounts.
@@ -24,8 +25,21 @@ export function LoginForm() {
   const searchParams = useSearchParams()
   const sessioneScaduta = searchParams.get('sessione_scaduta') === '1'
 
+  // Dopo "Esci" (Chiusura Tablet v2, 5f) si torna qui con una conferma
+  // che resta qualche secondo: il guscio la lascia in sessionStorage.
+  useEffect(() => {
+    let msg: string | null = null
+    try { msg = sessionStorage.getItem('inturno-uscita'); sessionStorage.removeItem('inturno-uscita') } catch {}
+    if (msg) toast({ title: msg })
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (loading) return
+    if (!credential.trim() || !password) {
+      setError('Inserisci username e password')
+      return
+    }
     setLoading(true)
     setError(null)
 
@@ -46,7 +60,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       {sessioneScaduta && (
         <p className="rounded-[12px] bg-warn-tint px-3 py-2.5 text-center text-sm font-medium text-warn text-pretty">
           La sessione è scaduta. Accedi di nuovo per continuare.
@@ -60,13 +74,12 @@ export function LoginForm() {
           value={credential}
           onChange={e => { setCredential(e.target.value); setError(null) }}
           placeholder="mario.rossi"
-          required
           autoComplete="username"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
           aria-invalid={!!error || undefined}
-          className="h-[50px]"
+          className={CLASSE_CAMPO}
         />
       </label>
       <label className="flex flex-col gap-[7px]">
@@ -77,14 +90,13 @@ export function LoginForm() {
           value={password}
           onChange={e => { setPassword(e.target.value); setError(null) }}
           placeholder="••••••••"
-          required
           autoComplete="current-password"
           aria-invalid={!!error || undefined}
-          className="h-[50px]"
+          className={CLASSE_CAMPO}
         />
       </label>
       {error && <p className="anim-swapin text-sm font-medium text-neg">{error}</p>}
-      <Button type="submit" size="lg" className="w-full" disabled={loading} style={{ opacity: loading ? 0.85 : 1 }}>
+      <Button type="submit" size="lg" className="w-full active:scale-[0.98]" aria-busy={loading || undefined} style={{ opacity: loading ? 0.85 : 1 }}>
         {loading && <Spinner />}
         {loading ? 'Accesso in corso…' : 'Accedi'}
       </Button>

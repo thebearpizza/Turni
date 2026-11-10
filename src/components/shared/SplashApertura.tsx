@@ -1,60 +1,71 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 
-// Animazione del logo a tutto schermo, al posto degli skeleton di
-// caricamento. Parte:
-// - all'apertura dell'app, una volta per sessione (sessionStorage) — non a
-//   ogni ricarica;
-// - quando si entra in una macro area diversa (Turni, Cassa, Acquisti,
-//   Consulente) o si torna all'hub. Muoversi fra le pagine della stessa
-//   area — compresi i redirect interni, es. /cassa → /cassa/analisi — non
-//   la fa ripartire né la interrompe.
-// Resta finché la schermata sotto ha skeleton nel DOM: durata variabile.
-// La sequenza d'ingresso (globals.css) si completa in circa 1,6 s: la
-// "it" compare verso 1,1 s. Sotto questa soglia lo splash la tronca.
-// Il conteggio parte dall'effetto, cioè dopo l'idratazione, ma la
-// sequenza CSS parte già dal primo disegno della pagina: il margine
-// copre anche il caso in cui l'idratazione arrivi prestissimo.
-const DURATA_MINIMA_MS = 2000
-// All'apertura il conto parte da quando gli strati del logo sono caricati
-// (la sequenza, già in corso dal primo disegno, a quel punto può averli
-// mostrati solo in quel momento): abbastanza perché la "it" si veda.
-const DURATA_MINIMA_APERTURA_MS = 1400
+// Apertura dell'app (Splash.dc.html, variante 3a "Scuro, alone chiaro"):
+// solo al primo avvio della sessione. Il logo a strati resta finché la
+// Home è pronta (minimo 1,4 s, massimo 12 s), poi rimpicciolisce e si
+// posa sul logo dell'intestazione mentre il fondo sfuma; gli anelli
+// rallentano fino a fermarsi dritti, così l'atterraggio combacia col logo
+// statico. Nei cambi di tab e di area niente splash: il contenuto mostra
+// lo scheletro della pagina (AppShell).
+//
+// Il logo è diviso in strati (vedi scripts/genera-logo.py) animati con CSS
+// sugli <img> interi: il browser li esegue fuori dal thread principale,
+// quindi restano fluidi anche mentre l'app si idrata e carica i dati.
+
+const DURATA_MINIMA_MS = 1400
 const DURATA_MASSIMA_MS = 12000
 // Gli skeleton devono restare assenti per un attimo: fra il loading.tsx
 // della rotta e gli skeleton del componente client c'è un istante senza.
 const STABILITA_MS = 300
-// Durata della "posa": il logo vola sul logo dell'intestazione e lo sfondo sfuma.
-const DURATA_POSA_MS = 700
-const RITARDO_INDIETRO_MS = 3000
-const SELETTORE_SKELETON = '.skeleton-shimmer, [data-skeleton], div.bg-muted.animate-pulse'
+const SELETTORE_SKELETON = '.skeleton-shimmer, [data-skeleton], [data-sk-layer], div.bg-muted.animate-pulse'
+const FONDO = 'oklch(0.17 0.008 250)'
 
-const PAGINE_TURNI = ['dashboard', 'account-pendenti', 'approvazioni', 'assenze', 'bacheca', 'dipendenti', 'ods', 'presenze', 'report', 'ristoranti', 'turni']
+type Fase = 'visibile' | 'volo' | 'finita'
 
-function macroArea(pathname: string): string | null {
-  const primo = pathname.split('/')[1] ?? ''
-  if (['hub', 'cassa', 'acquisti', 'consulente', 'home'].includes(primo)) return primo
-  if (PAGINE_TURNI.includes(primo)) return 'turni'
-  return null
+function segna(v: 'on' | 'volo' | 'no') {
+  document.documentElement.dataset.splash = v
 }
 
-type Fase = 'visibile' | 'uscita' | 'finita'
+// Ferma gli anelli senza scatti (prototipo: settle): ognuno completa il
+// giro in corso alla sua velocità e si posa a 0°; la "it" torna dritta.
+// Restituisce quanto dura l'assestamento più lungo.
+function assesta(radice: HTMLElement | null): number {
+  let massimo = 680
+  radice?.querySelectorAll<HTMLImageElement>('img[data-r]').forEach(img => {
+    const m = getComputedStyle(img).transform
+    const verso = img.dataset.r
+    img.style.animation = 'none'
+    if (verso === 'f') {
+      img.style.transform = m && m !== 'none' ? m : 'none'
+      void img.offsetWidth
+      img.style.transition = 'transform 680ms cubic-bezier(0.22,1,0.36,1)'
+      img.style.transform = 'none'
+      return
+    }
+    const q = m && m.match(/matrix\(([^)]+)\)/)
+    let a = 0
+    if (q) { const p = q[1].split(',').map(Number); a = Math.atan2(p[1], p[0]) * 180 / Math.PI }
+    const orario = verso === 'cw'
+    const da = orario ? (a < 0 ? a + 360 : a) : (a > 0 ? a - 360 : a)
+    const resto = orario ? 360 - da : 360 + da
+    const durata = Math.round(Math.min(1100, Math.max(450, 3000 * resto / (orario ? 112.5 : 75))))
+    img.style.transform = `rotate(${da}deg)`
+    void img.offsetWidth
+    img.style.transition = `transform ${durata}ms cubic-bezier(0.33,1,0.68,1)`
+    img.style.transform = `rotate(${orario ? 360 : -360}deg)`
+    massimo = Math.max(massimo, durata)
+  })
+  return massimo
+}
 
 export function SplashApertura() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const areaPrecedente = useRef<string | null | undefined>(undefined)
   const timer = useRef<ReturnType<typeof setTimeout>[]>([])
   const intervallo = useRef<ReturnType<typeof setInterval> | null>(null)
-  const saltaProssimo = useRef(false)
   const [fase, setFase] = useState<Fase>('visibile')
-  const [mostraIndietro, setMostraIndietro] = useState(false)
   const [pronto, setPronto] = useState(true)
-  const [giro, setGiro] = useState(0)
   const logoRef = useRef<HTMLDivElement | null>(null)
-  const [conIndietro, setConIndietro] = useState(false)
+  const voloRef = useRef<HTMLDivElement | null>(null)
   const [posa, setPosa] = useState<{ x: number; y: number; s: number } | null>(null)
 
   const ferma = useCallback(() => {
@@ -66,44 +77,30 @@ export function SplashApertura() {
 
   const chiudi = useCallback(() => {
     // Segnata come vista solo quando si chiude davvero: se l'app si
-    // ricarica o il componente si rimonta durante l'apertura (redirect
-    // dopo il login, ricarica del service worker), lo splash riparte da
-    // capo invece di sparire a metà sequenza.
+    // ricarica durante l'apertura (redirect dopo il login, ricarica del
+    // service worker) lo splash riparte da capo invece di sparire a metà.
     try { sessionStorage.setItem('splash-mostrata', '1') } catch {}
     ferma()
-    // Design: il logo si rimpicciolisce e si posa sul logo
-    // dell'intestazione, mentre lo sfondo sfuma sulla pagina pronta.
+    const ridotto = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const bersaglio = document.querySelector('[data-logo-intestazione]')?.getBoundingClientRect()
-    const da = logoRef.current?.getBoundingClientRect()
-    if (bersaglio && da && bersaglio.width > 0) {
+    const da = voloRef.current?.getBoundingClientRect()
+    let fine = 480
+    if (bersaglio && da && bersaglio.width > 0 && !ridotto) {
       setPosa({
         x: bersaglio.left + bersaglio.width / 2 - (da.left + da.width / 2),
         y: bersaglio.top + bersaglio.height / 2 - (da.top + da.height / 2),
         s: bersaglio.width / da.width,
       })
+      fine = assesta(logoRef.current) + 40
     }
-    setFase('uscita')
-    timer.current.push(setTimeout(() => setFase('finita'), DURATA_POSA_MS))
+    segna('volo')
+    setFase('volo')
+    timer.current.push(setTimeout(() => { segna('no'); setFase('finita') }, fine))
   }, [ferma])
 
-  const avvia = useCallback((indietroPossibile: boolean) => {
+  const avvia = useCallback(() => {
     ferma()
-    setFase('visibile')
-    setMostraIndietro(false)
-    setConIndietro(indietroPossibile)
-    if (indietroPossibile) {
-      timer.current.push(setTimeout(() => setMostraIndietro(true), RITARDO_INDIETRO_MS))
-    }
-    // Cambio area: nuova chiave, il logo si rimonta e la sequenza CSS
-    // riparte da capo, in pausa finché gli strati non sono caricati.
-    // All'apertura invece la sequenza è già partita col primo disegno
-    // della pagina renderizzata dal server: non va interrotta.
-    const apertura = !indietroPossibile
-    if (!apertura) {
-      setGiro(g => g + 1)
-      setPronto(false)
-    }
-    const minima = apertura ? DURATA_MINIMA_APERTURA_MS : DURATA_MINIMA_MS
+    segna('on')
     const avviato = Date.now()
     let inizio: number | null = null
     let senzaSkeletonDa: number | null = null
@@ -114,8 +111,7 @@ export function SplashApertura() {
       if (inizio === null) {
         const immagini = Array.from(logoRef.current?.querySelectorAll('img') ?? [])
         const caricate = immagini.length > 0 && immagini.every(i => i.complete)
-        // Immagini bloccate (rete assente): non restare in pausa per sempre.
-        if (!caricate && Date.now() - avviato < 4000) return
+        if (!caricate && Date.now() - avviato < 4000) { setPronto(false); return }
         setPronto(true)
         inizio = Date.now()
       }
@@ -123,98 +119,66 @@ export function SplashApertura() {
       if (document.querySelector(SELETTORE_SKELETON)) senzaSkeletonDa = null
       else if (senzaSkeletonDa === null) senzaSkeletonDa = Date.now()
       const pronta = senzaSkeletonDa !== null && Date.now() - senzaSkeletonDa >= STABILITA_MS
-      if ((trascorso >= minima && pronta) || trascorso >= DURATA_MASSIMA_MS) chiudi()
+      if ((trascorso >= DURATA_MINIMA_MS && pronta) || trascorso >= DURATA_MASSIMA_MS) chiudi()
     }, 100)
   }, [ferma, chiudi])
 
-  // Il ciclo di vita dello splash non dipende dal pathname: i timer si
-  // fermano solo allo smontaggio o quando lo splash stesso si chiude.
-  useEffect(() => ferma, [ferma])
-
   useEffect(() => {
-    const area = macroArea(pathname)
-    const primoRender = areaPrecedente.current === undefined
-    const cambioArea = !primoRender && area !== null && area !== areaPrecedente.current
-    areaPrecedente.current = area
+    let giaMostrata = false
+    try { giaMostrata = sessionStorage.getItem('splash-mostrata') === '1' } catch {}
+    const t = setTimeout(() => {
+      if (giaMostrata) { segna('no'); setFase('finita') } else avvia()
+    }, 0)
+    return () => { clearTimeout(t); ferma() }
+  }, [avvia, ferma])
 
-    if (primoRender) {
-      let giaMostrata = false
-      try { giaMostrata = sessionStorage.getItem('splash-mostrata') === '1' } catch {}
-      if (giaMostrata) {
-        const t = setTimeout(() => setFase('finita'), 0)
-        return () => clearTimeout(t)
-      }
-      const t = setTimeout(() => avvia(false), 0)
-      return () => clearTimeout(t)
-    }
-    // Design Acciaio: nei cambi di tab e di area niente splash, il
-    // contenuto mostra lo skeleton della pagina.
-    void cambioArea
-  }, [pathname, avvia])
-
-  function tornaIndietro() {
-    saltaProssimo.current = true
-    chiudi()
-    router.back()
-  }
+  const volo = fase === 'volo'
+  const sfuma = (ms: number): React.CSSProperties => ({ opacity: volo ? 0 : 1, transition: `opacity ${ms}ms ease-out` })
 
   // Su un ricaricamento nella stessa sessione lo script, eseguito prima del
-  // primo disegno, nasconde subito lo splash renderizzato dal server:
-  // niente lampo del logo prima che l'effetto lo smonti.
-  //
-  // Il logo è diviso in strati (vedi scripts/genera-logo.py) animati con
-  // CSS sugli <img> interi: il browser li esegue fuori dal thread
-  // principale, quindi restano fluidi anche mentre l'app è occupata a
-  // idratarsi e caricare dati. Le animazioni interne all'SVG si
-  // bloccherebbero proprio in quei momenti. Sequenza in globals.css.
+  // primo disegno, nasconde subito lo splash renderizzato dal server.
   return (
     <>
       <script
         dangerouslySetInnerHTML={{
-          __html: "try{if(sessionStorage.getItem('splash-mostrata')==='1')document.documentElement.dataset.splash='no'}catch(e){}",
+          __html: "try{document.documentElement.dataset.splash=sessionStorage.getItem('splash-mostrata')==='1'?'no':'on'}catch(e){}",
         }}
       />
       {fase !== 'finita' && (
-        <div
-          id="splash-apertura"
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-10"
-          style={{ pointerEvents: fase === 'uscita' ? 'none' : 'auto' }}
-        >
-          <div
-            className="absolute inset-0 bg-background transition-opacity ease-out"
-            style={{ opacity: fase === 'uscita' ? 0 : 1, transitionDuration: `${DURATA_POSA_MS}ms` }}
-          />
-          <div
-            className="relative transition-[transform,opacity] ease-[cubic-bezier(0.22,1,0.36,1)]"
-            style={{
-              transitionDuration: `${DURATA_POSA_MS}ms`,
-              transform: fase === 'uscita' && posa ? `translate(${posa.x}px, ${posa.y}px) scale(${posa.s})` : undefined,
-              opacity: fase === 'uscita' && !posa ? 0 : 1,
-            }}
-          >
-          <div key={giro} ref={logoRef} aria-hidden className={`splash-logo ${pronto ? 'splash-pronto' : ''}`}>
-            <div className="splash-alone" />
-            <div className="splash-onda" />
-            {/* eslint-disable @next/next/no-img-element -- SVG statici a strati animati via CSS, next/image non serve */}
-            <img src="/logo-animato-fondo.svg" alt="" className="splash-strato" />
-            <img src="/logo-animato-interno.svg" alt="" className="splash-strato splash-interno" />
-            <img src="/logo-animato-lettere.svg" alt="" className="splash-strato splash-lettere" />
-            <img src="/logo-animato-esterno.svg" alt="" className="splash-strato splash-esterno" />
-            <img src="/logo-animato-riflessi.svg" alt="" className="splash-strato splash-riflessi" />
-            {/* eslint-enable @next/next/no-img-element */}
-            <div className="splash-riflesso" />
-          </div>
-          </div>
-          {conIndietro && (
-            <button
-              type="button"
-              onClick={tornaIndietro}
-              className="flex items-center gap-2 rounded-full border border-white/20 px-5 py-2.5 text-sm text-white/80 transition-opacity duration-300 active:bg-white/10"
-              style={{ opacity: mostraIndietro ? 1 : 0, pointerEvents: mostraIndietro ? 'auto' : 'none' }}
+        <div id="splash-apertura" aria-hidden className="fixed inset-0 z-[100]" style={{ pointerEvents: volo ? 'none' : 'auto' }}>
+          <div className="absolute inset-0" style={{ background: FONDO, opacity: volo ? 0 : 1, transition: 'opacity 460ms cubic-bezier(0.4,0,0.2,1)' }} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-[26px] sm:gap-[30px]">
+            <div
+              ref={voloRef}
+              className="relative"
+              style={{
+                transform: volo && posa ? `translate(${posa.x}px, ${posa.y}px) scale(${posa.s})` : undefined,
+                opacity: volo && !posa ? 0 : 1,
+                transition: 'transform 680ms cubic-bezier(0.22,1,0.36,1), opacity 320ms ease-out',
+              }}
             >
-              <ArrowLeft className="h-4 w-4" /> Torna indietro
-            </button>
-          )}
+              {/* Contenitori di dissolvenza: l'opacità degli strati è già
+                  animata, quindi la sfumatura del volo sta su un genitore. */}
+              <div className="absolute inset-0" style={sfuma(260)}><div className="splash-alone" /></div>
+              <div className="absolute inset-0" style={sfuma(200)}><div className="splash-onda" /></div>
+              <div ref={logoRef} className={`splash-logo ${pronto ? 'splash-pronto' : ''}`}>
+                {/* eslint-disable @next/next/no-img-element -- SVG statici a strati animati via CSS, next/image non serve */}
+                <img src="/logo-animato-fondo.svg" alt="" draggable={false} className="splash-strato" />
+                <img src="/logo-animato-interno.svg" alt="" draggable={false} data-r="ccw" className="splash-strato splash-interno" />
+                <img src="/logo-animato-lettere.svg" alt="" draggable={false} data-r="f" className="splash-strato splash-lettere" />
+                <img src="/logo-animato-esterno.svg" alt="" draggable={false} data-r="cw" className="splash-strato splash-esterno" />
+                <img src="/logo-animato-riflessi.svg" alt="" draggable={false} className="splash-strato splash-riflessi" />
+                {/* eslint-enable @next/next/no-img-element */}
+                <div className="absolute inset-0" style={sfuma(200)}><div className="splash-riflesso" /></div>
+              </div>
+            </div>
+            {/* Marchio sotto il logo: sfuma col fondo quando il logo vola. */}
+            <span style={{ opacity: volo ? 0 : 1, transition: 'opacity 460ms cubic-bezier(0.4,0,0.2,1)' }}>
+              <span className="splash-marchio block text-[26px] font-semibold leading-[1.2] tracking-[-0.02em] text-[oklch(0.97_0.005_250)] sm:text-[32px]">
+                inTurno
+              </span>
+            </span>
+          </div>
         </div>
       )}
     </>

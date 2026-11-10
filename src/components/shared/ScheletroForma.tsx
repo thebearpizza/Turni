@@ -151,10 +151,10 @@ function riserva(W: number, H: number, pezzo: (t: 'b' | 't' | 'f', r: Rett, o?: 
   for (const w of [92, 108, 96, 86]) { if (x + w <= W - p) it('b', x, 0, w, 40, { r: '999px' }); x += w + 6 }
   const y = 52, ch = Math.max(120, H - y - (W < 600 ? 104 : 120))
   it('f', p, y, cw, ch, { r: '12px', bgc: 'var(--card)', bc: 'var(--border)', bw: '1px' })
-  it('f', p + 1, y + 1, cw - 2, 40, { r: '11px 11px 0 0', bgc: 'var(--background)' })
+  it('f', p + 1, y + 1, cw - 2, 40, { r: '11px 11px 0 0', bgc: 'var(--sk-hd)' })
   it('t', p + 14, y + 16, Math.min(160, cw * 0.3), 9, { r: '3px' })
   for (let ry = y + 41; ry + 56 <= y + ch; ry += 56) {
-    it('f', p + 1, ry, cw - 2, 1, { bgc: 'var(--border)' })
+    it('f', p + 1, ry, cw - 2, 1, { bgc: 'var(--sk-div)' })
     it('t', p + 14, ry + 15, cw * 0.32, 10, { r: '3px' })
     it('t', p + 14, ry + 32, cw * 0.2, 8, { r: '3px' })
     it('b', p + cw - 14 - 72, ry + 14, 72, 28, { r: '8px' })
@@ -174,6 +174,10 @@ export function ScheletroForma({ esce, className }: { esce: boolean; className?:
     if (!me) return
     let raf = 0
     const aggiorna = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { const m = misura(me); if (m) setStato(m) }) }
+    // Come nel prototipo: una misura subito (niente fotogramma vuoto) e
+    // una al fotogramma dopo, a layout assestato. La prima è in un
+    // microtask per non chiamare setState in modo sincrono nell'effect.
+    queueMicrotask(() => { const m = misura(me); if (m) setStato(m) })
     aggiorna()
     const root = me.parentElement?.closest('[data-sk-root]')
     const mo = root ? new MutationObserver(ms => { if (fermo.current || ms.every(m => me.contains(m.target))) return; aggiorna() }) : null

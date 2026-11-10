@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/shell/AppShell'
 import { datiShell } from '@/components/shell/datiShell'
-import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { AreaTheme } from '@/components/shared/AreaTheme'
 
 export default async function CassaLayout({ children }: { children: React.ReactNode }) {
@@ -26,13 +25,13 @@ export default async function CassaLayout({ children }: { children: React.ReactN
 
   const shell = await datiShell(supabase, profile)
 
-  // Le notifiche push si riallineano a ogni apertura di Cassa (chi ci
-  // lavora tutto il giorno altrimenti non rinnovava mai la registrazione):
-  // il banner resta, ora sotto l'intestazione del guscio.
+  // Le notifiche push si riallineano a ogni apertura (chi lavora in Cassa
+  // tutto il giorno altrimenti non rinnovava mai la registrazione): lo fa
+  // il guscio, che monta PushNotificationPrompt per tutti i ruoli.
   return (
-    <AppShell {...shell} banner={<PushNotificationPrompt />}>
+    <AppShell {...shell}>
       <AreaTheme classes="cassa" />
-      <div className="cassa min-h-full bg-background text-foreground">{children}</div>
+      <div className="cassa h-full bg-background text-foreground">{children}</div>
     </AppShell>
   )
 }

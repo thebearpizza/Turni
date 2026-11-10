@@ -17,7 +17,7 @@ const TZ = 'Europe/Rome'
 // mostrasse: restavano scritte a DB e mai lette (vedi audit). La RLS
 // sulla tabella limita già le righe al proprio user_id, quindi le query
 // qui sotto non filtrano esplicitamente per utente — stesso pattern già
-// in uso in BottomNav/ManagerSidebar per il badge ODS.
+// in uso nei contatori del guscio (shell/useContatori.ts) per il badge ODS.
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<AppNotification[]>([])

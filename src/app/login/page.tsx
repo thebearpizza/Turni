@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { LoginForm } from '@/components/shared/LoginForm'
-import { AccessoLayout } from '@/components/accesso/AccessoLayout'
+import { AccessoLayout, CLASSE_LINK } from '@/components/accesso/AccessoLayout'
 
 export default function LoginPage() {
   return (
@@ -12,7 +12,7 @@ export default function LoginPage() {
           <span className="max-w-[300px] text-[13px] text-muted-foreground text-pretty">Dipendente? Chiedi le tue credenziali al tuo manager, non serve registrarsi.</span>
           <span className="text-sm text-muted-foreground">
             Vuoi provare inTurno per il tuo locale?{' '}
-            <Link href="/register" className="font-semibold text-foreground underline">Registra la tua attività</Link>
+            <Link href="/register" className={CLASSE_LINK}>Registra la tua attività</Link>
           </span>
         </div>
       }

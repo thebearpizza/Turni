@@ -51,6 +51,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </OfflineSyncProvider>
           <Toaster />
           <ConfermaHost />
+          {/* Telefono in orizzontale (Safari ignora l'orientamento del
+              manifest): l'app è pensata solo in verticale. */}
+          <div className="avviso-orientamento" role="alert">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" /></svg>
+            <span className="text-[17px] font-semibold">Ruota il telefono</span>
+            <span className="text-sm text-muted-foreground">inTurno si usa in verticale.</span>
+          </div>
         </ThemeProvider>
       </body>
     </html>

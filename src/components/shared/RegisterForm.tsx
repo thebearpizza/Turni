@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { AccessoLayout, Spinner } from '@/components/accesso/AccessoLayout'
+import { AccessoLayout, Spinner, CLASSE_CAMPO, CLASSE_LINK } from '@/components/accesso/AccessoLayout'
 import Link from 'next/link'
 
 type Step = 'form' | 'success'
@@ -21,6 +21,11 @@ export function RegisterForm() {
     e.preventDefault()
     setError(null)
 
+    if (loading) return
+    if (!fullName.trim() || !email.trim() || !password || !confirm) {
+      setError('Compila tutti i campi')
+      return
+    }
     if (password !== confirm) {
       setError('Le password non coincidono')
       return
@@ -84,11 +89,11 @@ export function RegisterForm() {
       nota="Sei un dipendente? Le credenziali te le fornisce il tuo manager."
       dopo={
         <span className="text-center text-sm text-muted-foreground">
-          Hai già un account? <Link href="/login" className="font-semibold text-foreground underline">Accedi</Link>
+          Hai già un account? <Link href="/login" className={CLASSE_LINK}>Accedi</Link>
         </span>
       }
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
         {campi.map(c => (
           <label key={c.id} className="flex flex-col gap-[7px]">
             <span className="text-[13px] font-medium text-muted-foreground">{c.label}</span>
@@ -99,14 +104,13 @@ export function RegisterForm() {
               onChange={e => { c.set(e.target.value); setError(null) }}
               placeholder={c.ph}
               autoComplete={c.ac}
-              required
               aria-invalid={(erroreSuPassword && c.type === 'password') || undefined}
-              className="h-[50px]"
+              className={CLASSE_CAMPO}
             />
           </label>
         ))}
         {error && <p className="anim-swapin text-sm font-medium text-neg">{error}</p>}
-        <Button type="submit" size="lg" className="w-full" disabled={loading} style={{ opacity: loading ? 0.85 : 1 }}>
+        <Button type="submit" size="lg" className="w-full active:scale-[0.98]" aria-busy={loading || undefined} style={{ opacity: loading ? 0.85 : 1 }}>
           {loading && <Spinner />}
           {loading ? 'Invio richiesta…' : 'Richiedi accesso'}
         </Button>

@@ -28,7 +28,7 @@ export default async function AcquistiLayout({ children }: { children: React.Rea
   return (
     <AppShell {...shell}>
       <AreaTheme classes="cassa acquisti" />
-      <div className="cassa acquisti min-h-full bg-background text-foreground">{children}</div>
+      <div className="cassa acquisti h-full bg-background text-foreground">{children}</div>
     </AppShell>
   )
 }

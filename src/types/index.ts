@@ -304,6 +304,8 @@ export interface StandardShift {
   day_of_week:   number // 0=Dom .. 6=Sab
   start_time:    string
   end_time:      string
+  /** Giorno di riposo nello schema standard (nessun orario). */
+  is_rest_day?:  boolean
   created_by:    string | null
   created_at:    string
   updated_at:    string

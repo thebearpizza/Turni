@@ -1,21 +1,25 @@
 "use client"
 import { useSyncExternalStore } from "react"
 
-// Canale di notifica non bloccante condiviso da tutta l'app — sostituisce i
-// vari alert() nativi e gli errori silenziosi sparsi nei singoli componenti.
-// Stato a modulo (non un context): toast() è chiamabile anche fuori da un
-// componente React (es. da un handler async) senza dover passare un
-// dispatcher in giro.
+// Toast unico del design (Errori.dc.html): nero, in basso, 4 secondi,
+// pallino verde per le conferme e rosso con ✕ per gli errori, con
+// un'azione facoltativa (es. "Riprova", "Annulla"). Stato a modulo (non
+// un context): toast() è chiamabile anche fuori da un componente React
+// (es. da un handler async) senza dover passare un dispatcher in giro.
 
 export interface ToastItem {
   id: string
   title: string
   description?: string
   variant?: "default" | "destructive"
+  /** Pulsante a destra del messaggio: "Riprova" dopo un errore, "Annulla". */
+  action?: { label: string; onClick: () => void }
+  /** In uscita (swapout di 320 ms prima di sparire). */
+  uscita?: boolean
 }
 
-// Regola unica del design: ogni toast resta 4 secondi.
 const DURATION_MS = 4000
+const USCITA_MS = 320
 
 let toasts: ToastItem[] = []
 const listeners = new Set<() => void>()
@@ -25,11 +29,13 @@ function emit() {
 }
 
 function dismiss(id: string) {
-  toasts = toasts.filter(t => t.id !== id)
+  if (!toasts.some(t => t.id === id && !t.uscita)) return
+  toasts = toasts.map(t => (t.id === id ? { ...t, uscita: true } : t))
   emit()
+  setTimeout(() => { toasts = toasts.filter(t => t.id !== id); emit() }, USCITA_MS)
 }
 
-export function toast(item: Omit<ToastItem, "id">) {
+export function toast(item: Omit<ToastItem, "id" | "uscita">) {
   const id = crypto.randomUUID()
   toasts = [...toasts, { ...item, id }]
   emit()

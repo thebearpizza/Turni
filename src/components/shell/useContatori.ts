@@ -5,10 +5,12 @@ import { createClient } from '@/lib/supabase/client'
 import { useBadging } from '@/hooks/useBadging'
 import type { Ruolo } from './navigazione'
 
-// Contatori dei badge della navigazione (segmenti, barra, menu): stesse
-// query che prima stavano sparse nei vecchi menu laterali di ogni area
-// (ManagerSidebar, CassaSidebar, AcquistiSidebar, BottomNav), riunite
-// qui perché la nuova barra è unica per ruolo e le mostra tutte insieme.
+// Contatori dei badge della navigazione (segmenti in alto e dock in
+// basso): stesse query che prima stavano sparse nei vecchi menu laterali
+// di ogni area, riunite qui perché il guscio è unico per ruolo e le
+// mostra tutte insieme. Nel design: Assenze, Approvazioni, Fatture e ODS
+// (nuovi completamenti per manager e direttore, notifiche non lette per
+// dipendente e capo servizio).
 export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<string, number> {
   const pathname = usePathname()
   const [c, setC] = useState<Record<string, number>>({})
@@ -19,6 +21,7 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
   const vedeFatture = ruolo === 'manager' || ruolo === 'direttore'
   const vedeNotificheOds = ruolo === 'dipendente' || ruolo === 'capo_servizio'
   const vedeBacheca = ruolo === 'capo_servizio'
+  const vedeCompletamentiOds = ruolo === 'manager' || ruolo === 'direttore'
 
   useEffect(() => {
     const supabase = createClient()
@@ -61,12 +64,26 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
       f()
       canali.push(supabase.channel(`shell_ods_${uid}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, f).subscribe())
     }
+    if (vedeCompletamentiOds) {
+      // "1 nuovo completamento": ODS completati dopo l'ultima visita alla
+      // pagina ODS (segnaposto in localStorage, come la Bacheca). Alla
+      // prima apertura contano quelli di oggi.
+      const f = async () => {
+        let visti = ''
+        try { visti = localStorage.getItem('ods_completamenti_visti') ?? '' } catch {}
+        if (!visti) { const d = new Date(); d.setHours(0, 0, 0, 0); visti = d.toISOString() }
+        const { count } = await supabase.from('ods_completions').select('task_id', { count: 'exact', head: true }).gt('completed_at', visti)
+        set('ods', count ?? 0)
+      }
+      f()
+      canali.push(supabase.channel(`shell_ods_compl_${uid}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ods_completions' }, f).subscribe())
+    }
     if (isPlatformOwner) {
       supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'manager').eq('account_status', 'pending')
         .then(({ count }) => set('account', count ?? 0))
     }
     return () => { canali.forEach(ch => supabase.removeChannel(ch)) }
-  }, [vedeAssenze, vedeModifiche, vedeFatture, vedeNotificheOds, isPlatformOwner])
+  }, [vedeAssenze, vedeModifiche, vedeFatture, vedeNotificheOds, vedeCompletamentiOds, isPlatformOwner])
 
   // Comunicati non letti (capo servizio): watermark in localStorage
   // aggiornato alla visita della Bacheca, come prima.
@@ -82,6 +99,14 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
     createClient().from('bulletins').select('id', { count: 'exact', head: true }).gt('created_at', lastSeen)
       .then(({ count }) => set('bacheca', count ?? 0))
   }, [vedeBacheca, pathname])
+
+  // Visitando la pagina ODS i completamenti si considerano visti.
+  useEffect(() => {
+    if (!vedeCompletamentiOds || pathname !== '/ods') return
+    try { localStorage.setItem('ods_completamenti_visti', new Date().toISOString()) } catch {}
+    const t = setTimeout(() => set('ods', 0), 0)
+    return () => clearTimeout(t)
+  }, [vedeCompletamentiOds, pathname])
 
   useBadging(vedeNotificheOds ? (c.ods ?? 0) : 0)
   return c

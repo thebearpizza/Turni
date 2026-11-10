@@ -1,15 +1,7 @@
-import { Skeleton } from '@/components/ui/skeleton'
-
-// Questa pagina fa solo un controllo auth/ruolo e reindirizza (a /login,
-// /hub, /dashboard, /home o /cassa a seconda del ruolo) — nessun layout
-// proprio da rispecchiare, solo un segnale che qualcosa sta caricando.
+// La radice fa solo un controllo di accesso e reindirizza alla Home del
+// ruolo: all'apertura c'è lo splash del logo, nei passaggi successivi
+// basta il fondo della pagina (niente segnaposto generici, il design
+// mostra lo scheletro solo a forma del contenuto vero).
 export default function Loading() {
-  return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-xs space-y-3">
-        <Skeleton className="h-3 w-24 mx-auto" />
-        <Skeleton className="h-9 w-full" />
-      </div>
-    </div>
-  )
+  return <div className="h-[100dvh] bg-background" />
 }

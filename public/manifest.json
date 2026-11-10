@@ -4,6 +4,7 @@
   "description": "Applicazione aziendale per la gestione di turni, presenze e ordini di servizio",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0f1011",
   "theme_color": "#18181b",
   "icons": [

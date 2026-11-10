@@ -29,7 +29,7 @@ function salva(ordine: string[]) {
 
 export interface LocalePillola { id: string; nome: string; colore: string }
 
-export function PilloleLocali({ locali, selezionati, onCambia, multipla = false, etichettaTutti = 'Tutti i locali', className, tuttiComeVuoto = false, nascondiSeUno = true }: {
+export function PilloleLocali({ locali, selezionati, onCambia, multipla = false, etichettaTutti = 'Tutti i locali', className, tuttiComeVuoto = false, nascondiSeUno = true, senzaTutti = false }: {
   locali: LocalePillola[]
   /** Locali scelti; vuoto = tutti. */
   selezionati: string[]
@@ -42,6 +42,8 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
   tuttiComeVuoto?: boolean
   /** Con un solo locale il filtro non serve. */
   nascondiSeUno?: boolean
+  /** Niente pillola "Tutti i locali": si sceglie sempre un locale (Turni). */
+  senzaTutti?: boolean
 }) {
   const raw = useSyncExternalStore(iscrivi, leggi, () => '[]')
   // Durante il trascinamento l'ordine vive in memoria e si salva al rilascio.
@@ -122,9 +124,11 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
       onContextMenu={e => e.preventDefault()}
       className={cn('-mx-4 flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
     >
-      <button type="button" onClick={() => onCambia([])} className={cn(base, 'z-[1] active:scale-[0.97]', stato(selezionati.length === 0))}>
-        {etichettaTutti}
-      </button>
+      {!senzaTutti && (
+        <button type="button" onClick={() => onCambia([])} className={cn(base, 'z-[1] active:scale-[0.97]', stato(selezionati.length === 0))}>
+          {etichettaTutti}
+        </button>
+      )}
       {lista.map(l => {
         const on = selezionati.includes(l.id), su = sollevata === l.nome
         return (

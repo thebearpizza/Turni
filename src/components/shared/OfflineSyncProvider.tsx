@@ -1,8 +1,8 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
 import {
   getOfflineQueue,
   clearOfflineItem,
@@ -10,16 +10,12 @@ import {
   type OdsTogglePayload,
 } from '@/lib/offlineSync'
 
-type Toast = { text: string; type: 'success' | 'info' }
-
+// Al ritorno della rete invia la coda offline (timbrature, ODS) e lo dice
+// col toast unico del design: verde se è andata, rosso per ciò che è stato
+// scartato. Mentre si è offline la striscia "Offline · N azioni in coda"
+// la mostra il guscio (shell/StrisciaOffline).
 export function OfflineSyncProvider({ children }: { children: React.ReactNode }) {
-  const [toast, setToast] = useState<Toast | null>(null)
   const router = useRouter()
-
-  function flash(text: string, type: Toast['type'] = 'success') {
-    setToast({ text, type })
-    setTimeout(() => setToast(null), 5000)
-  }
 
   const processQueue = useCallback(async () => {
     let queue
@@ -82,19 +78,19 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
     }
 
     if (synced > 0) {
-      flash('Dati offline sincronizzati con successo!')
+      toast({ title: synced === 1 ? 'Di nuovo online · 1 azione inviata' : `Di nuovo online · ${synced} azioni inviate` })
       // Lo stato di EmployeeHomeClient (presenza offline "provvisoria",
       // liste ODS) va riletto dal server: senza refresh resterebbe
       // agganciato ai dati ottimistici mostrati mentre si era offline.
       router.refresh()
     }
     if (failed > 0) {
-      flash(
-        failed === 1
+      toast({
+        title: failed === 1
           ? 'Una timbratura salvata offline non è stata sincronizzata: verificala con il manager.'
           : `${failed} timbrature salvate offline non sono state sincronizzate: verificale con il manager.`,
-        'info'
-      )
+        variant: 'destructive',
+      })
     }
   }, [router])
 
@@ -105,27 +101,5 @@ export function OfflineSyncProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener('online', processQueue)
   }, [processQueue])
 
-  return (
-    <>
-      {children}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            key={toast.text}
-            initial={{ opacity: 0, y: 20, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0,  scale: 1    }}
-            exit={{    opacity: 0, y: 10, scale: 0.97 }}
-            transition={{ duration: 0.2 }}
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-4 py-3 rounded-md text-sm font-medium border shadow-lg max-w-xs w-[calc(100%-2rem)] text-center pointer-events-none ${
-              toast.type === 'success'
-                ? 'bg-ok-tint text-ok border-ok/30'
-                : 'bg-primary/10 text-primary border-primary/30'
-            }`}
-          >
-            {toast.text}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
-  )
+  return <>{children}</>
 }

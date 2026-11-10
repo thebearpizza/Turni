@@ -129,7 +129,7 @@ export function CampoOrario({ value, onChange, disabled, className, placeholder 
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content side="bottom" align="start" sideOffset={6} collisionPadding={12} className="z-[60] anim-swapin outline-none">
+        <PopoverPrimitive.Content side="bottom" align="start" sideOffset={6} collisionPadding={12} className="z-[60] outline-none data-[state=open]:anim-swapin data-[state=closed]:anim-swapout">
           <Rotella value={value || '18:00'} onChange={onChange} onDone={() => setAperto(false)} />
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

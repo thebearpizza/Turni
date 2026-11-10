@@ -35,13 +35,24 @@ interface TastierinoProps {
   senzaVirgola?: boolean
   onRemove?: () => void
   removeLabel?: string
+  /** Etichetta del tasto separatore (default ","); il valore emesso resta ",". */
+  separatore?: string
+  /** Variante agganciata al fondo dello schermo (prop `dock` del prototipo):
+   *  tutta larghezza, solo bordo sopra, angoli alti arrotondati. */
+  dock?: boolean
   className?: string
 }
 
-export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel = 'Elimina', className }: TastierinoProps) {
+export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel = 'Elimina', separatore = ',', dock, className }: TastierinoProps) {
   const tasti: (TastoTastierino | null)[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', senzaVirgola ? null : ',', '0', 'del']
   return (
-    <div className={cn('flex w-[312px] max-w-[calc(100vw-24px)] flex-col gap-2 rounded-[10px] border border-line-strong bg-card p-3 shadow-[0_6px_24px_rgba(20,30,50,.10)]', className)}>
+    <div className={cn(
+      'flex flex-col gap-2 border-line-strong bg-card',
+      dock
+        ? 'w-full rounded-t-[16px] border-t px-3 pb-5 pt-3 shadow-[0_-8px_28px_rgba(20,30,50,.10)]'
+        : 'w-[312px] max-w-[calc(100vw-24px)] rounded-[10px] border p-3 shadow-[0_6px_24px_rgba(20,30,50,.10)]',
+      className
+    )}>
       <div className="grid grid-cols-3 gap-2">
         {tasti.map((k, i) =>
           k === null ? (
@@ -55,7 +66,7 @@ export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel 
               aria-label={k === 'del' ? 'Cancella' : k === ',' ? 'Virgola' : k}
               className="flex h-[60px] select-none items-center justify-center rounded-[6px] bg-[oklch(0.95_0.01_250)] font-mono text-2xl font-medium text-foreground transition-transform active:scale-[0.97] active:bg-[oklch(0.9_0.01_250)] dark:bg-[oklch(0.24_0.01_250)] dark:active:bg-[oklch(0.3_0.01_250)]"
             >
-              {k === 'del' ? ICONA_CANCELLA : k}
+              {k === 'del' ? ICONA_CANCELLA : k === ',' ? separatore : k}
             </button>
           )
         )}
@@ -225,7 +236,7 @@ export function CampoNumerico({
           sideOffset={6}
           collisionPadding={12}
           onOpenAutoFocus={e => e.preventDefault()}
-          className="z-[60] anim-swapin outline-none"
+          className="z-[60] outline-none data-[state=open]:anim-swapin data-[state=closed]:anim-swapout"
         >
           <Tastierino
             onKey={premi}
