@@ -1,44 +1,26 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import { FattureClient } from '@/components/acquisti/FattureClient'
+import { contestoAcquisti } from '../_lib/contesto'
 
-// L'accesso a /acquisti/* (manager, direttore) è già gestito da
-// acquisti/layout.tsx — qui serve solo il ruolo per scopare i dati
-// (locale singolo per il direttore, tutti quelli gestiti per il manager).
-export default async function FatturePage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase.from('profiles').select('role, restaurant_id').eq('id', user.id).single()
-  if (!profile) redirect('/login')
-
-  // categorie_fatture_dirette e fornitori sono già scoped da RLS
-  // sull'owner corretto per ogni ruolo, nessun filtro esplicito
-  // necessario qui.
-  const { data: categorieDirette } = await supabase.from('categorie_fatture_dirette').select('id, nome').order('nome')
-  const { data: fornitori } = await supabase.from('fornitori').select('id, nome').order('nome')
-
-  if (profile.role === 'manager') {
-    const { data: restaurants } = await supabase.from('restaurants').select('id, name').order('name')
-    return (
-      <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-        <h1 className="titolo-pagina">Fatture</h1>
-        <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate, per mese e ristorante.</p>
-        <FattureClient role="manager" restaurants={restaurants ?? []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
-      </div>
-    )
-  }
-
-  const { data: restaurant } = profile.restaurant_id
-    ? await supabase.from('restaurants').select('id, name').eq('id', profile.restaurant_id).single()
-    : { data: null }
-
+export default async function FatturePage({ searchParams }: { searchParams: Promise<{ xml?: string; f?: string }> }) {
+  const { xml, f } = await searchParams
+  const { supabase, ruolo, restaurants } = await contestoAcquisti()
+  // Categorie e fornitori sono già limitati da RLS al gestore giusto.
+  const [{ data: categorieDirette }, { data: fornitori }, fattura] = await Promise.all([
+    supabase.from('categorie_fatture_dirette').select('id, nome').order('nome'),
+    supabase.from('fornitori').select('id, nome').order('nome'),
+    // ?f=<id> (da Articoli › Ultimo acquisto): si apre il mese di quella fattura.
+    f ? supabase.from('fatture').select('id, data').eq('id', f).maybeSingle() : Promise.resolve({ data: null }),
+  ])
+  const sel = fattura.data as { id: string; data: string } | null
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-      <h1 className="titolo-pagina">Fatture</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Fatture caricate del tuo locale, per mese.</p>
-      <FattureClient role="direttore" restaurants={restaurant ? [restaurant] : []} categorieDirette={categorieDirette ?? []} fornitori={fornitori ?? []} />
-    </div>
+    <FattureClient
+      ruolo={ruolo}
+      restaurants={restaurants}
+      categorieDirette={categorieDirette ?? []}
+      fornitori={fornitori ?? []}
+      meseIniziale={sel?.data.slice(0, 7)}
+      selIniziale={sel?.id ?? null}
+      apriXml={xml === '1'}
+    />
   )
 }

@@ -1,823 +1,593 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { CurrencyInput } from '@/components/ui/currency-input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
-import { FornitoreMultiSelect } from '@/components/acquisti/FornitoreMultiSelect'
-import { FatturaCapture, type FatturaRisolta } from '@/components/acquisti/FatturaCapture'
-import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { friendlySaveError } from '@/lib/supabase/friendlyError'
+import { useRouter } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
-import { Camera, Eye, Upload, Trash2, Loader2, Pencil } from 'lucide-react'
-import { eur2 } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
+import { friendlySaveError } from '@/lib/supabase/friendlyError'
+import { toast } from '@/hooks/use-toast'
+import { useTelefono } from '@/hooks/useTelefono'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { CampoNumerico, type TastoTastierino } from '@/components/ui/tastierino'
+import { cn } from '@/lib/utils'
+import type { ArticoloTipologia, VerificaSospetta } from '@/types'
+import { Vista, Pannello, BloccoCampi, Scelte, type RigaVista, type SezioneDettaglio, type AzioneDettaglio } from './Vista'
+import {
+  ALIQUOTE, Bottone, IcoPiu, IcoScan, Modale, TZ, MESI_LUNGHI, arrotonda2, dataBreve, dataLunga, digita, eu, etichettaMese, fineMese,
+  localiDa, nf, numeroDa, spostaMese, useToccoFuori, useUscita,
+} from './comuni'
+import { FatturaCapture, type FatturaRisolta, type AvvioCattura } from './FatturaCapture'
+import { FatturaFotoViewer } from './FatturaFotoViewer'
+import { MenuNuovaFattura, ScansionaFattura } from './NuovaFattura'
+import { ImportaXml } from './ImportaXml'
 
-const TZ = 'Europe/Rome'
-
-interface RestaurantOption {
-  id: string
-  name: string
-}
-
-interface FornitoreOption {
-  id: string
-  nome: string
-}
+// Fatture (MTAcquisti, sezione "fatture"): elenco del mese con schede
+// Tutte / Da verificare, dettaglio con righe rettificabili dal riquadro
+// teal (quantità, prezzo, categoria, aliquota), conferma ed eliminazione;
+// "Nuova fattura" apre scanner, caricamento di file o importazione XML.
 
 interface Props {
-  role: 'manager' | 'direttore'
-  restaurants: RestaurantOption[]
-  categorieDirette: Array<{ id: string; nome: string }>
-  fornitori: FornitoreOption[]
+  ruolo: 'manager' | 'direttore'
+  restaurants: { id: string; name: string }[]
+  categorieDirette: { id: string; nome: string }[]
+  fornitori: { id: string; nome: string }[]
+  meseIniziale?: string
+  selIniziale?: string | null
+  apriXml?: boolean
 }
 
-interface ArticoloRiga {
+interface RigaArticolo {
+  id: string
+  testo_estratto: string
   quantita: number
+  prezzo_unitario: number
   prezzo_riga: number
-  catalogo_articolo: { tipologia: string; nome_articolo: string; unita_misura: string | null } | null
+  aliquota_iva: number | null
+  catalogo_articolo_id: string
+  art: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null } | null
 }
-
-interface AliquotaRiga {
-  aliquota: number
-  iva: number
-}
-
-interface Riga {
+interface Fattura {
   id: string
   restaurant_id: string
   fornitore_id: string
-  fornitore_nome: string
+  fornitore: string
   numero_documento: string
   data: string
   ha_articoli: boolean
-  categoria_diretta_id: string | null
-  categoria_diretta_nome: string | null
-  totale_netto: number
-  totale_iva: number
-  totale_lordo: number
-  vuoti_ritirati: number | null
+  categoria_id: string | null
+  categoria: string | null
+  netto: number
+  iva: number
+  lordo: number
+  vuoti: number | null
   foto_paths: string[]
-  fatture_articoli: ArticoloRiga[]
-  fatture_iva_dettaglio: AliquotaRiga[]
+  verifiche: VerificaSospetta[]
+  rettificata: boolean
+  righe: RigaArticolo[]
+  ivaDett: { id: string; aliquota: number; imponibile: number; iva: number }[]
 }
 
-// Chiave del prodotto in una lista di drill-down: nome + fornitore, non
-// solo nome — lo stesso prodotto acquistato da due fornitori diversi resta
-// due righe distinte, altrimenti "da quale fornitore" (richiesto insieme
-// all'accorpamento) diventerebbe ambiguo su quella riga.
-interface ProdottoAccorpato {
-  nome: string
-  fornitore: string
-  quantita: number
-  unita: string | null
-  totale: number
-}
+type Cat = 'food' | 'bev' | 'nofood'
+const catDi = (t?: ArticoloTipologia | null): Cat => (t === 'food' ? 'food' : t === 'beverage' ? 'bev' : 'nofood')
 
-type DrillKind = 'food' | 'beverage' | 'noFood' | 'utenze' | 'manutenzione'
+const SEL_BASE = `id, restaurant_id, fornitore_id, numero_documento, data, ha_articoli, categoria_spesa_diretta_id, totale_netto, totale_iva, totale_lordo, vuoti_ritirati, foto_paths, verifiche_sospette,
+  fornitore:fornitori(nome), categoria_diretta:categorie_fatture_dirette(nome),
+  fatture_iva_dettaglio(id, aliquota, imponibile, iva)`
+const SEL_RIGHE = (conAliquota: boolean) => `fatture_articoli(id, testo_estratto, quantita, prezzo_unitario, prezzo_riga, catalogo_articolo_id${conAliquota ? ', aliquota_iva' : ''}, art:catalogo_articoli(nome_articolo, tipologia, unita_misura))`
 
-const DRILL_LABELS: Record<DrillKind, string> = {
-  food: 'Totale Food',
-  beverage: 'Totale Beverage',
-  noFood: 'Totale No Food',
-  utenze: 'Totale Utenze',
-  manutenzione: 'Totale Manutenzione',
-}
+// Colonne aggiunte dalla migrazione proposta (aliquota per riga, data di
+// rettifica): finché non c'è, la query ripiega su quella di sempre.
+let conColonneNuove = true
 
-function monthRange(month: string): { start: string; end: string } {
-  const [year, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const lastDay = new Date(year, m, 0).getDate()
-  const end = `${month}-${String(lastDay).padStart(2, '0')}`
-  return { start, end }
-}
-
-export function FattureClient({ role, restaurants, categorieDirette, fornitori }: Props) {
-  const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
-  const [selectedFornitori, setSelectedFornitori] = useState<string[]>([])
-  const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
-  const [righe, setRighe] = useState<Riga[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploadRestaurantId, setUploadRestaurantId] = useState(restaurants[0]?.id ?? '')
-  const [captureMode, setCaptureMode] = useState<'file' | 'scan'>('scan')
-  const [viewer, setViewer] = useState<Riga | null>(null)
-  const [rescanTarget, setRescanTarget] = useState<Riga | null>(null)
-
-  function openUpload(mode: 'file' | 'scan') {
-    // Se il filtro locali è su un solo ristorante, precompila quello nel
-    // caricamento invece del primo della lista — è quasi certamente il
-    // locale su cui l'utente vuole caricare.
-    const daFiltro = selectedRestaurants.length === 1 ? selectedRestaurants[0] : null
-    setUploadRestaurantId(daFiltro ?? restaurants[0]?.id ?? '')
-    setCaptureMode(mode)
-    setUploadOpen(true)
+async function caricaFatture(ids: string[], a: string, b: string): Promise<{ righe: Fattura[]; errore: string | null }> {
+  const sb = createClient()
+  const q = (nuove: boolean) => sb.from('fatture')
+    .select(`${SEL_BASE}${nuove ? ', rettificata_at' : ''}, ${SEL_RIGHE(nuove)}`)
+    .in('restaurant_id', ids).gte('data', a).lte('data', b)
+    .order('data', { ascending: false }).order('created_at', { ascending: false })
+  let res = await q(conColonneNuove)
+  if (res.error && conColonneNuove) { conColonneNuove = false; res = await q(false) }
+  if (res.error) return { righe: [], errore: friendlySaveError(res.error) }
+  type R = Record<string, unknown> & {
+    fornitore: { nome: string } | null; categoria_diretta: { nome: string } | null
+    fatture_articoli: (Omit<RigaArticolo, 'aliquota_iva'> & { aliquota_iva?: number | null })[]
+    fatture_iva_dettaglio: Fattura['ivaDett']
   }
+  return {
+    errore: null,
+    righe: ((res.data ?? []) as unknown as R[]).map(r => ({
+      id: r.id as string,
+      restaurant_id: r.restaurant_id as string,
+      fornitore_id: r.fornitore_id as string,
+      fornitore: r.fornitore?.nome ?? '—',
+      numero_documento: r.numero_documento as string,
+      data: r.data as string,
+      ha_articoli: r.ha_articoli as boolean,
+      categoria_id: (r.categoria_spesa_diretta_id as string | null) ?? null,
+      categoria: r.categoria_diretta?.nome ?? null,
+      netto: Number(r.totale_netto), iva: Number(r.totale_iva), lordo: Number(r.totale_lordo),
+      vuoti: (r.vuoti_ritirati as number | null) ?? null,
+      foto_paths: (r.foto_paths as string[]) ?? [],
+      verifiche: (r.verifiche_sospette as VerificaSospetta[]) ?? [],
+      rettificata: !!r.rettificata_at,
+      righe: (r.fatture_articoli ?? []).map(x => ({ ...x, quantita: Number(x.quantita), prezzo_unitario: Number(x.prezzo_unitario), prezzo_riga: Number(x.prezzo_riga), aliquota_iva: x.aliquota_iva ?? null }))
+        .sort((p, q2) => p.testo_estratto.localeCompare(q2.testo_estratto, 'it')),
+      ivaDett: (r.fatture_iva_dettaglio ?? []).map(x => ({ ...x, aliquota: Number(x.aliquota), imponibile: Number(x.imponibile), iva: Number(x.iva) })),
+    })),
+  }
+}
 
-  const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
-  const targetsKey = JSON.stringify(targets)
+/** Aliquota nota di una riga: la sua, o quella unica della fattura. */
+const aliquotaRiga = (f: Fattura, r: RigaArticolo) => r.aliquota_iva ?? (f.ivaDett.length === 1 ? f.ivaDett[0].aliquota : null)
 
-  // Scarta il risultato di un fetch superato da uno più recente — senza
-  // questa guardia, un reload innescato dal canale realtime durante
-  // un'eliminazione (o due reload ravvicinati) possono risolversi fuori
-  // ordine e far ricomparire righe già rimosse.
-  const requestId = useRef(0)
+export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori, meseIniziale, selIniziale, apriXml }: Props) {
+  const tel = useTelefono()
+  const router = useRouter()
+  const single = ruolo === 'direttore' || restaurants.length <= 1
+  const locali = useMemo(() => localiDa(restaurants), [restaurants])
+  const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
+  const [mese, setMese] = useState(meseIniziale ?? meseOggi)
+  const [loc, setLoc] = useState<string | null>(null)
+  const [tab, setTab] = useState<'all' | 'dv'>('all')
+  const [righe, setRighe] = useState<Fattura[]>([])
+  const [caricamento, setCaricamento] = useState(true)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [sel, setSel] = useState<string | null>(selIniziale ?? null)
+  const { stato: sk, avvia, pronto } = useScheletro()
 
-  const load = useCallback(async () => {
-    const myRequest = ++requestId.current
-    setLoading(true)
-    if (targets.length === 0) { setRighe([]); setLoading(false); return }
-    const { start, end } = monthRange(month)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('fatture')
-      .select(`
-        id, restaurant_id, fornitore_id, numero_documento, data, ha_articoli, categoria_spesa_diretta_id, totale_netto, totale_iva, totale_lordo, vuoti_ritirati, foto_paths,
-        fornitore:fornitori(nome),
-        categoria_diretta:categorie_fatture_dirette(nome),
-        fatture_articoli(quantita, prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia, nome_articolo, unita_misura)),
-        fatture_iva_dettaglio(aliquota, iva)
-      `)
-      .in('restaurant_id', targets)
-      .gte('data', start)
-      .lte('data', end)
-      .order('data', { ascending: false })
+  // Stato del dettaglio: riga in rettifica, bozza, tastierino, conferma eliminazione.
+  const [er, setEr] = useState<number | null>(null)
+  const [rd, setRd] = useState<{ q?: number; pr?: number; al?: number | null; cat?: Cat }>({})
+  const [kp, setKp] = useState<{ campo: 'q' | 'pr'; v: string; esce: boolean } | null>(null)
+  const [del, setDel] = useState(false)
+  const [lavoro, setLavoro] = useState(false)
+  const [rettificateOra, setRettificateOra] = useState<Set<string>>(new Set())
+  const [corrette, setCorrette] = useState<Set<string>>(new Set())
 
-    if (requestId.current !== myRequest) return
+  const ids = useMemo(() => (loc ? [loc] : restaurants.map(r => r.id)), [loc, restaurants])
+  const chiave = ids.join(',')
+  const req = useRef(0)
+  const carica = useCallback(async () => {
+    const mio = ++req.current
+    const { righe: r, errore: e } = await caricaFatture(chiave ? chiave.split(',') : [], `${mese}-01`, fineMese(mese))
+    if (mio !== req.current) return
+    setRighe(r); setErrore(e); setCaricamento(false)
+    pronto()
+  }, [chiave, mese, pronto])
 
-    setRighe(((data ?? []) as unknown as Array<Riga & { fornitore: { nome: string } | null; categoria_diretta: { nome: string } | null; categoria_spesa_diretta_id: string | null }>).map(r => ({
-      id: r.id,
-      restaurant_id: r.restaurant_id,
-      fornitore_id: r.fornitore_id,
-      fornitore_nome: r.fornitore?.nome ?? '—',
-      numero_documento: r.numero_documento,
-      data: r.data,
-      ha_articoli: r.ha_articoli,
-      categoria_diretta_id: r.categoria_spesa_diretta_id,
-      categoria_diretta_nome: r.categoria_diretta?.nome ?? null,
-      totale_netto: r.totale_netto,
-      totale_iva: r.totale_iva,
-      totale_lordo: r.totale_lordo,
-      vuoti_ritirati: r.vuoti_ritirati,
-      foto_paths: r.foto_paths,
-      fatture_articoli: r.fatture_articoli ?? [],
-      fatture_iva_dettaglio: r.fatture_iva_dettaglio ?? [],
-    })))
-    setLoading(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, targetsKey])
-
-  useEffect(() => { load() }, [load])
-
+  useEffect(() => { carica() }, [carica])
   useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('fatture_lista')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, () => load())
+    const sb = createClient()
+    let t: ReturnType<typeof setTimeout> | null = null
+    const ch = sb.channel('acquisti_fatture')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture' }, () => { if (t) clearTimeout(t); t = setTimeout(carica, 300) })
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [load])
+    return () => { if (t) clearTimeout(t); sb.removeChannel(ch) }
+  }, [carica])
 
-  // Filtro fornitori (menu a tendina, indipendente dal filtro ristoranti
-  // già applicato lato query): a valle del caricamento, così KPI, tabella
-  // e drill-down restano sempre coerenti fra loro senza un'altra
-  // richiesta di rete a ogni cambio di selezione.
-  const righeFiltrate = useMemo(
-    () => selectedFornitori.length > 0 ? righe.filter(r => selectedFornitori.includes(r.fornitore_id)) : righe,
-    [righe, selectedFornitori]
-  )
+  const resetDettaglio = () => { setEr(null); setRd({}); setKp(null); setDel(false) }
+  const cambiaLoc = (x: string | null) => { avvia(); setLoc(x); setSel(null); resetDettaglio() }
+  const cambiaMese = (n: number) => { const m = spostaMese(mese, n); if (m > meseOggi) return; avvia(); setMese(m); setSel(null); resetDettaglio() }
 
-  const kpi = righeFiltrate.reduce(
-    (acc, r) => {
-      acc.netto += r.totale_netto
-      acc.iva += r.totale_iva
-      acc.lordo += r.totale_lordo
-      acc.vuotiRitirati += r.vuoti_ritirati ?? 0
-      if (r.ha_articoli) {
-        for (const a of r.fatture_articoli) {
-          if (a.catalogo_articolo?.tipologia === 'food') acc.food += a.prezzo_riga
-          else if (a.catalogo_articolo?.tipologia === 'beverage') acc.beverage += a.prezzo_riga
-          else if (a.catalogo_articolo?.tipologia === 'detergenza' || a.catalogo_articolo?.tipologia === 'altro_no_food') acc.noFood += a.prezzo_riga
-        }
-      } else if (r.categoria_diretta_nome === 'Utenze') {
-        acc.utenze += r.totale_netto
-      } else if (r.categoria_diretta_nome === 'Manutenzione/Attrezzature') {
-        acc.manutenzione += r.totale_netto
-      }
-      return acc
-    },
-    { netto: 0, iva: 0, lordo: 0, vuotiRitirati: 0, food: 0, beverage: 0, noFood: 0, utenze: 0, manutenzione: 0 }
-  )
+  const daVer = (f: Fattura) => f.verifiche.length > 0
+  const nDv = righe.filter(daVer).length
+  const lista = tab === 'dv' ? righe.filter(daVer) : righe
+  const nomeLoc = (id: string) => locali.find(l => l.id === id)
+  const MESE = MESI_LUNGHI[Number(mese.slice(5)) - 1]
 
-  // Dettaglio dietro ai KPI cliccabili: per food/beverage/no food, i
-  // prodotti che compongono il totale, accorpati per nome+fornitore così
-  // lo stesso articolo comprato più volte somma la quantità invece di
-  // comparire una riga per acquisto. Per utenze/manutenzione non esistono
-  // articoli (sono spese dirette): il dettaglio è la lista delle fatture
-  // stesse che compongono quel totale.
-  const prodottiPerTipologia = useMemo(() => {
-    const buckets: Record<'food' | 'beverage' | 'noFood', Map<string, ProdottoAccorpato>> = {
-      food: new Map(), beverage: new Map(), noFood: new Map(),
-    }
-    for (const r of righeFiltrate) {
-      if (!r.ha_articoli) continue
-      for (const a of r.fatture_articoli) {
-        if (!a.catalogo_articolo) continue
-        const tipologia = a.catalogo_articolo.tipologia
-        const bucketKey = tipologia === 'food' ? 'food' : tipologia === 'beverage' ? 'beverage'
-          : (tipologia === 'detergenza' || tipologia === 'altro_no_food') ? 'noFood' : null
-        if (!bucketKey) continue
-        const map = buckets[bucketKey]
-        const key = `${a.catalogo_articolo.nome_articolo}::${r.fornitore_nome}`
-        const esistente = map.get(key)
-        if (esistente) {
-          esistente.quantita += a.quantita
-          esistente.totale += a.prezzo_riga
-        } else {
-          map.set(key, {
-            nome: a.catalogo_articolo.nome_articolo,
-            fornitore: r.fornitore_nome,
-            quantita: a.quantita,
-            unita: a.catalogo_articolo.unita_misura,
-            totale: a.prezzo_riga,
-          })
-        }
-      }
-    }
-    return {
-      food: Array.from(buckets.food.values()).sort((a, b) => b.totale - a.totale),
-      beverage: Array.from(buckets.beverage.values()).sort((a, b) => b.totale - a.totale),
-      noFood: Array.from(buckets.noFood.values()).sort((a, b) => b.totale - a.totale),
-    }
-  }, [righeFiltrate])
+  const vista: RigaVista[] = lista.map(f => ({
+    id: f.id, a: f.fornitore, as: `${nomeLoc(f.restaurant_id)?.nome ?? ''} · n. ${f.numero_documento}`, lc: nomeLoc(f.restaurant_id)?.colore ?? 'transparent',
+    b: eu(f.lordo), c: dataBreve(f.data), t: daVer(f) ? 'Da verificare' : 'Verificata', tTono: daVer(f) ? 'warn' : 'ok',
+    ord: [f.fornitore.toLowerCase(), f.lordo, f.data, daVer(f) ? 0 : 1],
+  }))
 
-  const fatturePerCategoriaDiretta = useMemo(() => ({
-    utenze: righeFiltrate.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Utenze').sort((a, b) => b.totale_netto - a.totale_netto),
-    manutenzione: righeFiltrate.filter(r => !r.ha_articoli && r.categoria_diretta_nome === 'Manutenzione/Attrezzature').sort((a, b) => b.totale_netto - a.totale_netto),
-  }), [righeFiltrate])
+  // ── Tastierino del riquadro teal ──────────────────────────────────
+  const f = righe.find(x => x.id === sel) ?? null
+  const xr = f && er !== null ? f.righe[er] ?? null : null
+  const RD = xr && f ? { q: rd.q ?? xr.quantita, pr: rd.pr ?? xr.prezzo_unitario, al: rd.al !== undefined ? rd.al : aliquotaRiga(f, xr), cat: rd.cat ?? catDi(xr.art?.tipologia) } : null
 
-  const [drill, setDrill] = useState<DrillKind | null>(null)
+  const chiudiKp = useCallback(() => {
+    setKp(k => (k ? { ...k, esce: true } : k))
+    setTimeout(() => setKp(k => (k?.esce ? null : k)), 320)
+  }, [])
+  useToccoFuori(!!kp && !kp.esce, '[data-kp]', chiudiKp)
+  const conferma = (k: { campo: 'q' | 'pr'; v: string }) => {
+    const v = numeroDa(k.v)
+    if (v === null || v < 0) return
+    if (k.campo === 'q' && v > 0) setRd(p => ({ ...p, q: Math.round(v * 1000) / 1000 }))
+    if (k.campo === 'pr') setRd(p => ({ ...p, pr: arrotonda2(v) }))
+  }
+  const apriKp = (campo: 'q' | 'pr') => {
+    if (kp && !kp.esce) { if (kp.campo === campo) return; conferma(kp) }
+    setKp({ campo, v: '', esce: false })
+  }
+  const kv = (campo: 'q' | 'pr', v: string) => (kp && !kp.esce && kp.campo === campo && kp.v !== '' ? kp.v : v)
 
-  // Dopo un salvataggio, mostra il mese della fattura appena
-  // salvata/sostituita invece di ricaricare semplicemente il mese
-  // corrente: la data sulla fattura è quella letta dal documento (o
-  // corretta a mano), che può differire dal mese attualmente filtrato
-  // in pagina (es. una data letta male, o un documento vecchio caricato
-  // in ritardo) — senza questo, la fattura risulta salvata ma
-  // "invisibile" nell'elenco filtrato, indistinguibile da un fallimento.
-  function mostraMeseDi(dataFattura: string) {
-    const mese = dataFattura.slice(0, 7)
-    if (mese !== month) setMonth(mese)
-    else load()
+  async function salvaRiga() {
+    if (!f || !xr || !RD) return
+    const pend = kp && !kp.esce ? kp : null
+    let q = RD.q, pr = RD.pr
+    if (pend) { const v = numeroDa(pend.v); if (v !== null) { if (pend.campo === 'q' && v > 0) q = v; if (pend.campo === 'pr') pr = arrotonda2(v) } }
+    const vecchiaAl = aliquotaRiga(f, xr), vecchiaCat = catDi(xr.art?.tipologia)
+    const cambia = q !== xr.quantita || pr !== xr.prezzo_unitario || RD.al !== vecchiaAl || RD.cat !== vecchiaCat
+    setKp(null)
+    if (!cambia) { setEr(null); setRd({}); return }
+    setLavoro(true)
+    const errore = await rettificaRiga(f, xr, { q, pr, al: RD.al ?? null, cat: RD.cat, vecchiaAl, vecchiaCat })
+    setLavoro(false)
+    if (errore) { toast({ title: errore, variant: 'destructive' }); return }
+    setEr(null); setRd({})
+    setCorrette(s => new Set(s).add(f.id))
+    if (!daVer(f)) setRettificateOra(s => new Set(s).add(f.id))
+    toast({ title: `${xr.art?.nome_articolo ?? xr.testo_estratto} rettificato` })
+    carica()
   }
 
-  // Un caricamento può contenere più fatture insieme (Task batch): questa
-  // viene chiamata una volta per OGNI fattura confermata, e FatturaCapture
-  // se ne aspetta il risultato per sapere se può passare alla successiva
-  // del batch — per questo lancia invece di limitarsi a non chiudere il
-  // dialog, così l'errore (es. doppione rilevato solo ora da una richiesta
-  // in parallelo) resta visibile sulla fattura corrente invece di sparire.
-  async function handleUploadComplete(fattura: FatturaRisolta) {
-    // "Sostituisci quella esistente" scelto su un doppione (Fatture →
-    // Carica → Possibile doppione): stessa sostituzione in-place della
-    // ri-scansione, ma la fattura target può non essere tra le righe
-    // caricate in pagina (filtrate per mese/locale) — va quindi
-    // recuperata a parte invece di leggerla da rescanTarget/righe.
-    if (fattura.overwrite_fattura_id) {
-      const supabase = createClient()
-      const { data: esistente } = await supabase
-        .from('fatture')
-        .select('restaurant_id, foto_paths')
-        .eq('id', fattura.overwrite_fattura_id)
-        .single()
-      const res = await fetch('/api/cassa/fatture/sostituisci', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fattura_id: fattura.overwrite_fattura_id, restaurant_id: esistente?.restaurant_id ?? uploadRestaurantId, ...fattura }),
+  async function confermaFattura() {
+    if (!f) return
+    setLavoro(true)
+    const { error } = await createClient().from('fatture').update({ verifiche_sospette: [] }).eq('id', f.id)
+    setLavoro(false)
+    if (error) { toast({ title: `Conferma non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    resetDettaglio()
+    toast({ title: `Fattura di ${f.fornitore} verificata` })
+    carica()
+  }
+
+  async function eliminaFattura() {
+    if (!f) return
+    setLavoro(true)
+    const sb = createClient()
+    // RPC e non delete: ripulisce anche gli articoli di catalogo rimasti
+    // senza acquisti (creati solo per questa fattura).
+    const { error } = await sb.rpc('elimina_fattura_con_pulizia_articoli', { p_fattura_id: f.id })
+    setLavoro(false)
+    if (error) { toast({ title: `Eliminazione non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    if (f.foto_paths.length) sb.storage.from('fatture_foto').remove(f.foto_paths).catch(() => {})
+    resetDettaglio(); setSel(null)
+    setRighe(r => r.filter(x => x.id !== f.id))
+    toast({ title: `Fattura n. ${f.numero_documento} eliminata` })
+    carica()
+  }
+
+  // ── Dettaglio ─────────────────────────────────────────────────────
+  let dettaglio: React.ReactNode = null
+  if (f) {
+    const D0 = daVer(f)
+    const unita = xr?.art?.unita_misura || 'pz'
+    const messaggio = del
+      ? { testo: `Eliminare la fattura n. ${f.numero_documento}? Spariranno anche i carichi in inventario e la spesa in Analisi.`, tono: 'neg' as const }
+      : D0 ? { testo: corrette.has(f.id) ? 'Importi corretti. Controlla il totale lordo con la fattura cartacea e conferma.' : f.verifiche.map(v => v.messaggio).join(' '), tono: 'warn' as const }
+      : null
+    const ivaPer = [...f.ivaDett.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())].sort((p, q) => p[0] - q[0])
+    const sezioni: SezioneDettaglio[] = []
+    if (f.ha_articoli) {
+      sezioni.push({
+        h: 'Righe',
+        righe: f.righe.map((x, i) => ({
+          l: `${x.art?.nome_articolo ?? x.testo_estratto} · ${nf(x.quantita)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)}`,
+          v: eu(x.prezzo_riga), matita: true, attiva: er === i,
+          on: () => { setKp(null); setDel(false); setRd({}); setEr(er === i ? null : i) },
+        })),
       })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
-      }
-      const nuovi = new Set(fattura.foto_paths)
-      const daRimuovere = (esistente?.foto_paths ?? []).filter((p: string) => !nuovi.has(p))
-      if (daRimuovere.length > 0) {
-        supabase.storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
-      }
-      mostraMeseDi(fattura.data)
-      return
+    } else {
+      sezioni.push({ h: 'Spesa diretta', righe: [{ l: 'Categoria', v: f.categoria ?? '—' }] })
     }
+    sezioni.push({ h: 'IVA per aliquota', righe: [...ivaPer.map(([al, v]) => ({ l: `IVA ${nf(al)}%`, v: eu(v) })), { l: 'Totale lordo', v: eu(f.lordo), forte: true }] })
+    const documento = [
+      ...(f.vuoti ? [{ l: 'Vuoti ritirati', v: '−' + eu(f.vuoti) }, { l: 'Da pagare', v: eu(f.lordo - f.vuoti), forte: true }] : []),
+      ...(f.foto_paths.length ? [{ l: 'Foto della fattura', v: `${f.foto_paths.length} ${f.foto_paths.length === 1 ? 'pagina' : 'pagine'}`, on: () => setViewer(f), matita: false }] : []),
+      { l: 'Fornitore, numero, data e vuoti', v: '', on: () => apriModifica(f), matita: true },
+    ]
+    sezioni.push({ h: 'Documento', righe: documento })
 
-    const res = await fetch('/api/cassa/fatture/salva', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ restaurant_id: uploadRestaurantId, ...fattura }),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
-    }
-    mostraMeseDi(fattura.data)
+    const azioni: AzioneDettaglio[] = del
+      ? [{ l: 'Annulla', tipo: 'secondario', on: () => setDel(false) }, { l: 'Elimina fattura', tipo: 'pericoloPieno', on: eliminaFattura, disabled: lavoro }]
+      : [
+          ...(ruolo === 'manager' ? [{ l: 'Elimina', tipo: 'pericolo' as const, on: () => { setKp(null); setEr(null); setDel(true) } }] : []),
+          ...(D0 ? [{ l: 'Conferma fattura', tipo: 'primario' as const, on: confermaFattura, disabled: lavoro }] : []),
+        ]
+    const colAz = del ? '1fr 1.4fr' : ruolo === 'manager' && D0 ? '1fr 2fr' : '1fr'
+
+    dettaglio = (
+      <Pannello
+        tel={tel}
+        titolo={f.fornitore}
+        sotto={`Fattura n. ${f.numero_documento} del ${dataLunga(f.data)} · ${nomeLoc(f.restaurant_id)?.nome ?? ''}`}
+        badge={D0 ? { t: 'Da verificare', tono: 'warn' } : (f.rettificata || rettificateOra.has(f.id)) ? { t: 'Rettificata', tono: 'ok' } : { t: 'Verificata', tono: 'ok' }}
+        messaggio={messaggio}
+        stats={[{ l: 'Totale netto', v: eu(f.netto) }, { l: 'Totale lordo', v: eu(f.lordo) }]}
+        blocco={xr && RD ? (
+          <BloccoCampi
+            titolo={xr.art?.nome_articolo ?? xr.testo_estratto}
+            campi={[
+              { k: 'q', l: 'Quantità', v: kv('q', nf(RD.q)), u: unita, on: kp?.campo === 'q' && !kp.esce, tocca: () => apriKp('q') },
+              { k: 'pr', l: `Prezzo per ${unita}`, v: kv('pr', RD.pr.toFixed(2).replace('.', ',')), u: '€', on: kp?.campo === 'pr' && !kp.esce, tocca: () => apriKp('pr') },
+            ]}
+          >
+            <Scelte titolo="Categoria" colonne={3} opzioni={([['food', 'Food'], ['bev', 'Beverage'], ['nofood', 'No food']] as [Cat, string][]).map(([k, l]) => ({ l, on: RD.cat === k, tocca: () => { setKp(null); setRd(p => ({ ...p, cat: k })) } }))} />
+            <Scelte titolo="Aliquota IVA" colonne={5} mono opzioni={ALIQUOTE.map(al => ({ l: `${al}%`, on: RD.al === al, tocca: () => { setKp(null); setRd(p => ({ ...p, al })) } }))} />
+            <div className="grid grid-cols-[1fr_2fr] gap-2.5">
+              <Bottone alto={48} onClick={() => { setKp(null); setEr(null); setRd({}) }}>Annulla</Bottone>
+              <Bottone alto={48} tipo="primario" disabled={lavoro} onClick={salvaRiga}>Salva riga · {eu(arrotonda2(RD.q * RD.pr))}</Bottone>
+            </div>
+          </BloccoCampi>
+        ) : null}
+        sezioni={sezioni}
+        azioni={azioni}
+        colonneAzioni={colAz}
+        tastierino={kp ? {
+          esce: kp.esce,
+          onKey: (k: TastoTastierino) => setKp(p => (p ? { ...p, v: digita(p.v, k, p.campo === 'q' ? 3 : 2) } : p)),
+          onDone: () => { if (kp) conferma(kp); chiudiKp() },
+        } : null}
+      />
+    )
   }
 
-  // Ri-scansione (Visualizza → Ri-scansiona): sostituisce i dati della
-  // fattura esistente invece di crearne una nuova — stesse foto, stesso
-  // id, stesso motivo per cui /sostituisci esiste come route separata da
-  // /salva invece di riusarla con un flag.
-  async function handleRescanComplete(fattura: FatturaRisolta) {
-    if (!rescanTarget) return
-    const vecchiFotoPaths = rescanTarget.foto_paths
-    const res = await fetch('/api/cassa/fatture/sostituisci', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fattura_id: rescanTarget.id, restaurant_id: rescanTarget.restaurant_id, ...fattura }),
-    })
-    if (!res.ok) {
-      const data = await res.json().catch(() => null)
-      throw new Error(data?.error ?? 'Errore nel salvataggio della fattura')
-    }
-    // La sostituzione ha già scritto le nuove foto (fattura.foto_paths)
-    // sulla riga: le vecchie non sono più referenziate da nessuna parte,
-    // vanno ripulite — best-effort, non deve far fallire un salvataggio
-    // già andato a buon fine.
-    const nuovi = new Set(fattura.foto_paths)
-    const daRimuovere = vecchiFotoPaths.filter(p => !nuovi.has(p))
-    if (daRimuovere.length > 0) {
-      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
-    }
-    mostraMeseDi(fattura.data)
+  // ── Nuova fattura, scanner, cattura, XML, foto, modifica ─────────
+  const menu = useUscita<true>()
+  const scan = useUscita<true>()
+  const xml = useUscita<true>()
+  const [cattura, setCattura] = useState<{ restaurantId: string; pagine: File[]; avvio: AvvioCattura; rescan?: { fatturaId: string; fotoPaths: string[] } } | null>(null)
+  const [viewer, setViewer] = useState<Fattura | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const localeDefault = loc ?? restaurants[0]?.id ?? ''
+
+  // /acquisti/fatture?xml=1 (voce "Importa fatture XML" del menu profilo):
+  // si apre direttamente l'importazione.
+  const xmlAperto = useRef(false)
+  const apriXmlOra = xml.apri
+  useEffect(() => {
+    if (!apriXml || xmlAperto.current) return
+    xmlAperto.current = true
+    setTimeout(() => { apriXmlOra(true); router.replace('/acquisti/fatture') }, 0)
+  }, [apriXml, apriXmlOra, router])
+  const ridFile = useRef('')
+  const scegliFile = (rid: string) => { ridFile.current = rid; fileRef.current?.click() }
+
+  function daFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    const rid = ridFile.current || localeDefault
+    if (!files.length || !rid) return
+    setCattura({ restaurantId: rid, pagine: files, avvio: files.length === 1 && files[0].type.startsWith('image/') ? 'ritaglia' : 'pagine' })
   }
 
-  // Modifica anagrafica di una fattura già caricata (fornitore, numero
-  // documento, data, categoria per le spese dirette) — non gli articoli
-  // né i totali, che restano ricalcolati dal trigger su fatture_articoli/
-  // fatture_iva_dettaglio e non sono colonne scrivibili direttamente.
-  const [editing, setEditing] = useState<Riga | null>(null)
-  const [editFornitoreId, setEditFornitoreId] = useState('')
-  const [editNumeroDocumento, setEditNumeroDocumento] = useState('')
-  const [editData, setEditData] = useState('')
-  const [editCategoriaId, setEditCategoriaId] = useState('')
-  // Cauzione su vuoti da scalare — spesso nota solo DOPO il salvataggio
-  // (il fornitore la ritira giorni dopo la consegna), quindi va
-  // corretta anche da qui, non solo in fase di scansione. A differenza
-  // degli altri campi non passa dalla RPC: è una colonna indipendente,
-  // non coinvolta nel vincolo di unicità fornitore+numero documento.
-  const [editVuotiRitirati, setEditVuotiRitirati] = useState<number | null>(null)
-  const [editSaving, setEditSaving] = useState(false)
-  const [editError, setEditError] = useState<string | null>(null)
-
-  function apriModifica(r: Riga) {
-    setEditing(r)
-    setEditFornitoreId(r.fornitore_id)
-    setEditNumeroDocumento(r.numero_documento)
-    setEditData(r.data)
-    setEditCategoriaId(r.categoria_diretta_id ?? '')
-    setEditVuotiRitirati(r.vuoti_ritirati)
-    setEditError(null)
+  function mostraMese(data: string) {
+    const m = data.slice(0, 7)
+    if (m !== mese) { avvia(); setMese(m) } else carica()
   }
 
+  async function salvaCatturata(x: FatturaRisolta, restaurantId: string, rescanId?: string) {
+    const sb = createClient()
+    const target = rescanId ?? x.overwrite_fattura_id
+    if (target) {
+      const { data: esistente } = await sb.from('fatture').select('restaurant_id, foto_paths').eq('id', target).single()
+      const res = await fetch('/api/cassa/fatture/sostituisci', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fattura_id: target, restaurant_id: esistente?.restaurant_id ?? restaurantId, ...x }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Errore nel salvataggio della fattura')
+      const nuovi = new Set(x.foto_paths)
+      const via = ((esistente?.foto_paths ?? []) as string[]).filter(p => !nuovi.has(p))
+      if (via.length) sb.storage.from('fatture_foto').remove(via).catch(() => {})
+    } else {
+      const res = await fetch('/api/cassa/fatture/salva', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, ...x }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Errore nel salvataggio della fattura')
+    }
+    toast({ title: `Fattura di ${x.fornitore.nome} salvata${x.verifiche_sospette.length ? ': controlla i dati e conferma' : ''}` })
+    mostraMese(x.data)
+  }
+
+  // Modifica dei dati della fattura (fornitore, numero, data, categoria
+  // per le spese dirette, vuoti): una sola RPC per i primi quattro, così
+  // il vincolo fornitore+numero non scatta su uno stato intermedio.
+  const mod = useUscita<{ f: Fattura; fornitore: string; numero: string; data: string; categoria: string; vuoti: number | null }>()
+  const apriModifica = (x: Fattura) => mod.apri({ f: x, fornitore: x.fornitore_id, numero: x.numero_documento, data: x.data, categoria: x.categoria_id ?? '', vuoti: x.vuoti })
   async function salvaModifica() {
-    if (!editing) return
-    if (!editFornitoreId || !editNumeroDocumento.trim() || !editData) {
-      setEditError('Fornitore, numero documento e data sono obbligatori.')
-      return
-    }
-    if (!editing.ha_articoli && !editCategoriaId) {
-      setEditError('La categoria è obbligatoria per una spesa diretta.')
-      return
-    }
-    setEditSaving(true)
-    setEditError(null)
-    const supabase = createClient()
-
-    // Un'unica RPC per tutti i campi invece di due passaggi separati
-    // (prima il fornitore, poi il resto): lo stato INTERMEDIO che ne
-    // risultava — nuovo fornitore ma numero documento ancora quello
-    // vecchio — poteva violare da solo il vincolo unique anche quando lo
-    // stato finale scelto dall'utente sarebbe stato perfettamente valido
-    // (falso "esiste già" anche con un numero mai usato). La RPC gestisce
-    // anche il riaggancio dei prodotti al nuovo fornitore quando cambia.
-    const { error } = await supabase.rpc('cambia_fornitore_fattura', {
-      p_fattura_id: editing.id,
-      p_nuovo_fornitore_id: editFornitoreId,
-      p_numero_documento: editNumeroDocumento.trim(),
-      p_data: editData,
-      p_categoria_spesa_diretta_id: editing.ha_articoli ? null : editCategoriaId,
+    const d = mod.dati
+    if (!d) return
+    if (!d.fornitore || !d.numero.trim() || !d.data) { toast({ title: 'Fornitore, numero documento e data sono obbligatori', variant: 'destructive' }); return }
+    if (!d.f.ha_articoli && !d.categoria) { toast({ title: 'Scegli la categoria della spesa', variant: 'destructive' }); return }
+    setLavoro(true)
+    const sb = createClient()
+    const { error } = await sb.rpc('cambia_fornitore_fattura', {
+      p_fattura_id: d.f.id, p_nuovo_fornitore_id: d.fornitore, p_numero_documento: d.numero.trim(), p_data: d.data,
+      p_categoria_spesa_diretta_id: d.f.ha_articoli ? null : d.categoria,
     })
-    if (error) {
-      setEditSaving(false)
-      setEditError(error.code === '23505' ? 'Esiste già una fattura con questo numero per questo fornitore.' : friendlySaveError(error))
-      return
-    }
-
-    if (editVuotiRitirati !== editing.vuoti_ritirati) {
-      const { error: vuotiErr } = await supabase.from('fatture').update({ vuoti_ritirati: editVuotiRitirati }).eq('id', editing.id)
-      if (vuotiErr) {
-        setEditSaving(false)
-        setEditError(friendlySaveError(vuotiErr))
-        return
-      }
-    }
-
-    setEditSaving(false)
-    setEditing(null)
-    load()
+    let err = error
+    if (!err && d.vuoti !== d.f.vuoti) err = (await sb.from('fatture').update({ vuoti_ritirati: d.vuoti || null }).eq('id', d.f.id)).error
+    setLavoro(false)
+    if (err) { toast({ title: err.code === '23505' ? 'Esiste già una fattura con questo numero per questo fornitore' : `Salvataggio non riuscito: ${friendlySaveError(err)}`, variant: 'destructive' }); return }
+    mod.chiudi()
+    toast({ title: 'Dati della fattura aggiornati' })
+    mostraMese(d.data)
   }
 
-  // Eliminazione riga fattura (solo manager, come da RLS) — stesso
-  // pattern di conferma in-app + staleness guard già usato per le
-  // chiusure: window.confirm() è inaffidabile su alcuni browser
-  // mobile/PWA.
-  const [daEliminare, setDaEliminare] = useState<Riga | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [workingId, setWorkingId] = useState<string | null>(null)
-
-  async function confermaEliminazione() {
-    if (!daEliminare) return
-    const riga = daEliminare
-    setWorkingId(riga.id)
-    setDeleteError(null)
-    const supabase = createClient()
-    // RPC invece del delete diretto: ripulisce anche gli articoli di
-    // catalogo che restano senza più nessun acquisto (creati solo per
-    // questa fattura), non solo la riga fattura stessa.
-    const { error } = await supabase.rpc('elimina_fattura_con_pulizia_articoli', { p_fattura_id: riga.id })
-    setWorkingId(null)
-    if (error) { setDeleteError(error.message); return }
-    setDaEliminare(null)
-    setRighe(prev => prev.filter(r => r.id !== riga.id))
-    load()
-    // Pulizia foto su storage: best-effort, non blocca né fallisce
-    // l'eliminazione già avvenuta — file orfani nel bucket non sono un
-    // problema di correttezza, solo spazio sprecato se dovesse fallire.
-    if (riga.foto_paths.length > 0) {
-      supabase.storage.from('fatture_foto').remove(riga.foto_paths).catch(() => {})
-    }
-  }
+  const nuovaBtn = (
+    <button type="button"
+      onClick={() => (tel ? scan.apri(true) : menu.apri(true))}
+      disabled={!restaurants.length}
+      className="flex h-10 items-center gap-2 rounded-[8px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-50">
+      {tel ? <IcoScan /> : <IcoPiu />}{tel ? 'Scansiona' : 'Nuova fattura'}
+    </button>
+  )
 
   return (
-    <div className="space-y-4">
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6 space-y-4">
-          {role === 'manager' ? (
-            <div className="space-y-2">
-              <Label>Ristoranti</Label>
-              <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <Label>Ristorante</Label>
-              <div className="flex h-9 w-fit min-w-40 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                {restaurants[0]?.name ?? 'Nessun ristorante assegnato'}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Fornitori</Label>
-            <FornitoreMultiSelect fornitori={fornitori} selected={selectedFornitori} onChange={setSelectedFornitori} />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Mese</Label>
-            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto cassa-numeric" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Button type="button" onClick={() => openUpload('file')} disabled={restaurants.length === 0}>
-          <Upload className="w-4 h-4" /> Carica fattura
-        </Button>
-        <Button type="button" onClick={() => openUpload('scan')} disabled={restaurants.length === 0}>
-          <Camera className="w-4 h-4" />
-          <span className="hidden sm:inline">Scansiona documento</span>
-          <span className="sm:hidden">Scansiona</span>
-        </Button>
-      </div>
-
-      {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="border rounded-md p-3 space-y-2">
-              <Skeleton className="h-3 w-16" />
-              <Skeleton className="h-5 w-20" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {([
-            ['Totale Netto', kpi.netto, null],
-            ['Totale IVA', kpi.iva, null],
-            ['Totale Lordo', kpi.lordo, null],
-            ['Da Pagare', kpi.lordo - kpi.vuotiRitirati, null],
-            ['Totale Food', kpi.food, 'food'],
-            ['Totale Beverage', kpi.beverage, 'beverage'],
-            ['Totale No Food', kpi.noFood, 'noFood'],
-            ['Totale Utenze', kpi.utenze, 'utenze'],
-            ['Totale Manutenzione', kpi.manutenzione, 'manutenzione'],
-          ] as Array<[string, number, DrillKind | null]>).map(([label, value, kind]) => (
-            <Card
-              key={label}
-              className={`cassa-perforated-top ${kind ? 'cursor-pointer transition-colors hover:bg-accent/60' : ''}`}
-              {...(kind ? { role: 'button', tabIndex: 0, onClick: () => setDrill(kind), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') setDrill(kind) } } : {})}
-            >
-              <CardContent className="pt-4 pb-3 px-3 space-y-1">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="cassa-numeric text-lg font-semibold">€ {eur2(value)}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-9 w-full" />
-              ))}
-            </div>
-          ) : righeFiltrate.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessuna fattura caricata nel mese selezionato.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-3 pl-1 font-medium max-w-28 sm:max-w-56">Fornitore</th>
-                    <th className="py-2 pr-4 pl-3 font-medium whitespace-nowrap">Data</th>
-                    <th className="py-2 pr-4 font-medium whitespace-nowrap">Doc.</th>
-                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Netto</th>
-                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">IVA</th>
-                    <th className="py-2 pr-4 font-medium text-right whitespace-nowrap">Lordo</th>
-                    <th className="py-2 font-medium text-right whitespace-nowrap">Azioni</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {righeFiltrate.map(r => {
-                    const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
-                    // Scomposizione per aliquota (4%, 10%, 22%...) invece di
-                    // un unico totale IVA aggregato — sommata per aliquota nel
-                    // caso raro di righe duplicate sulla stessa aliquota.
-                    const ivaPerAliquota = Array.from(
-                      r.fatture_iva_dettaglio.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())
-                    ).sort((a, b) => b[0] - a[0])
-                    return (
-                      <tr key={r.id} className="border-b border-border last:border-0">
-                        <td className="sticky left-0 z-10 bg-card border-r border-border py-2 pr-3 pl-1 font-medium max-w-28 sm:max-w-56 whitespace-normal break-words align-top">
-                          {r.fornitore_nome}
-                        </td>
-                        <td className="cassa-numeric py-2 pr-4 pl-3 whitespace-nowrap align-top">{dataLabel}</td>
-                        <td className="cassa-numeric py-2 pr-4 whitespace-nowrap text-muted-foreground align-top">{r.numero_documento}</td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">€ {eur2(r.totale_netto)}</td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap align-top">
-                          {ivaPerAliquota.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {ivaPerAliquota.map(([aliquota, iva]) => (
-                                <div key={aliquota}>
-                                  <span className="text-muted-foreground text-xs">{aliquota}%</span> € {eur2(iva)}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <>€ {eur2(r.totale_iva)}</>
-                          )}
-                        </td>
-                        <td className="cassa-numeric py-2 pr-4 text-right whitespace-nowrap font-medium align-top">
-                          € {eur2(r.totale_lordo)}
-                          {!!r.vuoti_ritirati && (
-                            <div className="text-[10px] font-normal text-muted-foreground">
-                              −€{eur2(r.vuoti_ritirati)} vuoti · da pagare € {eur2((r.totale_lordo - r.vuoti_ritirati))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 align-top">
-                          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" disabled={workingId === r.id} onClick={() => setViewer(r)}>
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Modifica" disabled={workingId === r.id} onClick={() => apriModifica(r)}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            {role === 'manager' && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                                title="Elimina"
-                                disabled={workingId === r.id}
-                                onClick={() => setDaEliminare(r)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="cassa acquisti cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">
-              {captureMode === 'scan' ? 'Scansiona documento' : 'Carica fattura'}
-            </DialogTitle>
-          </DialogHeader>
-          {role === 'manager' && restaurants.length > 1 && (
-            <div className="space-y-1.5">
-              <Label>Ristorante</Label>
-              <Select value={uploadRestaurantId} onValueChange={setUploadRestaurantId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          {uploadRestaurantId && (
-            <FatturaCapture
-              restaurantId={uploadRestaurantId}
-              categorieDirette={categorieDirette}
-              fornitori={fornitori}
-              initialMode={captureMode}
-              onComplete={handleUploadComplete}
-              onFinished={() => setUploadOpen(false)}
-              onCancel={() => setUploadOpen(false)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <FatturaFotoViewer
-        open={!!viewer}
-        onOpenChange={open => { if (!open) setViewer(null) }}
-        fotoPaths={viewer?.foto_paths ?? []}
-        title={viewer ? `${viewer.fornitore_nome} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
-        onRescan={viewer ? () => { setRescanTarget(viewer); setViewer(null) } : undefined}
+    <>
+      <Vista
+        tel={tel}
+        skeleton={sk}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={x => cambiaLoc(x[0] ?? null)} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        mese={{ etichetta: etichettaMese(mese), prec: () => cambiaMese(-1), succ: () => cambiaMese(1), precOk: true, succOk: mese < meseOggi }}
+        schede={[{ k: 'all', l: 'Tutte', n: righe.length }, { k: 'dv', l: 'Da verificare', n: nDv }]}
+        scheda={tab}
+        onScheda={k => { setTab(k as 'all' | 'dv'); setSel(null); resetDettaglio() }}
+        kpis={[
+          { l: `${MESE}, netto`, v: eu(righe.reduce((s, x) => s + x.netto, 0), 0) },
+          { l: 'Fatture', v: String(righe.length) },
+          { l: 'Da verificare', v: String(nDv), tono: nDv ? 'warn' : undefined },
+        ]}
+        azione={nuovaBtn}
+        colonne={[{ l: 'Fornitore' }, { l: 'Lordo', destra: true }, { l: 'Data', destra: true }, { l: 'Stato', destra: true }]}
+        righe={vista}
+        caricamento={caricamento}
+        errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
+        vuoto={tab === 'dv'
+          ? { t: 'Nessuna fattura da verificare', s: 'Le fatture caricate con dati incerti compaiono qui.' }
+          : { t: 'Nessuna fattura nel mese', s: 'Le fatture caricate per questo mese compaiono qui.' }}
+        sel={sel}
+        onSel={id => { resetDettaglio(); setSel(id) }}
+        onChiudi={() => { resetDettaglio(); setSel(null) }}
+        dettaglio={dettaglio}
+        chiaveDettaglio={sel ?? ''}
       />
 
-      <Dialog open={!!rescanTarget} onOpenChange={open => { if (!open) setRescanTarget(null) }}>
-        <DialogContent className="cassa acquisti cassa-perforated-top flex max-h-[85vh] max-w-lg flex-col gap-4 overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Ri-scansiona documento</DialogTitle>
-          </DialogHeader>
-          {rescanTarget && (
-            <FatturaCapture
-              restaurantId={rescanTarget.restaurant_id}
-              categorieDirette={categorieDirette}
-              fornitori={fornitori}
-              initialMode="scan"
-              rescan={{ fatturaId: rescanTarget.id, fotoPaths: rescanTarget.foto_paths }}
-              onComplete={handleRescanComplete}
-              onFinished={() => setRescanTarget(null)}
-              onCancel={() => setRescanTarget(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={daFile} />
 
-      <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
-        <DialogContent className="cassa acquisti cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Eliminare questa fattura?</DialogTitle>
-          </DialogHeader>
-          {daEliminare && (
-            <p className="text-sm text-muted-foreground">
-              {daEliminare.fornitore_nome} · {formatInTimeZone(`${daEliminare.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
-              {' '}— verranno eliminati definitivamente anche gli articoli collegati. L&apos;operazione non è reversibile.
-            </p>
-          )}
-          {deleteError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteError}</p>}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setDaEliminare(null); setDeleteError(null) }} disabled={!!workingId}>
-              Annulla
-            </Button>
-            <Button type="button" variant="destructive" onClick={confermaEliminazione} disabled={!!workingId}>
-              {workingId ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!drill} onOpenChange={open => { if (!open) setDrill(null) }}>
-        <DialogContent closeOnOutsideInteract className="cassa acquisti cassa-perforated-top flex flex-col top-[10dvh] bottom-4 translate-y-0 sm:top-[50%] sm:bottom-auto sm:max-h-[80vh] sm:translate-y-[-50%]">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">{drill ? DRILL_LABELS[drill] : ''}</DialogTitle>
-          </DialogHeader>
-          <div className="cassa-scroll-fade-top flex-1 overflow-y-auto overflow-x-hidden">
-            {drill === 'utenze' || drill === 'manutenzione' ? (
-              fatturePerCategoriaDiretta[drill].length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nessuna fattura in questa categoria nel mese selezionato.</p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {fatturePerCategoriaDiretta[drill].map(r => (
-                    <div key={r.id} className="flex items-start justify-between gap-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium break-words">{r.fornitore_nome}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Doc. {r.numero_documento} · {formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
-                        </p>
-                      </div>
-                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {eur2(r.totale_netto)}</p>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : drill ? (
-              prodottiPerTipologia[drill].length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nessun prodotto in questa categoria nel mese selezionato.</p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {prodottiPerTipologia[drill].map(p => (
-                    <div key={`${p.nome}::${p.fornitore}`} className="flex items-start justify-between gap-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium break-words">{p.nome}</p>
-                        <p className="text-xs text-muted-foreground break-words">
-                          {p.fornitore} · {p.quantita % 1 === 0 ? p.quantita : p.quantita.toFixed(2)}{p.unita ? ` ${p.unita}` : ''}
-                        </p>
-                      </div>
-                      <p className="cassa-numeric text-sm font-medium shrink-0 whitespace-nowrap">€ {eur2(p.totale)}</p>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editing} onOpenChange={open => { if (!open) { setEditing(null); setEditError(null) } }}>
-        <DialogContent className="cassa acquisti cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Modifica fattura</DialogTitle>
-          </DialogHeader>
-          {editing && (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Fornitore</Label>
-                <Select value={editFornitoreId} onValueChange={setEditFornitoreId}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Numero documento</Label>
-                  <Input value={editNumeroDocumento} onChange={e => setEditNumeroDocumento(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Data</Label>
-                  <Input type="date" value={editData} onChange={e => setEditData(e.target.value)} className="cassa-numeric" />
-                </div>
-              </div>
-              {!editing.ha_articoli && (
-                <div className="space-y-1.5">
-                  <Label>Categoria</Label>
-                  <Select value={editCategoriaId} onValueChange={setEditCategoriaId}>
-                    <SelectTrigger><SelectValue placeholder="Seleziona categoria" /></SelectTrigger>
-                    <SelectContent>
-                      {categorieDirette.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Vuoti ritirati (facoltativo)</Label>
-                <CurrencyInput value={editVuotiRitirati} onChange={setEditVuotiRitirati} className="cassa-numeric max-w-32" />
-                <p className="text-xs text-muted-foreground">Cauzione su fusti/casse scalata dal fornitore al ritiro — non tocca il totale, solo il calcolo di quanto resta da pagare.</p>
-              </div>
-              {editError && <p className="text-sm text-destructive">{editError}</p>}
+      {menu.dati && (
+        <MenuNuovaFattura tel={tel} esce={menu.esce} onChiudi={() => menu.chiudi()}
+          onScatta={() => menu.chiudi(() => scan.apri(true))}
+          onFile={() => (single ? (menu.chiudi(), scegliFile(localeDefault)) : menu.chiudi(() => scan.apri(true)))}
+          onXml={() => menu.chiudi(() => xml.apri(true))} />
+      )}
+      {scan.dati && (
+        <ScansionaFattura tel={tel} esce={scan.esce} locali={single ? [] : locali} localeIniziale={localeDefault}
+          onChiudi={() => scan.chiudi()}
+          onFile={rid => { scan.chiudi(); scegliFile(rid) }}
+          onPagine={(rid, pagine, avvio) => scan.chiudi(() => setCattura({ restaurantId: rid, pagine, avvio }))} />
+      )}
+      {xml.dati && (
+        <ImportaXml tel={tel} esce={xml.esce} locali={single ? [] : locali} localeIniziale={localeDefault}
+          onChiudi={() => xml.chiudi()}
+          onImportate={(n, dv) => { xml.chiudi(); toast({ title: `${n} ${n === 1 ? 'fattura importata' : 'fatture importate'}${dv ? ` · ${dv} da verificare` : ''}` }); carica() }} />
+      )}
+      {cattura && (
+        <FatturaCapture
+          tel={tel}
+          restaurantId={cattura.restaurantId}
+          categorieDirette={categorieDirette}
+          fornitori={fornitori}
+          pagineIniziali={cattura.pagine}
+          avvio={cattura.avvio}
+          rescan={cattura.rescan}
+          onComplete={x => salvaCatturata(x, cattura.restaurantId, cattura.rescan?.fatturaId)}
+          onFinished={() => setCattura(null)}
+          onCancel={() => setCattura(null)}
+        />
+      )}
+      <FatturaFotoViewer
+        open={!!viewer}
+        onOpenChange={o => { if (!o) setViewer(null) }}
+        fotoPaths={viewer?.foto_paths ?? []}
+        title={viewer ? `${viewer.fornitore} · n. ${viewer.numero_documento}` : ''}
+        onRescan={viewer ? () => { const v = viewer; setViewer(null); setCattura({ restaurantId: v.restaurant_id, pagine: [], avvio: 'pagine', rescan: { fatturaId: v.id, fotoPaths: v.foto_paths } }) } : undefined}
+      />
+      {mod.dati && (
+        <Modale tel={tel} esce={mod.esce} onChiudi={() => mod.chiudi()} titolo="Dati della fattura" sotto={mod.dati.f.fornitore}
+          piede={
+            <div className={cn('grid grid-cols-[1fr_1.6fr] gap-2.5 border-t border-border py-3', tel ? 'px-4' : 'px-[22px]')}>
+              <Bottone onClick={() => mod.chiudi()}>Annulla</Bottone>
+              <Bottone tipo="primario" disabled={lavoro} onClick={salvaModifica}>Salva</Bottone>
             </div>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setEditing(null); setEditError(null) }} disabled={editSaving}>
-              Annulla
-            </Button>
-            <Button type="button" onClick={salvaModifica} disabled={editSaving}>
-              {editSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvataggio…</> : 'Salva'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          }>
+          <ModificaDati tel={tel} d={mod.dati} fornitori={fornitori} categorie={categorieDirette} onCambia={p => mod.setDati(x => (x ? { ...x, ...p } : x))} />
+        </Modale>
+      )}
+    </>
+  )
+}
+
+const CAMPO = 'box-border h-11 w-full rounded-[6px] border border-line-strong bg-card px-3 text-[15px] font-medium outline-none focus:border-[1.5px] focus:border-[oklch(0.58_0.12_180)]'
+
+function ModificaDati({ tel, d, fornitori, categorie, onCambia }: {
+  tel: boolean
+  d: { f: { ha_articoli: boolean }; fornitore: string; numero: string; data: string; categoria: string; vuoti: number | null }
+  fornitori: { id: string; nome: string }[]
+  categorie: { id: string; nome: string }[]
+  onCambia: (p: Partial<{ fornitore: string; numero: string; data: string; categoria: string; vuoti: number | null }>) => void
+}) {
+  return (
+    <div className={cn('flex flex-col gap-3.5 py-4', tel ? 'px-4' : 'px-[22px]')}>
+      <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Fornitore</span>
+        <select value={d.fornitore} onChange={e => onCambia({ fornitore: e.target.value })} className={CAMPO}>
+          {fornitori.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+        </select>
+      </label>
+      <div className="grid grid-cols-2 gap-2.5">
+        <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Numero documento</span>
+          <input value={d.numero} onChange={e => onCambia({ numero: e.target.value })} className={cn(CAMPO, 'font-mono')} />
+        </label>
+        <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Data</span>
+          <input type="date" value={d.data} onChange={e => onCambia({ data: e.target.value })} className={cn(CAMPO, 'font-mono')} />
+        </label>
+      </div>
+      {!d.f.ha_articoli && (
+        <div className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Categoria</span>
+          <div className="grid grid-cols-2 gap-1.5">
+            {categorie.map(c => (
+              <button key={c.id} type="button" onClick={() => onCambia({ categoria: c.id })}
+                className={cn('h-11 rounded-[8px] border text-sm font-medium active:scale-[0.97]', d.categoria === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>{c.nome}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Vuoti ritirati <span className="font-normal text-muted-foreground">(facoltativo)</span></span>
+        <CampoNumerico value={d.vuoti} onChange={v => onCambia({ vuoti: v })} suffisso="€" allinea="right" />
+        <span className="text-xs text-muted-foreground">Cauzione su fusti e casse scalata dal fornitore: non cambia il totale, solo quanto resta da pagare.</span>
+      </div>
     </div>
   )
+}
+
+// ── Rettifica di una riga ────────────────────────────────────────────
+
+/**
+ * Corregge quantità, prezzo, aliquota e categoria di una riga. Prima prova
+ * la RPC della migrazione proposta (atomica, ricalcola anche il riepilogo
+ * IVA); finché non esiste, aggiorna la riga e sposta l'imponibile tra le
+ * aliquote del riepilogo IVA. I totali li ricalcola il trigger.
+ */
+async function rettificaRiga(f: Fattura, r: RigaArticolo, n: { q: number; pr: number; al: number | null; cat: Cat; vecchiaAl: number | null; vecchiaCat: Cat }): Promise<string | null> {
+  const sb = createClient()
+  const tipologia: ArticoloTipologia | null = n.cat === n.vecchiaCat ? null
+    : n.cat === 'food' ? 'food' : n.cat === 'bev' ? 'beverage' : (r.art?.tipologia === 'detergenza' ? 'detergenza' : 'altro_no_food')
+  const nuovaRiga = arrotonda2(n.q * n.pr)
+  const rpc = await sb.rpc('rettifica_riga_fattura', { p_riga_id: r.id, p_quantita: n.q, p_prezzo_unitario: n.pr, p_aliquota: n.al, p_tipologia: tipologia })
+  if (!rpc.error) return null
+  const manca = rpc.error.code === 'PGRST202' || rpc.error.code === '42883' || /could not find the function/i.test(rpc.error.message)
+  if (!manca) return `Rettifica non riuscita: ${friendlySaveError(rpc.error)}`
+
+  const e1 = (await sb.from('fatture_articoli').update({ quantita: n.q, prezzo_unitario: n.pr, prezzo_riga: nuovaRiga }).eq('id', r.id)).error
+  if (e1) return `Rettifica non riuscita: ${friendlySaveError(e1)}`
+  if (tipologia) {
+    const e2 = (await sb.from('catalogo_articoli').update({ tipologia }).eq('id', r.catalogo_articolo_id)).error
+    if (e2) return `Riga corretta, categoria non aggiornata: ${friendlySaveError(e2)}`
+  }
+  // Riepilogo IVA: l'imponibile della riga esce dalla vecchia aliquota ed
+  // entra nella nuova. Senza aliquota nota (fattura con più aliquote e
+  // riga senza aliquota salvata) il riepilogo resta com'era.
+  if (n.al !== null) {
+    const mappa = new Map(f.ivaDett.map(x => [x.aliquota, { ...x }]))
+    if (n.vecchiaAl !== null && mappa.has(n.vecchiaAl)) { const x = mappa.get(n.vecchiaAl)!; x.imponibile = arrotonda2(x.imponibile - r.prezzo_riga) }
+    const dest = mappa.get(n.al)
+    if (dest) dest.imponibile = arrotonda2(dest.imponibile + nuovaRiga)
+    for (const x of mappa.values()) {
+      const vecchio = f.ivaDett.find(y => y.id === x.id)
+      if (vecchio && vecchio.imponibile === x.imponibile) continue
+      const e3 = (await sb.from('fatture_iva_dettaglio').update({ imponibile: x.imponibile, iva: arrotonda2(x.imponibile * x.aliquota / 100) }).eq('id', x.id)).error
+      if (e3) return `Riga corretta, riepilogo IVA non aggiornato: ${friendlySaveError(e3)}`
+    }
+    if (!dest) {
+      const e4 = (await sb.from('fatture_iva_dettaglio').insert({ fattura_id: f.id, aliquota: n.al, imponibile: nuovaRiga, iva: arrotonda2(nuovaRiga * n.al / 100) })).error
+      if (e4) return `Riga corretta, riepilogo IVA non aggiornato: ${friendlySaveError(e4)}`
+    }
+  }
+  // Un totale corretto a mano in passato coprirebbe la rettifica: ora vale la somma delle righe.
+  await sb.from('fatture').update({ totale_lordo_manuale: null, totale_netto_manuale: null }).eq('id', f.id)
+  return null
 }

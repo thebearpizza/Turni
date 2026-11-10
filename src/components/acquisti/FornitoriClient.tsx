@@ -1,370 +1,180 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { createClient } from '@/lib/supabase/client'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
-import { Eye, Merge, Loader2, Pencil, Check, X } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
+import { useTelefono } from '@/hooks/useTelefono'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
-import { eur2 } from '@/lib/utils'
+import { Vista, Pannello, type RigaVista } from './Vista'
+import { Bottone, Modale, TIPOLOGIE, TZ, dataBreve, eu, localiDa, useUscita } from './comuni'
 
-const TZ = 'Europe/Rome'
+// Fornitori (MTAcquisti, sezione "fornitori"): chi ha fatturato negli
+// ultimi 90 giorni, ordinati per spesa netta, con tipologia prevalente;
+// il dettaglio mostra spesa per locale, catalogo e ultime fatture.
 
-const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
-  food: 'Food',
-  beverage: 'Beverage',
-  detergenza: 'Detergenza',
-  altro_no_food: 'Altro no-food',
-}
+const GIORNI = 90
 
-function monthRange(month: string): { start: string; end: string } {
-  const [year, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const lastDay = new Date(year, m, 0).getDate()
-  const end = `${month}-${String(lastDay).padStart(2, '0')}`
-  return { start, end }
-}
+interface Props { restaurants: { id: string; name: string }[]; canEdit: boolean; single: boolean }
+interface FatturaF { id: string; restaurant_id: string; fornitore_id: string; numero: string; data: string; netto: number; lordo: number; categoria: string | null }
+interface FornitoreF { id: string; nome: string; piva: string | null }
+interface ArticoloCat { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; prezzo_corrente: number | null }
 
-interface RiepilogoRiga {
-  id: string
-  nome: string
-  partita_iva: string | null
-  numero_fatture: number
-  totale_periodo: number
-  numero_articoli: number
-}
+export function FornitoriClient({ restaurants, canEdit, single }: Props) {
+  const tel = useTelefono()
+  const locali = useMemo(() => localiDa(restaurants), [restaurants])
+  const [loc, setLoc] = useState<string | null>(null)
+  const [fatture, setFatture] = useState<FatturaF[]>([])
+  const [anag, setAnag] = useState<Map<string, FornitoreF>>(new Map())
+  const [tipi, setTipi] = useState<Map<string, ArticoloTipologia>>(new Map())
+  const [caricamento, setCaricamento] = useState(true)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [sel, setSel] = useState<string | null>(null)
+  const [catalogo, setCatalogo] = useState<{ id: string; righe: ArticoloCat[] } | null>(null)
+  const { stato: sk, avvia, pronto } = useScheletro()
 
-interface FatturaRiga {
-  id: string
-  numero_documento: string
-  data: string
-  totale_lordo: number
-  ha_articoli: boolean
-}
+  const da = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - GIORNI + 1); return formatInTimeZone(d, TZ, 'yyyy-MM-dd') }, [])
+  const req = useRef(0)
+  const carica = useCallback(async () => {
+    const mio = ++req.current
+    const sb = createClient()
+    const ids = restaurants.map(r => r.id)
+    const [f, c, a] = await Promise.all([
+      sb.from('fatture').select('id, restaurant_id, fornitore_id, numero_documento, data, totale_netto, totale_lordo, categoria_diretta:categorie_fatture_dirette(nome)').in('restaurant_id', ids).gte('data', da).order('data', { ascending: false }),
+      sb.from('catalogo_articoli').select('fornitore_id, tipologia'),
+      sb.from('fornitori').select('id, nome, partita_iva'),
+    ])
+    if (mio !== req.current) return
+    if (f.error) { setErrore(friendlySaveError(f.error)); setCaricamento(false); pronto(); return }
+    setErrore(null)
+    setFatture(((f.data ?? []) as unknown as { id: string; restaurant_id: string; fornitore_id: string; numero_documento: string; data: string; totale_netto: number; totale_lordo: number; categoria_diretta: { nome: string } | null }[])
+      .map(x => ({ id: x.id, restaurant_id: x.restaurant_id, fornitore_id: x.fornitore_id, numero: x.numero_documento, data: x.data, netto: Number(x.totale_netto), lordo: Number(x.totale_lordo), categoria: x.categoria_diretta?.nome ?? null })))
+    // Tipologia prevalente fra gli articoli a catalogo del fornitore.
+    const conti = new Map<string, Map<ArticoloTipologia, number>>()
+    for (const r of (c.data ?? []) as { fornitore_id: string; tipologia: ArticoloTipologia }[]) {
+      const m = conti.get(r.fornitore_id) ?? new Map(); m.set(r.tipologia, (m.get(r.tipologia) ?? 0) + 1); conti.set(r.fornitore_id, m)
+    }
+    setTipi(new Map([...conti].map(([k, m]) => [k, [...m].sort((p, q) => q[1] - p[1])[0][0]])))
+    setAnag(new Map(((a.data ?? []) as { id: string; nome: string; partita_iva: string | null }[]).map(x => [x.id, { id: x.id, nome: x.nome, piva: x.partita_iva }])))
+    setCaricamento(false); pronto()
+  }, [restaurants, da, pronto])
+  useEffect(() => { carica() }, [carica])
 
-interface ArticoloRiga {
-  id: string
-  nome_articolo: string
-  tipologia: ArticoloTipologia
-  unita_misura: string | null
-  prezzo_corrente: number | null
-}
-
-interface Props {
-  canEdit: boolean
-}
-
-// Elenco fornitori (Task 1): riepilogo aggregato via RPC
-// fornitori_riepilogo (numero fatture, spesa nel periodo, articoli a
-// catalogo — la RLS di fatture/catalogo_articoli scopa già i conteggi
-// secondo il ruolo di chi chiama, manager vede tutto il proprio owner,
-// direttore solo il proprio ristorante). Il dettaglio (anagrafica,
-// fatture, catalogo con prezzo corrente) si apre in un dialog separato,
-// caricato solo quando serve. canEdit=false (cassiere/direttore) nasconde
-// modifica anagrafica e unione — sola lettura, come da requisito.
-export function FornitoriClient({ canEdit }: Props) {
-  const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
-  const [righe, setRighe] = useState<RiepilogoRiga[]>([])
-  const [loading, setLoading] = useState(true)
-  const [ricerca, setRicerca] = useState('')
-
-  async function load() {
-    setLoading(true)
-    const supabase = createClient()
-    const { start, end } = monthRange(month)
-    const { data } = await supabase.rpc('fornitori_riepilogo', { p_periodo_inizio: start, p_periodo_fine: end })
-    setRighe((data ?? []) as RiepilogoRiga[])
-    setLoading(false)
+  const F = loc ? fatture.filter(f => f.restaurant_id === loc) : fatture
+  const agg = [...F.reduce((m, f) => { const a = m.get(f.fornitore_id) ?? []; a.push(f); return m.set(f.fornitore_id, a) }, new Map<string, FatturaF[]>())]
+    .map(([id, fs]) => ({ id, fs, net: fs.reduce((t, f) => t + f.netto, 0), fo: anag.get(id) }))
+    .sort((p, q) => q.net - p.net)
+  const tot = agg.reduce((t, x) => t + x.net, 0)
+  const tipoDi = (id: string, fs: FatturaF[]) => {
+    const t = tipi.get(id)
+    if (t) return { l: TIPOLOGIE[t].l, c: TIPOLOGIE[t].c }
+    return { l: fs.find(f => f.categoria)?.categoria ?? 'Altro no food', c: TIPOLOGIE.altro_no_food.c }
   }
 
-  useEffect(() => { load() }, [month]) // eslint-disable-line react-hooks/exhaustive-deps
+  const righe: RigaVista[] = agg.map(x => {
+    const t = tipoDi(x.id, x.fs)
+    return { id: x.id, a: x.fo?.nome ?? '—', as: x.fo?.piva ? `P.IVA ${x.fo.piva}` : 'P.IVA non censita', lc: t.c, b: eu(x.net, 0), c: String(x.fs.length), cTono: 'neu', t: t.l, tTono: 'neu', ord: [(x.fo?.nome ?? '').toLowerCase(), x.net, x.fs.length, t.l] }
+  })
 
-  const righeFiltrate = ricerca.trim()
-    ? righe.filter(r => r.nome.toLowerCase().includes(ricerca.trim().toLowerCase()))
-    : righe
-
-  const [dettaglioId, setDettaglioId] = useState<string | null>(null)
-  const [unisciDaId, setUnisciDaId] = useState<string | null>(null)
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-        <div className="space-y-1.5 flex-1">
-          <Label>Cerca fornitore</Label>
-          <Input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Ragione sociale…" />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Periodo</Label>
-          <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto cassa-numeric" />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {loading && Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-md border border-border px-4 py-3">
-            <Skeleton className="h-4 w-48 mb-2" />
-            <Skeleton className="h-3 w-72" />
-          </div>
-        ))}
-
-        {!loading && righeFiltrate.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nessun fornitore trovato.</p>
-        )}
-
-        {!loading && righeFiltrate.map(r => (
-          <div key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-border px-4 py-3 text-sm">
-            <div className="min-w-0">
-              <p className="font-medium truncate">{r.nome}</p>
-              <p className="text-xs text-muted-foreground">{r.partita_iva ?? 'P.IVA non censita'}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <Badge variant="secondary">{r.numero_fatture} {r.numero_fatture === 1 ? 'fattura' : 'fatture'}</Badge>
-              <Badge variant="secondary" className="cassa-numeric">€ {eur2(r.totale_periodo)} nel mese</Badge>
-              <Badge variant="secondary">{r.numero_articoli} a catalogo</Badge>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDettaglioId(r.id)}>
-                <Eye className="h-4 w-4" /> Dettagli
-              </Button>
-              {canEdit && (
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Unisci con un altro fornitore" onClick={() => setUnisciDaId(r.id)}>
-                  <Merge className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {dettaglioId && (
-        <FornitoreDettaglioDialog
-          fornitoreId={dettaglioId}
-          canEdit={canEdit}
-          onClose={() => setDettaglioId(null)}
-          onSaved={() => load()}
-        />
-      )}
-
-      {unisciDaId && (
-        <UnisciFornitoreDialog
-          fornitoreDaId={unisciDaId}
-          fornitori={righe.filter(r => r.id !== unisciDaId).map(r => ({ id: r.id, nome: r.nome }))}
-          nomeDa={righe.find(r => r.id === unisciDaId)?.nome ?? ''}
-          onClose={() => setUnisciDaId(null)}
-          onDone={() => { setUnisciDaId(null); load() }}
-        />
-      )}
-    </div>
-  )
-}
-
-interface DettaglioProps {
-  fornitoreId: string
-  canEdit: boolean
-  onClose: () => void
-  onSaved: () => void
-}
-
-function FornitoreDettaglioDialog({ fornitoreId, canEdit, onClose, onSaved }: DettaglioProps) {
-  const [loading, setLoading] = useState(true)
-  const [nome, setNome] = useState('')
-  const [partitaIva, setPartitaIva] = useState('')
-  const [fatture, setFatture] = useState<FatturaRiga[]>([])
-  const [articoli, setArticoli] = useState<ArticoloRiga[]>([])
-  const [editando, setEditando] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
+  // Catalogo del fornitore scelto, con prezzo corrente (RPC esistente).
   useEffect(() => {
-    let attivo = true
-    setLoading(true)
-    const supabase = createClient()
-    Promise.all([
-      supabase.from('fornitori').select('nome, partita_iva').eq('id', fornitoreId).single(),
-      supabase.from('fatture').select('id, numero_documento, data, totale_lordo, ha_articoli').eq('fornitore_id', fornitoreId).order('data', { ascending: false }),
-      supabase.rpc('fornitore_catalogo_con_prezzo', { p_fornitore_id: fornitoreId }),
-    ]).then(([f, ft, ca]) => {
-      if (!attivo) return
-      setNome(f.data?.nome ?? '')
-      setPartitaIva(f.data?.partita_iva ?? '')
-      setFatture((ft.data ?? []) as FatturaRiga[])
-      setArticoli((ca.data ?? []) as ArticoloRiga[])
-      setLoading(false)
+    if (!sel) return
+    let annullato = false
+    createClient().rpc('fornitore_catalogo_con_prezzo', { p_fornitore_id: sel }).then(({ data }) => {
+      if (!annullato) setCatalogo({ id: sel, righe: (data ?? []) as ArticoloCat[] })
     })
-    return () => { attivo = false }
-  }, [fornitoreId])
+    return () => { annullato = true }
+  }, [sel])
+
+  const mod = useUscita<{ id: string; nome: string; piva: string }>()
+  const uni = useUscita<{ id: string; nome: string; verso: string | null }>()
+  const [lavoro, setLavoro] = useState(false)
 
   async function salvaAnagrafica() {
-    if (!nome.trim()) { setError('Il nome non può essere vuoto.'); return }
-    setSaving(true)
-    setError(null)
-    const supabase = createClient()
-    const { error: err } = await supabase
-      .from('fornitori')
-      .update({ nome: nome.trim(), partita_iva: partitaIva.trim() || null })
-      .eq('id', fornitoreId)
-    setSaving(false)
-    if (err) { setError(friendlySaveError(err)); return }
-    setEditando(false)
-    onSaved()
+    const d = mod.dati
+    if (!d || !d.nome.trim()) { toast({ title: 'La ragione sociale non può essere vuota', variant: 'destructive' }); return }
+    setLavoro(true)
+    const { error } = await createClient().from('fornitori').update({ nome: d.nome.trim(), partita_iva: d.piva.trim() || null }).eq('id', d.id)
+    setLavoro(false)
+    if (error) { toast({ title: `Salvataggio non riuscito: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    mod.chiudi(); toast({ title: 'Fornitore aggiornato' }); carica()
+  }
+  async function unisci() {
+    const d = uni.dati
+    if (!d?.verso) return
+    setLavoro(true)
+    const { error } = await createClient().rpc('unisci_fornitori', { p_fornitore_da_assorbire: d.id, p_fornitore_da_mantenere: d.verso })
+    setLavoro(false)
+    if (error) { toast({ title: `Unione non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    uni.chiudi(); setSel(null)
+    toast({ title: `${d.nome} unito in ${anag.get(d.verso)?.nome ?? ''}` }); carica()
   }
 
-  return (
-    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="cassa acquisti cassa-perforated-top max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">{loading ? 'Fornitore' : nome}</DialogTitle>
-        </DialogHeader>
-
-        {loading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="space-y-3 rounded-lg border border-border p-3">
-              {editando ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>Ragione sociale</Label>
-                    <Input value={nome} onChange={e => setNome(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Partita IVA</Label>
-                    <Input value={partitaIva} onChange={e => setPartitaIva(e.target.value)} />
-                  </div>
-                  {error && <p className="text-sm text-destructive">{error}</p>}
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => { setEditando(false); setError(null) }} disabled={saving}>
-                      <X className="h-4 w-4" /> Annulla
-                    </Button>
-                    <Button type="button" size="sm" onClick={salvaAnagrafica} disabled={saving}>
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Salva
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 text-sm">
-                    <p><span className="text-muted-foreground">Ragione sociale: </span>{nome}</p>
-                    <p><span className="text-muted-foreground">Partita IVA: </span>{partitaIva || '—'}</p>
-                  </div>
-                  {canEdit && (
-                    <Button type="button" variant="outline" size="sm" onClick={() => setEditando(true)}>
-                      <Pencil className="h-4 w-4" /> Modifica
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-semibold">Fatture ({fatture.length})</p>
-              {fatture.length === 0 && <p className="text-sm text-muted-foreground">Nessuna fattura registrata.</p>}
-              {fatture.map(f => (
-                <div key={f.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                  <span>Doc. {f.numero_documento} · {formatInTimeZone(`${f.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}</span>
-                  <span className="cassa-numeric">€ {eur2(f.totale_lordo)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-semibold">Articoli a catalogo ({articoli.length})</p>
-              {articoli.length === 0 && <p className="text-sm text-muted-foreground">Nessun articolo a catalogo.</p>}
-              {articoli.map(a => (
-                <div key={a.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
-                  <div className="min-w-0 flex-1 break-words">
-                    <span>{a.nome_articolo}</span>
-                    <span className="text-muted-foreground ml-2">({TIPOLOGIA_LABELS[a.tipologia]}{a.unita_misura ? `, ${a.unita_misura}` : ''})</span>
-                  </div>
-                  <span className="cassa-numeric shrink-0">{a.prezzo_corrente != null ? `€ ${a.prezzo_corrente.toFixed(2)}` : '—'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>Chiudi</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-interface UnisciProps {
-  fornitoreDaId: string
-  nomeDa: string
-  fornitori: Array<{ id: string; nome: string }>
-  onClose: () => void
-  onDone: () => void
-}
-
-// Unione di due fornitori duplicati: non reversibile, richiede conferma
-// esplicita — stesso schema di Dialog+azione distruttiva già usato per
-// eliminare una bozza/spesa altrove nell'app, senza un secondo passo di
-// digitazione (non è una convenzione presente nel resto dell'app).
-function UnisciFornitoreDialog({ fornitoreDaId, nomeDa, fornitori, onClose, onDone }: UnisciProps) {
-  const [aId, setAId] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const nomeA = fornitori.find(f => f.id === aId)?.nome
-
-  async function conferma() {
-    if (!aId) return
-    setSaving(true)
-    setError(null)
-    const supabase = createClient()
-    const { error: err } = await supabase.rpc('unisci_fornitori', {
-      p_fornitore_da_assorbire: fornitoreDaId,
-      p_fornitore_da_mantenere: aId,
-    })
-    setSaving(false)
-    if (err) { setError(friendlySaveError(err)); return }
-    onDone()
+  const x = agg.find(y => y.id === sel)
+  let dettaglio: React.ReactNode = null
+  if (x) {
+    const t = tipoDi(x.id, x.fs)
+    const perLoc = locali.map(l => ({ l, v: x.fs.filter(f => f.restaurant_id === l.id).reduce((s, f) => s + f.netto, 0) })).filter(o => o.v > 0)
+    const cat = catalogo?.id === x.id ? catalogo.righe : null
+    dettaglio = (
+      <Pannello tel={tel}
+        titolo={x.fo?.nome ?? '—'}
+        sotto={`${x.fo?.piva ? `P.IVA ${x.fo.piva}` : 'P.IVA non censita'} · ${t.l}`}
+        badge={{ t: t.l, tono: 'neu' }}
+        stats={[{ l: 'Spesa netta', v: eu(x.net) }, { l: 'Quota sugli acquisti', v: (tot ? (x.net / tot) * 100 : 0).toFixed(1).replace('.', ',') + '%' }]}
+        sezioni={[
+          ...(!single && perLoc.length ? [{ h: 'Per locale', righe: perLoc.map(o => ({ l: o.l.nome, v: eu(o.v) })) }] : []),
+          { h: 'Articoli a catalogo', righe: cat === null ? [{ l: 'Caricamento…', v: '' }] : cat.length ? cat.map(a => ({ l: a.nome_articolo, v: a.prezzo_corrente != null ? `${eu(a.prezzo_corrente)} / ${a.unita_misura || 'pz'}` : '—' })) : [{ l: 'Nessun articolo a catalogo', v: '' }] },
+          { h: 'Ultime fatture', righe: x.fs.slice(0, 6).map(f => ({ l: `n. ${f.numero} · ${dataBreve(f.data)}${single ? '' : ` · ${locali.find(l => l.id === f.restaurant_id)?.nome ?? ''}`}`, v: eu(f.lordo) })) },
+        ]}
+        azioni={canEdit ? [
+          { l: 'Unisci', tipo: 'secondario', on: () => uni.apri({ id: x.id, nome: x.fo?.nome ?? '', verso: null }) },
+          { l: 'Modifica dati', tipo: 'secondario', on: () => mod.apri({ id: x.id, nome: x.fo?.nome ?? '', piva: x.fo?.piva ?? '' }) },
+        ] : undefined}
+        colonneAzioni="1fr 1fr"
+      />
+    )
   }
 
+  const CAMPO = 'box-border h-11 w-full rounded-[6px] border border-line-strong bg-card px-3 text-[15px] font-medium outline-none focus:border-[1.5px] focus:border-[oklch(0.58_0.12_180)]'
+  const px = tel ? 'px-4' : 'px-[22px]'
+
   return (
-    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="cassa acquisti cassa-perforated-top">
-        <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Unisci fornitore duplicato</DialogTitle>
-          <DialogDescription>
-            Tutte le fatture e gli articoli a catalogo di &laquo;{nomeDa}&raquo; passeranno al fornitore scelto qui sotto,
-            poi &laquo;{nomeDa}&raquo; verrà eliminato. L&apos;operazione non è reversibile.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-1.5">
-          <Label>Unisci in</Label>
-          <Select value={aId} onValueChange={setAId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Seleziona il fornitore da mantenere" />
-            </SelectTrigger>
-            <SelectContent>
-              {fornitori.map(f => (
-                <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Annulla</Button>
-          <Button type="button" variant="destructive" onClick={conferma} disabled={saving || !aId}>
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Unione in corso…</> : `Unisci in «${nomeA ?? '…'}»`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Vista tel={tel} skeleton={sk}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        kpis={[{ l: 'Fornitori attivi', v: String(agg.length) }, { l: `Spesa netta ${GIORNI} gg`, v: eu(tot, 0) }]}
+        colonne={[{ l: 'Fornitore' }, { l: 'Spesa netta', destra: true }, { l: 'Fatture', destra: true }, { l: 'Tipologia', destra: true }]}
+        righe={righe} caricamento={caricamento}
+        errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
+        vuoto={{ t: 'Nessun fornitore attivo', s: `I fornitori con fatture negli ultimi ${GIORNI} giorni compaiono qui.` }}
+        sel={sel} onSel={setSel} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
+      />
+      {mod.dati && (
+        <Modale tel={tel} esce={mod.esce} onChiudi={() => mod.chiudi()} titolo="Dati del fornitore" sotto={mod.dati.nome}
+          piede={<div className={cn('grid grid-cols-[1fr_1.6fr] gap-2.5 border-t border-border py-3', px)}><Bottone onClick={() => mod.chiudi()}>Annulla</Bottone><Bottone tipo="primario" disabled={lavoro} onClick={salvaAnagrafica}>Salva</Bottone></div>}>
+          <div className={cn('flex flex-col gap-3.5 py-4', px)}>
+            <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Ragione sociale</span><input value={mod.dati.nome} onChange={e => mod.setDati(d => (d ? { ...d, nome: e.target.value } : d))} className={CAMPO} /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Partita IVA</span><input value={mod.dati.piva} onChange={e => mod.setDati(d => (d ? { ...d, piva: e.target.value } : d))} className={cn(CAMPO, 'font-mono')} /></label>
+          </div>
+        </Modale>
+      )}
+      {uni.dati && (
+        <Modale tel={tel} esce={uni.esce} onChiudi={() => uni.chiudi()} titolo="Unisci fornitore" sotto={`Fatture e catalogo di ${uni.dati.nome} passano a quello scelto`}
+          piede={<div className={cn('grid grid-cols-[1fr_1.6fr] gap-2.5 border-t border-border py-3', px)}><Bottone onClick={() => uni.chiudi()}>Annulla</Bottone><Bottone tipo="pericoloPieno" disabled={lavoro || !uni.dati.verso} onClick={unisci}>Unisci ed elimina il doppione</Bottone></div>}>
+          <div className="flex max-h-[50dvh] flex-col gap-0.5 overflow-y-auto p-2">
+            {[...anag.values()].filter(f => f.id !== uni.dati!.id).sort((p, q) => p.nome.localeCompare(q.nome, 'it')).map(f => (
+              <button key={f.id} type="button" onClick={() => uni.setDati(d => (d ? { ...d, verso: f.id } : d))}
+                className={cn('flex min-h-12 items-center justify-between gap-3 rounded-[10px] px-3.5 text-left text-[15px] font-medium active:scale-[0.98]', uni.dati!.verso === f.id ? 'bg-primary text-primary-foreground' : 'hover:bg-background')}>
+                <span className="truncate">{f.nome}</span><span className="flex-none font-mono text-xs opacity-70">{f.piva ?? ''}</span>
+              </button>
+            ))}
+          </div>
+        </Modale>
+      )}
+    </>
   )
 }

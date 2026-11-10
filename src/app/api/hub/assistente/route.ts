@@ -17,7 +17,10 @@ import type { TelegramProfile } from '@/lib/telegram/auth'
 // (chiave profilo) invece che telegram_ai_messages (chiave telegram_id).
 // Nessuna regola/prompt/strumento duplicato: è lo stesso assistente.
 //
-// Riservata al manager: la barra vive solo nella Home Manager (Task 3).
+// Manager e direttore (capo servizio con is_direttore): nel design anche il
+// direttore ha la scintilla dell'assistente. Lo scope dei dati lo applica
+// runAiAssistant sul profilo (scopeTurnsQuery/scopeStaffQuery: il direttore
+// vede solo il suo locale), come già per il bot Telegram.
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -39,7 +42,8 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single()
 
-  if (!profileRow || profileRow.role !== 'manager') {
+  const consentito = profileRow && (profileRow.role === 'manager' || (profileRow.role === 'capo_servizio' && profileRow.is_direttore === true))
+  if (!consentito) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
 

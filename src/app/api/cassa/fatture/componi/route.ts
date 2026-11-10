@@ -30,6 +30,9 @@ interface ArticoloRisolto {
   // Articoli) — vedi ArticoloEstrattoConPagina in fattureExtraction.ts.
   pagina_indice: number
   riquadro: RiquadroArticolo | null
+  // Aliquota letta (o stimata) sulla riga: in revisione l'IVA si corregge
+  // riga per riga e il riepilogo si ricalcola da queste.
+  aliquota_iva: number | null
 }
 
 // Ripiego senza AI per matchArticoli: solo nome identico (trim, senza
@@ -107,7 +110,7 @@ async function risolviFattura(
   // ── Blocco doppione: stesso fornitore + stesso numero documento già a sistema ──
   let doppioneQuery = supabase
     .from('fatture')
-    .select('id, restaurant_id, data')
+    .select('id, restaurant_id, data, numero_documento, totale_lordo, created_at, foto_paths')
     .eq('fornitore_id', fornitore.id)
     .eq('numero_documento', estratta.numero_documento.trim())
   if (excludeFatturaId) doppioneQuery = doppioneQuery.neq('id', excludeFatturaId)
@@ -123,6 +126,13 @@ async function risolviFattura(
       // filtra per mese) — es. un anno letto male da una scansione
       // precedente la fa risultare "sparita" pur essendo salvata.
       fattura_esistente_data: doppione.data,
+      // Per il confronto affiancato "Già a sistema / Appena letta" (11e).
+      fattura_esistente_numero: doppione.numero_documento,
+      fattura_esistente_totale: Number(doppione.totale_lordo),
+      fattura_esistente_caricata: doppione.created_at,
+      fattura_esistente_da_pdf: ((doppione.foto_paths ?? []) as string[]).some(x => x.toLowerCase().endsWith('.pdf')),
+      numero_letto: estratta.numero_documento,
+      totale_letto: estratta.iva_dettaglio.reduce((t, r) => t + r.imponibile + r.iva, 0),
       foto_paths: fotoPathsGruppo,
     }
   }
@@ -250,7 +260,7 @@ async function risolviFattura(
           unita_misura: a.unita_misura, tipologia_suggerita: a.tipologia_suggerita,
           esito: 'auto_mappato' as const, catalogo_articolo_id: mappato, candidato_nome: nomeById.get(mappato) ?? null,
           sospetto: verificaPrezzoArticolo(a.nome, prezzoUnitario, ultimoPrezzo),
-          pagina_indice: a.pagina_indice, riquadro: a.riquadro,
+          pagina_indice: a.pagina_indice, riquadro: a.riquadro, aliquota_iva: a.aliquota_iva ?? null,
         }
       }
       const match = esitoByTesto.get(a.nome)
@@ -272,6 +282,7 @@ async function risolviFattura(
         sospetto,
         pagina_indice: a.pagina_indice,
         riquadro: a.riquadro,
+        aliquota_iva: a.aliquota_iva ?? null,
       }
     }))
   }

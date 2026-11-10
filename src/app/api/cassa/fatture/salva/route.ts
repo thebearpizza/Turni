@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     // annullare la fattura lascerebbe un articolo orfano a catalogo.
     const risolti: Array<{
       testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string
-      pagina_indice: number; riquadro: RiquadroArticolo | null
+      pagina_indice: number; riquadro: RiquadroArticolo | null; aliquota_iva?: number | null
     }> = []
     for (const a of articoli as Array<{
       testo_estratto: string
@@ -97,9 +97,10 @@ export async function POST(request: Request) {
       nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
       pagina_indice: number
       riquadro: RiquadroArticolo | null
+      aliquota_iva?: number | null
     }>) {
       if (a.catalogo_articolo_id) {
-        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
+        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro, aliquota_iva: a.aliquota_iva ?? null })
         continue
       }
 
@@ -151,21 +152,24 @@ export async function POST(request: Request) {
         { onConflict: 'owner_id,fornitore_id,testo_estratto' }
       )
 
-      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
+      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro, aliquota_iva: a.aliquota_iva ?? null })
     }
 
-    const { error: artErr } = await supabase.from('fatture_articoli').insert(
-      risolti.map(a => ({
-        fattura_id: fattura.id,
-        catalogo_articolo_id: a.catalogo_articolo_id,
-        testo_estratto: a.testo_estratto,
-        quantita: a.quantita,
-        prezzo_unitario: a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga,
-        prezzo_riga: a.prezzo_riga,
-        pagina_indice: a.pagina_indice,
-        riquadro: a.riquadro,
-      }))
-    )
+    const righe = (conAliquota: boolean) => risolti.map(a => ({
+      fattura_id: fattura.id,
+      catalogo_articolo_id: a.catalogo_articolo_id,
+      testo_estratto: a.testo_estratto,
+      quantita: a.quantita,
+      prezzo_unitario: a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga,
+      prezzo_riga: a.prezzo_riga,
+      pagina_indice: a.pagina_indice,
+      riquadro: a.riquadro,
+      ...(conAliquota ? { aliquota_iva: a.aliquota_iva ?? null } : {}),
+    }))
+    // L'aliquota per riga (rettifiche in Fatture) esiste solo dopo la
+    // migrazione 20261110_acquisti_rettifiche: senza la colonna si salva come prima.
+    let { error: artErr } = await supabase.from('fatture_articoli').insert(righe(true))
+    if (artErr && (artErr.code === '42703' || artErr.code === 'PGRST204')) ({ error: artErr } = await supabase.from('fatture_articoli').insert(righe(false)))
     if (artErr) {
       await supabase.from('fatture').delete().eq('id', fattura.id)
       return NextResponse.json({ error: 'Errore nel salvataggio degli articoli: ' + artErr.message }, { status: 500 })

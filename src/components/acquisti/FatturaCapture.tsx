@@ -1,37 +1,20 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/compressImage'
-import { DocumentScanner } from '@/components/acquisti/DocumentScanner'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { CurrencyInput } from '@/components/ui/currency-input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Camera, Upload, X, Loader2, AlertTriangle, FileText, Crop } from 'lucide-react'
-import { cn , eur2 } from '@/lib/utils'
+import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
+import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta, RiquadroArticolo } from '@/types'
+import { DocumentScanner } from './DocumentScanner'
+import { ALIQUOTE, Badge, IcoAvviso, IcoErrore, IcoGiu, IcoPiu, IcoX, dataNumerica, eu, n2, numeroDa, useMontato, useToccoFuori, type Tono } from './comuni'
 
-const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
-  food: 'Food',
-  beverage: 'Beverage',
-  detergenza: 'Detergenza',
-  altro_no_food: 'Altro no-food',
-}
+// Cattura di una fattura (Acquisti cattura, 11b–11e): pagine, lettura a
+// gruppi di 4, errore con "Riprova" che rilegge solo i gruppi mancanti,
+// revisione di una fattura alla volta e schermata dei doppioni. Non salva:
+// passa i dati risolti a onComplete, una volta per fattura confermata.
 
-// data è una colonna DATE (yyyy-mm-dd), senza componente ora/timezone:
-// un semplice riordino delle parti basta, non serve date-fns-tz.
-function formatDataIt(data: string): string {
-  const [y, m, d] = data.split('-')
-  return y && m && d ? `${d}/${m}/${y}` : data
-}
-
-interface AliquotaEstratta {
-  aliquota: number
-  imponibile: number
-  iva: number
-}
+interface AliquotaEstratta { aliquota: number; imponibile: number; iva: number }
 
 interface ArticoloEstratto {
   testo_estratto: string
@@ -45,35 +28,22 @@ interface ArticoloEstratto {
   sospetto: VerificaSospetta | null
   pagina_indice: number
   riquadro: RiquadroArticolo | null
+  aliquota_iva?: number | null
 }
 
-// Rispecchia PaginaEstratta in fattureExtraction.ts (fase 1: solo
-// lettura, prima ancora del raggruppamento in fatture — vedi
-// handleElabora). Articolo qui è il dato grezzo letto dalla pagina,
-// prima di qualunque abbinamento al catalogo (a differenza di
-// ArticoloEstratto sotto, che è il risultato della fase 2).
-interface PaginaLetta {
-  data: string | null
-  fornitore_nome: string | null
-  fornitore_partita_iva: string | null
-  numero_documento: string | null
-  iva_dettaglio: AliquotaEstratta[]
-  articoli: Array<{
-    nome: string
-    quantita: number
-    prezzo_riga: number
-    unita_misura: string | null
-    tipologia_suggerita: ArticoloTipologia
-    riquadro: RiquadroArticolo | null
-    aliquota_iva: number
-  }>
-  totale_documento: number | null
-}
+/** Pagina letta (fase 1), prima del raggruppamento in fatture. */
+type PaginaLetta = Record<string, unknown>
 
 interface EstraiResponse {
   duplicato: boolean
   fattura_esistente_id?: string
   fattura_esistente_data?: string
+  fattura_esistente_numero?: string
+  fattura_esistente_totale?: number
+  fattura_esistente_caricata?: string
+  fattura_esistente_da_pdf?: boolean
+  numero_letto?: string
+  totale_letto?: number
   foto_paths: string[]
   fornitore: { id: string; nome: string; partita_iva: string | null; nuovo: boolean }
   fattura?: {
@@ -87,23 +57,18 @@ interface EstraiResponse {
     verifiche_sospette: VerificaSospetta[]
   }
   articoli?: ArticoloEstratto[]
+  /** Compilata a mano (lettura non riuscita): fornitore da scegliere. */
+  manuale?: boolean
 }
 
-interface DatiNuovoArticolo {
-  nome_articolo: string
-  tipologia: ArticoloTipologia
-  unita_misura?: string
-}
+interface DatiNuovoArticolo { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string }
 
 export interface FatturaRisolta {
   foto_paths: string[]
   fornitore: { id: string; nome: string; partita_iva: string | null }
   data: string
   numero_documento: string
-  // Presente solo quando l'utente ha scelto "Sostituisci quella
-  // esistente" da uno schermo di doppione: il chiamante deve aggiornare
-  // questa fattura già a sistema (route /sostituisci) invece di crearne
-  // una nuova (route /salva) — vedi sostituisciDoppione più sotto.
+  /** "Sostituisci quella esistente" su un doppione: aggiorna quella fattura. */
   overwrite_fattura_id?: string
   ha_articoli: boolean
   categoria_spesa_diretta_id: string | null
@@ -111,1064 +76,684 @@ export interface FatturaRisolta {
   totale_netto: number
   totale_iva: number
   totale_lordo: number
-  // Corretti a mano in revisione quando l'OCR ha letto male il totale
-  // stampato — null se l'utente non li ha toccati (il caso comune): il
-  // server allora non applica nessuno scavalco, il totale resta quello
-  // calcolato dalla somma di articoli/IVA come sempre.
+  /** Correzioni a mano del totale (null = nessuno scavalco). */
   totale_lordo_manuale: number | null
   totale_netto_manuale: number | null
-  // Cauzione su vuoti (fusti/casse) da scalare al ritiro — opzionale.
   vuoti_ritirati: number | null
-  // Un articolo 'nuovo' mai confermato esplicitamente (non più
-  // obbligatorio) arriva con nuovo_articolo invece di
-  // catalogo_articolo_id: il chiamante crea la riga di catalogo al
-  // momento del salvataggio, non prima.
   articoli: Array<
-    { testo_estratto: string; quantita: number; prezzo_riga: number; pagina_indice: number; riquadro: RiquadroArticolo | null } & (
+    { testo_estratto: string; quantita: number; prezzo_riga: number; pagina_indice: number; riquadro: RiquadroArticolo | null; aliquota_iva?: number | null } & (
       | { catalogo_articolo_id: string; nuovo_articolo?: undefined }
       | { catalogo_articolo_id?: undefined; nuovo_articolo: DatiNuovoArticolo }
     )
   >
-  // Tutti i campi segnalati come sospetti (Task 2) — fattura + articoli —
-  // da mostrare in sola lettura nella conferma finale (Task 3) e salvare
-  // così com'è su fatture.verifiche_sospette, senza ricalcolarli.
   verifiche_sospette: VerificaSospetta[]
 }
 
+export type AvvioCattura = 'pagine' | 'ritaglia' | 'leggi'
+
 interface Props {
+  tel: boolean
   restaurantId: string
-  categorieDirette: Array<{ id: string; nome: string }>
-  // Per poter correggere il fornitore in revisione quando l'OCR l'ha
-  // letto male — stesso problema che rende utile la Ri-scansione.
-  fornitori: Array<{ id: string; nome: string }>
-  // 'scan' = input con capture="environment", per un documento cartaceo
-  // davanti all'utente. 'file' = selezione diretta da file/galleria,
-  // multipla. La differenza reale è solo l'attributo dell'input: il
-  // browser decide se aprire la fotocamera direttamente o un selettore
-  // di sistema che offre comunque "Scatta foto" — quindi anche da 'file'
-  // il risultato può essere una singola foto appena scattata, non solo
-  // un file esistente. Il ritaglio prospettico (vedi handleAddPage) si
-  // applica per questo a QUALSIASI singola immagine, indipendentemente
-  // da initialMode, e salta solo su un PDF o una selezione multipla.
-  initialMode: 'file' | 'scan'
-  // Chiamato una volta per OGNI fattura confermata dall'utente (un
-  // caricamento può contenerne più di una — vedi results/currentIndex
-  // sotto). Deve lanciare in caso di errore: FatturaCapture resta sulla
-  // fattura corrente e mostra l'errore invece di considerarla comunque
-  // conclusa e passare oltre.
+  categorieDirette: { id: string; nome: string }[]
+  fornitori: { id: string; nome: string }[]
+  /** File già scelti (scanner, PDF): 'ritaglia' passa la prima foto dal ritaglio, 'leggi' parte subito. */
+  pagineIniziali?: File[]
+  avvio?: AvvioCattura
+  /** Ri-scansione: precompila le pagine con le foto già salvate della fattura. */
+  rescan?: { fatturaId: string; fotoPaths: string[] }
   onComplete: (fattura: FatturaRisolta) => Promise<void>
-  // Chiamato una sola volta, quando TUTTE le fatture del batch sono
-  // state salvate (o, per un doppione, riconosciute come tali).
   onFinished: () => void
   onCancel: () => void
-  // Ri-scansione di una fattura già salvata (Fatture → Visualizza →
-  // Ri-scansiona): precompila la griglia pagine scaricando le foto già
-  // su storage di quella fattura, invece di partire vuota — i
-  // collaboratori non sempre le ritagliano bene, quindi restano
-  // modificabili come una normale cattura (rimuovi, ri-ritaglia,
-  // aggiungine di nuove) prima di rileggerle. Da qui in poi il
-  // componente si comporta esattamente come il flusso normale: le foto
-  // mostrate sono copie scaricate in memoria, non ancora ricaricate su
-  // storage, quindi le stesse regole di pulizia (doppione, annulla)
-  // restano valide invariate. Solo /estrai riceve in più l'id della
-  // fattura da escludere dal controllo doppioni (altrimenti risulterebbe
-  // sempre duplicata di se stessa).
-  rescan?: { fatturaId: string; fotoPaths: string[] }
 }
 
-// Cattura multi-pagina + pipeline di estrazione/matching (Task 1). Non
-// salva la fattura — restituisce i dati risolti a onComplete perché il
-// chiamante (Task 3) la persista dopo la conferma finale dell'utente.
-// Un caricamento può contenere più fatture distinte insieme (anche di
-// fornitori diversi): l'estrazione le separa già, qui si rivedono e
-// salvano una alla volta con uno stepper "Fattura N di M".
-export function FatturaCapture({ restaurantId, categorieDirette, fornitori, initialMode, onComplete, onFinished, onCancel, rescan }: Props) {
-  const [pages, setPages] = useState<File[]>([])
-  const [previews, setPreviews] = useState<string[]>([])
-  const [status, setStatus] = useState<'capturing' | 'processing' | 'review'>(rescan ? 'processing' : 'capturing')
-  // Solo per il messaggio mostrato durante 'processing' — il caricamento
-  // foto è rapido, la lettura AI no, distinguerli evita che un'attesa
-  // lunga sembri bloccata sul passo sbagliato.
-  const [faseElaborazione, setFaseElaborazione] = useState<'upload' | 'lettura'>('upload')
-  // Quale gruppo di pagine si sta leggendo — vedi handleElabora: la
-  // lettura è spezzata in più chiamate invece di una sola con tutte le
-  // pagine insieme, per non superare il tempo massimo della funzione.
-  const [progressoLettura, setProgressoLettura] = useState<{ corrente: number; totale: number } | null>(null)
-  const [error, setError] = useState<string | null>(null)
+// Quante pagine per chiamata a /estrai: più pagine insieme vanno spesso in
+// timeout per la concorrenza verso il modello AI.
+const PAGINE_PER_GRUPPO = 4
+
+type Schermata = 'pagine' | 'lettura' | 'errore' | 'revisione'
+interface Lettura { fase: 'upload' | 'lettura' | 'composizione'; gruppo: number; gruppi: number[][] }
+
+async function comprimi(f: File) {
+  if (!f.type.startsWith('image/')) return f
+  try { return await compressImage(f, 2200, 0.9) } catch { return f }
+}
+
+export function FatturaCapture({ tel, restaurantId, categorieDirette, fornitori, pagineIniziali, avvio = 'pagine', rescan, onComplete, onFinished, onCancel }: Props) {
+  const montato = useMontato()
+  const [pagine, setPagine] = useState<{ f: File; url: string }[]>([])
+  const [schermata, setSchermata] = useState<Schermata>('pagine')
+  const [ritaglio, setRitaglio] = useState<{ f: File; indice: number | null } | null>(null)
+  const [lettura, setLettura] = useState<Lettura | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
   const [results, setResults] = useState<EstraiResponse[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const current = results[currentIndex] as EstraiResponse | undefined
-  const [resolved, setResolved] = useState<Map<string, { catalogoArticoloId: string; sospetto: VerificaSospetta | null }>>(new Map())
-  // Articoli 'nuovo' (o 'ambiguo' risolto come nuovo) con dati modificati
-  // dall'utente tramite "Modifica" — chiave testo_estratto. La riga di
-  // catalogo non si crea qui: solo al salvataggio della fattura (vedi
-  // handleConferma), altrimenti annullare lascerebbe un articolo orfano.
-  const [nuoviModificati, setNuoviModificati] = useState<Map<string, DatiNuovoArticolo>>(new Map())
-  // Quantità e prezzo unitario corretti a mano in revisione — tenuti per
-  // indice, non per testo_estratto: due righe con lo stesso testo
-  // estratto (raro ma possibile) non devono correggersi a vicenda.
-  // L'importo di riga è sempre DERIVATO dai due (mai memorizzato a
-  // parte), così Netto/Lordo in testata possono ricalcolarsi dal vivo
-  // sulla somma reale delle righe invece di restare fermi al valore
-  // letto dall'OCR quando si corregge un articolo.
-  const [quantitaModificate, setQuantitaModificate] = useState<Map<number, number>>(new Map())
-  const [prezzoUnitarioModificato, setPrezzoUnitarioModificato] = useState<Map<number, number>>(new Map())
-  const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null)
-  const [categoriaDiretta, setCategoriaDiretta] = useState('')
-  // Fornitore corretto a mano in revisione — l'OCR può leggerlo sbagliato
-  // tanto quanto data/numero documento. null finché l'utente non lo
-  // tocca: si parte dal fornitore risolto dal server.
-  const [fornitoreEditato, setFornitoreEditato] = useState<{ id: string; nome: string } | null>(null)
-  // Data/numero documento corretti a mano in revisione — l'OCR può non
-  // leggerli affatto (es. un DDT compilato a mano), e senza un modo di
-  // inserirli qui la fattura non sarebbe più salvabile (salva/route.ts
-  // li richiede entrambi). null finché l'utente non tocca il campo: si
-  // parte dal valore letto dall'AI.
-  const [dataEditata, setDataEditata] = useState<string | null>(null)
-  const [numeroDocEditato, setNumeroDocEditato] = useState<string | null>(null)
-  // Totale corretto a mano in revisione — null finché l'utente non
-  // tocca il campo: si parte dal valore letto dall'AI, nessuno scavalco
-  // inviato al salvataggio. Correggere il Lordo aggiorna anche il Netto
-  // (stessa IVA, vedi onChange sotto); il Netto resta comunque
-  // modificabile per conto suo.
-  const [totaleLordoEditato, setTotaleLordoEditato] = useState<number | null>(null)
-  const [totaleNettoEditato, setTotaleNettoEditato] = useState<number | null>(null)
-  // Cauzione su vuoti da scalare — facoltativo, non tocca il totale.
-  const [vuotiRitirati, setVuotiRitirati] = useState<number | null>(null)
-  // Testo_estratto degli articoli 'chiaro'/'auto_mappato' che l'utente ha
-  // smentito in revisione ("Non è questo") — riportati allo stato non
-  // risolto, verranno salvati come nuovo articolo invece dell'abbinamento
-  // sbagliato dell'AI (vedi risoltoInfo).
-  const [rifiutati, setRifiutati] = useState<Set<string>>(new Set())
-  // Salvataggio (o presa visione di un doppione) della fattura corrente
-  // in corso — passa da una richiesta di rete, senza questo stato il
-  // tasto "Salva fattura" non darebbe nessun segnale durante l'attesa.
-  const [saving, setSaving] = useState(false)
-  // Foto appena scattata, in attesa del ritaglio prospettico: finché è
-  // valorizzata lo scanner prende il posto della griglia delle pagine.
-  const [daRitagliare, setDaRitagliare] = useState<File | null>(null)
-  // Non null quando lo scanner sta ri-ritagliando una pagina GIÀ in
-  // griglia (invece di aggiungerne una nuova): l'indice dice a
-  // confermaRitaglio se sostituire quella pagina o accodarne una.
-  const [ritagliaIndice, setRitagliaIndice] = useState<number | null>(null)
-  // Indice del batch → id della fattura esistente che sta sostituendo,
-  // valorizzata solo scegliendo "Sostituisci quella esistente" su un
-  // doppione (vedi sostituisciDoppione). Letta da handleConferma per
-  // passare overwrite_fattura_id a onComplete.
-  const [overwriteTargets, setOverwriteTargets] = useState<Map<number, string>>(new Map())
-  const [risolvendoDoppione, setRisolvendoDoppione] = useState(false)
+  const [idx, setIdx] = useState(0)
+  const cur = results[idx] as EstraiResponse | undefined
 
-  const rescanCaricato = useRef(false)
+  // Lavoro già fatto, per "Riprova" senza ricaricare né rileggere.
+  const caricati = useRef<string[]>([])
+  const letti = useRef<PaginaLetta[]>([])
+  const gruppiLetti = useRef(0)
+
+  const aggiungi = useCallback(async (files: File[]) => {
+    for (const f of files) {
+      const c = await comprimi(f)
+      setPagine(p => [...p, { f: c, url: URL.createObjectURL(c) }])
+    }
+  }, [])
+
+  // ── Avvio: file passati dallo scanner, oppure foto della ri-scansione ──
+  const avviato = useRef(false)
+  const elaboraRef = useRef<(files?: File[]) => void>(() => {})
   useEffect(() => {
-    if (!rescan || rescanCaricato.current) return
-    rescanCaricato.current = true
-    caricaFotoEsistenti(rescan.fotoPaths)
-  }, [rescan])
-
-  // Precompila la griglia scaricando le foto già su storage della
-  // fattura — da qui in poi sono normalissime pagine locali, non ancora
-  // ricaricate: possono essere rimosse, ri-ritagliate o affiancate da
-  // altre prima di "Elabora", esattamente come una cattura da zero.
-  async function caricaFotoEsistenti(fotoPaths: string[]) {
-    const supabase = createClient()
-    try {
-      for (const path of fotoPaths) {
-        const { data: blob, error: downloadErr } = await supabase.storage.from('fatture_foto').download(path)
-        if (downloadErr || !blob) throw downloadErr ?? new Error('Foto non trovata')
-        const ext = path.split('.').pop() ?? 'jpg'
-        const file = new File([blob], `pagina-esistente.${ext}`, { type: blob.type || 'image/jpeg' })
-        setPages(prev => [...prev, file])
-        setPreviews(prev => [...prev, URL.createObjectURL(file)])
-      }
-      setStatus('capturing')
-    } catch (err) {
-      setError(err instanceof Error ? `Errore nel recupero delle foto esistenti: ${err.message}` : 'Errore nel recupero delle foto esistenti')
-      setStatus('capturing')
-    }
-  }
-
-  async function handleAddPage(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    if (files.length === 0) return
-    e.target.value = ''
-    // Una singola immagine passa sempre dal ritaglio, indipendentemente
-    // da initialMode: sul telefono è il browser a decidere se l'input di
-    // "Carica da file" apre direttamente la fotocamera o un selettore di
-    // sistema che offre comunque "Scatta foto" fra le opzioni — quindi
-    // anche da quel tasto il risultato può essere una foto appena
-    // scattata, non solo un file esistente, e l'utente non ha modo di
-    // sapere in anticipo quale dei due tasti "garantisce" il ritaglio:
-    // deve funzionare allo stesso modo da entrambi.
-    if (files.length === 1 && files[0].type.startsWith('image/')) {
-      setDaRitagliare(files[0])
-      return
-    }
-    // Più file, o un PDF: niente ritaglio prospettico, si accodano
-    // direttamente (in sequenza, non in parallelo, per mantenere
-    // l'ordine di selezione anche se la compressione impiega tempi
-    // diversi) — tipico di un caricamento in blocco di file già esistenti.
-    for (const file of files) await aggiungiPagina(file)
-  }
-
-  async function aggiungiPagina(file: File) {
-    setDaRitagliare(null)
-    // Larghezza/qualità molto più alte del default (800/0.7): l'OCR deve
-    // leggere numeri e testo piccoli su una fattura, non solo riconoscere
-    // un volto come nel fallback timbrature. Stesso limite di
-    // MAX_LATO_LAVORO/warpProspettiva — coerente sia che la pagina sia
-    // passata dallo scanner sia che l'utente scelga la foto originale.
-    // I PDF non passano da qui: compressImage lavora su un <canvas>,
-    // inapplicabile a un file che non è un'immagine.
-    let compressed = file
-    if (file.type.startsWith('image/')) {
-      try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
-    }
-    setPages(prev => [...prev, compressed])
-    setPreviews(prev => [...prev, URL.createObjectURL(compressed)])
-  }
-
-  // Ri-ritaglia una pagina già in griglia (tipicamente una foto esistente
-  // di una ri-scansione, mal ritagliata dal collaboratore) invece di
-  // accodarne una nuova: stessa posizione, stesso indice, solo l'immagine
-  // cambia.
-  function ricroppaPagina(i: number) {
-    setRitagliaIndice(i)
-    setDaRitagliare(pages[i])
-  }
-
-  async function sostituisciPagina(i: number, file: File) {
-    setDaRitagliare(null)
-    setRitagliaIndice(null)
-    let compressed = file
-    if (file.type.startsWith('image/')) {
-      try { compressed = await compressImage(file, 2200, 0.9) } catch { /* usa l'originale */ }
-    }
-    setPages(prev => prev.map((p, idx) => idx === i ? compressed : p))
-    setPreviews(prev => prev.map((src, idx) => {
-      if (idx !== i) return src
-      URL.revokeObjectURL(src)
-      return URL.createObjectURL(compressed)
-    }))
-  }
-
-  function removePage(i: number) {
-    setPages(prev => prev.filter((_, idx) => idx !== i))
-    setPreviews(prev => {
-      URL.revokeObjectURL(prev[i])
-      return prev.filter((_, idx) => idx !== i)
-    })
-  }
-
-  // Quante pagine al massimo per chiamata a /estrai — vedi il commento
-  // nel corpo di handleElabora sotto per il perché.
-  const MAX_PAGINE_PER_LETTURA = 4
-
-  // Fase 2 (vedi handleElabora): compone le fatture da un elenco di
-  // pagine già lette, in un'unica chiamata — mai fatta gruppo per
-  // gruppo, altrimenti una fattura le cui pagine cadono in due gruppi
-  // diversi verrebbe spezzata in due (vedi il commento su componiFatture
-  // in fattureExtraction.ts).
-  async function chiamaComponi(
-    pagine: PaginaLetta[],
-    paths: string[],
-    excludeFatturaId?: string
-  ): Promise<{ fatture: EstraiResponse[] } | { error: string }> {
-    try {
-      const res = await fetch('/api/cassa/fatture/componi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: paths, pagine, exclude_fattura_id: excludeFatturaId }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data) {
-        return {
-          error: data?.error ?? (res.status === 504
-            ? 'La composizione ha superato il tempo massimo.'
-            : `Errore nella composizione della fattura (codice ${res.status}).`),
-        }
-      }
-      return { fatture: (data.fatture ?? []) as EstraiResponse[] }
-    } catch {
-      return { error: 'Errore di rete durante la composizione.' }
-    }
-  }
-
-  async function handleElabora() {
-    setStatus('processing')
-    setFaseElaborazione('upload')
-    setProgressoLettura(null)
-    setError(null)
-
-    // Le foto le carica il client direttamente sullo storage, non la API
-    // route: il corpo di una richiesta a una funzione serverless Vercel
-    // è limitato a 4.5 MB, e con più pagine ad alta risoluzione (l'OCR
-    // deve leggere testo piccolo) si supera facilmente — il rifiuto a
-    // livello di piattaforma arriva al browser come connessione
-    // interrotta, non come un errore applicativo pulito. Qui invece la
-    // route riceve solo i percorsi, un payload minuscolo qualunque sia
-    // la dimensione delle foto.
-    const supabase = createClient()
-    const fotoPaths: string[] = []
-    try {
-      for (let i = 0; i < pages.length; i++) {
-        const ext = pages[i].name.split('.').pop() ?? 'jpg'
-        const path = `${restaurantId}/${Date.now()}-${i}.${ext}`
-        const { error: uploadErr } = await supabase.storage.from('fatture_foto').upload(path, pages[i], {
-          contentType: pages[i].type || 'image/jpeg',
-          upsert: false,
-        })
-        if (uploadErr) throw uploadErr
-        fotoPaths.push(path)
-      }
-    } catch (err) {
-      if (fotoPaths.length > 0) await supabase.storage.from('fatture_foto').remove(fotoPaths)
-      setError(err instanceof Error ? `Errore nel caricamento delle foto: ${err.message}` : 'Errore nel caricamento delle foto')
-      setStatus('capturing')
-      return
-    }
-
-    // Letta in gruppi piccoli invece che tutte le pagine in un'unica
-    // chiamata: la lettura di ogni pagina è già in parallelo e limitata
-    // singolarmente (vedi BUDGET_ESTRAZIONE_MS in fattureExtraction.ts),
-    // ma più pagine insieme — specie di fatture diverse — vanno spesso
-    // in timeout comunque, verosimilmente per la concorrenza verso il
-    // modello AI più che per il tempo di lettura in sé. Gruppi piccoli
-    // riducono il rischio; un gruppo di più di MAX_PAGINE_PER_LETTURA
-    // pagine (documento lungo) resta un unico gruppo, quindi un
-    // documento così lungo non trae vantaggio da questa suddivisione —
-    // solo dallo scaglionare fatture diverse tra loro.
-    //
-    // Fase 1 (qui sotto): solo lettura, gruppo per gruppo. Il
-    // raggruppamento in fatture è deliberatamente rimandato a un'unica
-    // chiamata finale (chiamaComponi, fase 2) su TUTTE le pagine lette —
-    // farlo già qui, gruppo per gruppo, spezzerebbe in due una fattura
-    // le cui pagine cadono a cavallo di due gruppi consecutivi.
-    setFaseElaborazione('lettura')
-    const gruppi: string[][] = []
-    for (let i = 0; i < fotoPaths.length; i += MAX_PAGINE_PER_LETTURA) gruppi.push(fotoPaths.slice(i, i + MAX_PAGINE_PER_LETTURA))
-
-    const pagineAccumulate: PaginaLetta[] = []
-    for (let g = 0; g < gruppi.length; g++) {
-      setProgressoLettura({ corrente: g + 1, totale: gruppi.length })
-      let pagineGruppo: PaginaLetta[] | null = null
-      let messaggioErrore: string | null = null
-      try {
-        const res = await fetch('/api/cassa/fatture/estrai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: gruppi[g], exclude_fattura_id: rescan?.fatturaId }),
-        })
-
-        // Una funzione terminata dalla piattaforma (timeout) risponde con
-        // una pagina di errore, non con JSON: senza questa guardia il
-        // res.json() esplode e l'utente vede un generico "Errore di rete"
-        // che non dice nulla su cosa è andato storto davvero.
-        const data = await res.json().catch(() => null)
-        if (!res.ok || !data) {
-          messaggioErrore = data?.error ?? (res.status === 504
-            ? 'La lettura ha superato il tempo massimo.'
-            : `Errore nella lettura della fattura (codice ${res.status}).`)
-        } else {
-          pagineGruppo = data.pagine ?? []
-        }
-      } catch {
-        messaggioErrore = 'Errore di rete durante la lettura.'
-      }
-
-      if (messaggioErrore) {
-        // Le pagine dei gruppi già letti restano ripulite dalla griglia
-        // (le loro pagine sono già in pagineAccumulate); quelle del
-        // gruppo fallito e dei successivi, mai tentate, restano invece
-        // in coda per un nuovo tentativo.
-        const paginePassate = gruppi.slice(0, g).reduce((tot, gr) => tot + gr.length, 0)
-        setPreviews(prev => { prev.slice(0, paginePassate).forEach(URL.revokeObjectURL); return prev.slice(paginePassate) })
-        setPages(prev => prev.slice(paginePassate))
-
-        if (pagineAccumulate.length > 0) {
-          // Almeno le pagine già lette possono comunque essere composte
-          // in fatture, per non perdere il lavoro fatto finora.
-          const composizione = await chiamaComponi(pagineAccumulate, fotoPaths.slice(0, paginePassate), rescan?.fatturaId)
-          if ('fatture' in composizione && composizione.fatture.length > 0) {
-            setResults(composizione.fatture)
-            setCurrentIndex(0)
-            setStatus('review')
-            setError(`${messaggioErrore} Le fatture già lette sono pronte per la revisione; le pagine restanti sono rimaste in coda, riprova dopo aver salvato queste.`)
-            return
+    if (avviato.current) return
+    avviato.current = true
+    setTimeout(async () => {
+      if (rescan) {
+        const sb = createClient()
+        try {
+          for (const path of rescan.fotoPaths) {
+            const { data, error } = await sb.storage.from('fatture_foto').download(path)
+            if (error || !data) throw error ?? new Error('Foto non trovata')
+            const f = new File([data], `pagina.${path.split('.').pop() ?? 'jpg'}`, { type: data.type || 'image/jpeg' })
+            setPagine(p => [...p, { f, url: URL.createObjectURL(f) }])
           }
+        } catch (e) {
+          setErrore(`Foto della fattura non recuperate: ${e instanceof Error ? e.message : 'errore'}`)
         }
-        setError(`${messaggioErrore} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
-        setStatus('capturing')
         return
       }
+      const files = pagineIniziali ?? []
+      if (avvio === 'ritaglia' && files.length === 1 && files[0].type.startsWith('image/')) { setRitaglio({ f: files[0], indice: null }); return }
+      if (avvio === 'leggi') {
+        const c = await Promise.all(files.map(comprimi))
+        setPagine(c.map(f => ({ f, url: URL.createObjectURL(f) })))
+        elaboraRef.current(c)
+        return
+      }
+      await aggiungi(files)
+    }, 0)
+  }, [rescan, pagineIniziali, avvio, aggiungi])
 
-      pagineAccumulate.push(...(pagineGruppo ?? []))
+  function rimuovi(i: number) {
+    setPagine(p => { URL.revokeObjectURL(p[i].url); return p.filter((_, j) => j !== i) })
+  }
+
+  async function confermaRitaglio(f: File) {
+    const r = ritaglio
+    setRitaglio(null)
+    if (!r) return
+    const c = await comprimi(f)
+    if (r.indice === null) setPagine(p => [...p, { f: c, url: URL.createObjectURL(c) }])
+    else setPagine(p => p.map((x, j) => (j === r.indice ? (URL.revokeObjectURL(x.url), { f: c, url: URL.createObjectURL(c) }) : x)))
+  }
+
+  function daInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (!files.length) return
+    // Una singola foto passa sempre dal ritaglio; PDF o più file no.
+    if (files.length === 1 && files[0].type.startsWith('image/')) { setRitaglio({ f: files[0], indice: null }); return }
+    aggiungi(files)
+  }
+
+  // ── Lettura ─────────────────────────────────────────────────────────
+  async function chiamaComponi(pg: PaginaLetta[], paths: string[], escludi?: string): Promise<{ fatture: EstraiResponse[] } | { error: string }> {
+    try {
+      const res = await fetch('/api/cassa/fatture/componi', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: paths, pagine: pg, exclude_fattura_id: escludi }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) return { error: data?.error ?? (res.status === 504 ? 'La composizione ha superato il tempo massimo.' : `Errore nella composizione della fattura (codice ${res.status}).`) }
+      return { fatture: (data.fatture ?? []) as EstraiResponse[] }
+    } catch { return { error: 'Errore di rete durante la composizione.' } }
+  }
+
+  async function elabora(filesForzati?: File[]) {
+    const files = filesForzati ?? pagine.map(p => p.f)
+    if (!files.length) return
+    setSchermata('lettura'); setErrore(null)
+    const sb = createClient()
+    // Le foto le carica il browser direttamente sullo storage: il corpo di
+    // una richiesta a una funzione serverless è limitato a 4,5 MB.
+    if (caricati.current.length !== files.length) {
+      setLettura({ fase: 'upload', gruppo: 0, gruppi: [] })
+      const paths: string[] = []
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const ext = files[i].name.split('.').pop() ?? 'jpg'
+          const path = `${restaurantId}/${Date.now()}-${i}.${ext}`
+          const { error } = await sb.storage.from('fatture_foto').upload(path, files[i], { contentType: files[i].type || 'image/jpeg', upsert: false })
+          if (error) throw error
+          paths.push(path)
+        }
+      } catch (e) {
+        if (paths.length) sb.storage.from('fatture_foto').remove(paths).catch(() => {})
+        setErrore(`Caricamento delle foto non riuscito: ${e instanceof Error ? e.message : 'errore'}. Riprova.`)
+        setSchermata('errore')
+        return
+      }
+      caricati.current = paths; letti.current = []; gruppiLetti.current = 0
+    }
+    const paths = caricati.current
+    const gruppi: number[][] = []
+    for (let i = 0; i < paths.length; i += PAGINE_PER_GRUPPO) gruppi.push(Array.from({ length: Math.min(PAGINE_PER_GRUPPO, paths.length - i) }, (_, k) => i + k))
+
+    for (let g = gruppiLetti.current; g < gruppi.length; g++) {
+      setLettura({ fase: 'lettura', gruppo: g, gruppi })
+      let msg: string | null = null, pg: PaginaLetta[] | null = null
+      try {
+        const res = await fetch('/api/cassa/fatture/estrai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: gruppi[g].map(i => paths[i]), exclude_fattura_id: rescan?.fatturaId }),
+        })
+        const data = await res.json().catch(() => null)
+        if (!res.ok || !data) msg = data?.error ?? (res.status === 504 ? 'La lettura ha superato il tempo massimo.' : `Lettura non riuscita (codice ${res.status}).`)
+        else pg = data.pagine ?? []
+      } catch { msg = 'Errore di rete durante la lettura.' }
+      if (msg) {
+        setErrore(`${msg} Riprova con meno pagine per volta, oppure compila i dati a mano.`)
+        setSchermata('errore')
+        return
+      }
+      letti.current = [...letti.current, ...(pg ?? [])]
+      gruppiLetti.current = g + 1
     }
 
-    // Fase 2: un'unica composizione su tutte le pagine lette.
-    const composizione = await chiamaComponi(pagineAccumulate, fotoPaths, rescan?.fatturaId)
-    if ('error' in composizione) {
-      setError(`${composizione.error} Riprova, oppure compila i dati a mano.`)
-      setStatus('capturing')
+    setLettura({ fase: 'composizione', gruppo: gruppi.length, gruppi })
+    const comp = await chiamaComponi(letti.current, paths, rescan?.fatturaId)
+    if ('error' in comp) {
+      // Una composizione fallita rifà da capo la lettura: il server ha già ripulito le foto.
+      if (!rescan) { caricati.current = []; letti.current = []; gruppiLetti.current = 0 }
+      setErrore(`${comp.error} Riprova, oppure compila i dati a mano.`)
+      setSchermata('errore')
       return
     }
-    setResults(composizione.fatture)
-    setCurrentIndex(0)
-    setStatus('review')
+    setResults(comp.fatture); setIdx(0); resetRevisione(); setSchermata('revisione')
+  }
+  useEffect(() => { elaboraRef.current = elabora })
+
+  function compilaAMano() {
+    setResults([{
+      duplicato: false, manuale: true, foto_paths: caricati.current,
+      fornitore: { id: '', nome: '', partita_iva: null, nuovo: false },
+      fattura: { data: '', numero_documento: '', ha_articoli: false, iva_dettaglio: [], totale_netto: 0, totale_iva: 0, totale_lordo: 0, verifiche_sospette: [] },
+      articoli: [],
+    }])
+    setIdx(0); resetRevisione(); setSchermata('revisione')
   }
 
-  // Fornitore effettivamente in uso per la fattura corrente: quello
-  // corretto a mano se l'utente l'ha cambiato, altrimenti quello risolto
-  // dal server.
-  const fornitoreEffettivo = fornitoreEditato ?? current?.fornitore ?? null
+  // ── Revisione ───────────────────────────────────────────────────────
+  const [ed, setEd] = useState<Record<string, string | undefined>>({})
+  const [kp, setKp] = useState<{ k: string; esce: boolean } | null>(null)
+  const prev = useRef<string | undefined>(undefined)
+  const [fornitoreEd, setFornitoreEd] = useState<{ id: string; nome: string } | null>(null)
+  const [dataEd, setDataEd] = useState<string | null>(null)
+  const [numEd, setNumEd] = useState<string | null>(null)
+  const [categoria, setCategoria] = useState('')
+  const [resolved, setResolved] = useState<Map<string, { id: string; sospetto: VerificaSospetta | null }>>(new Map())
+  const [rifiutati, setRifiutati] = useState<Set<string>>(new Set())
+  const [overwrite, setOverwrite] = useState<Map<number, string>>(new Map())
+  const [salva, setSalva] = useState(false)
+  const [rilettura, setRilettura] = useState(false)
 
-  // Solo per la decisione 'stesso': l'id catalogo è già noto (il
-  // candidato suggerito), qui si registra solo la mappatura testo→id e si
-  // controlla lo scostamento prezzo — nessun rischio di lasciare un
-  // articolo orfano, quindi resta immediato (rete) invece che rimandato.
-  async function confermaStesso(articolo: ArticoloEstratto) {
-    if (!current || !fornitoreEffettivo) return
-    try {
-      const res = await fetch('/api/cassa/fatture/conferma-articolo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurant_id: restaurantId,
-          fornitore_id: fornitoreEffettivo.id,
-          testo_estratto: articolo.testo_estratto,
-          decisione: 'stesso',
-          catalogo_articolo_id: articolo.catalogo_articolo_id,
-          prezzo_unitario: articolo.quantita !== 0 ? articolo.prezzo_riga / articolo.quantita : articolo.prezzo_riga,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Errore nel salvataggio della scelta'); return }
-      setResolved(prev => new Map(prev).set(articolo.testo_estratto, { catalogoArticoloId: data.catalogo_articolo_id, sospetto: data.sospetto ?? null }))
-      setConfirmingIndex(null)
-    } catch {
-      setError('Errore di rete, riprova')
-    }
+  function resetRevisione() {
+    setEd({}); setKp(null); setFornitoreEd(null); setDataEd(null); setNumEd(null); setCategoria('')
+    setResolved(new Map()); setRifiutati(new Set()); setErrore(null)
   }
 
-  function risoltoInfo(a: ArticoloEstratto): { catalogoArticoloId: string; sospetto: VerificaSospetta | null } | null {
-    // L'abbinamento 'auto_mappato'/'chiaro' che arriva da current.articoli
-    // è stato risolto dal server contro il catalogo del fornitore
-    // ORIGINALE: se l'utente lo corregge in revisione, quell'abbinamento
-    // punterebbe a un articolo del fornitore sbagliato — va ignorato,
-    // l'articolo torna "nuovo" finché non viene confermato di nuovo (col
-    // fornitore giusto, tramite confermaStesso qui sopra).
-    if (current && fornitoreEditato && fornitoreEditato.id !== current.fornitore.id) return null
-    if (a.esito === 'auto_mappato' || a.esito === 'chiaro') {
-      if (rifiutati.has(a.testo_estratto)) return null
-      return a.catalogo_articolo_id ? { catalogoArticoloId: a.catalogo_articolo_id, sospetto: a.sospetto } : null
-    }
+  const kpK = kp && !kp.esce ? kp.k : null
+  const chiudiKp = useCallback(() => {
+    if (!kpK) return
+    // "Fatto" o tocco fuori senza aver digitato: resta il valore di prima.
+    setEd(e => (e[kpK] === '' || e[kpK] === undefined ? { ...e, [kpK]: prev.current } : e))
+    setKp({ k: kpK, esce: true })
+    setTimeout(() => setKp(x => (x?.esce ? null : x)), 320)
+  }, [kpK])
+  useToccoFuori(!!kp && !kp.esce, '[data-kp]', chiudiKp)
+  const tocca = (k: string) => () => {
+    if (kp?.k === k && !kp.esce) return
+    if (kp && !kp.esce) setEd(e => (e[kp.k] === '' ? { ...e, [kp.k]: prev.current } : e))
+    prev.current = ed[k]
+    setKp({ k, esce: false })
+    if (k[0] !== 'i') setEd(e => ({ ...e, [k]: '' }))
+  }
+  const premi = (t: TastoTastierino) => setEd(e => {
+    if (!kp) return e
+    let c = e[kp.k] ?? ''
+    if (t === 'del') c = c.slice(0, -1)
+    else if (t === ',') { if (!c.includes(',')) c = (c || '0') + ',' }
+    else { if (c.includes(',') && c.split(',')[1].length >= (kp.k[0] === 'q' ? 3 : 2)) return e; if (c.replace(',', '').length >= 8) return e; c = c === '0' ? t : c + t }
+    return { ...e, [kp.k]: c }
+  })
+  const ov = (k: string) => { const v = ed[k]; return v !== undefined && v !== '' ? numeroDa(v) : null }
+
+  const articoli = cur?.articoli ?? []
+  const fornitoreEff = fornitoreEd ?? (cur && cur.fornitore.id ? cur.fornitore : null)
+  const aliquotaUnica = cur?.fattura && cur.fattura.iva_dettaglio.length === 1 ? cur.fattura.iva_dettaglio[0].aliquota : null
+
+  function risolto(a: ArticoloEstratto): { id: string; sospetto: VerificaSospetta | null } | null {
+    // Con il fornitore cambiato a mano gli abbinamenti del server puntano
+    // al catalogo sbagliato: l'articolo torna nuovo.
+    if (cur && fornitoreEd && fornitoreEd.id !== cur.fornitore.id) return resolved.get(a.testo_estratto) ?? null
+    if ((a.esito === 'auto_mappato' || a.esito === 'chiaro') && !rifiutati.has(a.testo_estratto)) return a.catalogo_articolo_id ? { id: a.catalogo_articolo_id, sospetto: a.sospetto } : null
     return resolved.get(a.testo_estratto) ?? null
   }
 
-  // Dati con cui un articolo 'nuovo' (o 'ambiguo' risolto come nuovo)
-  // verrà creato al salvataggio: quelli eventualmente modificati
-  // dall'utente, altrimenti il suggerimento dell'OCR di default — non è
-  // più obbligatorio che l'utente li tocchi.
-  function datiNuovoArticolo(a: ArticoloEstratto): DatiNuovoArticolo {
-    return nuoviModificati.get(a.testo_estratto) ?? {
-      nome_articolo: a.testo_estratto,
-      tipologia: a.tipologia_suggerita,
-      unita_misura: a.unita_misura ?? undefined,
-    }
+  async function confermaStesso(a: ArticoloEstratto, prezzoUnitario: number) {
+    if (!fornitoreEff || !a.catalogo_articolo_id) return
+    try {
+      const res = await fetch('/api/cassa/fatture/conferma-articolo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, fornitore_id: fornitoreEff.id, testo_estratto: a.testo_estratto, decisione: 'stesso', catalogo_articolo_id: a.catalogo_articolo_id, prezzo_unitario: prezzoUnitario }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErrore(data.error ?? 'Scelta non salvata, riprova'); return }
+      setResolved(m => new Map(m).set(a.testo_estratto, { id: data.catalogo_articolo_id, sospetto: data.sospetto ?? null }))
+    } catch { setErrore('Errore di rete, riprova') }
   }
 
-  const articoli = current?.articoli ?? []
+  // Valori effettivi di ogni riga (letti o corretti) e totali dal vivo.
+  const righe = articoli.map((a, i) => {
+    const pu0 = a.quantita ? a.prezzo_riga / a.quantita : a.prezzo_riga
+    const al0 = a.aliquota_iva ?? aliquotaUnica ?? 22
+    const q = ov('q' + i) ?? a.quantita, p = ov('p' + i) ?? pu0, iv = ov('i' + i) ?? al0
+    const mod = (ov('q' + i) !== null && q !== a.quantita) || (ov('p' + i) !== null && Math.abs(p - pu0) > 0.0001) || (ov('i' + i) !== null && iv !== al0)
+    return { a, i, q, p, iv, riga: q * p, mod, ivaMod: ov('i' + i) !== null && iv !== al0 }
+  })
+  const toccate = righe.some(r => r.mod)
+  const nettoRighe = righe.reduce((t, r) => t + r.riga, 0)
+  const ivaRighe = righe.reduce((t, r) => t + r.riga * r.iv / 100, 0)
+  const fatt = cur?.fattura
+  const ivaE = ov('ti') ?? (fatt?.ha_articoli && toccate ? ivaRighe : fatt?.totale_iva ?? 0)
+  const nettoE = ov('tn') ?? (ov('tl') !== null ? (ov('tl') as number) - ivaE : fatt?.ha_articoli ? nettoRighe : fatt?.totale_netto ?? 0)
+  const lordoE = ov('tl') ?? nettoE + ivaE
+  const vuoti = ov('vu')
+  const dataEff = (dataEd ?? fatt?.data ?? '').trim()
+  const numEff = (numEd ?? fatt?.numero_documento ?? '').trim()
+  const testataOk = !!dataEff && !!numEff && !!fornitoreEff
+  const serveCategoria = fatt?.ha_articoli === false
+  const pronta = testataOk && (!serveCategoria || !!categoria) && (!cur?.manuale || nettoE > 0)
+  const ultima = idx >= results.length - 1
 
-  // Quantità/prezzo unitario effettivi di una riga (originali o corretti
-  // a mano) e il conseguente importo di riga — usata sia per il
-  // salvataggio sia per il ricalcolo dal vivo di Netto/Lordo sotto.
-  function quantitaEffettiva(i: number, a: ArticoloEstratto): number {
-    return quantitaModificate.get(i) ?? a.quantita
-  }
-  function prezzoUnitarioEffettivo(i: number, a: ArticoloEstratto): number {
-    const originale = a.quantita !== 0 ? a.prezzo_riga / a.quantita : a.prezzo_riga
-    return prezzoUnitarioModificato.get(i) ?? originale
-  }
-  function prezzoRigaEffettivo(i: number, a: ArticoloEstratto): number {
-    return quantitaEffettiva(i, a) * prezzoUnitarioEffettivo(i, a)
-  }
-
-  const dataEffettiva = (dataEditata ?? current?.fattura?.data ?? '').trim()
-  const numeroDocEffettivo = (numeroDocEditato ?? current?.fattura?.numero_documento ?? '').trim()
-  // Netto dalla somma REALE delle righe (quando la fattura ne ha) invece
-  // che dal valore letto dall'OCR: è anche esattamente il criterio che il
-  // trigger di salvataggio (fatture_recompute_totali) usa per calcolare
-  // il netto quando ha_articoli è vero, quindi qui la testata mostra
-  // sempre ciò che verrà davvero salvato — e si aggiorna subito quando si
-  // corregge quantità o prezzo di una riga, invece di restare ferma al
-  // valore originale. L'IVA non dipende dalle righe (resta quella letta/
-  // stimata in fattura, invariata da queste correzioni — coerente con la
-  // stessa separazione già presente nel trigger).
-  const nettoDaArticoli = current?.fattura?.ha_articoli
-    ? articoli.reduce((tot, a, i) => tot + prezzoRigaEffettivo(i, a), 0)
-    : null
-  const totaleNettoEffettivo = totaleNettoEditato ?? nettoDaArticoli ?? current?.fattura?.totale_netto ?? 0
-  const totaleLordoEffettivo = totaleLordoEditato ?? (nettoDaArticoli != null ? nettoDaArticoli + (current?.fattura?.totale_iva ?? 0) : current?.fattura?.totale_lordo ?? 0)
-  function onChangeTotaleLordo(v: number) {
-    setTotaleLordoEditato(v)
-    // L'IVA non è modificabile qui: corretto il totale, l'imponibile si
-    // aggiusta di conseguenza (stessa IVA), restando comunque
-    // modificabile per conto suo subito dopo.
-    setTotaleNettoEditato(v - (current?.fattura?.totale_iva ?? 0))
-  }
-  const testataCompleta = !!dataEffettiva && !!numeroDocEffettivo
-  const richiedeCategoriaDiretta = current?.fattura?.ha_articoli === false
-  // Nessun articolo blocca più il salvataggio in attesa di una decisione:
-  // un 'ambiguo' non confermato si salva come nuovo articolo (i default
-  // sono già pronti in datiNuovoArticolo), esattamente come un 'nuovo' —
-  // confermare che è lo stesso di un candidato a catalogo resta possibile
-  // ma opzionale, mai obbligatorio.
-  const tuttiRisolti = !richiedeCategoriaDiretta || !!categoriaDiretta
-  const ultimaDelBatch = currentIndex >= results.length - 1
-
-  // Passa alla fattura successiva del batch resettando lo stato di
-  // revisione (è per forza tutto relativo alla fattura appena
-  // conclusa: fornitore, articoli e testo_estratto possono essere
-  // completamente diversi sulla prossima), oppure chiude se era l'ultima.
   function avanti() {
-    // Un doppione non ha (né avrà mai) una riga fatture che referenzi
-    // queste foto: senza pulirle qui restano per sempre nel bucket, non
-    // raggiungibili da nessun'altra parte dell'app. Vale anche in
-    // ri-scansione: current.foto_paths qui sono SEMPRE quelle appena
-    // ricaricate da handleElabora, mai le originali della fattura (che
-    // restano intoccate finché il salvataggio non le sostituisce).
-    if (current?.duplicato && current.foto_paths.length > 0) {
-      createClient().storage.from('fatture_foto').remove(current.foto_paths).catch(() => {})
-    }
-    if (ultimaDelBatch) { onFinished(); return }
-    setCurrentIndex(i => i + 1)
-    setResolved(new Map())
-    setNuoviModificati(new Map())
-    setQuantitaModificate(new Map())
-    setPrezzoUnitarioModificato(new Map())
-    setConfirmingIndex(null)
-    setCategoriaDiretta('')
-    setDataEditata(null)
-    setNumeroDocEditato(null)
-    setFornitoreEditato(null)
-    setRifiutati(new Set())
-    setTotaleLordoEditato(null)
-    setTotaleNettoEditato(null)
-    setVuotiRitirati(null)
-    setError(null)
+    if (cur?.duplicato && cur.foto_paths.length) createClient().storage.from('fatture_foto').remove(cur.foto_paths).catch(() => {})
+    if (ultima) { onFinished(); return }
+    setIdx(i => i + 1); resetRevisione()
   }
-
-  // Annulla dalla revisione (fattura corrente o doppione): le foto di
-  // questa fattura e di quelle non ancora raggiunte nel batch sono già
-  // su storage ma non verranno mai salvate — le fatture precedenti del
-  // batch sono già state gestite (salvate, o ripulite se doppioni) da
-  // avanti(), quindi non rientrano qui. Vale anche in ri-scansione, per
-  // lo stesso motivo di avanti() sopra.
-  function annullaRevisione() {
-    const daRimuovere = results.slice(currentIndex).flatMap(r => r.foto_paths)
-    if (daRimuovere.length > 0) {
-      createClient().storage.from('fatture_foto').remove(daRimuovere).catch(() => {})
+  function annulla() {
+    // Le foto delle fatture non ancora salvate non verranno mai collegate.
+    if (schermata === 'revisione') {
+      const via = results.slice(idx).flatMap(r => r.foto_paths)
+      if (via.length) createClient().storage.from('fatture_foto').remove(via).catch(() => {})
+    } else if (caricati.current.length && !rescan) {
+      createClient().storage.from('fatture_foto').remove(caricati.current).catch(() => {})
     }
     onCancel()
   }
 
-  // "Sostituisci quella esistente" sullo schermo di doppione: le foto
-  // sono già su storage (current.foto_paths), basta rilanciare la
-  // lettura escludendo la fattura già a sistema dal controllo doppioni
-  // — esattamente come una ri-scansione, solo che l'id da escludere
-  // arriva dal doppione appena trovato invece che dal prop rescan. Se
-  // la nuova lettura conferma di nuovo un doppione (es. un terzo
-  // documento con lo stesso numero) lo schermo resta identico, stavolta
-  // sul nuovo fattura_esistente_id.
   async function sostituisciDoppione() {
-    if (!current?.fattura_esistente_id) return
-    setRisolvendoDoppione(true)
-    setError(null)
+    if (!cur?.fattura_esistente_id) return
+    setRilettura(true); setErrore(null)
     try {
-      const resPagine = await fetch('/api/cassa/fatture/estrai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: current.foto_paths, exclude_fattura_id: current.fattura_esistente_id }),
+      const r = await fetch('/api/cassa/fatture/estrai', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_id: restaurantId, foto_paths: cur.foto_paths, exclude_fattura_id: cur.fattura_esistente_id }),
       })
-      const dataPagine = await resPagine.json().catch(() => null)
-      if (!resPagine.ok || !dataPagine?.pagine) {
-        setError(dataPagine?.error ?? 'Errore nella rilettura della fattura, riprova.')
-        return
-      }
-      const composizione = await chiamaComponi(dataPagine.pagine, current.foto_paths, current.fattura_esistente_id)
-      if ('error' in composizione || !composizione.fatture[0]) {
-        setError('error' in composizione ? composizione.error : 'Errore nella rilettura della fattura, riprova.')
-        return
-      }
-      const nuovo = composizione.fatture[0]
-      if (!nuovo.duplicato) {
-        setOverwriteTargets(prev => new Map(prev).set(currentIndex, current.fattura_esistente_id as string))
-      }
-      setResults(prev => prev.map((r, i) => (i === currentIndex ? nuovo : r)))
-    } catch {
-      setError('Errore di rete, riprova')
-    } finally {
-      setRisolvendoDoppione(false)
-    }
+      const d = await r.json().catch(() => null)
+      if (!r.ok || !d?.pagine) { setErrore(d?.error ?? 'Rilettura non riuscita, riprova.'); return }
+      const comp = await chiamaComponi(d.pagine, cur.foto_paths, cur.fattura_esistente_id)
+      if ('error' in comp || !comp.fatture[0]) { setErrore('error' in comp ? comp.error : 'Rilettura non riuscita, riprova.'); return }
+      const nuovo = comp.fatture[0]
+      if (!nuovo.duplicato) setOverwrite(m => new Map(m).set(idx, cur.fattura_esistente_id as string))
+      setResults(rs => rs.map((x, i) => (i === idx ? nuovo : x)))
+    } catch { setErrore('Errore di rete, riprova') } finally { setRilettura(false) }
   }
 
-  async function handleConferma() {
-    if (!current || !fornitoreEffettivo) return
-
-    if (current.duplicato) {
-      avanti()
-      return
+  async function conferma() {
+    if (!cur || !fatt || !fornitoreEff || !pronta) return
+    // Riepilogo IVA: quello letto, oppure ricostruito dalle righe quando
+    // quantità, prezzi o aliquote sono stati corretti.
+    let ivaDett: AliquotaEstratta[] = fatt.iva_dettaglio
+    if (fatt.ha_articoli && toccate) {
+      const m = new Map<number, number>()
+      righe.forEach(r => m.set(r.iv, (m.get(r.iv) ?? 0) + r.riga))
+      ivaDett = [...m].map(([aliquota, imp]) => ({ aliquota, imponibile: Math.round(imp * 100) / 100, iva: Math.round(imp * aliquota) / 100 }))
     }
-    if (!current.fattura || !tuttiRisolti || !testataCompleta) return
-
-    const verificheArticoli = articoli
-      .map(a => risoltoInfo(a)?.sospetto)
-      .filter((v): v is VerificaSospetta => !!v)
-
-    setSaving(true)
-    setError(null)
+    if (cur.manuale) {
+      const al = nettoE > 0 ? ALIQUOTE.reduce((b, x) => (Math.abs(x - ivaE / nettoE * 100) < Math.abs(b - ivaE / nettoE * 100) ? x : b), 22) : 0
+      ivaDett = [{ aliquota: al, imponibile: Math.round(nettoE * 100) / 100, iva: Math.round(ivaE * 100) / 100 }]
+    }
+    const verificheArt = articoli.map(a => risolto(a)?.sospetto).filter((v): v is VerificaSospetta => !!v)
+    setSalva(true); setErrore(null)
     try {
       await onComplete({
-        foto_paths: current.foto_paths,
-        overwrite_fattura_id: overwriteTargets.get(currentIndex),
-        fornitore: { ...fornitoreEffettivo, partita_iva: fornitoreEditato ? null : current.fornitore.partita_iva },
-        data: dataEffettiva,
-        numero_documento: numeroDocEffettivo,
-        ha_articoli: current.fattura.ha_articoli,
-        categoria_spesa_diretta_id: richiedeCategoriaDiretta ? categoriaDiretta : null,
-        iva_dettaglio: current.fattura.iva_dettaglio,
-        totale_netto: current.fattura.totale_netto,
-        totale_iva: current.fattura.totale_iva,
-        totale_lordo: current.fattura.totale_lordo,
-        totale_lordo_manuale: totaleLordoEditato,
-        totale_netto_manuale: totaleNettoEditato,
-        vuoti_ritirati: vuotiRitirati,
-        articoli: articoli.map((a, i) => {
-          const info = risoltoInfo(a)
-          const quantita = quantitaEffettiva(i, a)
-          const prezzoRiga = prezzoRigaEffettivo(i, a)
-          return info
-            ? { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, catalogo_articolo_id: info.catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro }
-            : { testo_estratto: a.testo_estratto, quantita, prezzo_riga: prezzoRiga, nuovo_articolo: datiNuovoArticolo(a), pagina_indice: a.pagina_indice, riquadro: a.riquadro }
+        foto_paths: cur.foto_paths,
+        overwrite_fattura_id: overwrite.get(idx),
+        fornitore: { ...fornitoreEff, partita_iva: fornitoreEd ? null : cur.fornitore.partita_iva },
+        data: dataEff,
+        numero_documento: numEff,
+        ha_articoli: fatt.ha_articoli,
+        categoria_spesa_diretta_id: serveCategoria ? categoria : null,
+        iva_dettaglio: ivaDett,
+        totale_netto: fatt.totale_netto, totale_iva: fatt.totale_iva, totale_lordo: fatt.totale_lordo,
+        totale_netto_manuale: ov('tn') !== null ? nettoE : null,
+        totale_lordo_manuale: ov('tl') !== null || ov('ti') !== null ? lordoE : null,
+        vuoti_ritirati: vuoti,
+        articoli: righe.map(r => {
+          const info = risolto(r.a)
+          const base = { testo_estratto: r.a.testo_estratto, quantita: r.q, prezzo_riga: Math.round(r.riga * 100) / 100, pagina_indice: r.a.pagina_indice, riquadro: r.a.riquadro, aliquota_iva: r.iv }
+          return info ? { ...base, catalogo_articolo_id: info.id }
+            : { ...base, nuovo_articolo: { nome_articolo: r.a.testo_estratto, tipologia: r.a.tipologia_suggerita, unita_misura: r.a.unita_misura ?? undefined } }
         }),
-        verifiche_sospette: [...current.fattura.verifiche_sospette, ...verificheArticoli],
+        verifiche_sospette: [...fatt.verifiche_sospette, ...verificheArt],
       })
       avanti()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore nel salvataggio della fattura')
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) {
+      setErrore(e instanceof Error ? e.message : 'Salvataggio non riuscito')
+    } finally { setSalva(false) }
   }
 
-  if (status === 'review' && current) {
-    if (current.duplicato) {
-      return (
-        <div className="space-y-4">
-          {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
-          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
-            <AlertTriangle className="h-5 w-5 shrink-0 text-destructive mt-0.5" />
-            <div className="space-y-1 text-sm">
-              <p className="font-semibold text-destructive">Possibile doppione</p>
-              <p className="text-muted-foreground">
-                Una fattura di <strong>{current.fornitore.nome}</strong> con lo stesso numero documento è già presente a sistema
-                {current.fattura_esistente_data && (
-                  <> (data <strong>{formatDataIt(current.fattura_esistente_data)}</strong> — se non la trovi in elenco, controlla di essere su quel mese)</>
-                )}
-                . Non è stata salvata.
-              </p>
-            </div>
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex flex-wrap justify-between gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={annullaRevisione} disabled={risolvendoDoppione}>Annulla</Button>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={sostituisciDoppione} disabled={risolvendoDoppione}>
-                {risolvendoDoppione ? <><Loader2 className="h-4 w-4 animate-spin" /> Rilettura…</> : 'Sostituisci quella esistente'}
-              </Button>
-              <Button type="button" onClick={avanti} disabled={risolvendoDoppione}>{ultimaDelBatch ? 'Chiudi' : 'Fattura successiva'}</Button>
-            </div>
-          </div>
+  // ── Resa ────────────────────────────────────────────────────────────
+  if (!montato) return null
+  const nPag = pagine.length
+  const titolo = schermata === 'revisione' && results.length > 1 ? `Fattura ${idx + 1} di ${results.length}` : rescan ? 'Ri-scansiona' : 'Nuova fattura'
+  const sotto = schermata === 'lettura' ? "Non chiudere l'app"
+    : schermata === 'revisione' ? (cur?.duplicato ? cur.fornitore.nome : 'Controlla i dati letti')
+    : `${nPag} ${nPag === 1 ? 'pagina' : 'pagine'}`
+  const fileCam = <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={daInput} />
+  const fileMulti = <input type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={daInput} />
+
+  const corpo = ritaglio ? (
+    <DocumentScanner file={ritaglio.f} pagina={(ritaglio.indice ?? nPag) + 1} onConfirm={confermaRitaglio} onCancel={() => setRitaglio(null)} />
+  ) : (
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
+      <div className="flex flex-none items-center gap-2.5 border-b border-border px-4 py-2">
+        <button type="button" onClick={annulla} aria-label="Chiudi" className="flex h-11 w-11 items-center justify-center text-muted-foreground active:scale-[0.96]"><IcoX s={18} /></button>
+        <div className="flex min-w-0 flex-1 flex-col items-center">
+          <span className="text-base font-semibold">{titolo}</span>
+          <span className="truncate text-xs text-muted-foreground">{sotto}</span>
         </div>
-      )
-    }
+        <div className="w-11" />
+      </div>
 
-    if (!current.fattura) return null
-    const verificheFattura = current.fattura.verifiche_sospette
-    return (
-      <div className="space-y-4">
-        {results.length > 1 && <p className="text-xs font-medium text-muted-foreground">Fattura {currentIndex + 1} di {results.length}</p>}
-        <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 space-y-1 text-sm">
-          <div className="space-y-1">
-            <Label className="text-xs font-normal">Fornitore</Label>
-            <div className="flex items-center gap-2">
-              <Select
-                value={fornitoreEffettivo?.id ?? ''}
-                onValueChange={id => {
-                  const f = fornitori.find(x => x.id === id)
-                  if (!f) return
-                  setFornitoreEditato({ id: f.id, nome: f.nome })
-                  setResolved(new Map())
-                  setNuoviModificati(new Map())
-                  setRifiutati(new Set())
-                  setConfirmingIndex(null)
-                }}
-              >
-                <SelectTrigger className="h-8 w-auto min-w-40"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {!fornitori.some(f => f.id === current.fornitore.id) && (
-                    <SelectItem value={current.fornitore.id}>{current.fornitore.nome} (nuovo)</SelectItem>
-                  )}
-                  {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {!fornitoreEditato && current.fornitore.nuovo && <Badge variant="secondary">nuovo</Badge>}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', (verificheFattura.some(v => v.campo === 'data') || !dataEffettiva) && 'text-warn font-medium')}>Data</Label>
-              <Input type="date" value={dataEffettiva} onChange={e => setDataEditata(e.target.value)} className="h-8 cassa-numeric" />
-            </div>
-            <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', !numeroDocEffettivo && 'text-warn font-medium')}>Documento</Label>
-              <Input value={numeroDocEffettivo} onChange={e => setNumeroDocEditato(e.target.value)} className="h-8 cassa-numeric" placeholder="Numero documento" />
-            </div>
-          </div>
-          {!testataCompleta && (
-            <p className="flex items-center gap-1.5 text-xs text-warn pt-1">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {!dataEffettiva && !numeroDocEffettivo ? 'Inserisci data e numero documento per poter salvare.' : !dataEffettiva ? 'Inserisci la data per poter salvare.' : 'Inserisci il numero documento per poter salvare.'}
-            </p>
-          )}
-          <div className="grid grid-cols-3 gap-2 pt-1">
-            <div className="space-y-1">
-              <Label className="text-xs font-normal">Netto</Label>
-              <CurrencyInput value={totaleNettoEffettivo} onChange={setTotaleNettoEditato} hideStepper className="h-8 cassa-numeric" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs font-normal text-muted-foreground">IVA</Label>
-              <p className="cassa-numeric flex h-8 items-center text-sm text-muted-foreground">€ {eur2(current.fattura.totale_iva)}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className={cn('text-xs font-normal', verificheFattura.some(v => v.campo === 'totale_lordo') && 'text-warn font-medium')}>Lordo</Label>
-              <CurrencyInput value={totaleLordoEffettivo} onChange={onChangeTotaleLordo} hideStepper className="h-8 cassa-numeric" />
-            </div>
-          </div>
-          <div className="space-y-1 pt-1">
-            <Label className="text-xs font-normal">Vuoti ritirati (facoltativo)</Label>
-            <CurrencyInput value={vuotiRitirati} onChange={setVuotiRitirati} hideStepper className="h-8 cassa-numeric max-w-32" />
-            {!!vuotiRitirati && (
-              <p className="text-xs text-muted-foreground">Da pagare € {eur2((totaleLordoEffettivo - vuotiRitirati))}</p>
-            )}
-          </div>
-          {verificheFattura.map((v, i) => (
-            <p key={i} className="flex items-center gap-1.5 text-xs text-warn pt-1">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {v.messaggio}
-            </p>
-          ))}
-        </div>
-
-        {richiedeCategoriaDiretta && (
-          <div className="space-y-1.5">
-            <Label>Categoria spesa diretta <span className="text-cassa-copper">*</span></Label>
-            <Select value={categoriaDiretta} onValueChange={setCategoriaDiretta}>
-              <SelectTrigger><SelectValue placeholder="Seleziona una categoria" /></SelectTrigger>
-              <SelectContent>
-                {categorieDirette.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {articoli.length > 0 && (
-          <div className="space-y-2">
-            <Label>Articoli ({articoli.length})</Label>
-            {articoli.map((a, i) => {
-              const quantita = quantitaEffettiva(i, a)
-              const prezzoUnitario = prezzoUnitarioEffettivo(i, a)
-              const prezzoRiga = prezzoRigaEffettivo(i, a)
-              const modificato = quantitaModificate.has(i) || prezzoUnitarioModificato.has(i)
-              // Con quantità/prezzo corretti a mano: stesso oggetto ma con
-              // i valori aggiornati, così sia la conferma "è lo stesso"
-              // (verifica scostamento lato server) sia il nuovo articolo
-              // usano i valori corretti, non quelli originali dell'OCR.
-              const aEffettivo = modificato ? { ...a, quantita, prezzo_riga: prezzoRiga } : a
-              const info = risoltoInfo(a)
-              const nuovoInfo = nuoviModificati.get(a.testo_estratto)
+      {schermata === 'pagine' && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-4">
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+            {pagine.map((p, i) => {
+              const pdf = p.f.type === 'application/pdf'
               return (
-                <div key={`${a.testo_estratto}-${i}`} className="rounded-md border border-border px-3 py-2 text-sm space-y-2">
-                  <p className="truncate">{a.testo_estratto}</p>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <div className="w-16">
-                      <CurrencyInput
-                        value={quantita}
-                        onChange={v => setQuantitaModificate(prev => new Map(prev).set(i, v))}
-                        hideStepper
-                        className="h-7 text-sm cassa-numeric text-center"
-                      />
-                    </div>
-                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">{a.unita_misura ?? ''} ×</span>
-                    <div className="w-24">
-                      <CurrencyInput
-                        value={prezzoUnitario}
-                        onChange={v => setPrezzoUnitarioModificato(prev => new Map(prev).set(i, v))}
-                        hideStepper
-                        className="h-7 text-sm cassa-numeric"
-                      />
-                    </div>
-                    <span className="cassa-numeric text-xs text-muted-foreground whitespace-nowrap">
-                      = € {eur2(prezzoRiga)}{modificato && ' · corretto'}
-                    </span>
-                  </div>
-                  {confirmingIndex === i ? (
-                    <ArticoloConfirmForm
-                      articolo={aEffettivo}
-                      onStesso={() => confermaStesso(aEffettivo)}
-                      onNuovo={payload => { setNuoviModificati(prev => new Map(prev).set(a.testo_estratto, payload)); setConfirmingIndex(null) }}
-                      onAnnulla={() => setConfirmingIndex(null)}
-                    />
-                  ) : info ? (
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary">
-                          {a.esito === 'auto_mappato' ? 'già noto' : a.esito === 'chiaro' ? 'abbinato' : 'confermato'}
-                        </Badge>
-                        {a.candidato_nome && <span className="text-xs text-muted-foreground truncate">{a.candidato_nome}</span>}
-                        {(a.esito === 'auto_mappato' || a.esito === 'chiaro') && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setRifiutati(prev => new Set(prev).add(a.testo_estratto))}
-                          >
-                            Non è questo
-                          </Button>
-                        )}
-                      </div>
-                      {info.sospetto && !modificato && (
-                        <p className="flex items-center gap-1.5 text-xs text-warn">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {info.sospetto.messaggio}
-                        </p>
-                      )}
+                <div key={p.url} className="anim-swapin relative box-border flex aspect-[3/4] flex-col gap-[5px] overflow-hidden rounded-[6px] border border-[oklch(0.88_0.01_250)] bg-card dark:border-border">
+                  {pdf ? (
+                    <div className="flex flex-col gap-[5px] px-2 py-2.5">
+                      <div className="h-1.5 w-3/5 rounded-[2px] bg-[oklch(0.85_0.01_250)]" /><div className="h-1 w-[85%] rounded-[2px] bg-[oklch(0.9_0.01_250)]" />
+                      <div className="h-1 w-3/4 rounded-[2px] bg-[oklch(0.9_0.01_250)]" /><div className="h-1 w-4/5 rounded-[2px] bg-[oklch(0.9_0.01_250)]" />
+                      <span className="mt-1 line-clamp-2 break-all text-[10px] text-muted-foreground">{p.f.name}</span>
                     </div>
                   ) : (
-                    // Non blocca mai: verrà salvato come nuovo articolo con
-                    // questi dati (di default il suggerimento dell'OCR),
-                    // la modifica resta possibile ma non obbligatoria. Vale
-                    // anche per un 'ambiguo' non confermato: non rispondere
-                    // al suggerimento equivale a dire che è un prodotto
-                    // diverso, coerente col default "nuovo articolo" — la
-                    // conferma del match resta un'azione facoltativa.
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          Verrà salvato come nuovo articolo ({TIPOLOGIA_LABELS[nuovoInfo?.tipologia ?? a.tipologia_suggerita]}
-                          {(nuovoInfo?.unita_misura ?? a.unita_misura) ? `, ${nuovoInfo?.unita_misura ?? a.unita_misura}` : ''})
-                        </span>
-                        <Button type="button" size="sm" variant="outline" onClick={() => setConfirmingIndex(i)}>Modifica</Button>
-                      </div>
-                      {a.esito === 'ambiguo' && !nuovoInfo && a.candidato_nome && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-warn">
-                            È lo stesso articolo di &quot;{a.candidato_nome}&quot;?
-                          </span>
-                          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingIndex(i)}>Conferma</Button>
-                        </div>
-                      )}
-                    </div>
+                    // eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL
+                    <img src={p.url} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
                   )}
+                  <span className="absolute bottom-1.5 left-1.5 box-border flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-[5px] font-mono text-[11px] font-semibold text-primary-foreground">{i + 1}</span>
+                  <button type="button" onClick={() => rimuovi(i)} aria-label="Togli pagina" className="absolute right-1 top-1 flex h-[26px] w-[26px] items-center justify-center rounded-full bg-[rgba(15,20,30,.6)] text-white active:scale-[0.94]"><IcoX s={16} /></button>
+                  {!pdf && <button type="button" onClick={() => setRitaglio({ f: p.f, indice: i })} className="absolute bottom-1 right-1 flex h-6 items-center rounded-full bg-[rgba(15,20,30,.6)] px-[7px] text-[10px] font-medium text-white active:scale-[0.96]">Ritaglia</button>}
                 </div>
               )
             })}
+            <label className="flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-1 rounded-[6px] border-[1.5px] border-dashed border-[oklch(0.8_0.01_250)] text-xs font-medium text-muted-foreground active:scale-[0.98] dark:border-line-strong">
+              <IcoPiu s={18} />Pagina{fileCam}
+            </label>
           </div>
-        )}
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex justify-between pt-2">
-          <Button type="button" variant="outline" onClick={annullaRevisione} disabled={saving}>Annulla</Button>
-          <Button type="button" onClick={handleConferma} disabled={!tuttiRisolti || !testataCompleta || saving}>
-            {saving
-              ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</>
-              : ultimaDelBatch ? 'Salva fattura' : 'Salva e continua'}
-          </Button>
+          <span className="text-[13px] leading-normal text-muted-foreground">Puoi mettere pagine di fatture diverse, anche di più fornitori: la lettura le separa da sola.</span>
+          {errore && <p className="text-sm font-medium text-neg">{errore}</p>}
+          <div className="mt-auto grid grid-cols-2 gap-2">
+            <label className="flex h-12 cursor-pointer items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Scatta foto{fileCam}</label>
+            <label className="flex h-12 cursor-pointer items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Da file{fileMulti}</label>
+          </div>
+          <button type="button" disabled={!nPag} onClick={() => elabora()}
+            className="mb-[calc(env(safe-area-inset-bottom)+18px)] flex h-14 flex-none items-center justify-center rounded-[6px] bg-primary text-base font-semibold text-primary-foreground active:scale-[0.98] disabled:bg-[oklch(0.85_0.01_250)] disabled:text-[oklch(0.5_0.01_250)]">
+            Elabora {nPag} {nPag === 1 ? 'pagina' : 'pagine'}
+          </button>
         </div>
-      </div>
-    )
-  }
-
-  if (daRitagliare) {
-    return (
-      <DocumentScanner
-        file={daRitagliare}
-        onConfirm={file => ritagliaIndice !== null ? sostituisciPagina(ritagliaIndice, file) : aggiungiPagina(file)}
-        onCancel={() => { setDaRitagliare(null); setRitagliaIndice(null) }}
-      />
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      {rescan && (
-        <p className="text-xs text-muted-foreground">
-          Foto già caricate — ritagliale di nuovo (icona di ritaglio su ogni foto) o sostituiscile prima di rileggere il documento.
-        </p>
       )}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {previews.map((src, i) => {
-          const isPdf = pages[i]?.type === 'application/pdf'
-          return (
-            <div key={i} className="relative aspect-[3/4] overflow-hidden rounded-md border border-border">
-              {isPdf ? (
-                <a
-                  href={src}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-muted p-2 text-center hover:bg-accent"
-                >
-                  <FileText className="h-6 w-6 text-muted-foreground" />
-                  <span className="line-clamp-2 break-all text-[10px] text-muted-foreground">{pages[i].name}</span>
-                </a>
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL, next/image non si applica
-                <img src={src} alt={`Pagina ${i + 1}`} className="h-full w-full object-cover" />
-              )}
-              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{i + 1}</span>
-              {!isPdf && (
-                <button
-                  type="button"
-                  onClick={() => ricroppaPagina(i)}
-                  title="Ritaglia di nuovo"
-                  className="absolute bottom-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
-                >
-                  <Crop className="h-3 w-3" />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => removePage(i)}
-                className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
-              >
-                <X className="h-3 w-3" />
-              </button>
+
+      {schermata === 'lettura' && lettura && <SchermoLettura l={lettura} nPag={caricati.current.length || nPag} />}
+
+      {schermata === 'errore' && (
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-4 p-6">
+          <div className="anim-swapin flex flex-col gap-3 rounded-[12px] bg-neg-tint p-3.5">
+            <div className="flex items-start gap-2.5"><IcoErrore /><span className="text-sm font-medium leading-[1.45] text-neg text-pretty">{errore}</span></div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => elabora()} className="h-11 rounded-[12px] bg-primary text-sm font-semibold text-primary-foreground transition-transform active:scale-[0.97]">Riprova</button>
+              <button type="button" onClick={compilaAMano} className="h-11 rounded-[12px] border border-line-strong bg-card text-sm font-semibold transition-transform active:scale-[0.97]">Compila a mano</button>
             </div>
-          )
-        })}
-
-        <label className={cn(
-          'flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground hover:bg-accent',
-        )}>
-          {initialMode === 'scan' ? <Camera className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
-          <span className="text-xs">{initialMode === 'scan' ? 'Aggiungi pagina' : 'Aggiungi da file'}</span>
-          {initialMode === 'scan' ? (
-            <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleAddPage} />
-          ) : (
-            <input type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={handleAddPage} />
+          </div>
+          {gruppiLetti.current > 0 && lettura && (
+            <span className="text-center text-xs leading-normal text-muted-foreground">
+              {gruppiLetti.current === 1 ? 'Gruppo 1' : `Gruppi 1–${gruppiLetti.current}`} di {lettura.gruppi.length} {gruppiLetti.current === 1 ? 'letto e salvato' : 'letti e salvati'}. Riprova rilegge solo {gruppiLetti.current + 1 === lettura.gruppi.length ? `il gruppo ${lettura.gruppi.length}` : `i gruppi da ${gruppiLetti.current + 1}`}.
+            </span>
           )}
-        </label>
-      </div>
-
-      {status === 'processing' && (
-        <p className="text-xs text-muted-foreground">
-          {faseElaborazione === 'upload'
-            ? 'Caricamento foto in corso…'
-            : `Lettura accurata in corso${progressoLettura && progressoLettura.totale > 1 ? ` (gruppo ${progressoLettura.corrente} di ${progressoLettura.totale})` : ''}, può richiedere qualche decina di secondi — non chiudere la pagina.`}
-        </p>
+        </div>
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex justify-between pt-2">
-        <Button type="button" variant="outline" onClick={onCancel}>Annulla</Button>
-        <Button type="button" onClick={handleElabora} disabled={pages.length === 0 || status === 'processing'}>
-          {status === 'processing' ? <><Loader2 className="h-4 w-4 animate-spin" /> Elaborazione…</> : `Elabora (${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'})`}
-        </Button>
-      </div>
+      {schermata === 'revisione' && cur && cur.duplicato && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3.5 p-4">
+          <Avanzamento n={results.length} i={idx} />
+          <div className="flex flex-col gap-1.5 rounded-[8px] bg-neg-tint p-4">
+            <span className="text-base font-semibold text-neg">Possibile doppione</span>
+            <span className="text-sm leading-normal text-neg">Una fattura di {cur.fornitore.nome} con lo stesso numero documento è già presente{cur.fattura_esistente_data ? ` (data ${dataNumerica(cur.fattura_esistente_data)})` : ''}. Non è stata salvata.</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            {[
+              { h: 'GIÀ A SISTEMA', n: cur.fattura_esistente_numero, v: cur.fattura_esistente_totale, s: cur.fattura_esistente_caricata ? `caricata il ${new Date(cur.fattura_esistente_caricata).toLocaleDateString('it-IT', { day: 'numeric', month: 'numeric' })} da ${cur.fattura_esistente_da_pdf ? 'PDF' : 'foto'}` : '', b: 'border-border' },
+              { h: 'APPENA LETTA', n: cur.numero_letto, v: cur.totale_letto, s: 'foto di oggi', b: 'border-[oklch(0.62_0.1_25)]' },
+            ].map(d => (
+              <div key={d.h} className={cn('flex flex-col gap-1 rounded-[8px] border bg-card p-3', d.b)}>
+                <span className="font-mono text-[11px] font-semibold tracking-[.5px] text-muted-foreground">{d.h}</span>
+                <span className="font-mono text-sm font-medium">N. {d.n ?? '—'}</span>
+                <span className="font-mono text-sm font-medium">{d.v != null ? eu(d.v) : '—'}</span>
+                <span className="text-xs text-muted-foreground">{d.s}</span>
+              </div>
+            ))}
+          </div>
+          {errore && <p className="text-sm font-medium text-neg">{errore}</p>}
+          <div className="mb-[calc(env(safe-area-inset-bottom)+18px)] mt-auto flex flex-col gap-2">
+            <button type="button" disabled={rilettura} onClick={avanti} className="flex h-[52px] items-center justify-center rounded-[6px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-50">{ultima ? 'Chiudi' : 'Fattura successiva'}</button>
+            <button type="button" disabled={rilettura} onClick={sostituisciDoppione} className="flex h-12 items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium active:scale-[0.98] disabled:opacity-50">{rilettura ? 'Rilettura…' : 'Sostituisci quella esistente'}</button>
+          </div>
+        </div>
+      )}
+
+      {schermata === 'revisione' && cur && !cur.duplicato && fatt && (
+        <>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 pt-3" style={{ paddingBottom: kp ? 420 : 16 }}>
+            <Avanzamento n={results.length} i={idx} />
+            <div className="flex flex-col gap-2.5 rounded-[8px] border border-border bg-card px-3.5 py-3">
+              <label className="flex flex-col gap-1"><span className="text-xs font-medium text-muted-foreground">Fornitore</span>
+                <span className={cn('relative flex h-11 items-center justify-between rounded-[6px] border px-3 text-[15px] font-medium', !fornitoreEff ? 'border-[1.5px] border-[oklch(0.62_0.1_75)]' : 'border-line-strong')}>
+                  <span className="truncate">{fornitoreEff?.nome || 'Scegli il fornitore'}{!fornitoreEd && cur.fornitore.nuovo ? ' · nuovo' : ''}</span><IcoGiu className="text-muted-foreground" />
+                  <select aria-label="Fornitore" value={fornitoreEff?.id ?? ''} onChange={e => { const x = fornitori.find(y => y.id === e.target.value); if (x) { setFornitoreEd({ id: x.id, nome: x.nome }); setResolved(new Map()); setRifiutati(new Set()) } }} className="absolute inset-0 opacity-0">
+                    {!fornitoreEff && <option value="">Scegli il fornitore</option>}
+                    {cur.fornitore.id && !fornitori.some(x => x.id === cur.fornitore.id) && <option value={cur.fornitore.id}>{cur.fornitore.nome} (nuovo)</option>}
+                    {fornitori.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                  </select>
+                </span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(() => {
+                  const sospData = fatt.verifiche_sospette.some(v => v.campo === 'data') || !dataEff
+                  return (
+                    <label className="flex flex-col gap-1"><span className={cn('text-xs', sospData ? 'font-semibold text-warn' : 'font-medium text-muted-foreground')}>Data</span>
+                      <span className={cn('relative flex h-11 items-center rounded-[6px] px-3 font-mono text-[15px] font-medium', sospData ? 'border-[1.5px] border-[oklch(0.62_0.1_75)]' : 'border border-line-strong')}>
+                        {dataEff ? dataNumerica(dataEff) : <span className="font-sans font-normal text-muted-foreground">Non letta</span>}
+                        <input type="date" aria-label="Data" value={dataEff} onChange={e => setDataEd(e.target.value)} className="absolute inset-0 opacity-0" />
+                      </span>
+                    </label>
+                  )
+                })()}
+                <label className="flex flex-col gap-1"><span className={cn('text-xs', !numEff ? 'font-semibold text-warn' : 'font-medium text-muted-foreground')}>Documento</span>
+                  <input value={numEff} placeholder="Non letto" onChange={e => setNumEd(e.target.value)}
+                    className={cn('box-border h-11 w-full rounded-[6px] bg-transparent px-3 font-mono text-[15px] font-medium outline-none placeholder:font-sans placeholder:font-normal placeholder:text-muted-foreground', !numEff ? 'border-[1.5px] border-[oklch(0.62_0.1_75)]' : 'border border-line-strong focus:border-[oklch(0.58_0.12_180)]')} />
+                </label>
+              </div>
+              {fatt.verifiche_sospette.map((v, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-[8px] bg-warn-tint px-3 py-2.5 text-warn"><IcoAvviso /><span className="text-[13px] font-medium leading-[1.4] text-pretty">{v.messaggio}</span></div>
+              ))}
+              <div className="grid grid-cols-3 gap-2">
+                {([['tn', 'Netto', nettoE], ['ti', 'IVA', ivaE], ['tl', 'Lordo', lordoE]] as [string, string, number][]).map(([k, l, val]) => {
+                  const on = kp?.k === k && !kp.esce
+                  return (
+                    <div key={k} className="flex flex-col gap-1"><span className="text-xs font-medium text-muted-foreground">{l}</span>
+                      <button type="button" data-kp="1" onClick={tocca(k)} className={cn('box-border flex h-10 items-center rounded-[6px] bg-card px-2.5 font-mono text-sm font-medium', on ? 'border-[1.5px] border-[oklch(0.58_0.12_180)]' : 'border border-line-strong')}>{on ? (ed[k] || ' ') : n2(val)}</button>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                <div className="flex flex-col gap-1"><span className="text-xs font-medium text-muted-foreground">Vuoti ritirati <span className="font-normal">(facoltativo)</span></span>
+                  <button type="button" data-kp="1" onClick={tocca('vu')} className={cn('box-border flex h-10 items-center justify-between rounded-[6px] bg-card px-2.5 font-mono text-sm font-medium', kp?.k === 'vu' && !kp.esce ? 'border-[1.5px] border-[oklch(0.58_0.12_180)] text-foreground' : 'border border-line-strong', !vuoti && kp?.k !== 'vu' && 'text-[oklch(0.6_0.01_250)]')}>
+                    {kp?.k === 'vu' && !kp.esce ? (ed.vu || ' ') : vuoti ? n2(vuoti) : '0,00'}<span className="font-sans text-xs text-muted-foreground">€</span>
+                  </button>
+                </div>
+                {!!vuoti && <div className="flex flex-col items-end gap-0.5 pb-1"><span className="text-xs text-muted-foreground">Da pagare</span><span className="font-mono text-base font-semibold">{eu(lordoE - vuoti)}</span></div>}
+              </div>
+              {!testataOk && (
+                <span className="flex items-start gap-1.5 text-xs font-medium text-warn"><IcoAvviso />
+                  {!fornitoreEff ? 'Scegli il fornitore per poter salvare.' : !dataEff && !numEff ? 'Inserisci data e numero documento per poter salvare.' : !dataEff ? 'Inserisci la data per poter salvare.' : 'Inserisci il numero documento per poter salvare.'}
+                </span>
+              )}
+            </div>
+
+            {serveCategoria && (
+              <div className="flex flex-col gap-2 px-1"><span className="text-[15px] font-semibold">Categoria della spesa</span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {categorieDirette.map(c => (
+                    <button key={c.id} type="button" onClick={() => setCategoria(c.id)} className={cn('h-11 rounded-[8px] border text-sm font-medium transition-colors active:scale-[0.97]', categoria === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>{c.nome}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {articoli.length > 0 && (
+              <div className="flex justify-between px-1"><span className="text-[15px] font-semibold">Articoli ({articoli.length})</span><span className="text-[13px] text-muted-foreground">tocca per correggere</span></div>
+            )}
+            {righe.map(r => {
+              const a = r.a, info = risolto(a)
+              const noto = (a.esito === 'auto_mappato' || a.esito === 'chiaro') && !(fornitoreEd && fornitoreEd.id !== cur.fornitore.id)
+              const st: { s: string; tono: Tono } = info ? { s: a.esito === 'auto_mappato' ? 'Già noto' : 'Abbinato', tono: 'ok' } : { s: 'Nuovo', tono: 'neu' }
+              const link = noto && rifiutati.has(a.testo_estratto) ? { l: 'Ripristina abbinamento', on: () => setRifiutati(s => { const n = new Set(s); n.delete(a.testo_estratto); return n }) }
+                : noto ? { l: 'Non è questo', on: () => setRifiutati(s => new Set(s).add(a.testo_estratto)) }
+                : resolved.has(a.testo_estratto) ? { l: 'Non è questo', on: () => setResolved(m => { const n = new Map(m); n.delete(a.testo_estratto); return n }) }
+                : a.esito === 'ambiguo' && a.candidato_nome && a.catalogo_articolo_id ? { l: 'È lo stesso', on: () => confermaStesso(a, r.p) }
+                : null
+              const avviso = !info && a.esito === 'ambiguo' && a.candidato_nome ? `È lo stesso di "${a.candidato_nome}"?` : info?.sospetto && !r.mod ? `⚠ ${info.sospetto.messaggio}` : null
+              const campo = (k: string, l: string, v: string, u: string) => {
+                const on = kp?.k === k && !kp.esce
+                return (
+                  <div className="flex min-w-0 flex-col gap-1"><span className="text-[11px] font-medium text-muted-foreground">{l}</span>
+                    <button type="button" data-kp="1" onClick={tocca(k)} className={cn('box-border flex h-[38px] items-center justify-between gap-1 rounded-[6px] bg-card px-2.5 font-mono text-sm font-medium', on ? 'border-[1.5px] border-[oklch(0.58_0.12_180)]' : 'border border-line-strong')}>
+                      <span className="truncate">{on && k[0] !== 'i' ? (ed[k] || ' ') : v}</span><span className="font-sans text-[11px] font-normal text-muted-foreground">{u}</span>
+                    </button>
+                  </div>
+                )
+              }
+              return (
+                <div key={`${a.testo_estratto}-${r.i}`} className="flex flex-col gap-2.5 rounded-[8px] border border-border bg-card p-3">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2.5 gap-y-0.5">
+                    <span className="truncate text-[15px] font-medium">{a.testo_estratto}</span><span className="font-mono text-[15px] font-semibold">{eu(r.riga)}</span>
+                    <div className="flex items-center gap-1.5"><Badge tono={st.tono} className="px-2 py-0.5">{st.s}</Badge><span className="text-[11px] text-muted-foreground">{r.mod ? 'corretto' : ''}</span></div>
+                    {link && <button type="button" onClick={link.on} className="justify-self-end text-xs font-medium text-muted-foreground underline underline-offset-[3px]">{link.l}</button>}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {campo('q' + r.i, 'Quantità', String(Math.round(r.q * 1000) / 1000).replace('.', ','), a.unita_misura ?? 'pz')}
+                    {campo('p' + r.i, 'Prezzo unitario', n2(r.p), '€')}
+                    {campo('i' + r.i, 'IVA', String(r.iv).replace('.', ','), '%')}
+                  </div>
+                  {avviso && <span className="text-xs font-medium text-warn">{avviso}</span>}
+                </div>
+              )
+            })}
+            {errore && <p className="px-1 text-sm font-medium text-neg">{errore}</p>}
+          </div>
+          {kp && (
+            <div data-kp="1" className="absolute inset-x-0 bottom-0 z-[60] flex justify-center border-t border-[oklch(0.88_0.01_250)] bg-[oklch(0.95_0.01_250/0.92)] pb-[calc(env(safe-area-inset-bottom)+30px)] pt-2.5 dark:border-border dark:bg-background/95">
+              <div className={kp.esce ? 'anim-swapout' : 'anim-swapin'}>
+                {kp.k[0] !== 'i' ? <Tastierino onKey={premi} onDone={chiudiKp} /> : (
+                  <div className="flex w-[312px] flex-col gap-2 rounded-[10px] border border-line-strong bg-card p-3 shadow-[0_6px_24px_rgba(20,30,50,.10)]">
+                    <span className="px-0.5 text-xs font-medium text-muted-foreground">Aliquota IVA</span>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {ALIQUOTE.map(v => {
+                        const on = (righe[Number(kp.k.slice(1))]?.iv ?? -1) === v
+                        return <button key={v} type="button" onClick={e => { e.stopPropagation(); setEd(x => ({ ...x, [kp.k]: String(v) })); chiudiKp() }} className={cn('flex h-14 items-center justify-center rounded-[6px] font-mono text-base font-semibold active:scale-[0.97]', on ? 'bg-primary text-primary-foreground' : 'bg-[oklch(0.95_0.01_250)] dark:bg-secondary')}>{v}%</button>
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="grid flex-none grid-cols-[1fr_1.6fr] gap-2 border-t border-border bg-card px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-3">
+            <button type="button" onClick={annulla} disabled={salva} className="flex h-[52px] items-center justify-center rounded-[6px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Annulla</button>
+            <button type="button" onClick={conferma} disabled={!pronta || salva}
+              className="flex h-[52px] items-center justify-center rounded-[6px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:bg-[oklch(0.85_0.01_250)] disabled:text-[oklch(0.5_0.01_250)]">
+              {salva ? 'Salvataggio…' : ultima ? 'Salva fattura' : `Salva e vai alla ${idx + 2}`}
+            </button>
+          </div>
+        </>
+      )}
     </div>
+  )
+
+  return createPortal(
+    <div className={cn('fixed inset-0 z-[75] flex justify-center', tel ? '' : 'items-start bg-[rgba(15,20,30,.28)] px-4 pb-6 pt-[60px]')}>
+      <div role="dialog" aria-label={titolo}
+        className={cn('anim-swapin relative flex flex-col overflow-hidden', tel ? 'h-[100dvh] w-full pt-[env(safe-area-inset-top)]' : 'h-full max-h-[900px] w-[600px] max-w-full rounded-[14px] border border-border shadow-[0_20px_60px_rgba(20,30,50,.18)]', ritaglio ? 'bg-[oklch(0.16_0.01_250)]' : 'bg-background')}>
+        {corpo}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
-// Form inline per confermare un match ambiguo ("è lo stesso di X? Sì/No, è
-// nuovo") o, se non c'è un candidato suggerito (esito 'nuovo'), per
-// registrare direttamente il nuovo articolo con la sua tipologia.
-function ArticoloConfirmForm({
-  articolo, onStesso, onNuovo, onAnnulla,
-}: {
-  articolo: ArticoloEstratto
-  onStesso: () => Promise<void>
-  // A differenza di onStesso, non è più una chiamata di rete: i dati si
-  // limitano a essere ricordati localmente, la riga di catalogo si crea
-  // solo al salvataggio della fattura (vedi handleConferma) — quindi
-  // nessun bisogno di stato di caricamento per questo tasto.
-  onNuovo: (payload: { nome_articolo: string; tipologia: ArticoloTipologia; unita_misura?: string }) => void
-  onAnnulla: () => void
-}) {
-  const haCandidato = articolo.esito === 'ambiguo' && !!articolo.catalogo_articolo_id
-  const [creaNuovo, setCreaNuovo] = useState(!haCandidato)
-  const [nome, setNome] = useState(articolo.testo_estratto)
-  // Precompilati dal suggerimento dell'OCR — l'utente conferma con un
-  // tocco invece di ricompilare tipologia/unità da zero per ogni
-  // articolo nuovo, che è quasi sempre già scritto in fattura.
-  const [tipologia, setTipologia] = useState<ArticoloTipologia | ''>(articolo.tipologia_suggerita)
-  const [unita, setUnita] = useState(articolo.unita_misura ?? '')
-  // Solo per "Sì, è lo stesso": passa da una chiamata di rete
-  // (match/verifica prezzo lato server), senza questo stato il tasto non
-  // darebbe nessun segnale durante l'attesa.
-  const [salvando, setSalvando] = useState(false)
+function Avanzamento({ n, i }: { n: number; i: number }) {
+  if (n < 2) return null
+  return <div className="flex flex-none gap-1">{Array.from({ length: n }, (_, k) => <div key={k} className={cn('h-[3px] flex-1 rounded-[2px]', k <= i ? 'bg-[oklch(0.58_0.12_240)]' : 'bg-border')} />)}</div>
+}
 
-  async function handleStesso() {
-    setSalvando(true)
-    try { await onStesso() } finally { setSalvando(false) }
-  }
-
-  function handleNuovo() {
-    onNuovo({ nome_articolo: nome.trim(), tipologia: tipologia as ArticoloTipologia, unita_misura: unita.trim() || undefined })
-  }
-
-  if (!creaNuovo) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2">
-        <span className="text-xs text-muted-foreground">Stesso articolo di &quot;{articolo.candidato_nome}&quot;?</span>
-        <Button type="button" size="sm" onClick={handleStesso} disabled={salvando}>
-          {salvando ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Salvo…</> : 'Sì, è lo stesso'}
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setCreaNuovo(true)} disabled={salvando}>No, è nuovo</Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla} disabled={salvando}>Annulla</Button>
-      </div>
-    )
-  }
-
+function SchermoLettura({ l, nPag }: { l: Lettura; nPag: number }) {
+  const passi: { t: string; s: 'ok' | 'on' | 'no' }[] = [
+    { t: 'Caricamento foto', s: l.fase === 'upload' ? 'on' : 'ok' },
+    ...(l.gruppi.length ? l.gruppi : [Array.from({ length: Math.max(1, nPag) }, (_, k) => k)]).map((g, k) => ({
+      t: g.length === 1 ? `Lettura pagina ${g[0] + 1}` : `Lettura pagine ${g[0] + 1}–${g[g.length - 1] + 1}`,
+      s: (l.fase === 'composizione' || (l.fase === 'lettura' && k < l.gruppo) ? 'ok' : l.fase === 'lettura' && k === l.gruppo ? 'on' : 'no') as 'ok' | 'on' | 'no',
+    })),
+    { t: 'Composizione fatture', s: l.fase === 'composizione' ? 'on' : 'no' },
+  ]
+  const G = Math.max(1, l.gruppi.length)
   return (
-    <div className="space-y-2 rounded-md bg-muted/40 p-2">
-      <div className="space-y-1">
-        <Label className="text-xs">Nome articolo</Label>
-        <Input value={nome} onChange={e => setNome(e.target.value)} className="h-8" />
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto p-6">
+      <div className="relative box-border flex h-[200px] w-[150px] flex-col gap-2 overflow-hidden rounded-[6px] border border-[oklch(0.88_0.01_250)] bg-card px-3.5 py-[18px] dark:border-border">
+        <div className="h-2 w-3/5 rounded-[2px] bg-[oklch(0.85_0.01_250)]" />
+        {[90, 80, 85, 70].map(w => <div key={w} className="h-[5px] rounded-[2px] bg-[oklch(0.9_0.01_250)]" style={{ width: `${w}%` }} />)}
+        <div className="absolute inset-x-0 h-0.5 bg-[oklch(0.58_0.12_240)] shadow-[0_0_12px_oklch(0.58_0.12_240)] [animation:scan_1.6s_ease-in-out_infinite_alternate]" />
+        <style>{'@keyframes scan{0%{top:8%}100%{top:88%}}'}</style>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Tipologia</Label>
-          <Select value={tipologia} onValueChange={v => setTipologia(v as ArticoloTipologia)}>
-            <SelectTrigger className="h-8"><SelectValue placeholder="Seleziona" /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(TIPOLOGIA_LABELS) as ArticoloTipologia[]).map(t => (
-                <SelectItem key={t} value={t}>{TIPOLOGIA_LABELS[t]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Unità misura (opz.)</Label>
-          <Input value={unita} onChange={e => setUnita(e.target.value)} className="h-8" placeholder="kg, L, pz…" />
-        </div>
+      <div className="flex flex-col items-center gap-1.5">
+        <span className="text-lg font-semibold">Lettura in corso</span>
+        <span className="text-sm text-muted-foreground">Gruppo {Math.min(G, l.gruppo + 1)} di {G} · {nPag === 1 ? '1 pagina' : `pagine ${nPag}`}</span>
       </div>
-      <div className="flex justify-end gap-2 pt-1">
-        {haCandidato && <Button type="button" size="sm" variant="ghost" onClick={() => setCreaNuovo(false)}>Indietro</Button>}
-        <Button type="button" size="sm" variant="ghost" onClick={onAnnulla}>Annulla</Button>
-        <Button type="button" size="sm" disabled={!nome.trim() || !tipologia} onClick={handleNuovo}>
-          Conferma dati
-        </Button>
+      <div className="flex w-full max-w-[420px] flex-col gap-2">
+        {passi.map(p => (
+          <div key={p.t} className="flex min-h-11 items-center gap-2.5 rounded-[8px] border border-border bg-card px-3.5">
+            <span className={cn('box-border flex h-5 w-5 items-center justify-center rounded-full',
+              p.s === 'ok' ? 'bg-[oklch(0.55_0.1_150)]' : p.s === 'on' ? 'animate-spin border-2 border-[oklch(0.58_0.12_240)] border-t-transparent' : 'border-2 border-[oklch(0.85_0.01_250)] dark:border-line-strong')}>
+              {p.s === 'ok' && <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden><path d="M2 5.2l2 2L8 3" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+            </span>
+            <span className={cn('flex-1 text-sm font-medium', p.s === 'no' && 'text-muted-foreground')}>{p.t}</span>
+          </div>
+        ))}
       </div>
+      <span className="text-center text-xs leading-normal text-muted-foreground">Le pagine si leggono a gruppi di 4. Se un gruppo non riesce, quelli già letti restano salvati.</span>
     </div>
   )
 }

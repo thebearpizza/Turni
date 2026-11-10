@@ -1,23 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import { FornitoriClient } from '@/components/acquisti/FornitoriClient'
+import { contestoAcquisti } from '../_lib/contesto'
 
-// L'accesso a /acquisti/* (manager, direttore) è già gestito da
-// acquisti/layout.tsx — qui serve solo sapere se questo utente può
-// modificare (CRUD riservato al manager) o vede in sola lettura.
+// Anagrafica e unione dei fornitori solo per il manager; il direttore li consulta.
 export default async function FornitoriPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile) redirect('/login')
-
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-      <h1 className="titolo-pagina">Fornitori</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Anagrafica fornitori, fatture e catalogo articoli.</p>
-      <FornitoriClient canEdit={profile.role === 'manager'} />
-    </div>
-  )
+  const { ruolo, restaurants } = await contestoAcquisti()
+  return <FornitoriClient restaurants={restaurants} canEdit={ruolo === 'manager'} single={ruolo === 'direttore' || restaurants.length <= 1} />
 }

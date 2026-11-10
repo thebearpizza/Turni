@@ -1,220 +1,160 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { rilevaAngoli, warpProspettiva, angoliDefault, type Quadrilatero } from '@/lib/cassa/documentScan'
-import { Button } from '@/components/ui/button'
-import { Loader2, ScanLine } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { IcoX } from './comuni'
 
-// Risoluzione di lavoro per rilevamento bordi e warp — deve restare pari
-// o superiore all'uscita del warp (vedi maxLato in warpProspettiva) per
-// non perdere dettaglio proprio nel ritaglio. L'OCR deve leggere prezzi
-// e nomi articolo anche piccoli, quindi qui la priorità è la leggibilità
-// del testo, non la velocità.
+// Scanner del design (Acquisti cattura, 11a): fondo scuro, bordi rilevati
+// sull'anteprima con i quattro angoli trascinabili (anche toccando il foglio
+// si sposta l'angolo più vicino), "Usa foto originale" o "Ritaglia e
+// aggiungi", e "Ripristina bordi rilevati" dopo una correzione a mano.
+
+// Risoluzione di lavoro per rilevamento bordi e warp: l'OCR deve leggere
+// prezzi e nomi piccoli, quindi conta la leggibilità più della velocità.
 const MAX_LATO_LAVORO = 2200
 
 interface Props {
   file: File
   onConfirm: (file: File) => void
   onCancel: () => void
+  /** Numero della pagina nel caricamento, per il sottotitolo. */
+  pagina?: number
 }
 
-// Ritaglio prospettico "statico" di una pagina già fotografata: rileva i
-// bordi, li mostra trascinabili sopra l'anteprima e raddrizza. Se il
-// rilevamento sbaglia (poco contrasto col piano, ombre) l'utente sposta
-// i quattro angoli a mano, oppure salta del tutto la correzione.
-export function DocumentScanner({ file, onConfirm, onCancel }: Props) {
+export function DocumentScanner({ file, onConfirm, onCancel, pagina }: Props) {
   const sorgenteRef = useRef<HTMLCanvasElement | null>(null)
-  const contenitoreRef = useRef<HTMLDivElement | null>(null)
+  const boxRef = useRef<HTMLDivElement | null>(null)
   const [anteprima, setAnteprima] = useState<string | null>(null)
-  const [dimensioni, setDimensioni] = useState<{ w: number; h: number } | null>(null)
+  const [dim, setDim] = useState<{ w: number; h: number } | null>(null)
   const [quad, setQuad] = useState<Quadrilatero | null>(null)
-  const [rilevatoAuto, setRilevatoAuto] = useState(false)
-  const [larghezzaResa, setLarghezzaResa] = useState(0)
-  const [trascinando, setTrascinando] = useState<number | null>(null)
-  const [elaborando, setElaborando] = useState(false)
+  const [rilevati, setRilevati] = useState<Quadrilatero | null>(null)
+  const [auto, setAuto] = useState(false)
+  const [mosso, setMosso] = useState(false)
+  const [resa, setResa] = useState(0)
+  const [trascina, setTrascina] = useState<number | null>(null)
+  const [elabora, setElabora] = useState(false)
 
   useEffect(() => {
     let annullato = false
     const url = URL.createObjectURL(file)
     const img = new Image()
-
     img.onload = () => {
       if (annullato) { URL.revokeObjectURL(url); return }
-
-      const scala = Math.min(1, MAX_LATO_LAVORO / Math.max(img.naturalWidth, img.naturalHeight))
-      const w = Math.round(img.naturalWidth * scala)
-      const h = Math.round(img.naturalHeight * scala)
-
-      const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      const s = Math.min(1, MAX_LATO_LAVORO / Math.max(img.naturalWidth, img.naturalHeight))
+      const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s)
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      const ctx = c.getContext('2d', { willReadFrequently: true })
       if (!ctx) { URL.revokeObjectURL(url); return }
       ctx.drawImage(img, 0, 0, w, h)
-      sorgenteRef.current = canvas
-
-      const angoli = rilevaAngoli(canvas)
-      setRilevatoAuto(!!angoli)
-      setQuad(angoli ?? angoliDefault(w, h))
-      setDimensioni({ w, h })
-      setAnteprima(url)
+      sorgenteRef.current = c
+      const a = rilevaAngoli(c)
+      const q = a ?? angoliDefault(w, h)
+      setAuto(!!a); setQuad(q); setRilevati(q); setDim({ w, h }); setAnteprima(url)
     }
-
-    img.onerror = () => { URL.revokeObjectURL(url) }
+    img.onerror = () => URL.revokeObjectURL(url)
     img.src = url
-
     return () => { annullato = true }
   }, [file])
 
-  // Larghezza effettiva a schermo dell'anteprima: serve a convertire fra
-  // coordinate del dito e coordinate dell'immagine sorgente.
+  // Larghezza resa dell'anteprima: converte fra coordinate del dito e dell'immagine.
   useEffect(() => {
-    const el = contenitoreRef.current
+    const el = boxRef.current
     if (!el) return
-    const aggiorna = () => setLarghezzaResa(el.clientWidth)
-    aggiorna()
-    const ro = new ResizeObserver(aggiorna)
+    const ro = new ResizeObserver(() => setResa(el.clientWidth))
     ro.observe(el)
     return () => ro.disconnect()
   }, [anteprima])
 
-  const scala = dimensioni && larghezzaResa ? larghezzaResa / dimensioni.w : 1
+  const scala = dim && resa ? resa / dim.w : 1
 
-  const spostaAngolo = useCallback((indice: number, clientX: number, clientY: number) => {
-    const el = contenitoreRef.current
-    if (!el || !dimensioni) return
-    const rect = el.getBoundingClientRect()
-    const x = Math.max(0, Math.min(dimensioni.w, (clientX - rect.left) / scala))
-    const y = Math.max(0, Math.min(dimensioni.h, (clientY - rect.top) / scala))
+  const sposta = useCallback((i: number, dx: number, dy: number, o: { x: number; y: number }) => {
+    if (!dim) return
     setQuad(prev => {
       if (!prev) return prev
-      const next = [...prev] as Quadrilatero
-      next[indice] = { x, y }
-      return next
+      const n = [...prev] as Quadrilatero
+      n[i] = { x: Math.max(0, Math.min(dim.w, o.x + dx / scala)), y: Math.max(0, Math.min(dim.h, o.y + dy / scala)) }
+      return n
     })
-  }, [dimensioni, scala])
+    setMosso(true)
+  }, [dim, scala])
 
-  useEffect(() => {
-    if (trascinando === null) return
-    const muovi = (e: PointerEvent) => { e.preventDefault(); spostaAngolo(trascinando, e.clientX, e.clientY) }
-    const rilascia = () => setTrascinando(null)
-    // Listener non-passive sul documento: senza preventDefault il
-    // trascinamento su mobile scrollerebbe la pagina invece di muovere
-    // l'angolo (stesso motivo dello scrub sui grafici).
-    document.addEventListener('pointermove', muovi, { passive: false })
-    document.addEventListener('pointerup', rilascia)
-    document.addEventListener('pointercancel', rilascia)
-    return () => {
-      document.removeEventListener('pointermove', muovi)
-      document.removeEventListener('pointerup', rilascia)
-      document.removeEventListener('pointercancel', rilascia)
-    }
-  }, [trascinando, spostaAngolo])
+  function inizia(i: number, e: React.PointerEvent) {
+    e.preventDefault(); e.stopPropagation()
+    if (!quad) return
+    const sx = e.clientX, sy = e.clientY, o = { ...quad[i] }
+    setTrascina(i)
+    const mv = (ev: PointerEvent) => { ev.preventDefault(); sposta(i, ev.clientX - sx, ev.clientY - sy, o) }
+    const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up); setTrascina(null) }
+    // Listener non passivo: su telefono il trascinamento non deve scorrere la pagina.
+    document.addEventListener('pointermove', mv, { passive: false })
+    document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', up)
+  }
 
-  async function conferma(raddrizza: boolean) {
-    const canvas = sorgenteRef.current
-    if (!canvas || !quad) return
-    setElaborando(true)
+  // Tocco sul foglio: prende l'angolo più vicino.
+  function toccaBox(e: React.PointerEvent) {
+    const el = boxRef.current
+    if (!el || !quad) return
+    const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / scala, y = (e.clientY - r.top) / scala
+    let best = 0, bd = Infinity
+    quad.forEach((p, i) => { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = i } })
+    inizia(best, e)
+  }
 
-    const risultato = raddrizza ? warpProspettiva(canvas, quad) : canvas
-    const finale = risultato ?? canvas
-
+  function conferma(raddrizza: boolean) {
+    const c = sorgenteRef.current
+    if (!c || !quad) return
+    setElabora(true)
+    const finale = (raddrizza ? warpProspettiva(c, quad) : null) ?? c
     finale.toBlob(blob => {
-      setElaborando(false)
+      setElabora(false)
       if (!blob) return
-      const nome = file.name.replace(/\.[^.]+$/, '') + '.jpg'
-      onConfirm(new File([blob], nome, { type: 'image/jpeg' }))
+      onConfirm(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }))
     }, 'image/jpeg', 0.85)
   }
 
-  if (!anteprima || !dimensioni || !quad) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    )
-  }
-
-  const puntiPoligono = quad.map(p => `${p.x * scala},${p.y * scala}`).join(' ')
-
-  // L'area di trascinamento è più larga del pallino visibile (dita, non
-  // cursori), ma non deve mai raggiungere l'angolo più vicino: quando i
-  // quattro angoli sono vicini fra loro (documento piccolo nell'inquadratura,
-  // o due angoli trascinati quasi a coincidere) il raggio si restringe fino
-  // a un minimo pari al pallino stesso, così due aree di tocco adiacenti non
-  // si sovrappongono mai — un tocco fra due angoli vicini prende sempre e
-  // solo quello più vicino, mai un altro per errore.
-  let distanzaMinima = Infinity
-  for (let i = 0; i < quad.length; i++) {
-    for (let j = i + 1; j < quad.length; j++) {
-      distanzaMinima = Math.min(distanzaMinima, Math.hypot(
-        (quad[i].x - quad[j].x) * scala,
-        (quad[i].y - quad[j].y) * scala
-      ))
-    }
-  }
-  const raggioPallino = 14
-  const raggioTocco = Math.max(raggioPallino, Math.min(32, distanzaMinima / 2 - 2))
+  const hint = mosso ? 'Angoli spostati a mano' : auto ? 'Bordi rilevati: trascina gli angoli se non sono precisi' : 'Bordi non rilevati: trascina gli angoli sui bordi del documento'
 
   return (
-    <div className="space-y-3">
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ScanLine className="h-3.5 w-3.5 shrink-0" />
-        {rilevatoAuto
-          ? 'Bordi rilevati — trascina gli angoli se non sono precisi.'
-          : 'Bordi non rilevati automaticamente: trascina gli angoli sui bordi del documento.'}
-      </p>
-
-      <div
-        ref={contenitoreRef}
-        className="relative w-full select-none overflow-hidden rounded-md border border-border"
-        style={{ touchAction: 'none' }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL, next/image non si applica */}
-        <img src={anteprima} alt="Pagina da ritagliare" className="block w-full" draggable={false} />
-
-        <svg
-          className="absolute inset-0 h-full w-full"
-          viewBox={`0 0 ${dimensioni.w * scala} ${dimensioni.h * scala}`}
-          style={{ touchAction: 'none' }}
-        >
-          <polygon points={puntiPoligono} fill="color-mix(in oklch, var(--primary) 15%, transparent)" stroke="var(--primary)" strokeWidth={2} />
-          {quad.map((p, i) => (
-            <g key={i}>
-              {/* Area di tocco reale: invisibile e più larga del pallino
-                  (vedi raggioTocco sopra), separata dal pallino visibile
-                  così l'una non vincola le dimensioni dell'altro. */}
-              <circle
-                cx={p.x * scala}
-                cy={p.y * scala}
-                r={raggioTocco}
-                fill="transparent"
-                style={{ cursor: 'grab' }}
-                onPointerDown={e => { e.preventDefault(); setTrascinando(i) }}
-              />
-              <circle
-                cx={p.x * scala}
-                cy={p.y * scala}
-                r={raggioPallino}
-                fill="var(--primary)"
-                stroke="white"
-                strokeWidth={2}
-                pointerEvents="none"
-              />
-            </g>
-          ))}
-        </svg>
-      </div>
-
-      <div className="flex flex-wrap justify-between gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={elaborando}>Annulla</Button>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => conferma(false)} disabled={elaborando}>
-            Usa foto originale
-          </Button>
-          <Button type="button" size="sm" onClick={() => conferma(true)} disabled={elaborando}>
-            {elaborando ? <><Loader2 className="h-4 w-4 animate-spin" /> Ritaglio…</> : 'Ritaglia e aggiungi'}
-          </Button>
+    <div className="flex h-full min-h-[560px] flex-col bg-[oklch(0.16_0.01_250)] text-white">
+      <div className="flex flex-none items-center gap-2.5 px-4 py-2">
+        <button type="button" onClick={onCancel} aria-label="Annulla" className="flex h-11 w-11 items-center justify-center opacity-80 active:scale-[0.96]"><IcoX s={18} /></button>
+        <div className="flex flex-1 flex-col items-center">
+          <span className="text-base font-semibold">Ritaglia la pagina</span>
+          {pagina ? <span className="text-xs opacity-65">Pagina {pagina}</span> : null}
         </div>
+        <div className="w-11" />
+      </div>
+      <div className={cn('mx-4 mt-1 flex min-h-10 flex-none items-center gap-2 rounded-[6px] px-3 text-[13px] font-medium transition-colors duration-200', mosso ? 'bg-[oklch(0.3_0.04_240)]' : 'bg-[oklch(0.26_0.01_250)]')}>{hint}</div>
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+        {!anteprima || !dim || !quad ? (
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+        ) : (
+          <div ref={boxRef} onPointerDown={toccaBox}
+            className="relative max-h-full cursor-grab touch-none select-none overflow-hidden rounded-[6px]"
+            style={{ aspectRatio: `${dim.w} / ${dim.h}`, width: `min(100%, calc((100dvh - 330px) * ${dim.w / dim.h}))` }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- anteprima locale da blob URL */}
+            <img src={anteprima} alt="Pagina da ritagliare" draggable={false} className="block h-full w-full" />
+            <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${dim.w * scala} ${dim.h * scala}`} aria-hidden>
+              <polygon points={quad.map(p => `${p.x * scala},${p.y * scala}`).join(' ')} fill="oklch(0.58 0.12 240 / .16)" stroke="oklch(0.7 0.14 240)" strokeWidth="2" />
+            </svg>
+            {quad.map((p, i) => (
+              <div key={i} onPointerDown={e => inizia(i, e)}
+                className="absolute -ml-7 -mt-7 flex h-14 w-14 cursor-grab touch-none items-center justify-center"
+                style={{ left: p.x * scala, top: p.y * scala }}>
+                <div className="box-border h-[26px] w-[26px] rounded-full border-2 border-white bg-[oklch(0.58_0.12_240)] shadow-[0_1px_4px_rgba(0,0,0,.3)] transition-transform duration-[120ms]" style={{ transform: `scale(${trascina === i ? 1.25 : 1})` }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-none flex-col gap-2 px-4 pb-[calc(env(safe-area-inset-bottom)+20px)]">
+        <div className="grid grid-cols-[1fr_1.4fr] gap-2">
+          <button type="button" disabled={elabora || !quad} onClick={() => conferma(false)} className="flex h-[52px] items-center justify-center rounded-[6px] border border-[oklch(0.4_0.01_250)] text-[15px] font-medium active:scale-[0.98] disabled:opacity-50">Usa foto originale</button>
+          <button type="button" disabled={elabora || !quad} onClick={() => conferma(true)} className="flex h-[52px] items-center justify-center rounded-[6px] bg-white text-[15px] font-semibold text-[oklch(0.2_0.01_250)] active:scale-[0.98] disabled:opacity-50">{elabora ? 'Ritaglio…' : 'Ritaglia e aggiungi'}</button>
+        </div>
+        <button type="button" disabled={!mosso} onClick={() => { if (rilevati) setQuad(rilevati); setMosso(false) }} className="flex h-10 items-center justify-center text-sm font-medium opacity-70 disabled:opacity-30">Ripristina bordi rilevati</button>
       </div>
     </div>
   )

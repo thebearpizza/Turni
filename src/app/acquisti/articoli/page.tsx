@@ -1,26 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import { ArticoliClient } from '@/components/acquisti/ArticoliClient'
+import { contestoAcquisti } from '../_lib/contesto'
 
-// L'accesso a /acquisti/* (manager, cassiere, direttore) è già gestito
-// da acquisti/layout.tsx — qui serve solo sapere se questo utente può
-// modificare (il cassiere vede in sola lettura, Task 2).
+// Manager e direttore correggono il catalogo come hanno sempre fatto.
 export default async function ArticoliPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (!profile) redirect('/login')
-
-  // fornitori è già scoped da RLS sull'owner corretto per ogni ruolo.
+  const { supabase, ruolo, restaurants } = await contestoAcquisti()
   const { data: fornitori } = await supabase.from('fornitori').select('id, nome').order('nome')
-
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-      <h1 className="titolo-pagina">Articoli</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Catalogo articoli per fornitore, con andamento prezzo.</p>
-      <ArticoliClient fornitori={fornitori ?? []} canEdit={profile.role !== 'cassiere'} />
-    </div>
-  )
+  return <ArticoliClient restaurants={restaurants} fornitori={fornitori ?? []} canEdit single={ruolo === 'direttore' || restaurants.length <= 1} />
 }

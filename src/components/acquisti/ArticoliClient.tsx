@@ -1,648 +1,225 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { CurrencyInput } from '@/components/ui/currency-input'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { ArticoloPrezzoChart, type PuntoStorico } from '@/components/acquisti/ArticoloPrezzoChart'
-import { FatturaFotoViewer } from '@/components/acquisti/FatturaFotoViewer'
-import { Boxes, ChevronDown, Eye, GitMerge, Loader2, Pencil, Plus } from 'lucide-react'
-import { cn , eur2 } from '@/lib/utils'
-import type { ArticoloTipologia, RiquadroArticolo } from '@/types'
+import { friendlySaveError } from '@/lib/supabase/friendlyError'
+import { toast } from '@/hooks/use-toast'
+import { useTelefono } from '@/hooks/useTelefono'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { cn } from '@/lib/utils'
+import type { ArticoloTipologia } from '@/types'
+import { Vista, Pannello, type RigaVista } from './Vista'
+import { IcoPiu, PiedeModale, MESI_BREVI, Modale, ORDINE_TIPOLOGIE, TIPOLOGIE, TZ, dataBreve, eu, localiDa, useUscita, type Tono } from './comuni'
 
-const TZ = 'Europe/Rome'
+// Articoli (MTAcquisti, sezione "articoli"): catalogo con ultimo prezzo e
+// variazione a 30 giorni, filtri per tipologia; il dettaglio ha
+// l'andamento del prezzo sulle ultime 10 fatture.
 
-const TIPOLOGIA_LABELS: Record<ArticoloTipologia, string> = {
-  food: 'Food',
-  beverage: 'Beverage',
-  detergenza: 'Detergenza',
-  altro_no_food: 'Altro no-food',
-}
+interface Props { restaurants: { id: string; name: string }[]; fornitori: { id: string; nome: string }[]; canEdit: boolean; single: boolean }
+interface Acquisto { data: string; prezzo: number; restaurant_id: string; fattura_id: string; numero: string }
+interface Articolo { id: string; nome: string; tipologia: ArticoloTipologia; unita: string | null; fornitore_id: string; fornitore: string; traccia: boolean; acquisti: Acquisto[] }
 
-interface Props {
-  fornitori: Array<{ id: string; nome: string }>
-  // Il cassiere vede il catalogo in sola lettura (Task 2): niente
-  // correzione di prezzo/unità di misura.
-  canEdit: boolean
-}
+export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Props) {
+  const tel = useTelefono()
+  const router = useRouter()
+  const locali = useMemo(() => localiDa(restaurants), [restaurants])
+  const [loc, setLoc] = useState<string | null>(null)
+  const [tips, setTips] = useState<ArticoloTipologia[]>([])
+  const [articoli, setArticoli] = useState<Articolo[]>([])
+  const [caricamento, setCaricamento] = useState(true)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [sel, setSel] = useState<string | null>(null)
+  const { stato: sk, avvia, pronto } = useScheletro()
+  const meno30 = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 30); return formatInTimeZone(d, TZ, 'yyyy-MM-dd') }, [])
 
-// L'acquisto più recente di un articolo — serve sia per aprire il
-// documento sorgente (icona occhio) sia per sapere quale riga
-// fatture_articoli aggiornare quando si corregge il prezzo (icona
-// matita): solo l'ultimo acquisto è modificabile, non l'intero storico.
-interface UltimoAcquisto {
-  fatturaArticoloId: string
-  fotoPaths: string[]
-  numeroDocumento: string
-  data: string
-  quantita: number
-  // Per evidenziare il prodotto nella foto d'origine (icona occhio):
-  // null sugli acquisti registrati prima di questo campo, o quando l'AI
-  // non è riuscita a stimare il riquadro — in quel caso si mostra la
-  // foto come sempre, senza overlay.
-  paginaIndice: number | null
-  riquadro: RiquadroArticolo | null
-}
-
-interface ArticoloRiga {
-  id: string
-  nome_articolo: string
-  tipologia: ArticoloTipologia
-  unita_misura: string | null
-  fattore_conversione: number
-  fornitore_id: string
-  fornitore_nome: string
-  traccia_in_inventario: boolean
-  storico: PuntoStorico[] // ordinato per data crescente, prezzo già normalizzato
-  ultimoAcquisto: UltimoAcquisto | null
-}
-
-export function ArticoliClient({ fornitori, canEdit }: Props) {
-  const [ricerca, setRicerca] = useState('')
-  const [fornitoreFiltro, setFornitoreFiltro] = useState<string>('')
-  const [tipologiaFiltro, setTipologiaFiltro] = useState<ArticoloTipologia | ''>('')
-  const [righe, setRighe] = useState<ArticoloRiga[]>([])
-  const [loading, setLoading] = useState(true)
-  const [espanso, setEspanso] = useState<string | null>(null)
-  const [viewerRiga, setViewerRiga] = useState<ArticoloRiga | null>(null)
-  const [modifica, setModifica] = useState<ArticoloRiga | null>(null)
-  const [prezzoModifica, setPrezzoModifica] = useState(0)
-  const [unitaModifica, setUnitaModifica] = useState('')
-  const [salvandoModifica, setSalvandoModifica] = useState(false)
-  const [erroreModifica, setErroreModifica] = useState<string | null>(null)
-
-  // Creazione manuale (es. una scorta vecchia mai vista su una
-  // fattura): stessi campi minimi del catalogo, fornitore obbligatorio
-  // perché lo è anche a livello di schema.
-  const [nuovoOpen, setNuovoOpen] = useState(false)
-  const [nuovoNome, setNuovoNome] = useState('')
-  const [nuovoFornitoreId, setNuovoFornitoreId] = useState('')
-  const [nuovoTipologia, setNuovoTipologia] = useState<ArticoloTipologia>('beverage')
-  const [nuovoUnita, setNuovoUnita] = useState('')
-  const [nuovoTraccia, setNuovoTraccia] = useState(true)
-  const [salvandoNuovo, setSalvandoNuovo] = useState(false)
-  const [erroreNuovo, setErroreNuovo] = useState<string | null>(null)
-
-  // Unione con un articolo esistente (es. l'articolo creato a mano sopra,
-  // quando poi arriva anche via fattura sotto un'altra riga di catalogo).
-  const [unione, setUnione] = useState<ArticoloRiga | null>(null)
-  const [unioneRicerca, setUnioneRicerca] = useState('')
-  const [unioneTarget, setUnioneTarget] = useState<string | null>(null)
-  const [unendo, setUnendo] = useState(false)
-  const [erroreUnione, setErroreUnione] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const supabase = createClient()
-
-    let query = supabase
-      .from('catalogo_articoli')
-      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)')
-      .order('nome_articolo')
-    if (fornitoreFiltro) query = query.eq('fornitore_id', fornitoreFiltro)
-    if (tipologiaFiltro) query = query.eq('tipologia', tipologiaFiltro)
-
-    const { data: catalogo } = await query
-    const rows = (catalogo ?? []) as unknown as Array<{
-      id: string; nome_articolo: string; tipologia: ArticoloTipologia
-      unita_misura: string | null; fattore_conversione: number
-      fornitore_id: string; traccia_in_inventario: boolean; fornitore: { nome: string } | null
-    }>
-
-    if (rows.length === 0) { setRighe([]); setLoading(false); return }
-
-    const { data: storicoRaw } = await supabase
-      .from('fatture_articoli')
-      .select('id, catalogo_articolo_id, prezzo_unitario, quantita, pagina_indice, riquadro, fattura:fatture!inner(data, foto_paths, numero_documento)')
-      .in('catalogo_articolo_id', rows.map(r => r.id))
-      .order('data', { foreignTable: 'fatture', ascending: true })
-
-    const storicoById = new Map<string, PuntoStorico[]>()
-    // Ordinato per data crescente: l'ultima riga scritta per ciascun
-    // articolo, sovrascrivendo la precedente, è sempre l'acquisto più
-    // recente — stesso criterio già usato per prezzoRecente (storico.at(-1)).
-    const ultimoAcquistoById = new Map<string, UltimoAcquisto>()
-    for (const s of (storicoRaw ?? []) as unknown as Array<{
-      id: string; catalogo_articolo_id: string; prezzo_unitario: number; quantita: number
-      pagina_indice: number | null; riquadro: RiquadroArticolo | null
-      fattura: { data: string; foto_paths: string[]; numero_documento: string } | null
-    }>) {
-      if (!s.fattura) continue
-      const arr = storicoById.get(s.catalogo_articolo_id) ?? []
-      arr.push({ data: s.fattura.data, prezzo: s.prezzo_unitario })
-      storicoById.set(s.catalogo_articolo_id, arr)
-      ultimoAcquistoById.set(s.catalogo_articolo_id, {
-        fatturaArticoloId: s.id,
-        fotoPaths: s.fattura.foto_paths,
-        numeroDocumento: s.fattura.numero_documento,
-        paginaIndice: s.pagina_indice,
-        riquadro: s.riquadro,
-        data: s.fattura.data,
-        quantita: s.quantita,
-      })
+  const req = useRef(0)
+  const carica = useCallback(async () => {
+    const mio = ++req.current
+    const sb = createClient()
+    const { data: cat, error } = await sb.from('catalogo_articoli')
+      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)').order('nome_articolo')
+    if (mio !== req.current) return
+    if (error) { setErrore(friendlySaveError(error)); setCaricamento(false); pronto(); return }
+    const rows = (cat ?? []) as unknown as { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; fattore_conversione: number; fornitore_id: string; traccia_in_inventario: boolean; fornitore: { nome: string } | null }[]
+    const acq = new Map<string, Acquisto[]>()
+    // A blocchi: un catalogo grande supererebbe la lunghezza dell'URL.
+    for (let i = 0; i < rows.length; i += 150) {
+      const { data } = await sb.from('fatture_articoli')
+        .select('catalogo_articolo_id, prezzo_unitario, fattura:fatture!inner(id, data, restaurant_id, numero_documento)')
+        .in('catalogo_articolo_id', rows.slice(i, i + 150).map(r => r.id))
+      for (const s of (data ?? []) as unknown as { catalogo_articolo_id: string; prezzo_unitario: number; fattura: { id: string; data: string; restaurant_id: string; numero_documento: string } | null }[]) {
+        if (!s.fattura) continue
+        const a = acq.get(s.catalogo_articolo_id) ?? []
+        a.push({ data: s.fattura.data, prezzo: Number(s.prezzo_unitario), restaurant_id: s.fattura.restaurant_id, fattura_id: s.fattura.id, numero: s.fattura.numero_documento })
+        acq.set(s.catalogo_articolo_id, a)
+      }
     }
-
-    setRighe(rows.map(r => {
-      const storicoGrezzo = storicoById.get(r.id) ?? []
-      const fattore = r.fattore_conversione || 1
+    if (mio !== req.current) return
+    setArticoli(rows.map(r => {
+      const k = r.fattore_conversione || 1
       return {
-        id: r.id,
-        nome_articolo: r.nome_articolo,
-        tipologia: r.tipologia,
-        unita_misura: r.unita_misura,
-        fattore_conversione: fattore,
-        fornitore_id: r.fornitore_id,
-        fornitore_nome: r.fornitore?.nome ?? '—',
-        traccia_in_inventario: r.traccia_in_inventario,
-        // Normalizzato secondo il fattore di conversione (Task 4): stesso
-        // fattore fisso per tutto lo storico di questa coppia articolo+fornitore.
-        storico: storicoGrezzo.map(p => ({ data: p.data, prezzo: p.prezzo / fattore })),
-        ultimoAcquisto: ultimoAcquistoById.get(r.id) ?? null,
+        id: r.id, nome: r.nome_articolo, tipologia: r.tipologia, unita: r.unita_misura, fornitore_id: r.fornitore_id, fornitore: r.fornitore?.nome ?? '—', traccia: r.traccia_in_inventario,
+        // Prezzo normalizzato col fattore di conversione dell'articolo.
+        acquisti: (acq.get(r.id) ?? []).map(a => ({ ...a, prezzo: a.prezzo / k })).sort((p, q) => p.data.localeCompare(q.data)),
       }
     }))
-    setLoading(false)
-  }, [fornitoreFiltro, tipologiaFiltro])
-
-  useEffect(() => { load() }, [load])
-
-  const righeFiltrate = ricerca.trim()
-    ? righe.filter(r => r.nome_articolo.toLowerCase().includes(ricerca.trim().toLowerCase()))
-    : righe
-
+    setErrore(null); setCaricamento(false); pronto()
+  }, [pronto])
+  useEffect(() => { carica() }, [carica])
   useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('articoli_lista')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'fatture_articoli' }, () => load())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'catalogo_articoli' }, () => load())
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [load])
+    const sb = createClient()
+    let t: ReturnType<typeof setTimeout> | null = null
+    const ch = sb.channel('acquisti_articoli').on('postgres_changes', { event: '*', schema: 'public', table: 'catalogo_articoli' }, () => { if (t) clearTimeout(t); t = setTimeout(carica, 400) }).subscribe()
+    return () => { if (t) clearTimeout(t); sb.removeChannel(ch) }
+  }, [carica])
 
-  function apriModifica(r: ArticoloRiga) {
-    setModifica(r)
-    setPrezzoModifica(r.storico.at(-1)?.prezzo ?? 0)
-    setUnitaModifica(r.unita_misura ?? '')
-    setErroreModifica(null)
+  const acquistiDi = (a: Articolo) => (loc ? a.acquisti.filter(x => x.restaurant_id === loc) : a.acquisti)
+  const variazione = (a: Articolo) => {
+    const s = acquistiDi(a)
+    if (s.length < 2) return null
+    const ultimo = s[s.length - 1], prima = [...s].reverse().find(x => x.data <= meno30) ?? null
+    if (!prima || prima === ultimo || !prima.prezzo) return null
+    return (ultimo.prezzo - prima.prezzo) / prima.prezzo * 100
   }
-
-  // Interruttore direttamente in riga (niente dialog): ottimistico, con
-  // ripristino silenzioso se la scrittura fallisce — azione a basso
-  // rischio, un eventuale errore di rete si nota subito riprovando.
-  async function toggleTraccia(r: ArticoloRiga, checked: boolean) {
-    setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: checked } : x))
-    const supabase = createClient()
-    const { error } = await supabase.from('catalogo_articoli').update({ traccia_in_inventario: checked }).eq('id', r.id)
-    if (error) {
-      console.error(error)
-      setRighe(prev => prev.map(x => x.id === r.id ? { ...x, traccia_in_inventario: !checked } : x))
+  const lista = articoli.filter(a => !tips.length || tips.includes(a.tipologia))
+  const righe: RigaVista[] = lista.map(a => {
+    const s = acquistiDi(a), v = variazione(a), ultimo = s[s.length - 1]
+    const tono: Tono = v == null ? 'neu' : v > 2 ? 'neg' : v < -2 ? 'ok' : 'neu'
+    return {
+      id: a.id, a: a.nome, as: `${a.fornitore} · ${a.unita || 'pz'}`, lc: TIPOLOGIE[a.tipologia].c,
+      b: ultimo ? eu(ultimo.prezzo) : '—', c: v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1).replace('.', ',')}%`, cTono: tono,
+      t: TIPOLOGIE[a.tipologia].l, tTono: 'neu', ord: [a.nome.toLowerCase(), ultimo?.prezzo ?? -1, v ?? -999, TIPOLOGIE[a.tipologia].l],
     }
+  })
+  const rincari = lista.filter(a => (variazione(a) ?? 0) > 2).length
+
+  const traccia = async (a: Articolo) => {
+    setArticoli(x => x.map(y => (y.id === a.id ? { ...y, traccia: !a.traccia } : y)))
+    const { error } = await createClient().from('catalogo_articoli').update({ traccia_in_inventario: !a.traccia }).eq('id', a.id)
+    if (error) { setArticoli(x => x.map(y => (y.id === a.id ? { ...y, traccia: a.traccia } : y))); toast({ title: `Modifica non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    toast({ title: !a.traccia ? `${a.nome} ora è in Inventario` : `${a.nome} tolto da Inventario` })
   }
 
-  // Il prezzo mostrato/modificato è quello normalizzato (vedi storico più
-  // sopra): va riconvertito nel grezzo secondo lo stesso fattore prima di
-  // scriverlo su fatture_articoli, che conserva sempre il valore originale.
-  async function salvaModifica() {
-    if (!modifica) return
-    setSalvandoModifica(true)
-    setErroreModifica(null)
-    const supabase = createClient()
+  const unita = useUscita<{ a: Articolo; v: string }>()
+  const unisci = useUscita<{ a: Articolo; cerca: string; verso: string | null }>()
+  const nuovo = useUscita<{ nome: string; fornitore: string; tipologia: ArticoloTipologia; unita: string; traccia: boolean }>()
+  const [lavoro, setLavoro] = useState(false)
 
-    const { error: errUnita } = await supabase
-      .from('catalogo_articoli')
-      .update({ unita_misura: unitaModifica.trim() || null })
-      .eq('id', modifica.id)
-    if (errUnita) {
-      setErroreModifica(errUnita.message)
-      setSalvandoModifica(false)
-      return
-    }
-
-    if (modifica.ultimoAcquisto) {
-      const prezzoUnitarioGrezzo = prezzoModifica * modifica.fattore_conversione
-      const { error: errPrezzo } = await supabase
-        .from('fatture_articoli')
-        .update({
-          prezzo_unitario: prezzoUnitarioGrezzo,
-          prezzo_riga: prezzoUnitarioGrezzo * modifica.ultimoAcquisto.quantita,
-        })
-        .eq('id', modifica.ultimoAcquisto.fatturaArticoloId)
-      if (errPrezzo) {
-        setErroreModifica(errPrezzo.message)
-        setSalvandoModifica(false)
-        return
-      }
-    }
-
-    setSalvandoModifica(false)
-    setModifica(null)
-    await load()
+  async function salvaUnita() {
+    const d = unita.dati
+    if (!d) return
+    setLavoro(true)
+    const { error } = await createClient().from('catalogo_articoli').update({ unita_misura: d.v.trim() || null }).eq('id', d.a.id)
+    setLavoro(false)
+    if (error) { toast({ title: `Salvataggio non riuscito: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    unita.chiudi(); toast({ title: 'Unità di misura aggiornata' }); carica()
   }
-
-  function apriNuovo() {
-    setNuovoNome('')
-    setNuovoFornitoreId(fornitori[0]?.id ?? '')
-    setNuovoTipologia('beverage')
-    setNuovoUnita('')
-    setNuovoTraccia(true)
-    setErroreNuovo(null)
-    setNuovoOpen(true)
-  }
-
-  async function salvaNuovo() {
-    const nome = nuovoNome.trim()
-    if (!nome) { setErroreNuovo('Inserisci un nome.'); return }
-    if (!nuovoFornitoreId) { setErroreNuovo('Seleziona un fornitore.'); return }
-
-    setSalvandoNuovo(true)
-    setErroreNuovo(null)
-    const supabase = createClient()
-
-    // owner_id non è nella sessione (Articoli non è scoped per
-    // ristorante) — lo si legge da un ristorante qualunque visibile
-    // all'utente, le RLS di restaurants sono già scoped correttamente
-    // per manager e direttore.
-    const { data: ristorante, error: errRistorante } = await supabase
-      .from('restaurants').select('owner_id').limit(1).single()
-    if (errRistorante || !ristorante) {
-      setErroreNuovo('Impossibile determinare il locale di riferimento.')
-      setSalvandoNuovo(false)
-      return
-    }
-
-    const { error } = await supabase.from('catalogo_articoli').insert({
-      owner_id: ristorante.owner_id,
-      fornitore_id: nuovoFornitoreId,
-      nome_articolo: nome,
-      tipologia: nuovoTipologia,
-      unita_misura: nuovoUnita.trim() || null,
-      traccia_in_inventario: nuovoTraccia,
-    })
-    if (error) {
-      setErroreNuovo(error.code === '23505' ? 'Esiste già un articolo con questo nome per questo fornitore.' : error.message)
-      setSalvandoNuovo(false)
-      return
-    }
-
-    setSalvandoNuovo(false)
-    setNuovoOpen(false)
-    await load()
-  }
-
-  // Chiude il dialog di modifica e apre quello di unione per lo stesso
-  // articolo — due Dialog Radix aperti insieme vanno evitati (portali e
-  // focus-trap in conflitto), meglio scambiarli.
-  function apriUnione() {
-    if (!modifica) return
-    setUnione(modifica)
-    setModifica(null)
-    setUnioneRicerca('')
-    setUnioneTarget(null)
-    setErroreUnione(null)
-  }
-
   async function confermaUnione() {
-    if (!unione || !unioneTarget) return
-    setUnendo(true)
-    setErroreUnione(null)
-    const supabase = createClient()
-    const { error } = await supabase.rpc('unisci_articoli', { p_assorbito_id: unione.id, p_mantenuto_id: unioneTarget })
-    if (error) {
-      setErroreUnione(error.message)
-      setUnendo(false)
-      return
-    }
-    setUnendo(false)
-    setUnione(null)
-    await load()
+    const d = unisci.dati
+    if (!d?.verso) return
+    setLavoro(true)
+    const { error } = await createClient().rpc('unisci_articoli', { p_assorbito_id: d.a.id, p_mantenuto_id: d.verso })
+    setLavoro(false)
+    if (error) { toast({ title: `Unione non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    unisci.chiudi(); setSel(null); toast({ title: `${d.a.nome} unito` }); carica()
+  }
+  async function creaArticolo() {
+    const d = nuovo.dati
+    if (!d) return
+    if (!d.nome.trim() || !d.fornitore) { toast({ title: 'Nome e fornitore sono obbligatori', variant: 'destructive' }); return }
+    setLavoro(true)
+    const sb = createClient()
+    // owner_id dal fornitore scelto: il catalogo è del gestore, non del locale.
+    const { data: fo } = await sb.from('fornitori').select('owner_id').eq('id', d.fornitore).single()
+    const { error } = await sb.from('catalogo_articoli').insert({ owner_id: fo?.owner_id, fornitore_id: d.fornitore, nome_articolo: d.nome.trim(), tipologia: d.tipologia, unita_misura: d.unita.trim() || null, traccia_in_inventario: d.traccia })
+    setLavoro(false)
+    if (error) { toast({ title: error.code === '23505' ? 'Esiste già un articolo con questo nome per questo fornitore' : `Creazione non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    nuovo.chiudi(); toast({ title: `${d.nome.trim()} aggiunto al catalogo` }); carica()
   }
 
-  const candidatiUnione = unione
-    ? righe
-        .filter(r => r.id !== unione.id)
-        .filter(r => !unioneRicerca.trim() || r.nome_articolo.toLowerCase().includes(unioneRicerca.trim().toLowerCase()) || r.fornitore_nome.toLowerCase().includes(unioneRicerca.trim().toLowerCase()))
-    : []
+  const a = lista.find(x => x.id === sel)
+  let dettaglio: React.ReactNode = null
+  if (a) {
+    const s = acquistiDi(a), u = a.unita || 'pz', ultimo = s[s.length - 1]
+    const ult10 = s.slice(-10), prezzi = s.map(x => x.prezzo)
+    const etichette = ult10.length > 1 ? Array.from({ length: 6 }, (_, k) => ult10[Math.round(k * (ult10.length - 1) / 5)].data.slice(5, 7)).map((m, k, arr) => (k > 0 && arr[k - 1] === m ? '' : MESI_BREVI[Number(m) - 1])) : []
+    dettaglio = (
+      <Pannello tel={tel} titolo={a.nome} sotto={`${a.fornitore} · unità ${u}`} badge={{ t: TIPOLOGIE[a.tipologia].l, tono: 'neu' }}
+        stats={[{ l: 'Ultimo prezzo', v: ultimo ? `${eu(ultimo.prezzo)} / ${u}` : '—' }, { l: 'Minimo · massimo', v: prezzi.length ? `${eu(Math.min(...prezzi))} · ${eu(Math.max(...prezzi))}` : '—' }]}
+        spark={ult10.length > 1 ? { h: `Andamento prezzo · ultime ${ult10.length} fatture`, valori: ult10.map(x => x.prezzo), etichette } : null}
+        sezioni={[
+          { h: 'Inventario', righe: [{ l: 'Traccia in inventario', v: a.traccia ? 'Sì' : 'No', on: canEdit ? () => traccia(a) : undefined, matita: canEdit }] },
+          { h: 'Catalogo', righe: [
+            { l: 'Unità di misura', v: u, on: canEdit ? () => unita.apri({ a, v: a.unita ?? '' }) : undefined, matita: canEdit },
+            ...(ultimo ? [{ l: `Ultimo acquisto · n. ${ultimo.numero} · ${dataBreve(ultimo.data)}`, v: eu(ultimo.prezzo), on: () => router.push(`/acquisti/fatture?f=${ultimo.fattura_id}`), matita: false }] : []),
+          ] },
+        ]}
+        azioni={canEdit ? [{ l: 'Unisci con un altro articolo', tipo: 'secondario', on: () => unisci.apri({ a, cerca: '', verso: null }) }] : undefined}
+      />
+    )
+  }
+
+  const CAMPO = 'box-border h-11 w-full rounded-[6px] border border-line-strong bg-card px-3 text-[15px] font-medium outline-none focus:border-[1.5px] focus:border-[oklch(0.58_0.12_180)]'
+  const px = tel ? 'px-4' : 'px-[22px]'
 
   return (
-    <div className="space-y-4">
-      {canEdit && (
-        <div className="flex justify-end">
-          <Button type="button" onClick={apriNuovo} className="gap-1.5">
-            <Plus className="h-4 w-4" /> Nuovo articolo
-          </Button>
-        </div>
-      )}
-
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label>Cerca</Label>
-            <Input
-              value={ricerca}
-              onChange={e => setRicerca(e.target.value)}
-              placeholder="Nome articolo…"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Fornitore</Label>
-            <Select value={fornitoreFiltro || '__tutti__'} onValueChange={v => setFornitoreFiltro(v === '__tutti__' ? '' : v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__tutti__">Tutti i fornitori</SelectItem>
-                {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Tipologia</Label>
-            <Select value={tipologiaFiltro || '__tutte__'} onValueChange={v => setTipologiaFiltro(v === '__tutte__' ? '' : v as ArticoloTipologia)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__tutte__">Tutte le tipologie</SelectItem>
-                {(Object.keys(TIPOLOGIA_LABELS) as ArticoloTipologia[]).map(t => (
-                  <SelectItem key={t} value={t}>{TIPOLOGIA_LABELS[t]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="cassa-perforated-top">
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="divide-y divide-border">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center justify-between gap-3 py-3">
-                  <Skeleton className="h-4 w-48" />
-                  <Skeleton className="h-4 w-20" />
-                </div>
-              ))}
-            </div>
-          ) : righeFiltrate.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessun articolo trovato.</p>
-          ) : (
-            <div className="divide-y divide-border">
-              {righeFiltrate.map(r => {
-                const prezzoRecente = r.storico.at(-1)?.prezzo ?? null
-                const aperto = espanso === r.id
-                return (
-                  <div key={r.id} className="py-2">
-                    <div
-                      className={cn(
-                        'w-full rounded-md px-2 py-2 transition-colors',
-                        aperto ? 'bg-accent' : 'hover:bg-accent/60'
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setEspanso(prev => prev === r.id ? null : r.id)}
-                        aria-expanded={aperto}
-                        className={cn(
-                          'flex w-full items-start gap-2 rounded-sm text-left',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1'
-                        )}
-                      >
-                        <ChevronDown className={cn('h-4 w-4 shrink-0 mt-0.5 text-muted-foreground transition-transform', aperto && 'rotate-180')} />
-                        <p className={cn('min-w-0 flex-1 text-sm font-medium break-words', !aperto && 'line-clamp-2')}>{r.nome_articolo}</p>
-                      </button>
-                      <div className="mt-1.5 flex items-center justify-between gap-2 pl-6">
-                        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground flex items-center gap-1.5">
-                          {aperto && <span className="truncate">{r.fornitore_nome}</span>}
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{TIPOLOGIA_LABELS[r.tipologia]}</Badge>
-                        </p>
-                        <div className="flex shrink-0 items-center gap-0.5">
-                          <div className="cassa-numeric text-sm whitespace-nowrap text-right pr-1">
-                            {prezzoRecente != null ? (
-                              <>€ {eur2(prezzoRecente)}{r.unita_misura && <span className="text-muted-foreground text-xs"> / {r.unita_misura}</span>}</>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">nessun acquisto</span>
-                            )}
-                          </div>
-                          {canEdit && (
-                            <div className="flex items-center gap-1" title="Traccia in Inventario">
-                              <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <Switch
-                                checked={r.traccia_in_inventario}
-                                onCheckedChange={checked => toggleTraccia(r, checked)}
-                                className="scale-90"
-                              />
-                            </div>
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="Vedi documento"
-                            disabled={!r.ultimoAcquisto}
-                            onClick={() => setViewerRiga(r)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          {canEdit && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title="Modifica prezzo e unità di misura"
-                              onClick={() => apriModifica(r)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    {aperto && (
-                      <div className="px-2 pb-2 pt-1">
-                        <ArticoloPrezzoChart storico={r.storico} unitaMisura={r.unita_misura} />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <FatturaFotoViewer
-        open={!!viewerRiga}
-        onOpenChange={open => { if (!open) setViewerRiga(null) }}
-        fotoPaths={viewerRiga?.ultimoAcquisto?.fotoPaths ?? []}
-        title={
-          viewerRiga?.ultimoAcquisto
-            ? `${viewerRiga.fornitore_nome} · Doc. ${viewerRiga.ultimoAcquisto.numeroDocumento} · ${formatInTimeZone(`${viewerRiga.ultimoAcquisto.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}`
-            : ''
-        }
-        evidenzia={
-          viewerRiga?.ultimoAcquisto?.paginaIndice != null && viewerRiga.ultimoAcquisto.riquadro
-            ? { paginaIndice: viewerRiga.ultimoAcquisto.paginaIndice, riquadro: viewerRiga.ultimoAcquisto.riquadro }
-            : null
-        }
+    <>
+      <Vista tel={tel} skeleton={sk}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        filtri={ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l, on: tips.includes(k) }))}
+        onFiltro={k => { setSel(null); setTips(p => { const r = p.includes(k as ArticoloTipologia) ? p.filter(x => x !== k) : [...p, k as ArticoloTipologia]; return r.length === ORDINE_TIPOLOGIE.length ? [] : r }) }}
+        kpis={[{ l: 'Articoli', v: String(lista.length) }, { l: 'Rincari oltre 2%', v: String(rincari), tono: 'neg' }]}
+        azione={canEdit ? (
+          <button type="button" onClick={() => nuovo.apri({ nome: '', fornitore: fornitori[0]?.id ?? '', tipologia: 'food', unita: '', traccia: true })} className="flex h-10 items-center gap-2 rounded-[8px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97]"><IcoPiu />{tel ? 'Nuovo' : 'Nuovo articolo'}</button>
+        ) : undefined}
+        colonne={[{ l: 'Articolo' }, { l: 'Ultimo prezzo', destra: true }, { l: '30 gg', destra: true }, { l: 'Tipologia', destra: true }]}
+        righe={righe} caricamento={caricamento}
+        errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
+        vuoto={{ t: 'Nessun articolo', s: tips.length ? 'Nessun articolo di queste tipologie a catalogo.' : 'Gli articoli letti dalle fatture compaiono qui.' }}
+        sel={sel} onSel={setSel} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
       />
-
-      <Dialog
-        open={!!modifica}
-        onOpenChange={o => { if (!salvandoModifica && !o) { setModifica(null); setErroreModifica(null) } }}
-      >
-        <DialogContent className="cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">{modifica?.nome_articolo}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Prezzo ultimo acquisto</Label>
-              {modifica?.ultimoAcquisto ? (
-                <CurrencyInput value={prezzoModifica} onChange={setPrezzoModifica} className="cassa-numeric" />
-              ) : (
-                <p className="text-sm text-muted-foreground">Nessun acquisto registrato per questo articolo.</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Unità di misura</Label>
-              <Input value={unitaModifica} onChange={e => setUnitaModifica(e.target.value)} placeholder="Es. kg, L, pz" />
-            </div>
-            <Button type="button" variant="outline" className="w-full gap-1.5" onClick={apriUnione} disabled={salvandoModifica}>
-              <GitMerge className="h-4 w-4" /> Unisci con un altro articolo…
-            </Button>
-            {erroreModifica && <p className="text-sm text-destructive">{erroreModifica}</p>}
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setModifica(null)} disabled={salvandoModifica}>
-              Annulla
-            </Button>
-            <Button type="button" onClick={salvaModifica} disabled={salvandoModifica}>
-              {salvandoModifica ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Salva'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={nuovoOpen}
-        onOpenChange={o => { if (!salvandoNuovo && !o) setNuovoOpen(false) }}
-      >
-        <DialogContent className="cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Nuovo articolo</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Nome</Label>
-              <Input value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} placeholder="Es. Coca-Cola 0.33 vetro" autoFocus />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Fornitore</Label>
-              <Select value={nuovoFornitoreId} onValueChange={setNuovoFornitoreId}>
-                <SelectTrigger><SelectValue placeholder="Seleziona fornitore" /></SelectTrigger>
-                <SelectContent>
-                  {fornitori.map(f => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {fornitori.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nessun fornitore a catalogo: creane uno prima in Fornitori.</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Tipologia</Label>
-              <Select value={nuovoTipologia} onValueChange={v => setNuovoTipologia(v as ArticoloTipologia)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(TIPOLOGIA_LABELS) as ArticoloTipologia[]).map(t => (
-                    <SelectItem key={t} value={t}>{TIPOLOGIA_LABELS[t]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Unità di misura</Label>
-              <Input value={nuovoUnita} onChange={e => setNuovoUnita(e.target.value)} placeholder="Es. kg, L, pz" />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
-              <div className="flex items-center gap-1.5">
-                <Boxes className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <Label htmlFor="nuovo-traccia">Traccia in Inventario</Label>
-              </div>
-              <Switch id="nuovo-traccia" checked={nuovoTraccia} onCheckedChange={setNuovoTraccia} />
-            </div>
-            {erroreNuovo && <p className="text-sm text-destructive">{erroreNuovo}</p>}
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setNuovoOpen(false)} disabled={salvandoNuovo}>
-              Annulla
-            </Button>
-            <Button type="button" onClick={salvaNuovo} disabled={salvandoNuovo}>
-              {salvandoNuovo ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio…</> : 'Crea articolo'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!unione}
-        onOpenChange={o => { if (!unendo && !o) setUnione(null) }}
-      >
-        <DialogContent className="cassa-perforated-top flex max-h-[85vh] flex-col">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Unisci &ldquo;{unione?.nome_articolo}&rdquo;</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3 overflow-y-auto">
-            <p className="text-sm text-muted-foreground">
-              Scegli l&apos;articolo con cui unirlo. Storico prezzi, movimenti di inventario e riconoscimento automatico dalle fatture passano tutti a quello scelto; questa riga viene eliminata. Operazione irreversibile.
-            </p>
-            <Input
-              value={unioneRicerca}
-              onChange={e => setUnioneRicerca(e.target.value)}
-              placeholder="Cerca per nome o fornitore…"
-            />
-            <div className="space-y-1 max-h-64 overflow-y-auto">
-              {candidatiUnione.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">Nessun articolo trovato.</p>
-              ) : candidatiUnione.map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setUnioneTarget(c.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors',
-                    unioneTarget === c.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent/60'
-                  )}
-                >
-                  <span className="min-w-0 truncate">{c.nome_articolo}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{c.fornitore_nome}</span>
+      {unita.dati && (
+        <Modale tel={tel} esce={unita.esce} onChiudi={() => unita.chiudi()} titolo="Unità di misura" sotto={unita.dati.a.nome} piede={<PiedeModale tel={tel} onOk={salvaUnita} etichetta="Salva" disabilitato={lavoro} onAnnulla={() => unita.chiudi()} />}>
+          <div className={cn('flex flex-col gap-1.5 py-4', px)}><input value={unita.dati.v} placeholder="kg, l, pz…" onChange={e => unita.setDati(d => (d ? { ...d, v: e.target.value } : d))} className={CAMPO} /></div>
+        </Modale>
+      )}
+      {unisci.dati && (
+        <Modale tel={tel} esce={unisci.esce} onChiudi={() => unisci.chiudi()} titolo="Unisci articolo" sotto={`Storico prezzi e giacenze di ${unisci.dati.a.nome} passano a quello scelto`}
+          piede={<PiedeModale tel={tel} onOk={confermaUnione} etichetta="Unisci ed elimina il doppione" pericolo disabilitato={lavoro || !unisci.dati.verso} onAnnulla={() => unisci.chiudi()} />}>
+          <div className={cn('flex flex-col gap-2 py-3', px)}>
+            <input value={unisci.dati.cerca} placeholder="Cerca per nome o fornitore" onChange={e => unisci.setDati(d => (d ? { ...d, cerca: e.target.value } : d))} className={CAMPO} />
+            <div className="flex max-h-[44dvh] flex-col gap-0.5 overflow-y-auto overscroll-contain">
+              {articoli.filter(x => x.id !== unisci.dati!.a.id && (!unisci.dati!.cerca.trim() || `${x.nome} ${x.fornitore}`.toLowerCase().includes(unisci.dati!.cerca.trim().toLowerCase()))).slice(0, 80).map(x => (
+                <button key={x.id} type="button" onClick={() => unisci.setDati(d => (d ? { ...d, verso: x.id } : d))}
+                  className={cn('flex min-h-12 items-center justify-between gap-3 rounded-[10px] px-3 text-left text-sm font-medium active:scale-[0.98]', unisci.dati!.verso === x.id ? 'bg-primary text-primary-foreground' : 'hover:bg-background')}>
+                  <span className="truncate">{x.nome}</span><span className="flex-none text-xs opacity-70">{x.fornitore}</span>
                 </button>
               ))}
             </div>
-            {erroreUnione && <p className="text-sm text-destructive">{erroreUnione}</p>}
           </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setUnione(null)} disabled={unendo}>
-              Annulla
-            </Button>
-            <Button type="button" variant="destructive" onClick={confermaUnione} disabled={unendo || !unioneTarget}>
-              {unendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Unione…</> : 'Unisci'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        </Modale>
+      )}
+      {nuovo.dati && (
+        <Modale tel={tel} esce={nuovo.esce} onChiudi={() => nuovo.chiudi()} titolo="Nuovo articolo" sotto="Per una scorta mai vista in fattura" piede={<PiedeModale tel={tel} onOk={creaArticolo} etichetta="Crea articolo" disabilitato={lavoro} onAnnulla={() => nuovo.chiudi()} />}>
+          <div className={cn('flex flex-col gap-3.5 py-4', px)}>
+            <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Nome</span><input value={nuovo.dati.nome} onChange={e => nuovo.setDati(d => (d ? { ...d, nome: e.target.value } : d))} className={CAMPO} /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Fornitore</span>
+              <select value={nuovo.dati.fornitore} onChange={e => nuovo.setDati(d => (d ? { ...d, fornitore: e.target.value } : d))} className={CAMPO}>{fornitori.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select>
+            </label>
+            <div className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Tipologia</span>
+              <div className="grid grid-cols-2 gap-1.5">{ORDINE_TIPOLOGIE.map(t => (
+                <button key={t} type="button" onClick={() => nuovo.setDati(d => (d ? { ...d, tipologia: t } : d))} className={cn('h-11 rounded-[8px] border text-sm font-medium active:scale-[0.97]', nuovo.dati!.tipologia === t ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>{TIPOLOGIE[t].l}</button>
+              ))}</div>
+            </div>
+            <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Unità di misura</span><input value={nuovo.dati.unita} placeholder="kg, l, pz…" onChange={e => nuovo.setDati(d => (d ? { ...d, unita: e.target.value } : d))} className={CAMPO} /></label>
+            <button type="button" onClick={() => nuovo.setDati(d => (d ? { ...d, traccia: !d.traccia } : d))} className="flex h-12 items-center justify-between rounded-[8px] border border-line-strong px-3.5 text-[15px] font-medium active:scale-[0.98]">
+              Traccia in inventario<span className={cn('font-mono text-sm', nuovo.dati.traccia ? 'text-ok' : 'text-muted-foreground')}>{nuovo.dati.traccia ? 'Sì' : 'No'}</span>
+            </button>
+          </div>
+        </Modale>
+      )}
+    </>
   )
 }

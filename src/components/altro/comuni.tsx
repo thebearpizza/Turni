@@ -1,4 +1,5 @@
 'use client'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
@@ -110,31 +111,11 @@ export function BarraAltro({ locali, schede, kpis, nuovo }: {
   )
 }
 
-/** Pillole dei locali senza "Tutti" (Ristoranti): stesso stile e stesso ordine salvato di PilloleLocali. */
+/** Pillole dei locali senza "Tutti" (Ristoranti): le pillole condivise, riordinabili come altrove. */
 export function PilloleSenzaTutti({ locali, scelto, onScegli }: { locali: { id: string; nome: string; colore: string }[]; scelto: string | null; onScegli: (id: string) => void }) {
-  const raw = useSyncExternalStore(
-    cb => { window.addEventListener('storage', cb); return () => window.removeEventListener('storage', cb) },
-    () => { try { return localStorage.getItem('inturno.locOrderL') ?? '[]' } catch { return '[]' } },
-    () => '[]',
-  )
-  let ordine: string[] = []
-  try { ordine = JSON.parse(raw) } catch { /* ordine non leggibile: naturale */ }
-  const rk = (n: string) => { const i = ordine.indexOf(n); return i < 0 ? 999 : i }
-  const lista = locali.map((l, i) => ({ l, i })).sort((a, b) => rk(a.l.nome) - rk(b.l.nome) || a.i - b.i).map(x => x.l)
   return (
-    <div className="-mx-4 flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
-      {lista.map(l => {
-        const on = l.id === scelto
-        return (
-          <button key={l.id} type="button" onClick={() => onScegli(l.id)}
-            className={cn('relative flex h-10 flex-none items-center gap-2 whitespace-nowrap rounded-full border px-[14px] text-sm font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
-              on ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card text-foreground')}>
-            <span className="h-2 w-2 rounded-full" style={{ background: on ? 'currentColor' : l.colore }} />
-            {l.nome}
-          </button>
-        )
-      })}
-    </div>
+    <PilloleLocali senzaTutti nascondiSeUno={false} className="sm:mx-0 sm:px-0" locali={locali}
+      selezionati={scelto ? [scelto] : []} onCambia={ids => { if (ids[0]) onScegli(ids[0]) }} />
   )
 }
 

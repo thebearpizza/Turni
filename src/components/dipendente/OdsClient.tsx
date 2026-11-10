@@ -48,9 +48,16 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
 
   const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
 
+  // Lo straordinario compare una sola volta: il primo giorno scelto dopo la
+  // creazione (quindi entro 7 giorni), poi sparisce. Quelli vecchi senza
+  // giorno restano visibili ogni giorno, come prima.
+  const [oraMs] = useState(() => Date.now())
   const visible = taskList.filter(t => {
-    if (t.type === 'quotidiana' || t.type === 'straordinaria') return true
-    return t.recurrence_days.some(d => d.toLowerCase() === todayName)
+    if (t.type === 'quotidiana') return true
+    if (t.type === 'straordinaria' && !t.recurrence_days.length) return true
+    const oggiSi = t.recurrence_days.some(d => d.toLowerCase() === todayName)
+    if (t.type === 'straordinaria') return oggiSi && oraMs - new Date(t.created_at).getTime() < 7 * 86400000
+    return oggiSi
   })
 
   const personalTasks   = visible.filter(t => t.assigned_to === userId)
