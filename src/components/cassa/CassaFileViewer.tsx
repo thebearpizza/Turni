@@ -116,9 +116,9 @@ export function CassaFileViewer({ open, onOpenChange, request, format, title, fi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="cassa-perforated-top flex max-h-[85vh] max-w-4xl flex-col gap-4">
+      <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col gap-4">
         <DialogHeader className="pr-6">
-          <DialogTitle className="cassa-display text-lg">{title}</DialogTitle>
+          <DialogTitle className="font-semibold text-lg">{title}</DialogTitle>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border">
@@ -128,7 +128,7 @@ export function CassaFileViewer({ open, onOpenChange, request, format, title, fi
             </div>
           )}
           {!loading && error && (
-            <div className="flex h-64 items-center justify-center px-6 text-center text-sm text-destructive">
+            <div className="flex h-64 items-center justify-center px-6 text-center text-sm text-neg">
               {error}
             </div>
           )}
@@ -150,7 +150,7 @@ export function CassaFileViewer({ open, onOpenChange, request, format, title, fi
                 {sheet.rows.map((row, ri) => (
                   <tr key={ri} className="border-b border-border last:border-0">
                     {row.map((cell, ci) => (
-                      <td key={ci} className={cn('whitespace-nowrap px-3 py-1.5', cell.numeric && 'cassa-numeric text-right')}>
+                      <td key={ci} className={cn('whitespace-nowrap px-3 py-1.5', cell.numeric && 'font-mono tabular-nums text-right')}>
                         {cell.text}
                       </td>
                     ))}

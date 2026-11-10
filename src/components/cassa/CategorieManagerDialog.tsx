@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Pencil, Trash2, Plus, Tags, Loader2 } from 'lucide-react'
+import { Pencil, Trash2, Plus, Loader2 } from 'lucide-react'
 import type { CassaCategoria } from '@/types'
 import { chiediConferma } from '@/components/shared/Conferma'
 
@@ -84,9 +84,9 @@ export function CategorieManagerDialog({ ownerId, onChange }: Props) {
 
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Tags className="w-4 h-4" /> Gestisci categorie
-      </Button>
+      <button type="button" onClick={() => setOpen(true)} className="text-[13px] font-medium text-muted-foreground underline decoration-[oklch(0.82_0.01_250)] underline-offset-4 active:scale-[0.98]">
+        Gestisci
+      </button>
 
       <Dialog open={open} onOpenChange={o => { setOpen(o); if (!o) resetForm() }}>
         <DialogContent>
@@ -111,7 +111,7 @@ export function CategorieManagerDialog({ ownerId, onChange }: Props) {
                 <Button type="button" variant="ghost" onClick={resetForm}>Annulla</Button>
               )}
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-sm text-neg">{error}</p>}
 
             <div className="max-h-64 overflow-y-auto divide-y divide-border rounded-md border border-border">
               {loading && (

@@ -204,9 +204,9 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!leggendo && !salvando) { if (!o) reset(); onOpenChange(o) } }}>
-      <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
+      <DialogContent className="cassa max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Importa prenotazioni</DialogTitle>
+          <DialogTitle className="font-semibold text-lg">Importa prenotazioni</DialogTitle>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
@@ -319,8 +319,8 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
               !verifica.confrontoDisponibile
                 ? 'border-border bg-secondary/50 text-muted-foreground'
                 : verifica.quadra
-                  ? 'border-[var(--cassa-positive)]/40 bg-[var(--cassa-positive-bg)] text-[var(--cassa-positive)]'
-                  : 'border-destructive/40 bg-[var(--cassa-negative-bg)] text-destructive'
+                  ? 'border-transparent bg-ok-tint text-ok'
+                  : 'border-transparent bg-neg-tint text-destructive'
             )}
           >
             {verifica.quadra && verifica.confrontoDisponibile
@@ -331,20 +331,20 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                 <>Il file non riporta un totale di controllo: verifica tu i coperti riga per riga.</>
               ) : verifica.quadra ? (
                 <>
-                  Lettura verificata: <span className="cassa-numeric font-medium">{verifica.righeLette}</span> prenotazioni
-                  e <span className="cassa-numeric font-medium">{verifica.paxCalcolati}</span> coperti,
+                  Lettura verificata: <span className="font-mono tabular-nums font-medium">{verifica.righeLette}</span> prenotazioni
+                  e <span className="font-mono tabular-nums font-medium">{verifica.paxCalcolati}</span> coperti,
                   esattamente come dichiara il documento.
                 </>
               ) : (
                 <>
                   <span className="font-medium">La lettura non quadra col documento.</span>{' '}
                   {verifica.righeDichiarate != null && verifica.righeDichiarate !== verifica.righeLette && (
-                    <>Il file dichiara <span className="cassa-numeric">{verifica.righeDichiarate}</span> prenotazioni,
-                    ne ho lette <span className="cassa-numeric">{verifica.righeLette}</span>. </>
+                    <>Il file dichiara <span className="font-mono tabular-nums">{verifica.righeDichiarate}</span> prenotazioni,
+                    ne ho lette <span className="font-mono tabular-nums">{verifica.righeLette}</span>. </>
                   )}
                   {verifica.paxDichiarati != null && verifica.paxDichiarati !== verifica.paxCalcolati && (
-                    <>Il file dichiara <span className="cassa-numeric">{verifica.paxDichiarati}</span> coperti,
-                    ne ho contati <span className="cassa-numeric">{verifica.paxCalcolati}</span>. </>
+                    <>Il file dichiara <span className="font-mono tabular-nums">{verifica.paxDichiarati}</span> coperti,
+                    ne ho contati <span className="font-mono tabular-nums">{verifica.paxCalcolati}</span>. </>
                   )}
                   Controlla le righe prima di importare.
                 </>
@@ -356,9 +356,9 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         {righe && (
           <div className="space-y-2">
             <p className="text-sm">
-              <span className="cassa-numeric font-medium">{selezionateCount}</span> di {righe.length} da importare
+              <span className="font-mono tabular-nums font-medium">{selezionateCount}</span> di {righe.length} da importare
               {completamenti > 0 && (
-                <span className="text-[var(--cassa-copper)]"> · {completamenti} completano una prenotazione in coda</span>
+                <span className="text-warn"> · {completamenti} completano una prenotazione in coda</span>
               )}
               {doppioni > 0 && (
                 <span className="text-muted-foreground"> · {doppioni} già in agenda</span>
@@ -387,23 +387,23 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                     <span className="min-w-0 flex-1 break-words">
                       <span className="font-medium">{[r.nome, r.cognome].filter(Boolean).join(' ')}</span>
                       <span className="text-muted-foreground">
-                        {' '}· <span className="cassa-numeric">{r.data}</span>{' '}
-                        <span className="cassa-numeric">{normalizzaOrario(r.orario)}</span>
-                        {' '}· <span className="cassa-numeric font-medium text-foreground">{r.persone}</span> coperti
-                        {r.bambini > 0 && <> (di cui <span className="cassa-numeric">{r.bambini}</span> bambini)</>}
+                        {' '}· <span className="font-mono tabular-nums">{r.data}</span>{' '}
+                        <span className="font-mono tabular-nums">{normalizzaOrario(r.orario)}</span>
+                        {' '}· <span className="font-mono tabular-nums font-medium text-foreground">{r.persone}</span> coperti
+                        {r.bambini > 0 && <> (di cui <span className="font-mono tabular-nums">{r.bambini}</span> bambini)</>}
                       </span>
                       {r.duplicato && (
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[var(--cassa-copper)]">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-warn">
                           <Copy className="h-3 w-3 shrink-0" /> {r.duplicato}
                         </span>
                       )}
                       {r.completaLogId && (
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-[var(--cassa-copper)]">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-warn">
                           <Clock className="h-3 w-3 shrink-0" /> Era in coda senza orario: lo assegna questo import
                         </span>
                       )}
                       {r.avviso && (
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-neg">
                           <AlertTriangle className="h-3 w-3 shrink-0" /> {r.avviso}
                         </span>
                       )}
@@ -416,10 +416,10 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
         )}
 
         {fileCompleto && codaSenzaRiscontro.length > 0 && (
-          <div className="space-y-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2">
-            <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--cassa-copper)]">
+          <div className="space-y-2 rounded-md border border-transparent bg-warn-tint px-3 py-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-warn">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span className="cassa-numeric">{codaSenzaRiscontro.length}</span> in coda ma non in questo export
+              <span className="font-mono tabular-nums">{codaSenzaRiscontro.length}</span> in coda ma non in questo export
             </p>
             <p className="text-xs text-muted-foreground">
               Aspettavano solo l&apos;orario ma non risultano più tra le prenotazioni attive: probabilmente cancellate prima di riceverne uno.
@@ -430,7 +430,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-medium">{[v.nome, v.cognome].filter(Boolean).join(' ')}</span>
                     <span className="text-muted-foreground">
-                      {' '}· <span className="cassa-numeric">{v.data}</span> · <span className="cassa-numeric">{v.persone}</span> coperti
+                      {' '}· <span className="font-mono tabular-nums">{v.data}</span> · <span className="font-mono tabular-nums">{v.persone}</span> coperti
                     </span>
                   </span>
                   <Button
@@ -449,7 +449,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
           </div>
         )}
 
-        {errore && <p className="text-sm text-destructive">{errore}</p>}
+        {errore && <p className="text-sm text-neg">{errore}</p>}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={leggendo || salvando}>

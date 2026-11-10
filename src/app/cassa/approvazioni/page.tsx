@@ -1,8 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ModificheApprovalSection, type PendingModifica } from '@/components/cassa/ModificheApprovalSection'
+import { CassaManagerClient, type LocaleCassa } from '@/components/cassa/manager/CassaManagerClient'
 
-export default async function ApprovazioniCassaPage() {
+// Cassa › Approvazioni (MTCassa): modifiche a chiusure già inviate, in
+// revisione. ?sel=<id> arriva da "Rivedi la modifica" e la apre subito.
+export default async function ApprovazioniCassaPage({ searchParams }: { searchParams: Promise<{ sel?: string }> }) {
+  const { sel } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -11,17 +14,6 @@ export default async function ApprovazioniCassaPage() {
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (profile?.role !== 'manager') redirect('/cassa/chiusura')
 
-  const { data } = await supabase
-    .from('cassa_chiusure_modifiche')
-    .select('id, chiusura_id, payload, created_at, chiusura:cassa_chiusure(data, restaurant:restaurants(name)), richiedente:profiles!richiesto_da(full_name)')
-    .eq('stato', 'in_attesa')
-    .order('created_at')
-
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-      <h1 className="titolo-pagina">Approvazioni Cassa</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Richieste di modifica alle chiusure già confermate.</p>
-      <ModificheApprovalSection initialPending={(data ?? []) as unknown as PendingModifica[]} />
-    </div>
-  )
+  const { data: restaurants } = await supabase.from('restaurants').select('id, name, closing_days').order('name')
+  return <CassaManagerClient sec="approvazioni" restaurants={(restaurants ?? []) as LocaleCassa[]} selIniziale={sel} />
 }

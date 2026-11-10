@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ProgressivoBusteClient } from '@/components/cassa/ProgressivoBusteClient'
+import { CassaManagerClient, type LocaleCassa } from '@/components/cassa/manager/CassaManagerClient'
 
+// Cassa › Buste (MTCassa): progressivo delle buste di versamento.
 export default async function ProgressivoBustePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -11,16 +12,6 @@ export default async function ProgressivoBustePage() {
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (profile?.role !== 'manager') redirect('/cassa/chiusura')
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
-    .order('name')
-
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-4xl mx-auto">
-      <h1 className="titolo-pagina">Progressivo Buste</h1>
-      <p className="text-muted-foreground text-sm mt-2 mb-6">Contanti per banca, per locale e periodo.</p>
-      <ProgressivoBusteClient restaurants={restaurants ?? []} />
-    </div>
-  )
+  const { data: restaurants } = await supabase.from('restaurants').select('id, name, closing_days').order('name')
+  return <CassaManagerClient sec="buste" restaurants={(restaurants ?? []) as LocaleCassa[]} />
 }

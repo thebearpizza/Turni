@@ -195,9 +195,9 @@ export function PrenotazioneFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!salvando) onOpenChange(o) }}>
-      <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
+      <DialogContent className="cassa max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">
+          <DialogTitle className="font-semibold text-lg">
             {prenotazione ? 'Dettagli prenotazione' : bozza ? 'Completa prenotazione' : 'Nuova prenotazione'}
           </DialogTitle>
         </DialogHeader>
@@ -320,7 +320,7 @@ export function PrenotazioneFormDialog({
           </div>
         </div>
 
-        {errore && <p className="text-sm text-destructive">{errore}</p>}
+        {errore && <p className="text-sm text-neg">{errore}</p>}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={salvando}>

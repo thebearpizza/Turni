@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/compressImage'
 import { DocumentScanner } from '@/components/acquisti/DocumentScanner'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Camera, Upload, X, Loader2, FileText } from 'lucide-react'
 import { cn , eur2 } from '@/lib/utils'
 
@@ -144,11 +143,8 @@ export function ReportChiusuraCapture({ restaurantId, data, onEstratto }: Props)
   }
 
   return (
-    <Card className="cassa-perforated-top">
-      <CardHeader>
-        <CardTitle className="cassa-display text-lg">Report di chiusura</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    // Vive nel foglio "Report di cassa" della Chiusura (titolo nel foglio).
+    <div className="space-y-3">
         {status === 'done' && risultato ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
@@ -191,24 +187,23 @@ export function ReportChiusuraCapture({ restaurantId, data, onEstratto }: Props)
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">
-              <label className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground hover:bg-accent')}>
+              <label className={cn('inline-flex h-[52px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]')}>
                 <Camera className="h-4 w-4" /> Scansiona
                 <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={handleAdd} />
               </label>
-              <label className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground hover:bg-accent')}>
+              <label className={cn('inline-flex h-[52px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]')}>
                 <Upload className="h-4 w-4" /> Carica file
                 <input type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={handleAdd} />
               </label>
               {pages.length > 0 && (
-                <Button type="button" onClick={handleLeggi} disabled={status === 'processing'} className="gap-1.5">
+                <Button type="button" onClick={handleLeggi} disabled={status === 'processing'} className="h-[52px] w-full gap-1.5 rounded-[12px]">
                   {status === 'processing' ? <><Loader2 className="h-4 w-4 animate-spin" /> Lettura…</> : `Leggi report (${pages.length})`}
                 </Button>
               )}
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-sm text-neg">{error}</p>}
           </>
         )}
-      </CardContent>
-    </Card>
+    </div>
   )
 }

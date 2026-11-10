@@ -1,11 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sanitizeModificaPayload } from '@/lib/cassa/modificaFields'
+import { leggiModifica, scriviModifica } from '@/app/api/cassa/modificaPayload'
 import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 
 // POST /api/cassa/richiedi-modifica
-// Body: { chiusura_id: string, payload: Record<string, number> }
+// Body: { chiusura_id: string, payload: { ...campi, _spese?, _motivo? } }
+// (vedi modificaPayload.ts: anche le spese modificate, eliminate o
+// aggiunte su una chiusura già inviata vanno in revisione al manager).
 // Cassiere-only. Crea una richiesta di modifica in attesa di approvazione
 // per una chiusura già confermata — la riga originale non viene toccata —
 // e notifica i manager che gestiscono il ristorante.
@@ -25,8 +27,8 @@ export async function POST(request: Request) {
   }
 
   const { chiusura_id, payload: rawPayload } = await request.json()
-  const payload = sanitizeModificaPayload(rawPayload)
-  if (!chiusura_id || !payload) {
+  const letta = leggiModifica(rawPayload)
+  if (!chiusura_id || !letta) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
   }
 
@@ -42,6 +44,17 @@ export async function POST(request: Request) {
   if (chiusura.stato !== 'confermata') {
     return NextResponse.json({ error: 'Questa chiusura non è ancora confermata: puoi modificarla direttamente.' }, { status: 400 })
   }
+
+  // Le spese indicate devono appartenere a questa chiusura: un id preso
+  // da un'altra chiusura verrebbe altrimenti toccato all'approvazione.
+  const idSpese = [...letta.spese.modifica.map(m => m.id), ...letta.spese.elimina]
+  if (idSpese.length) {
+    const { data: proprie } = await supabase.from('cassa_spese').select('id').eq('chiusura_id', chiusura_id).in('id', idSpese)
+    if ((proprie ?? []).length !== new Set(idSpese).size) {
+      return NextResponse.json({ error: 'Spese non valide per questa chiusura' }, { status: 400 })
+    }
+  }
+  const payload = scriviModifica(letta)
 
   // Inserita con il client autenticato (non admin): la RLS di
   // cassa_chiusure_modifiche_insert verifica di nuovo richiesto_da e ristorante.

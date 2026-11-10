@@ -55,7 +55,7 @@ export function PrenotazioneStatoDialog({ prenotazione, onOpenChange, onCambiaSt
       open={!!prenotazione}
       onOpenChange={open => { if (!open) { setErrore(null); onOpenChange(false) } }}
     >
-      <DialogContent className="cassa cassa-perforated-top">
+      <DialogContent className="cassa">
         <DialogHeader>
           <DialogTitle className="sr-only">Stato della prenotazione</DialogTitle>
         </DialogHeader>
@@ -65,11 +65,11 @@ export function PrenotazioneStatoDialog({ prenotazione, onOpenChange, onCambiaSt
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="cassa-numeric font-medium">{normalizzaOrario(prenotazione.orario)}</span>
+                <span className="font-mono tabular-nums font-medium">{normalizzaOrario(prenotazione.orario)}</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="cassa-numeric font-medium">{formatPax(prenotazione)}</span>
+                <span className="font-mono tabular-nums font-medium">{formatPax(prenotazione)}</span>
               </span>
               <span className="flex min-w-0 items-center gap-1.5">
                 <User className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -102,7 +102,7 @@ export function PrenotazioneStatoDialog({ prenotazione, onOpenChange, onCambiaSt
               })}
             </div>
 
-            {errore && <p className="text-sm text-destructive">{errore}</p>}
+            {errore && <p className="text-sm text-neg">{errore}</p>}
           </>
         )}
       </DialogContent>

@@ -110,13 +110,13 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="cassa cassa-perforated-top max-h-[90dvh] overflow-y-auto">
+      <DialogContent className="cassa max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Prenotazioni da completare</DialogTitle>
+          <DialogTitle className="font-semibold text-lg">Prenotazioni da completare</DialogTitle>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
-          <span className="cassa-numeric font-medium">{voci.length}</span> in coda in totale, su tutti i locali —
+          <span className="font-mono tabular-nums font-medium">{voci.length}</span> in coda in totale, su tutti i locali —
           comprese le date future. TheFork non scrive l&apos;orario in queste notifiche: il resto dei dati c&apos;è già.
         </p>
 
@@ -162,11 +162,11 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
             <button
               type="button"
               onClick={() => setGiorno(dataPiuVicina)}
-              className="flex w-full items-center gap-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2.5 text-left text-sm"
+              className="flex w-full items-center gap-2 rounded-md border border-transparent bg-warn-tint px-3 py-2.5 text-left text-sm"
             >
-              <Clock className="h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
+              <Clock className="h-4 w-4 shrink-0 text-warn" />
               <span className="flex-1">Nessuna in coda in questo giorno.</span>
-              <span className="shrink-0 font-medium text-[var(--cassa-copper)]">
+              <span className="shrink-0 font-medium text-warn">
                 Vai al {etichettaGiorno(dataPiuVicina)}
               </span>
             </button>
@@ -177,13 +177,13 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
           <div className="space-y-2">
             {delGiorno.map(({ logId, voce }) => (
               <div key={logId} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
                 <div className="min-w-0 flex-1">
                   <div className="break-words font-medium leading-tight">
                     {[voce.nome, voce.cognome].filter(Boolean).join(' ')}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                    <span>· <span className="cassa-numeric">{voce.persone}</span> pax</span>
+                    <span>· <span className="font-mono tabular-nums">{voce.persone}</span> pax</span>
                     <span>· {etichettaLocale(voce.restaurant_id, voce.insegna)}</span>
                     <span>· {ORIGINE_LABEL[voce.origine] ?? voce.origine}</span>
                   </div>
@@ -216,9 +216,9 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
     </Dialog>
 
     <Dialog open={!!daIgnorare} onOpenChange={open => { if (!open) { setDaIgnorare(null); setErroreIgnora(null) } }}>
-      <DialogContent className="cassa-perforated-top">
+      <DialogContent className="">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Ignorare questa prenotazione?</DialogTitle>
+          <DialogTitle className="font-semibold text-lg">Ignorare questa prenotazione?</DialogTitle>
         </DialogHeader>
         {daIgnorare && (
           <p className="text-sm text-muted-foreground">
@@ -226,7 +226,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
             {' '}— uscirà dalla coda e non sarà più recuperabile. L&apos;operazione non è reversibile.
           </p>
         )}
-        {erroreIgnora && <p className="text-sm text-destructive">Errore: {erroreIgnora}</p>}
+        {erroreIgnora && <p className="text-sm text-neg">Errore: {erroreIgnora}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => { setDaIgnorare(null); setErroreIgnora(null) }} disabled={!!inCorso}>
             Annulla

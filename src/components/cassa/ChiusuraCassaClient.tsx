@@ -1,817 +1,653 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CurrencyInput } from '@/components/ui/currency-input'
-import { CountInput } from '@/components/ui/count-input'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { X, Loader2 } from 'lucide-react'
-import { SpeseFase } from '@/components/cassa/SpeseFase'
-import { SpeseBozzaCard } from '@/components/cassa/SpeseBozzaCard'
-import { ReportChiusuraCapture, type ReportChiusuraEstratto } from '@/components/cassa/ReportChiusuraCapture'
-import { QuadraturaFase } from '@/components/cassa/QuadraturaFase'
+import { toast } from '@/hooks/use-toast'
+import { chiediConferma } from '@/components/shared/Conferma'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
+import { Calendario } from '@/components/cassa/analisi/Filtri'
+import { impostaSottotitolo } from '@/components/shell/intestazioneDinamica'
+import { notificaChiusuraConfermata } from '@/app/actions/cassa'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
+import { CategorieManagerDialog } from '@/components/cassa/CategorieManagerDialog'
+import { ReportChiusuraCapture, type ReportChiusuraEstratto } from '@/components/cassa/ReportChiusuraCapture'
+import { FormSpesa, caricaFotoScontrino, colonnaMancante, type SpesaInserita } from '@/components/cassa/FormSpesa'
+import { DettaglioChiusura } from '@/components/cassa/DettaglioChiusura'
+import {
+  CampoCassa, RigaTastierino, PillolaCategoria, Foglio, IconaPiuPieno, IconaGiu, IconaX, useApriChiudi, useTelefono,
+  n2, diffTesto, Contenitore, dataLunga, dataBreve, dataNum, piuGiorni, USCITA,
+} from '@/components/cassa/comuni'
 import { cn } from '@/lib/utils'
-import type { CassaChiusura } from '@/types'
+import type { CassaCategoria, CassaChiusura, CassaSpesa, CassaSpesaBozza } from '@/types'
+
+// Chiusura cassa del cassiere (Chiusura Tablet v2, telefono da Cassiere e
+// Dipendente 3b): una fase alla volta (Incassi → Spese → Quadratura) con il
+// riepilogo sempre visibile a destra su tablet; dopo "Conferma chiusura" si
+// apre il dettaglio, modificabile con revisione del manager (5e).
 
 const TZ = 'Europe/Rome'
-
-interface RestaurantOption {
-  id: string
-  name: string
+type Chiave = 'fondoI' | 'contanti' | 'pos' | 'bonifico' | 'asporto' | 'coperti' | 'fondoF' | 'cpb'
+type Valori = Record<Chiave, number | null>
+const VUOTI: Valori = { fondoI: null, contanti: null, pos: null, bonifico: null, asporto: null, coperti: null, fondoF: null, cpb: null }
+const COLONNA: Record<Chiave, keyof CassaChiusura> = {
+  fondoI: 'fondo_cassa_iniziale', contanti: 'entrate_contanti', pos: 'entrate_pos', bonifico: 'entrate_bonifico',
+  asporto: 'incasso_asporto', coperti: 'coperti', fondoF: 'fondo_cassa_finale', cpb: 'contanti_per_banca',
 }
+// Obbligatori anche con 0: conta che l'operatore li abbia digitati.
+const FASE1: Chiave[] = ['contanti', 'pos', 'bonifico', 'asporto', 'coperti']
+const FASE3: Chiave[] = ['fondoF', 'cpb']
+const v0 = (x: number | null) => x ?? 0
 
-interface Bozza {
-  id: string
-  restaurant_id: string
-  data: string
+// Chi chiude dopo mezzanotte (fino alle 3) sta chiudendo il servizio del
+// giorno prima: i turni oltre mezzanotte appartengono allo stesso giorno.
+function dataDiDefault(): string {
+  const ora = new Date()
+  const h = Number(formatInTimeZone(ora, TZ, 'H'))
+  return formatInTimeZone(h < 3 ? new Date(ora.getTime() - 864e5) : ora, TZ, 'yyyy-MM-dd')
 }
 
 interface Props {
   role: 'manager' | 'cassiere'
-  restaurants: RestaurantOption[]
+  restaurants: { id: string; name: string }[]
   fixedRestaurantId: string | null
   userId: string
+  nomeUtente: string
 }
 
-const emptyFields = () => ({
-  fondoCassaIniziale: 0,
-  entrateContanti: 0,
-  entratePos: 0,
-  entrateBonifico: 0,
-  coperti: 0,
-  incassoAsporto: 0,
-  fondoCassaFinale: 0,
-  contantiPerBanca: 0,
-})
+export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId, nomeUtente }: Props) {
+  const tel = useTelefono()
+  const sp = useSearchParams()
+  const oggi = useMemo(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'), [])
 
-// Campi "obbligatori": zero è un valore legittimo per molti di questi (es.
-// Entrate Bonifico, Incasso Asporto), quindi "obbligatorio" non vuol dire
-// "diverso da zero" — vuol dire che l'operatore deve averlo digitato
-// esplicitamente (anche uno 0), non lasciato al default mai toccato. Gli
-// onChange di CurrencyInput/CountInput scattano solo dopo un parsing
-// riuscito in blur (mai su un blur senza digitazione), quindi sono già il
-// segnale giusto per marcare un campo come compilato.
-// Design: il fondo cassa finale si inserisce in quadratura (fase 3), accanto
-// alla banca teorica che ne dipende.
-const FASE1_FIELDS = ['entrateContanti', 'entratePos', 'entrateBonifico', 'coperti', 'incassoAsporto'] as const
-const FASE3_FIELDS = ['contantiPerBanca'] as const
-const ALL_FIELDS = [...FASE1_FIELDS, 'fondoCassaIniziale', ...FASE3_FIELDS] as const
-
-// Chi chiude cassa dopo mezzanotte (fino alle 3 circa) sta quasi sempre
-// ancora completando il servizio del giorno PRIMA — il locale resta
-// aperto oltre la mezzanotte — non quello appena scattato per
-// calendario. Precompilare con la data "di oggi" in quella fascia
-// porterebbe la chiusura sulla data sbagliata di default.
-function dataChiusuraDiDefault(): string {
-  const ora = new Date()
-  const oraLocale = Number(formatInTimeZone(ora, TZ, 'H'))
-  const giorno = oraLocale < 3 ? new Date(ora.getTime() - 24 * 60 * 60 * 1000) : ora
-  return formatInTimeZone(giorno, TZ, 'yyyy-MM-dd')
-}
-
-function formatDataBreve(data: string): string {
-  const label = formatInTimeZone(`${data}T12:00:00Z`, TZ, 'd MMM', { locale: it })
-  return label.charAt(0).toUpperCase() + label.slice(1)
-}
-
-export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, userId }: Props) {
-  // "Modifica" da Lista Chiusure arriva qui con ?restaurant_id=&data= per
-  // riaprire il wizard precompilato sulla chiusura esistente (Fase 1 la
-  // carica normalmente, come per una data qualunque).
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const editRestaurantId = searchParams.get('restaurant_id')
-  const editDate = searchParams.get('data')
-
+  const [restaurantId, setRestaurantId] = useState(sp.get('restaurant_id') ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : restaurants[0]?.id ?? ''))
+  const [data, setData] = useState(() => sp.get('data') ?? dataDiDefault())
   const [fase, setFase] = useState<1 | 2 | 3>(1)
-  const [restaurantId, setRestaurantIdRaw] = useState(
-    editRestaurantId ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : '')
-  )
-  const [date, setDate] = useState(() => editDate ?? dataChiusuraDiDefault())
-
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [existing, setExisting] = useState<CassaChiusura | null>(null)
-  const [fields, setFields] = useState(emptyFields())
+  const [faseEsce, setFaseEsce] = useState(false)
+  const [stato, setStato] = useState<'carica' | 'ok' | 'errore'>('carica')
+  const [chiusura, setChiusura] = useState<CassaChiusura | null>(null)
+  const [valori, setValori] = useState<Valori>(VUOTI)
+  const [prec, setPrec] = useState<{ fondo: number; data: string } | null>(null)
+  const [spese, setSpese] = useState<CassaSpesa[]>([])
+  const [bozze, setBozze] = useState<CassaSpesaBozza[]>([])
+  const [nomi, setNomi] = useState<Record<string, string>>({})
+  const [categorie, setCategorie] = useState<CassaCategoria[]>([])
   const [ownerId, setOwnerId] = useState<string | null>(null)
-  const [touched, setTouched] = useState<Set<string>>(new Set())
-  const [bozzeInSospeso, setBozzeInSospeso] = useState<Bozza[]>([])
-  // Non-null solo quando il fondo iniziale è stato precompilato in
-  // automatico dal fondo finale della chiusura precedente (il "riporto") —
-  // a differenza del valore digitato dall'operatore, quello va protetto da
-  // modifiche accidentali. Slegato dal valore corrente del campo apposta:
-  // un riporto resta un riporto anche se è 0, e un valore digitato resta
-  // editabile anche appena diventa diverso da zero (vedi fondoInizialeEditabile sotto).
-  const [fondoRiportato, setFondoRiportato] = useState<number | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [altreBozze, setAltreBozze] = useState<{ id: string; restaurant_id: string; data: string }[]>([])
+  const [mancanti, setMancanti] = useState<Set<Chiave>>(new Set())
+  const [invio, setInvio] = useState(false)
+  const [appenaInviata, setAppenaInviata] = useState(false)
+  const calendario = useApriChiudi()
+  const report = useApriChiudi()
 
-  // Cambiare ristorante è sempre "vai a un'altra chiusura" — a differenza
-  // di cambiare solo la data (vedi sotto), qui è corretto azzerare la
-  // chiusura eventualmente già caricata e farne cercare una nuova.
-  function selectRestaurant(id: string) {
-    setRestaurantIdRaw(id)
-    setExisting(null)
-    setFields(emptyFields())
-    setFondoRiportato(null)
-    setTouched(new Set())
-  }
+  // Fondo cassa iniziale = fondo finale della chiusura precedente: non si
+  // modifica. Solo la prima chiusura di un locale lo chiede a mano.
+  const fondoBloccato = !!prec
+  const locale = restaurants.find(r => r.id === restaurantId)
+  const confermata = chiusura?.stato === 'confermata'
 
-  // Bozze (stato 'in_verifica') su uno qualsiasi dei ristoranti visibili a
-  // questo utente — restaurants è già scoped correttamente lato server
-  // (un solo ristorante per il cassiere, tutti i gestiti per il manager),
-  // qui basta filtrare per quegli id senza dover ricalcolare i permessi.
-  const restaurantIds = useMemo(() => restaurants.map(r => r.id), [restaurants])
-  const loadBozze = useCallback(async () => {
-    if (restaurantIds.length === 0) { setBozzeInSospeso([]); return }
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('cassa_chiusure')
-      .select('id, restaurant_id, data')
-      .in('restaurant_id', restaurantIds)
-      .eq('stato', 'in_verifica')
-      .order('data', { ascending: false })
-    setBozzeInSospeso((data ?? []) as Bozza[])
-  }, [restaurantIds])
-
-  useEffect(() => { loadBozze() }, [loadBozze])
-
-  // Una bozza può cambiare da un'altra sessione (un altro cassiere, o lo
-  // stesso su un altro dispositivo) — tiene l'elenco aggiornato senza bisogno
-  // di ricaricare la pagina.
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('cassa_chiusure_bozze_sospese')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => loadBozze())
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [loadBozze])
-
-  // Riapre il wizard esattamente da dove si era rimasti: stessi
-  // ristorante+data della bozza, così loadChiusura (sotto) ritrova il
-  // record esistente e ripopola i campi già inseriti — non un semplice
-  // collegamento, la stessa identica logica usata quando si cambiano
-  // manualmente ristorante/data.
-  function apriBozza(b: Bozza) {
-    setRestaurantIdRaw(b.restaurant_id)
-    setDate(b.data)
-    setExisting(null)
-    setFase(1)
-  }
-
-  // Dialog di conferma in-app invece di window.confirm() — stesso motivo
-  // di ListaChiusureClient: alcuni browser mobile/PWA sopprimono i dialog
-  // nativi sincroni.
-  const [bozzaDaEliminare, setBozzaDaEliminare] = useState<Bozza | null>(null)
-  const [eliminandoBozza, setEliminandoBozza] = useState(false)
-  const [deleteBozzaError, setDeleteBozzaError] = useState<string | null>(null)
-
-  async function confermaEliminaBozza() {
-    if (!bozzaDaEliminare) return
-    const id = bozzaDaEliminare.id
-    setEliminandoBozza(true)
-    setDeleteBozzaError(null)
-    const supabase = createClient()
-    const { error } = await supabase.from('cassa_chiusure').delete().eq('id', id)
-    setEliminandoBozza(false)
-    if (error) { setDeleteBozzaError(error.message); return }
-    setBozzeInSospeso(prev => prev.filter(b => b.id !== id))
-    // Se si stava eliminando la bozza attualmente aperta a schermo, il
-    // wizard non deve restare a mostrare dati appena cancellati.
-    if (existing?.id === id) {
-      setExisting(null)
-      setFields(emptyFields())
-      setTouched(new Set())
-      setFase(1)
+  // ── Caricamento della chiusura di (locale, giorno) ─────────────────
+  const req = useRef(0)
+  const carica = useCallback(async () => {
+    if (!restaurantId) { setStato('ok'); return }
+    const mio = ++req.current
+    setStato('carica')
+    const sb = createClient()
+    try {
+      const [{ data: riga, error: e1 }, { data: p }, { data: bz }] = await Promise.all([
+        sb.from('cassa_chiusure').select('*').eq('restaurant_id', restaurantId).eq('data', data).maybeSingle(),
+        sb.from('cassa_chiusure').select('fondo_cassa_finale, data').eq('restaurant_id', restaurantId).lt('data', data).eq('stato', 'confermata').order('data', { ascending: false }).limit(1).maybeSingle(),
+        sb.from('cassa_spese_bozza').select('*').eq('restaurant_id', restaurantId).eq('data', data).order('created_at'),
+      ])
+      if (e1) throw e1
+      if (req.current !== mio) return
+      const r = riga as CassaChiusura | null
+      setChiusura(r)
+      setPrec(p ? { fondo: Number(p.fondo_cassa_finale), data: p.data } : null)
+      setBozze((bz ?? []) as CassaSpesaBozza[])
+      if (r) {
+        const v = { ...VUOTI }
+        for (const k of Object.keys(COLONNA) as Chiave[]) v[k] = Number(r[COLONNA[k]])
+        setValori(v)
+        const { data: s } = await sb.from('cassa_spese').select('*').eq('chiusura_id', r.id).order('created_at')
+        if (req.current !== mio) return
+        setSpese((s ?? []) as CassaSpesa[])
+      } else {
+        // Fondo cassa iniziale = fondo finale della chiusura precedente.
+        setValori({ ...VUOTI, fondoI: p ? Number(p.fondo_cassa_finale) : null })
+        setSpese([])
+      }
+      // Nomi di chi ha annotato le bozze ("Marco · 19:40"): la RLS può non
+      // mostrare gli altri profili al cassiere, in quel caso resta l'ora.
+      const ids = [...new Set(((bz ?? []) as CassaSpesaBozza[]).map(b => b.created_by).filter(Boolean))] as string[]
+      if (ids.length) {
+        const { data: pr } = await sb.from('profiles').select('id, full_name').in('id', ids)
+        if (req.current === mio) setNomi(Object.fromEntries(((pr ?? []) as { id: string; full_name: string }[]).map(x => [x.id, x.full_name.split(' ')[0]])))
+      }
+      setMancanti(new Set())
+      setStato('ok')
+    } catch {
+      if (req.current === mio) setStato('errore')
     }
-    setBozzaDaEliminare(null)
-  }
+  }, [restaurantId, data])
+
+  useEffect(() => { carica() }, [carica])
 
   useEffect(() => {
-    if (editRestaurantId) { setRestaurantIdRaw(editRestaurantId); setExisting(null) }
-    if (editDate) { setDate(editDate); setExisting(null) }
-  }, [editRestaurantId, editDate])
+    if (!restaurantId) return
+    const sb = createClient()
+    sb.from('restaurants').select('owner_id').eq('id', restaurantId).single().then(({ data: r }) => setOwnerId(r?.owner_id ?? null))
+  }, [restaurantId])
 
-  function markTouched(name: string) {
-    setTouched(prev => (prev.has(name) ? prev : new Set(prev).add(name)))
+  const caricaCategorie = useCallback(async () => {
+    if (!ownerId) return
+    const { data: c } = await createClient().from('cassa_categorie').select('*').eq('owner_id', ownerId).order('nome')
+    setCategorie((c ?? []) as CassaCategoria[])
+  }, [ownerId])
+  useEffect(() => { caricaCategorie() }, [caricaCategorie])
+
+  // Bozze non inviate di altri giorni, da riprendere.
+  const ids = useMemo(() => restaurants.map(r => r.id).join(','), [restaurants])
+  const caricaAltre = useCallback(async () => {
+    if (!ids) return
+    const { data: b } = await createClient().from('cassa_chiusure').select('id, restaurant_id, data').in('restaurant_id', ids.split(',')).eq('stato', 'in_verifica').order('data', { ascending: false })
+    setAltreBozze((b ?? []) as { id: string; restaurant_id: string; data: string }[])
+  }, [ids])
+  useEffect(() => { caricaAltre() }, [caricaAltre])
+  useEffect(() => {
+    const sb = createClient()
+    const ch = sb.channel('cassa_chiusura_bozze').on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => caricaAltre()).subscribe()
+    return () => { sb.removeChannel(ch) }
+  }, [caricaAltre])
+
+  // Intestazione del guscio: giorno della chiusura e stato.
+  useEffect(() => {
+    impostaSottotitolo(`${dataLunga(data)}${chiusura && !confermata ? ' · bozza' : ''}`)
+  }, [data, chiusura, confermata])
+  useEffect(() => () => impostaSottotitolo(null), [])
+
+  function vaiA(nuovoLocale: string, nuovaData: string) {
+    setRestaurantId(nuovoLocale)
+    setData(nuovaData)
+    setFase(1)
+    setAppenaInviata(false)
+    setChiusura(null)
   }
 
-  // Esito del caricamento report (Fase 1, primo passo): precompila i tre
-  // incassi e i coperti (se letti) e li marca "toccati" come se
-  // l'operatore li avesse digitati — restano comunque modificabili nei
-  // campi sotto. Un avviso non bloccante segnala i due casi in cui
-  // conviene ricontrollare a mano: data del report diversa da quella
-  // della chiusura in corso, o totale dichiarato nel documento che non
-  // torna con la somma dei pagamenti letti.
-  const [reportAvviso, setReportAvviso] = useState<string | null>(null)
-  function handleReportEstratto(r: ReportChiusuraEstratto) {
-    setFields(f => ({
-      ...f,
-      entrateContanti: r.entrate_contanti,
-      entratePos: r.entrate_pos,
-      entrateBonifico: r.entrate_bonifico,
-      ...(r.coperti != null ? { coperti: r.coperti } : {}),
-    }))
-    markTouched('entrateContanti')
-    markTouched('entratePos')
-    markTouched('entrateBonifico')
-    if (r.coperti != null) markTouched('coperti')
+  function cambiaFase(f: 1 | 2 | 3) {
+    if (f === fase) return
+    setFaseEsce(true)
+    setTimeout(() => { setFase(f); setFaseEsce(false) }, USCITA)
+  }
 
-    setReportAvviso(
-      r.data && r.data !== date
-        ? `Il report caricato è del ${formatDataBreve(r.data)}, ma stai compilando la chiusura del ${formatDataBreve(date)} — controlla di aver scelto il giorno giusto.`
-        : r.scostamento_totale
-          ? `Il totale dichiarato nel report non coincide con la somma dei pagamenti letti (differenza € ${r.scostamento_totale.toFixed(2)}) — ricontrolla gli importi.`
-          : null
+  // ── Calcoli (regole di dominio) ─────────────────────────────────────
+  const totSpese = spese.reduce((s, x) => s + Number(x.importo), 0)
+  const totEntrate = v0(valori.contanti) + v0(valori.pos) + v0(valori.bonifico)
+  const media = valori.coperti ? Math.max(0, totEntrate - v0(valori.asporto)) / valori.coperti : 0
+  const bancaTeorica = v0(valori.fondoI) + v0(valori.contanti) - totSpese - v0(valori.fondoF)
+  const diff = v0(valori.cpb) - bancaTeorica
+  const quadra = Math.abs(diff) < 0.005
+  const imposta = (k: Chiave) => (n: number) => { setValori(v => ({ ...v, [k]: n })); setMancanti(m => { if (!m.has(k)) return m; const x = new Set(m); x.delete(k); return x }) }
+
+  function payload() {
+    const o: Record<string, number> = {}
+    for (const k of Object.keys(COLONNA) as Chiave[]) o[COLONNA[k] as string] = v0(valori[k])
+    return o
+  }
+
+  // Trova o crea la bozza del giorno (serve un id per spese e bozze confermate).
+  async function assicuraChiusura(): Promise<CassaChiusura | null> {
+    if (chiusura) return chiusura
+    const sb = createClient()
+    const { data: r, error } = await sb.from('cassa_chiusure')
+      .insert({ restaurant_id: restaurantId, data, stato: 'in_verifica' as const, created_by: userId, updated_by: userId, ...payload() }).select().single()
+    if (!error && r) { setChiusura(r as CassaChiusura); return r as CassaChiusura }
+    if (error?.code === '23505') {
+      const { data: e } = await sb.from('cassa_chiusure').select('*').eq('restaurant_id', restaurantId).eq('data', data).single()
+      if (e) { setChiusura(e as CassaChiusura); return e as CassaChiusura }
+    }
+    toast({ title: friendlySaveError(error), variant: 'destructive' })
+    return null
+  }
+
+  async function avantiSpese() {
+    const fondoObbl = !prec ? (['fondoI'] as Chiave[]) : []
+    const manca = [...FASE1, ...fondoObbl].filter(k => valori[k] === null)
+    if (manca.length) { setMancanti(new Set(manca)); toast({ title: 'Compila tutti gli incassi, anche con 0 se è corretto.', variant: 'destructive' }); return }
+    setInvio(true)
+    const sb = createClient()
+    const { data: r, error } = chiusura
+      ? await sb.from('cassa_chiusure').update({ ...payload(), updated_by: userId }).eq('id', chiusura.id).select().single()
+      : await sb.from('cassa_chiusure').upsert({ restaurant_id: restaurantId, data, stato: 'in_verifica' as const, created_by: userId, updated_by: userId, ...payload() }, { onConflict: 'restaurant_id,data' }).select().single()
+    setInvio(false)
+    if (error || !r) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
+    setChiusura(r as CassaChiusura)
+    cambiaFase(2)
+  }
+
+  async function conferma() {
+    if (!chiusura) return
+    const manca = FASE3.filter(k => valori[k] === null)
+    if (manca.length) { setMancanti(new Set(manca)); toast({ title: 'Inserisci fondo finale e contanti per banca, anche con 0.', variant: 'destructive' }); return }
+    setInvio(true)
+    const { data: r, error } = await createClient().from('cassa_chiusure')
+      .update({ ...payload(), stato: 'confermata' as const, updated_by: userId }).eq('id', chiusura.id).select().single()
+    setInvio(false)
+    if (error || !r) { toast({ title: 'Invio non riuscito, la chiusura resta in bozza.', variant: 'destructive' }); return }
+    setChiusura(r as CassaChiusura)
+    setAppenaInviata(true)
+    toast({ title: `Chiusura di ${dataLunga(data).toLowerCase()} inviata` })
+    // Solo alla prima conferma: notifica i manager (non deve bloccare).
+    notificaChiusuraConfermata(chiusura.id).catch(() => {})
+  }
+
+  // ── Spese (fase 2) ─────────────────────────────────────────────────
+  async function aggiungiSpesa(s: SpesaInserita): Promise<boolean> {
+    const c = await assicuraChiusura()
+    if (!c) return false
+    const sb = createClient()
+    const foto = await caricaFotoScontrino(restaurantId, s.foto)
+    const base = { chiusura_id: c.id, nome_spesa: s.nome, categoria_id: s.categoriaId, importo: s.importo, created_by: userId }
+    let { data: r, error } = await sb.from('cassa_spese').insert((foto ? { ...base, foto_path: foto } : base) as typeof base).select().single()
+    if (error && foto && colonnaMancante(error)) {
+      ({ data: r, error } = await sb.from('cassa_spese').insert(base).select().single())
+      if (!error) toast({ title: 'Spesa aggiunta, la foto non è stata salvata', variant: 'destructive' })
+    }
+    if (error || !r) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return false }
+    if (s.foto && !foto) toast({ title: 'Spesa aggiunta, la foto non è stata caricata', variant: 'destructive' })
+    setSpese(p => [...p, r as CassaSpesa])
+    return true
+  }
+
+  const salvaImporto = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  function cambiaImporto(id: string, n: number) {
+    setSpese(p => p.map(x => (x.id === id ? { ...x, importo: n } : x)))
+    clearTimeout(salvaImporto.current[id])
+    salvaImporto.current[id] = setTimeout(async () => {
+      if (n <= 0) return
+      const { error } = await createClient().from('cassa_spese').update({ importo: n }).eq('id', id)
+      if (error) toast({ title: friendlySaveError(error), variant: 'destructive' })
+    }, 700)
+  }
+  async function eliminaSpesa(x: CassaSpesa) {
+    const { error } = await createClient().from('cassa_spese').delete().eq('id', x.id)
+    if (error) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
+    setSpese(p => p.filter(y => y.id !== x.id))
+    toast({ title: `«${x.nome_spesa}» eliminata` })
+  }
+
+  // ── Bozze di spesa (fase 1) ────────────────────────────────────────
+  const [bzEsce, setBzEsce] = useState<string | null>(null)
+  async function salvaBozza(s: SpesaInserita): Promise<boolean> {
+    const sb = createClient()
+    const foto = await caricaFotoScontrino(restaurantId, s.foto)
+    const base = { restaurant_id: restaurantId, data, nome_spesa: s.nome, categoria_id: s.categoriaId, importo: s.importo, created_by: userId }
+    let { data: r, error } = await sb.from('cassa_spese_bozza').insert((foto ? { ...base, foto_path: foto } : base) as typeof base).select().single()
+    if (error && foto && colonnaMancante(error)) ({ data: r, error } = await sb.from('cassa_spese_bozza').insert(base).select().single())
+    if (error || !r) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return false }
+    setBozze(p => [...p, r as CassaSpesaBozza])
+    setNomi(n => ({ ...n, [userId]: nomeUtente.split(' ')[0] }))
+    toast({ title: 'Bozza di spesa salvata' })
+    swapNuova(false)
+    return true
+  }
+  async function chiudiBozza(b: CassaSpesaBozza, conferma: boolean) {
+    if (bzEsce) return
+    const sb = createClient()
+    if (conferma) {
+      const c = await assicuraChiusura()
+      if (!c) return
+      const { data: r, error } = await sb.from('cassa_spese').insert({ chiusura_id: c.id, nome_spesa: b.nome_spesa, categoria_id: b.categoria_id, importo: b.importo, created_by: b.created_by ?? userId }).select().single()
+      if (error || !r) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
+      setSpese(p => [...p, r as CassaSpesa])
+    }
+    const { error } = await sb.from('cassa_spese_bozza').delete().eq('id', b.id)
+    if (error && !conferma) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
+    setBzEsce(b.id)
+    setTimeout(() => { setBozze(p => p.filter(x => x.id !== b.id)); setBzEsce(null) }, USCITA)
+    toast({ title: conferma ? `«${b.nome_spesa}» confermata nelle spese` : `Bozza «${b.nome_spesa}» eliminata` })
+  }
+  const [nuova, setNuova] = useState(false)
+  const [nuovaEsce, setNuovaEsce] = useState(false)
+  function swapNuova(v: boolean) {
+    if (nuovaEsce) return
+    setNuovaEsce(true)
+    setTimeout(() => { setNuova(v); setNuovaEsce(false) }, USCITA)
+  }
+
+  function handleReport(r: ReportChiusuraEstratto) {
+    setValori(v => ({ ...v, contanti: r.entrate_contanti, pos: r.entrate_pos, bonifico: r.entrate_bonifico, ...(r.coperti != null ? { coperti: r.coperti } : {}) }))
+    report.chiudi()
+    toast({
+      title: r.data && r.data !== data ? `Il report è del ${dataNum(r.data)}: controlla di aver scelto il giorno giusto`
+        : r.scostamento_totale ? 'Il totale del report non torna con i pagamenti letti: ricontrolla' : 'Incassi letti dal report: controllali',
+      variant: (r.data && r.data !== data) || r.scostamento_totale ? 'destructive' : 'default',
+    })
+  }
+
+  async function eliminaBozzaGiorno(b: { id: string; restaurant_id: string; data: string }) {
+    if (!(await chiediConferma({ titolo: 'Eliminare la bozza?', testo: `${restaurants.find(r => r.id === b.restaurant_id)?.name ?? ''} · ${dataBreve(b.data)}: i dati inseriti andranno persi.`, conferma: 'Elimina' }))) return
+    const { error } = await createClient().from('cassa_chiusure').delete().eq('id', b.id)
+    if (error) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
+    setAltreBozze(p => p.filter(x => x.id !== b.id))
+    toast({ title: 'Bozza eliminata' })
+  }
+
+  const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
+  const gestisci = role === 'manager' && ownerId
+    ? <CategorieManagerDialog ownerId={ownerId} onChange={caricaCategorie} />
+    : undefined
+
+  // ── Dettaglio dopo l'invio (5e) ─────────────────────────────────────
+  if (stato === 'ok' && chiusura && confermata) {
+    return (
+      <Contenitore>
+        <BarraAlta tel={tel} role={role} locali={locali} restaurantId={restaurantId} data={data} oggi={oggi} calendario={calendario}
+          onLocale={id => vaiA(id, data)} onData={d => vaiA(restaurantId, d)} />
+        <DettaglioChiusura
+          chiusura={chiusura} spese={spese} categorie={categorie} role={role} userId={userId} tel={tel}
+          appenaInviata={appenaInviata} nomeLocale={locale?.name ?? ''}
+          onNuova={() => vaiA(restaurantId, data < oggi ? piuGiorni(data, 1) : dataDiDefault() > data ? dataDiDefault() : piuGiorni(data, 1))}
+          onAggiornata={carica}
+        />
+      </Contenitore>
     )
   }
 
-  // Scarta il risultato di un caricamento superato da uno più recente —
-  // senza questa guardia, cambiare ristorante due volte in rapida
-  // successione può far vincere la risposta più lenta e lasciare a
-  // schermo (ed eventualmente salvare) la chiusura sbagliata.
-  const loadRequestId = useRef(0)
+  const riepilogo: { l: string; v: string | null }[] = [
+    { l: 'Totale entrate', v: n2(totEntrate) },
+    { l: 'Media scontrino', v: n2(media) },
+    { l: 'Spese', v: fase >= 2 || spese.length ? n2(totSpese) : null },
+    { l: 'Fondo finale', v: fase === 3 ? n2(v0(valori.fondoF)) : null },
+    { l: 'Banca teorica', v: fase === 3 ? n2(bancaTeorica) : null },
+  ]
+  const diffMostra = fase === 3 && valori.cpb !== null
+  const animFase = faseEsce ? 'anim-swapout' : 'anim-swapin'
+  const notaFondo = prec ? `DA CHIUSURA ${dataNum(prec.data)}` : undefined
 
-  const loadChiusura = useCallback(async () => {
-    if (!restaurantId || !date) return
-    const myRequest = ++loadRequestId.current
-    setLoading(true)
-    setReportAvviso(null)
-    const supabase = createClient()
+  const listaSpese = (bordoTop: boolean) => spese.map(x => {
+    const cat = categorie.find(c => c.id === x.categoria_id)
+    return (
+      <RigaTastierino key={x.id} valore={Number(x.importo)} onCambia={n => cambiaImporto(x.id, n)} onRimuovi={() => eliminaSpesa(x)} etichettaRimuovi="Elimina spesa"
+        className={cn('grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border-border', tel ? 'px-3.5 py-3' : 'px-[18px] py-4', bordoTop ? 'border-t' : 'border-b')}>
+        {({ testo }) => (<>
+          <span className="text-base font-medium">{x.nome_spesa}</span>
+          <span className={cn('font-mono text-lg font-medium', testo && 'text-[oklch(0.45_0.1_180)]')}>{testo ?? n2(Number(x.importo))}</span>
+          <span className="flex items-center gap-2 text-[13px] text-muted-foreground">{cat && <PillolaCategoria>{cat.nome}</PillolaCategoria>}{(x as CassaSpesa & { foto_path?: string | null }).foto_path ? 'scontrino allegato' : ''}</span>
+        </>)}
+      </RigaTastierino>
+    )
+  })
 
-    const { data: row } = await supabase
-      .from('cassa_chiusure')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .eq('data', date)
-      .maybeSingle()
+  const pannelloBozze = (
+    nuova ? (
+      <div className={cn('mt-0 sm:mt-7', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+        <FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova bozza di spesa"
+          destra={`${bozze.length} ${bozze.length === 1 ? 'bozza salvata' : 'bozze salvate'}`} cta="Salva bozza"
+          onSalva={salvaBozza} onAnnulla={() => swapNuova(false)} gestisciCategorie={gestisci} />
+      </div>
+    ) : (
+      <div className={cn('flex flex-col overflow-hidden rounded-[8px] border border-line-strong bg-card', tel ? 'mt-1' : 'mt-7 [contain:size]', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+        <div className="flex items-baseline justify-between px-5 pb-3 pt-[18px]">
+          <span className="text-[17px] font-semibold">Bozze di spesa</span>
+          <span className="text-[13px] text-muted-foreground">inserite durante il turno</span>
+        </div>
+        <div className="-mt-px min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-border">
+          {bozze.length === 0 && <div className="border-t border-border px-5 py-6 text-center text-[13px] text-muted-foreground">Nessuna bozza: le spese annotate durante il turno compaiono qui.</div>}
+          {bozze.map(b => {
+            const cat = categorie.find(c => c.id === b.categoria_id)
+            const ora = formatInTimeZone(new Date(b.created_at), TZ, 'HH:mm')
+            const chi = b.created_by ? nomi[b.created_by] : undefined
+            return (
+              <div key={b.id} className={cn('flex flex-col gap-3 border-t border-border px-5 py-4', bzEsce === b.id && 'anim-swapout')}>
+                <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
+                  <span className="text-base font-medium">{b.nome_spesa}</span>
+                  <span className="font-mono text-lg font-medium">{n2(Number(b.importo))}</span>
+                  <span className="flex items-center gap-2 text-[13px] text-muted-foreground">{cat && <PillolaCategoria>{cat.nome}</PillolaCategoria>}{[chi, ora, (b as CassaSpesaBozza & { foto_path?: string | null }).foto_path ? 'foto' : null].filter(Boolean).join(' · ')}</span>
+                </div>
+                <div className="grid grid-cols-[1fr_2fr] gap-2">
+                  <button type="button" onClick={() => chiudiBozza(b, false)} className="flex h-12 items-center justify-center rounded-[12px] bg-neg-tint text-[15px] font-semibold text-neg transition-transform duration-150 active:scale-[0.97]">Elimina</button>
+                  <button type="button" onClick={() => chiudiBozza(b, true)} className="flex h-12 items-center justify-center rounded-[12px] border border-foreground text-[15px] font-semibold transition-transform duration-150 active:scale-[0.97]">Conferma nelle spese</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-auto border-t border-border px-5 py-4">
+          <button type="button" onClick={() => swapNuova(true)} className="flex h-[52px] w-full items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium active:scale-[0.99]">
+            <IconaPiuPieno />Nuova bozza di spesa
+          </button>
+        </div>
+      </div>
+    )
+  )
 
-    if (loadRequestId.current !== myRequest) return
+  const speseDelGiorno = (
+    <div className="mt-7 flex flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
+      <div className="flex items-baseline justify-between px-5 pb-3 pt-[18px]"><span className="text-[17px] font-semibold">Spese del giorno</span><span className="text-[13px] text-muted-foreground">dalla fase 2</span></div>
+      {spese.length === 0 && <div className="border-t border-border px-5 py-4 text-[13px] text-muted-foreground">Nessuna spesa registrata.</div>}
+      {listaSpese(true)}
+      <div className="flex h-14 items-center justify-between border-t border-border bg-[oklch(0.97_0.01_250)] px-5 dark:bg-secondary"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+    </div>
+  )
 
-    if (row) {
-      setExisting(row)
-      setFields({
-        fondoCassaIniziale: row.fondo_cassa_iniziale,
-        entrateContanti: row.entrate_contanti,
-        entratePos: row.entrate_pos,
-        entrateBonifico: row.entrate_bonifico,
-        coperti: row.coperti,
-        incassoAsporto: row.incasso_asporto,
-        fondoCassaFinale: row.fondo_cassa_finale,
-        contantiPerBanca: row.contanti_per_banca,
-      })
-      // Chiusura già esistente: i valori arrivano dal database, non da
-      // digitazione dell'operatore in questa sessione — contano già come
-      // compilati (altrimenti riaprire una chiusura per modificarla
-      // bloccherebbe "Avanti" finché non si ritoccano tutti i campi).
-      setTouched(new Set(ALL_FIELDS))
-      // Il fondo iniziale di una chiusura già salvata non è (più) un
-      // riporto automatico da proteggere: va lasciato correggibile.
-      setFondoRiportato(null)
-      setLoading(false)
-      return
-    }
+  const fasi = ['Incassi', 'Spese', 'Quadratura']
+  const titoli = ['Incassi della giornata', 'Spese pagate in contanti', 'Fondo e contanti per la banca']
+  const cta = fase === 1 ? 'Avanti: spese' : fase === 2 ? 'Avanti: quadratura' : 'Conferma chiusura'
+  const avanti = fase === 1 ? avantiSpese : fase === 2 ? () => cambiaFase(3) : conferma
+  const indietro = () => cambiaFase(fase === 3 ? 2 : 1)
+  // Si torna indietro toccando una fase già fatta (barra in alto o riepilogo).
+  const vaiFase = (i: number) => { if (i + 1 < fase) cambiaFase((i + 1) as 1 | 2 | 3) }
 
-    setExisting(null)
-    setTouched(new Set())
-
-    // Nessuna chiusura per questa data: replica lato client la stessa
-    // logica del trigger precompila_fondo, cosi' il valore corretto e'
-    // gia' visibile prima ancora del primo salvataggio.
-    const { data: prev } = await supabase
-      .from('cassa_chiusure')
-      .select('fondo_cassa_finale')
-      .eq('restaurant_id', restaurantId)
-      .lt('data', date)
-      .order('data', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (loadRequestId.current !== myRequest) return
-
-    setFields({ ...emptyFields(), fondoCassaIniziale: prev?.fondo_cassa_finale ?? 0 })
-    setFondoRiportato(prev ? prev.fondo_cassa_finale : null)
-    setLoading(false)
-  }, [restaurantId, date])
-
-  // Cerca/precompila SOLO finché non c'è già una chiusura caricata: una
-  // volta che existing è valorizzato (bozza in corso, o chiusura aperta
-  // per modificarla), toccare qui il campo Data serve a CORREGGERLA su
-  // quel record al prossimo salvataggio (vedi handleAvanti) — non a
-  // spostarsi a cercarne/crearne un'altra, altrimenti i dati già
-  // caricati (spese comprese) sparirebbero dal form come se non
-  // fossero mai stati salvati.
-  useEffect(() => {
-    if (existing) return
-    loadChiusura()
-  }, [loadChiusura, existing])
-
-  useEffect(() => {
-    if (!restaurantId) { setOwnerId(null); return }
-    const supabase = createClient()
-    supabase.from('restaurants').select('owner_id').eq('id', restaurantId).single()
-      .then(({ data }) => setOwnerId(data?.owner_id ?? null))
-  }, [restaurantId])
-
-  // Aggiorna in tempo reale i campi calcolati dal trigger (totale spese,
-  // banca teorica, differenza) quando cambiano le spese collegate.
-  useEffect(() => {
-    if (!existing?.id) return
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`cassa_chiusura_${existing.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'cassa_chiusure', filter: `id=eq.${existing.id}` },
-        (payload) => setExisting(payload.new as CassaChiusura)
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [existing?.id])
-
-  const totaleEntrate = fields.entrateContanti + fields.entratePos + fields.entrateBonifico
-  const mediaScontrino = fields.coperti === 0
-    ? null
-    : (totaleEntrate - fields.incassoAsporto) / fields.coperti
-
-  const fondoInizialeEditabile = fondoRiportato === null
-  const fase1RequiredFields = fondoInizialeEditabile ? [...FASE1_FIELDS, 'fondoCassaIniziale'] : FASE1_FIELDS
-  const fase1Complete = fase1RequiredFields.every(f => touched.has(f))
-  const isConfermata = existing?.stato === 'confermata'
-  // Bozza (nuova o non ancora confermata): Fase 1 salva incrementalmente.
-  // Chiusura già confermata: Fase 1 è solo navigazione, il salvataggio
-  // (diretto o via richiesta di approvazione) avviene in Fase 3.
-  const isDraftFlow = !isConfermata
-
-  const dataCorretta = !!existing && date !== existing.data
-
-  async function handleAvanti() {
-    if (!restaurantId || !date || !fase1Complete) return
-    setSaveError(null)
-
-    // Una chiusura già confermata è un record "ufficiale": correggerne
-    // la data (a differenza delle altre correzioni Fase 1, che passano
-    // dall'approvazione in Fase 3) resta riservata al manager — il
-    // campo è comunque disabilitato per il cassiere in quel caso, qui è
-    // solo una seconda barriera.
-    if (dataCorretta && isConfermata && role !== 'manager') {
-      setSaveError('Solo un manager può correggere la data di una chiusura già confermata.')
-      return
-    }
-
-    if (!isDraftFlow) {
-      if (dataCorretta) {
-        setSaving(true)
-        const supabase = createClient()
-        const { data, error } = await supabase
-          .from('cassa_chiusure')
-          .update({ data: date, updated_by: userId })
-          .eq('id', existing!.id)
-          .select()
-          .single()
-        setSaving(false)
-        if (error || !data) {
-          setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : friendlySaveError(error))
-          return
-        }
-        setExisting(data)
-      }
-      setFase(2)
-      return
-    }
-
-    setSaving(true)
-    const supabase = createClient()
-
-    const basePayload = {
-      restaurant_id: restaurantId,
-      data: date,
-      fondo_cassa_iniziale: fields.fondoCassaIniziale,
-      entrate_contanti: fields.entrateContanti,
-      entrate_pos: fields.entratePos,
-      entrate_bonifico: fields.entrateBonifico,
-      coperti: fields.coperti,
-      incasso_asporto: fields.incassoAsporto,
-      fondo_cassa_finale: fields.fondoCassaFinale,
-      contanti_per_banca: fields.contantiPerBanca,
-      updated_by: userId,
-    }
-
-    // Se un record è già caricato (bozza in corso, o una chiusura
-    // aperta per correggerne la data) si aggiorna SEMPRE per id, mai
-    // tramite upsert sulla chiave naturale (restaurant_id, data): se la
-    // data è stata corretta, un upsert per chiave naturale cercherebbe
-    // o creerebbe un'altra riga invece di correggere quella su cui si
-    // sta lavorando, lasciando indietro un doppione con i dati vecchi.
-    // Sul ramo update il restaurant_id salvato è quello del record già
-    // caricato (existing), non lo stato del selettore: se nel frattempo
-    // il selettore fosse passato a un altro ristorante, non deve spostare
-    // sotto quello la chiusura su cui si sta davvero lavorando.
-    const { data, error } = existing
-      ? await supabase.from('cassa_chiusure').update({ ...basePayload, restaurant_id: existing.restaurant_id }).eq('id', existing.id).select().single()
-      : await supabase.from('cassa_chiusure').upsert({ ...basePayload, stato: 'in_verifica' as const, created_by: userId }, { onConflict: 'restaurant_id,data' }).select().single()
-
-    setSaving(false)
-    if (error || !data) {
-      setSaveError(error?.code === '23505' ? 'Esiste già una chiusura per questa data.' : `Errore nel salvataggio: ${error?.message ?? 'sconosciuto'}`)
-      return
-    }
-    setExisting(data)
-    setFase(2)
-  }
-
-  const selectedRestaurantName = restaurants.find(r => r.id === restaurantId)?.name
-
-  // Non ha senso proporre come "bozza da riprendere" quella già aperta a
-  // schermo in questo momento.
-  const altreBozze = bozzeInSospeso.filter(b => !(b.restaurant_id === restaurantId && b.data === date))
+  const bozzeAltrove = altreBozze.filter(b => !(b.restaurant_id === restaurantId && b.data === data))
 
   return (
-    <div className="mx-auto px-4 pb-4 pt-1 md:max-w-6xl lg:px-8">
-      {altreBozze.length > 0 && (
-        <div className="mb-4 flex flex-col gap-2">
-          {altreBozze.map(b => (
-            <div key={b.id} className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background pl-3.5 pr-1.5 text-sm font-medium">
-              <button
-                type="button"
-                onClick={() => apriBozza(b)}
-                className="flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
-              >
-                {restaurants.find(r => r.id === b.restaurant_id)?.name ?? '—'} · {formatDataBreve(b.data)}
+    <Contenitore>
+      <BarraAlta tel={tel} role={role} locali={locali} restaurantId={restaurantId} data={data} oggi={oggi} calendario={calendario}
+        onLocale={id => vaiA(id, data)} onData={d => vaiA(restaurantId, d)}
+        fasi={tel ? undefined : (
+          <div className="flex flex-1 justify-center gap-2">
+            {fasi.map((l, i) => {
+              const fatta = i + 1 < fase, on = i + 1 === fase
+              return (
+                <button key={l} type="button" onClick={() => vaiFase(i)} disabled={!fatta}
+                  className={cn('flex h-11 items-center gap-2 rounded-full px-[18px] text-sm font-semibold transition-[background-color] duration-200',
+                    on ? 'bg-[oklch(0.94_0.04_180)] dark:bg-[oklch(0.3_0.05_180)]' : '', on || fatta ? 'text-foreground' : 'text-muted-foreground', fatta && 'active:scale-[0.97]')}>
+                  <span className={cn('flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-xs font-semibold', on || fatta ? 'bg-[oklch(0.58_0.12_180)] text-white' : 'bg-border text-muted-foreground')}>{fatta ? '✓' : i + 1}</span>
+                  {l}
+                </button>
+              )
+            })}
+          </div>
+        )} />
+
+      {bozzeAltrove.length > 0 && (
+        <div className={cn('flex flex-none flex-wrap gap-2', tel ? 'px-4 pb-3' : 'px-8 pt-3')}>
+          {bozzeAltrove.map(b => (
+            <div key={b.id} className="flex h-10 items-center gap-1 rounded-full bg-warn-tint pl-3.5 pr-1 text-[13px] font-medium text-warn">
+              <button type="button" onClick={() => vaiA(b.restaurant_id, b.data)} className="active:scale-[0.98]">
+                Bozza non inviata · {role === 'manager' ? `${restaurants.find(r => r.id === b.restaurant_id)?.name ?? ''} · ` : ''}{dataBreve(b.data)} · <span className="font-semibold underline underline-offset-2">Riprendi</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setBozzaDaEliminare(b)}
-                aria-label="Elimina bozza"
-                className="ml-1 shrink-0 rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <button type="button" aria-label="Elimina bozza" onClick={() => eliminaBozzaGiorno(b)} className="flex h-8 w-8 items-center justify-center rounded-full active:scale-[0.94]"><IconaX size={14} /></button>
             </div>
           ))}
         </div>
       )}
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="titolo-pagina">Chiusura cassa</h1>
-        <FasiChiusura fase={fase} />
-        {existing && (
-          <Badge variant={isConfermata ? 'ok' : 'warn'}>{isConfermata ? 'Confermata' : 'Bozza'}</Badge>
+      {stato === 'errore' ? (
+        <div className="anim-swapin flex flex-1 flex-col items-center justify-center gap-1 px-4 text-center">
+          <span className="text-[15px] font-semibold text-neg">Caricamento non riuscito</span>
+          <span className="text-[13px] text-muted-foreground">Non riesco a leggere la chiusura. Controlla la connessione.</span>
+          <button type="button" onClick={carica} className="mt-3 flex h-11 items-center rounded-[12px] border border-line-strong bg-card px-[18px] text-sm font-semibold active:scale-[0.97]">Riprova</button>
+        </div>
+      ) : !restaurantId ? (
+        <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">Nessun locale assegnato: chiedi al manager di associarti a un locale.</div>
+      ) : stato === 'carica' ? (
+        <div className="flex flex-1 flex-col gap-4 p-8">{[60, 80, 70].map(w => <div key={w} className="h-16 rounded-[12px] bg-[linear-gradient(90deg,var(--sk-a)_25%,var(--sk-b)_50%,var(--sk-a)_75%)] bg-[length:200%_100%] [animation:sk-sh_1.4s_linear_infinite]" style={{ width: `${w}%` }} />)}</div>
+      ) : tel ? (
+        // ── Telefono (3b): passaggi in sequenza, conferma fissa in fondo ──
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="grid flex-none grid-cols-3 gap-1.5 px-5 pb-3.5">
+            {fasi.map((l, i) => (
+              <button key={l} type="button" onClick={() => vaiFase(i)} className="flex flex-col gap-1.5 text-left">
+                <span className={cn('h-[3px] rounded-[2px]', i + 1 <= fase ? 'bg-[oklch(0.58_0.12_180)]' : 'bg-border')} />
+                <span className={cn('text-xs', i + 1 === fase ? 'font-semibold' : 'font-medium text-muted-foreground')}>{i + 1} {l}</span>
+              </button>
+            ))}
+          </div>
+          <div key={fase} className={cn('flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain px-4 pb-4', animFase)}>
+            {fase === 1 && (<>
+              {[
+                { k: 'fondoI' as Chiave, l: 'Fondo cassa iniziale', ro: fondoBloccato, nota: notaFondo },
+                { k: 'contanti' as Chiave, l: 'Contanti' }, { k: 'pos' as Chiave, l: 'POS' }, { k: 'bonifico' as Chiave, l: 'Bonifico' },
+                { k: 'coperti' as Chiave, l: 'Coperti', int: true }, { k: 'asporto' as Chiave, l: 'Incasso asporto' },
+                { k: 'fondoF' as Chiave, l: 'Fondo cassa finale', ev: true },
+              ].map((f, i) => (
+                <div key={f.k} className="anim-swapin" style={{ animationDelay: `${i * 70}ms` }}>
+                  <CampoCassa etichetta={f.l} nota={f.nota} classeEtichetta="text-[13px]" taglia="s" valore={valori[f.k]} onCambia={imposta(f.k)}
+                    variante={f.ro ? 'ro' : 'edit'} decimali={f.int ? 0 : 2} unita={f.int ? 'n.' : '€'} errore={mancanti.has(f.k)} evidenzia={f.ev && valori.fondoF === null} />
+                </div>
+              ))}
+              <CampoCassa etichetta="Totale entrate" classeEtichetta="text-[13px]" taglia="s" valore={totEntrate} variante="auto" />
+              <CampoCassa etichetta="Media scontrino" classeEtichetta="text-[13px]" taglia="s" valore={media} variante="auto" />
+              <button type="button" onClick={report.apri} className="flex h-12 items-center justify-center rounded-[12px] border border-dashed border-line-strong text-sm font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
+              {pannelloBozze}
+            </>)}
+            {fase === 2 && (<>
+              <div className="flex flex-col overflow-hidden rounded-[14px] border border-border bg-card">
+                {spese.length === 0 && <div className="border-b border-border px-3.5 py-5 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
+                {listaSpese(false)}
+                <div className="flex h-14 items-center justify-between px-3.5"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+              </div>
+              <FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} />
+            </>)}
+            {fase === 3 && (<>
+              <div className="flex flex-col rounded-[14px] border border-border bg-card">
+                {[['Contanti incassati', v0(valori.contanti)], ['+ Fondo iniziale', v0(valori.fondoI)], ['− Fondo finale', v0(valori.fondoF)], ['− Spese del giorno', totSpese]].map(([l, v], i) => (
+                  <div key={l as string} className="anim-swapin flex h-11 items-center justify-between border-b border-border px-3.5" style={{ animationDelay: `${i * 70}ms` }}>
+                    <span className="text-sm text-muted-foreground">{l}</span><span className="font-mono text-[15px] font-medium tabular-nums">{n2(v as number)}</span>
+                  </div>
+                ))}
+                <div className="flex h-[52px] items-center justify-between px-3.5"><span className="font-mono text-[11px] font-medium uppercase tracking-[1px]">Banca teorica</span><span className="font-mono text-lg font-semibold">€ {n2(bancaTeorica)}</span></div>
+              </div>
+              <CampoCassa etichetta="Contanti per banca" classeEtichetta="text-[13px]" taglia="l" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
+              <div className={cn('flex flex-col gap-1 rounded-[8px] p-3.5', !diffMostra ? 'bg-[oklch(0.94_0.01_250)] text-muted-foreground dark:bg-secondary' : quadra ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
+                <div className="flex items-baseline justify-between"><span className="text-sm font-semibold">{diffMostra && quadra ? 'Differenza · quadra' : 'Differenza'}</span><span className="font-mono text-[26px] font-semibold">{diffMostra ? diffTesto(diff) : '—'}</span></div>
+                {diffMostra && !quadra && <span className="text-[13px]">Ricontrolla i contanti o le spese prima di confermare.</span>}
+              </div>
+            </>)}
+          </div>
+          <div className="flex flex-none flex-col gap-2.5 border-t border-border bg-card px-4 py-3">
+            {fase === 1 && <div className="flex justify-between text-[13px] font-medium text-muted-foreground"><span>Totale incassi</span><span className="font-mono text-[15px] font-semibold text-foreground">€ {n2(totEntrate)}</span></div>}
+            <div className={cn('grid gap-2', fase > 1 ? 'grid-cols-[1fr_2fr]' : 'grid-cols-1')}>
+              {fase > 1 && <button type="button" onClick={indietro} className="flex h-12 items-center justify-center rounded-[12px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Indietro</button>}
+              <button type="button" onClick={avanti} disabled={invio} className="flex h-12 items-center justify-center rounded-[12px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : cta}</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        // ── Tablet (Chiusura Tablet v2) ───────────────────────────────
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_400px]">
+          <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto overscroll-contain px-12 py-8">
+            <span key={`t${fase}`} className={cn('text-[22px] font-semibold tracking-[-0.3px]', animFase)}>{titoli[fase - 1]}</span>
+            <div key={fase} className={cn('flex min-h-0 flex-1 flex-col', animFase)}>
+              {fase === 1 && (
+                <div className="grid min-h-0 flex-1 grid-cols-2 gap-8">
+                  <div className="flex flex-col gap-x-6 gap-y-5">
+                    <CampoCassa etichetta="Fondo cassa iniziale" nota={notaFondo} valore={valori.fondoI} onCambia={imposta('fondoI')} variante={fondoBloccato ? 'ro' : 'edit'} errore={mancanti.has('fondoI')} />
+                    {([['contanti', 'Contanti'], ['pos', 'POS'], ['bonifico', 'Bonifico'], ['asporto', 'Incasso asporto']] as [Chiave, string][]).map(([k, l]) => (
+                      <CampoCassa key={k} etichetta={l} valore={valori[k]} onCambia={imposta(k)} errore={mancanti.has(k)} />
+                    ))}
+                    <CampoCassa etichetta="Coperti" valore={valori.coperti} onCambia={imposta('coperti')} decimali={0} unita="n." errore={mancanti.has('coperti')} />
+                    <button type="button" onClick={report.apri} className="flex h-[52px] flex-none items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
+                  </div>
+                  {pannelloBozze}
+                </div>
+              )}
+              {fase === 2 && (
+                <div className="grid min-h-0 flex-1 grid-cols-2 gap-8">
+                  <div className="flex flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
+                    {spese.length === 0 && <div className="border-b border-border px-[18px] py-6 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
+                    {listaSpese(false)}
+                    <div className="flex h-14 items-center justify-between px-[18px]"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+                  </div>
+                  <div className="self-start"><FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} /></div>
+                </div>
+              )}
+              {fase === 3 && (
+                <div className="grid grid-cols-2 items-stretch gap-8">
+                  <div className="flex flex-col gap-5">
+                    <CampoCassa etichetta="Fondo cassa finale" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} />
+                    <CampoCassa etichetta="Banca teorica" valore={bancaTeorica} variante="auto" />
+                    <CampoCassa etichetta="Contanti per banca" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
+                  </div>
+                  {speseDelGiorno}
+                </div>
+              )}
+            </div>
+            <div className="mt-auto flex flex-none justify-end gap-3">
+              {fase > 1 && <button type="button" onClick={indietro} className="flex h-[60px] items-center rounded-[12px] border border-line-strong px-7 text-base font-medium active:scale-[0.98]">Indietro</button>}
+              <button type="button" onClick={avanti} disabled={invio} className="flex h-[60px] items-center rounded-[12px] bg-primary px-9 text-[17px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : cta}</button>
+            </div>
+          </div>
+          <aside className="flex min-h-0 flex-col gap-1 border-l border-border bg-card px-7 py-8">
+            <span className="mb-3 text-base font-semibold">Riepilogo</span>
+            {riepilogo.map((r, i) => (
+              <button key={r.l} type="button" onClick={() => vaiFase(i < 2 ? 0 : i === 2 ? 1 : 2)}
+                className="flex h-11 items-center justify-between border-b border-border text-left">
+                <span className={cn('text-[15px]', r.v === null && 'text-muted-foreground')}>{r.l}</span>
+                <span className={cn('font-mono text-base font-medium', r.v === null && 'text-muted-foreground')}>{r.v ?? '—'}</span>
+              </button>
+            ))}
+            <div className={cn('mt-auto flex flex-col gap-1.5 rounded-[8px] p-5 transition-[background-color] duration-300',
+              !diffMostra ? 'bg-[oklch(0.94_0.01_250)] text-muted-foreground dark:bg-secondary' : quadra ? 'bg-ok-tint text-[oklch(0.38_0.08_150)] dark:text-ok' : 'bg-neg-tint text-neg')}>
+              <span className="text-sm font-semibold">{diffMostra && quadra ? 'Differenza · quadra' : 'Differenza'}</span>
+              <span className="font-mono text-[40px] font-semibold tracking-[-1px]">{diffMostra ? diffTesto(diff) : '—'}</span>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <Foglio aperto={report.aperto} esce={report.esce} onChiudi={report.chiudi} titolo="Report di cassa" sotto="Precompila contanti, POS, bonifico e coperti">
+        <ReportChiusuraCapture restaurantId={restaurantId} data={data} onEstratto={handleReport} />
+      </Foglio>
+    </Contenitore>
+  )
+}
+
+/** Barra in alto: giorno (sottolineato, apre il calendario), locale, fasi. */
+function BarraAlta({ tel, role, locali, restaurantId, data, oggi, calendario, onLocale, onData, fasi }: {
+  tel: boolean; role: 'manager' | 'cassiere'; locali: { id: string; nome: string; colore: string }[]; restaurantId: string; data: string; oggi: string
+  calendario: ReturnType<typeof useApriChiudi>; onLocale: (id: string) => void; onData: (d: string) => void; fasi?: React.ReactNode
+}) {
+  const { aperto, esce, chiudi } = calendario
+  // Un tocco fuori dal calendario lo chiude (come i pannelli di Analisi).
+  useEffect(() => {
+    if (!aperto || esce) return
+    const h = (e: PointerEvent) => { if (!(e.target as HTMLElement).closest('[data-cal]')) chiudi() }
+    const id = setTimeout(() => window.addEventListener('pointerdown', h, true), 0)
+    return () => { clearTimeout(id); window.removeEventListener('pointerdown', h, true) }
+  }, [aperto, esce, chiudi])
+  return (
+    <div className={cn('relative z-20 flex flex-none flex-wrap items-center gap-3', tel ? 'px-4 pb-3' : 'min-h-[72px] border-b border-border px-8 py-3')}>
+      <div className="relative" data-cal>
+        <button type="button" onClick={() => (calendario.aperto ? calendario.chiudi() : calendario.apri())}
+          className="-ml-2 flex min-h-8 items-center gap-1 rounded-[4px] px-2 text-[15px] font-medium underline decoration-[oklch(0.82_0.01_250)] underline-offset-4 active:scale-[0.98]">
+          {dataLunga(data)}<IconaGiu />
+        </button>
+        {calendario.aperto && (
+          <div className={cn('absolute left-0 top-[calc(100%+8px)] z-[46] w-[340px] max-w-[calc(100vw-32px)] rounded-[14px] border border-border bg-card p-3 shadow-[0_14px_40px_rgba(20,30,50,.16)]', calendario.esce ? 'anim-swapout' : 'anim-swapin')}>
+            <Calendario iniziale={{ a: data, b: data }} ultimo={oggi} riepilogoVuoto="Scegli il giorno della chiusura"
+              onApplica={r => { calendario.chiudi(); if (r.b !== data) onData(r.b) }} />
+          </div>
         )}
       </div>
-
-      <Card className="mb-4">
-        <CardContent className="grid grid-cols-1 gap-4 pt-5 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Ristorante</Label>
-            {role === 'cassiere' ? (
-              <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                {selectedRestaurantName ?? 'Nessun ristorante assegnato'}
-              </div>
-            ) : (
-              <Select value={restaurantId} onValueChange={selectRestaurant}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona un ristorante" />
-                </SelectTrigger>
-                <SelectContent>
-                  {restaurants.map(r => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Data</Label>
-            <Input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              disabled={isConfermata && role !== 'manager'}
-            />
-            {isConfermata && role !== 'manager' && (
-              <p className="text-xs text-muted-foreground">Solo un manager può correggere la data di una chiusura già confermata.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {!restaurantId && (
-        <p className="text-sm text-muted-foreground">Seleziona un ristorante per continuare.</p>
+      {role === 'manager' && locali.length > 1 && (
+        <PilloleLocali locali={locali} selezionati={restaurantId ? [restaurantId] : []} onCambia={x => { if (x[0] && x[0] !== restaurantId) onLocale(x[0]) }}
+          className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
       )}
-
-      {restaurantId && loading && (
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-5 w-20" />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Skeleton className="h-3.5 w-32" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-28" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-20" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-28" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Skeleton className="h-3.5 w-28" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-16" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-28" />
-                <Skeleton className="h-9 w-full" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Skeleton className="h-3.5 w-28" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Skeleton className="h-3.5 w-32" />
-              <Skeleton className="h-9 w-full" />
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <Skeleton className="h-9 w-20" />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="md:grid md:grid-cols-[minmax(0,1fr)_300px] md:items-start md:gap-5">
-      <div className="flex min-w-0 flex-col gap-4">
-      {restaurantId && !loading && fase === 1 && !isConfermata && (
-        <ReportChiusuraCapture
-          restaurantId={restaurantId}
-          data={date}
-          onEstratto={handleReportEstratto}
-        />
-      )}
-
-      {reportAvviso && !loading && fase === 1 && (
-        <p className="flex items-center gap-1.5 text-sm text-warn bg-warn-tint rounded-md px-3 py-2">
-          {reportAvviso}
-        </p>
-      )}
-
-      {restaurantId && !loading && fase === 1 && (
-        <SpeseBozzaCard
-          restaurantId={restaurantId}
-          giorno={date}
-          ownerId={ownerId}
-          userId={userId}
-          chiusuraId={existing?.id ?? null}
-          onChiusuraCreata={row => setExisting(row)}
-        />
-      )}
-
-      {restaurantId && !loading && fase === 1 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Incassi della giornata</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isConfermata && (
-              <p className="text-sm text-warn bg-warn-tint rounded-md px-3 py-2">
-                Questa chiusura è già stata confermata. Il salvataggio delle modifiche avviene in Fase 3
-                {dataCorretta && ' — la correzione della data invece si salva subito, proseguendo con "Avanti"'}.
-              </p>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>Fondo cassa iniziale</Label>
-              <CurrencyInput
-                value={fields.fondoCassaIniziale}
-                onChange={v => { setFields(f => ({ ...f, fondoCassaIniziale: v })); markTouched('fondoCassaIniziale') }}
-                readOnly={!fondoInizialeEditabile}
-                className="cassa-numeric"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label>Contanti <span className="text-cassa-copper">*</span></Label>
-                <CurrencyInput
-                  value={fields.entrateContanti}
-                  onChange={v => { setFields(f => ({ ...f, entrateContanti: v })); markTouched('entrateContanti') }}
-                  className="cassa-numeric"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>POS <span className="text-cassa-copper">*</span></Label>
-                <CurrencyInput
-                  value={fields.entratePos}
-                  onChange={v => { setFields(f => ({ ...f, entratePos: v })); markTouched('entratePos') }}
-                  className="cassa-numeric"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Bonifico <span className="text-cassa-copper">*</span></Label>
-                <CurrencyInput
-                  value={fields.entrateBonifico}
-                  onChange={v => { setFields(f => ({ ...f, entrateBonifico: v })); markTouched('entrateBonifico') }}
-                  className="cassa-numeric"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Coperti <span className="text-cassa-copper">*</span></Label>
-                <CountInput
-                  value={fields.coperti}
-                  onChange={v => { setFields(f => ({ ...f, coperti: v })); markTouched('coperti') }}
-                  className="cassa-numeric"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Incasso asporto <span className="text-cassa-copper">*</span></Label>
-                <CurrencyInput
-                  value={fields.incassoAsporto}
-                  onChange={v => { setFields(f => ({ ...f, incassoAsporto: v })); markTouched('incassoAsporto') }}
-                  className="cassa-numeric"
-                />
-              </div>
-            </div>
-
-            {/* Su telefono il totale resta in vista sopra il pulsante;
-                su tablet sta nel riepilogo a destra. */}
-            <div className="flex items-center justify-between border-t border-border pt-3 text-sm md:hidden">
-              <span className="text-muted-foreground">Totale incassi</span>
-              <span className="font-mono text-base font-semibold">€ {totaleEntrate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-
-            {!fase1Complete && (
-              <p className="text-xs text-muted-foreground">
-                Compila tutti i campi contrassegnati con <span className="text-cassa-copper">*</span> per continuare (anche con valore 0, se corretto).
-              </p>
-            )}
-
-            {saveError && <p className="text-sm text-destructive">{saveError}</p>}
-
-            <div className="flex justify-between pt-2">
-              <Button type="button" variant="outline" onClick={() => router.back()} disabled={saving}>Annulla</Button>
-              <Button onClick={handleAvanti} disabled={saving || !fase1Complete}>
-                {saving ? 'Salvataggio…' : 'Avanti: spese'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {restaurantId && !loading && fase === 2 && existing && ownerId && (
-        <SpeseFase
-          chiusura={existing}
-          ownerId={ownerId}
-          role={role}
-          userId={userId}
-          onBack={() => setFase(1)}
-          onNext={() => setFase(3)}
-        />
-      )}
-
-      {restaurantId && !loading && fase === 3 && existing && (
-        <QuadraturaFase
-          chiusura={existing}
-          fields={fields}
-          onFieldsChange={setFields}
-          role={role}
-          userId={userId}
-          onBack={() => setFase(2)}
-          onSaved={row => setExisting(row)}
-          onRequestSent={() => loadChiusura()}
-          contantiPerBancaTouched={touched.has('contantiPerBanca')}
-          onContantiPerBancaTouched={() => markTouched('contantiPerBanca')}
-          fondoFinaleTouched={touched.has('fondoCassaFinale') || isConfermata}
-          onFondoFinaleTouched={() => markTouched('fondoCassaFinale')}
-        />
-      )}
-      </div>
-
-      {restaurantId && !loading && (
-        <RiepilogoChiusura
-          fase={fase}
-          totaleEntrate={totaleEntrate}
-          mediaScontrino={mediaScontrino}
-          spese={fase >= 2 ? existing?.totale_spese_giornaliere ?? null : null}
-          fondoFinale={fase >= 3 ? fields.fondoCassaFinale : null}
-          bancaTeorica={fase >= 3 && existing ? fields.entrateContanti + fields.fondoCassaIniziale - fields.fondoCassaFinale - existing.totale_spese_giornaliere : null}
-          contantiPerBanca={fase >= 3 && touched.has('contantiPerBanca') ? fields.contantiPerBanca : null}
-        />
-      )}
-      </div>
-
-      <Dialog open={!!bozzaDaEliminare} onOpenChange={open => { if (!open) { setBozzaDaEliminare(null); setDeleteBozzaError(null) } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Eliminare questa bozza?</DialogTitle>
-          </DialogHeader>
-          {bozzaDaEliminare && (
-            <p className="text-sm text-muted-foreground">
-              {restaurants.find(r => r.id === bozzaDaEliminare.restaurant_id)?.name ?? '—'} · {formatDataBreve(bozzaDaEliminare.data)}
-              {' '}— tutti i dati inseriti finora andranno persi. L&apos;operazione non è reversibile.
-            </p>
-          )}
-          {deleteBozzaError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteBozzaError}</p>}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setBozzaDaEliminare(null); setDeleteBozzaError(null) }} disabled={eliminandoBozza}>
-              Annulla
-            </Button>
-            <Button type="button" variant="destructive" onClick={confermaEliminaBozza} disabled={eliminandoBozza}>
-              {eliminandoBozza ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {fasi}
     </div>
-  )
-}
-
-const eur = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-// Fasi della chiusura come pillole numerate (design Chiusura Tablet v2):
-// fatte con la spunta, corrente su tinta teal.
-function FasiChiusura({ fase }: { fase: number }) {
-  return (
-    <div className="flex gap-1">
-      {['Incassi', 'Spese', 'Quadratura'].map((l, i) => {
-        const n = i + 1, fatta = n < fase, corrente = n === fase
-        return (
-          <span key={l} className={cn('flex h-9 items-center gap-2 rounded-full px-3 text-[13px] font-medium',
-            corrente ? 'bg-[oklch(0.94_0.04_180)] text-foreground dark:bg-[oklch(0.3_0.05_180)]' : fatta ? 'text-foreground' : 'text-muted-foreground')}>
-            <span className={cn('flex h-5 w-5 items-center justify-center rounded-full font-mono text-[11px] font-semibold',
-              corrente || fatta ? 'bg-cassa text-white' : 'bg-border text-muted-foreground')}>
-              {fatta ? '✓' : n}
-            </span>
-            {l}
-          </span>
-        )
-      })}
-    </div>
-  )
-}
-
-// Riepilogo sempre visibile a destra su tablet: totali e differenza si
-// aggiornano mentre si scrive; le voci delle fasi non ancora raggiunte
-// restano a "—".
-function RiepilogoChiusura({ fase, totaleEntrate, mediaScontrino, spese, fondoFinale, bancaTeorica, contantiPerBanca }: {
-  fase: number; totaleEntrate: number; mediaScontrino: number | null; spese: number | null
-  fondoFinale: number | null; bancaTeorica: number | null; contantiPerBanca: number | null
-}) {
-  const righe: [string, number | null][] = [
-    ['Totale entrate', totaleEntrate], ['Media scontrino', mediaScontrino], ['Spese', spese],
-    ['Fondo finale', fondoFinale], ['Banca teorica', bancaTeorica],
-  ]
-  const diff = bancaTeorica !== null && contantiPerBanca !== null ? contantiPerBanca - bancaTeorica : null
-  const quadra = diff !== null && Math.abs(diff) < 0.005
-  return (
-    <aside className="hidden flex-col gap-3 rounded-[12px] border border-border bg-card p-4 md:sticky md:top-2 md:flex">
-      <span className="text-[15px] font-semibold">Riepilogo</span>
-      <div className="flex flex-col">
-        {righe.map(([l, v]) => (
-          <div key={l} className="flex items-center justify-between border-b border-border py-2 text-[13px] last:border-b-0">
-            <span className="text-muted-foreground">{l}</span>
-            <span className={cn('font-mono', v === null && 'text-muted-foreground')}>{v === null ? '—' : eur(v)}</span>
-          </div>
-        ))}
-      </div>
-      <div className={cn('mt-6 flex flex-col gap-1 rounded-[10px] p-3.5',
-        diff === null ? 'bg-secondary text-muted-foreground' : quadra ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
-        <span className="text-[13px] font-semibold">{quadra ? 'Differenza · quadra' : 'Differenza'}</span>
-        <span className="font-mono text-2xl font-semibold">{diff === null ? '—' : `${diff > 0 ? '+' : ''}${eur(diff)} €`}</span>
-      </div>
-      {fase < 3 && <span className="text-xs text-muted-foreground">La differenza compare in quadratura.</span>}
-    </aside>
   )
 }

@@ -38,9 +38,9 @@ export function PassanteDialog({ open, onOpenChange, onConferma }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!salvando) { if (!o) setErrore(null); onOpenChange(o) } }}>
-      <DialogContent className="cassa cassa-perforated-top">
+      <DialogContent className="cassa">
         <DialogHeader>
-          <DialogTitle className="cassa-display text-lg">Nuovo passante</DialogTitle>
+          <DialogTitle className="font-semibold text-lg">Nuovo passante</DialogTitle>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
@@ -52,7 +52,7 @@ export function PassanteDialog({ open, onOpenChange, onConferma }: Props) {
           <CountInput value={persone} onChange={setPersone} min={1} />
         </div>
 
-        {errore && <p className="text-sm text-destructive">{errore}</p>}
+        {errore && <p className="text-sm text-neg">{errore}</p>}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={salvando}>

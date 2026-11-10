@@ -1,315 +1,109 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
-import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
-import { cn , eur2 } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
-import { Trash2, FileText, Pencil, Loader2, Plus } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { impostaSottotitolo } from '@/components/shell/intestazioneDinamica'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { Contenitore, NavMese, Pillola, useTelefono, eur, dataBreve, dataNum, meseNome, type Tono } from '@/components/cassa/comuni'
+import { cn } from '@/lib/utils'
+
+// Lista chiusure del cassiere (Cassiere e Dipendente 3b): Giorno, Incasso,
+// Stato. Toccando una riga si apre la chiusura: il dettaglio inviato si
+// corregge con revisione del manager, una bozza riprende dalla fase 1.
 
 const TZ = 'Europe/Rome'
+interface Riga { id: string; data: string; totale_entrate: number; contanti_per_banca: number; stato: string }
 
-interface RestaurantOption {
-  id: string
-  name: string
-}
-
-interface Props {
-  restaurants: RestaurantOption[]
-  role: 'manager' | 'cassiere'
-}
-
-interface Riga {
-  id: string
-  data: string
-  restaurant_id: string
-  restaurant_name: string
-  totale_entrate: number
-  totale_spese_giornaliere: number
-  differenza: number
-  entrate_contanti: number
-  entrate_pos: number
-  entrate_bonifico: number
-}
-
-function monthRange(month: string): { start: string; end: string } {
-  const [year, m] = month.split('-').map(Number)
-  const start = `${month}-01`
-  const lastDay = new Date(year, m, 0).getDate()
-  const end = `${month}-${String(lastDay).padStart(2, '0')}`
-  return { start, end }
-}
-
-export function ListaChiusureClient({ restaurants, role }: Props) {
+export function ListaChiusureClient({ restaurant }: { restaurant: { id: string; name: string } | null }) {
+  const tel = useTelefono()
   const router = useRouter()
-  const [selectedRestaurants, setSelectedRestaurants] = useState<string[]>([])
-  const [month, setMonth] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM'))
+  const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
+  const [mese, setMese] = useState(meseOggi)
   const [righe, setRighe] = useState<Riga[]>([])
-  const [loading, setLoading] = useState(true)
-  const [workingId, setWorkingId] = useState<string | null>(null)
+  const [revisione, setRevisione] = useState<Set<string>>(new Set())
+  const [errore, setErrore] = useState(false)
+  const { stato: sk, avvia, pronto } = useScheletro()
 
-  const targets = selectedRestaurants.length > 0 ? selectedRestaurants : restaurants.map(r => r.id)
-  const targetsKey = JSON.stringify(targets)
+  useEffect(() => { impostaSottotitolo(meseNome(`${mese}-01`)) }, [mese])
+  useEffect(() => () => impostaSottotitolo(null), [])
 
-  // Scarta il risultato di un fetch superato da uno più recente — senza
-  // questa guardia, un reload innescato dal canale realtime durante
-  // un'eliminazione (o due reload ravvicinati) possono risolversi fuori
-  // ordine e far ricomparire righe già rimosse, "rompendo" la lista.
-  const requestId = useRef(0)
+  const req = useRef(0)
+  const carica = useCallback(async () => {
+    if (!restaurant) { setRighe([]); pronto(); return }
+    const mio = ++req.current
+    const [y, m] = mese.split('-').map(Number)
+    const fine = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+    const sb = createClient()
+    const { data, error } = await sb.from('cassa_chiusure').select('id, data, totale_entrate, contanti_per_banca, stato')
+      .eq('restaurant_id', restaurant.id).gte('data', `${mese}-01`).lte('data', fine).order('data', { ascending: false })
+    if (req.current !== mio) return
+    if (error) { setErrore(true); pronto(); return }
+    const rs = (data ?? []) as Riga[]
+    const ids = rs.filter(r => r.stato === 'confermata').map(r => r.id)
+    const { data: md } = ids.length
+      ? await sb.from('cassa_chiusure_modifiche').select('chiusura_id').in('chiusura_id', ids).eq('stato', 'in_attesa')
+      : { data: [] }
+    if (req.current !== mio) return
+    setErrore(false)
+    setRighe(rs)
+    setRevisione(new Set(((md ?? []) as { chiusura_id: string }[]).map(x => x.chiusura_id)))
+    pronto()
+  }, [restaurant, mese, pronto])
 
-  const load = useCallback(async () => {
-    const myRequest = ++requestId.current
-    setLoading(true)
-    if (targets.length === 0) { setRighe([]); setLoading(false); return }
-    const { start, end } = monthRange(month)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('cassa_chiusure')
-      .select('id, data, restaurant_id, totale_entrate, totale_spese_giornaliere, differenza, entrate_contanti, entrate_pos, entrate_bonifico, restaurant:restaurants(name)')
-      .in('restaurant_id', targets)
-      .eq('stato', 'confermata')
-      .gte('data', start)
-      .lte('data', end)
-      .order('data', { ascending: false })
-
-    if (requestId.current !== myRequest) return
-
-    setRighe(((data ?? []) as unknown as Array<Riga & { restaurant: { name: string } | null }>).map(r => ({
-      id: r.id,
-      data: r.data,
-      restaurant_id: r.restaurant_id,
-      restaurant_name: r.restaurant?.name ?? '—',
-      totale_entrate: r.totale_entrate,
-      totale_spese_giornaliere: r.totale_spese_giornaliere,
-      differenza: r.differenza,
-      entrate_contanti: r.entrate_contanti,
-      entrate_pos: r.entrate_pos,
-      entrate_bonifico: r.entrate_bonifico,
-    })))
-    setLoading(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, targetsKey])
-
-  useEffect(() => { load() }, [load])
-
-  // Riflette in tempo reale le modifiche fatte altrove (es. approvazione di
-  // una richiesta di modifica, o modifica diretta dalla vista Chiusura)
-  // senza dover ricaricare la pagina.
+  useEffect(() => { carica() }, [carica])
   useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('cassa_chiusure_lista')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => load())
+    const sb = createClient()
+    const ch = sb.channel('cassa_lista_cassiere')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure' }, () => carica())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cassa_chiusure_modifiche' }, () => carica())
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [load])
+    return () => { sb.removeChannel(ch) }
+  }, [carica])
 
-  // Dialog di conferma in-app invece di window.confirm(): oltre a essere
-  // coerente con lo stile dell'app, alcuni browser mobile/PWA sopprimono
-  // o ignorano i dialog nativi sincroni — il tasto Elimina risultava
-  // premuto ma senza alcun effetto visibile.
-  const [daEliminare, setDaEliminare] = useState<Riga | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-
-  async function confermaEliminazione() {
-    if (!daEliminare) return
-    const id = daEliminare.id
-    setWorkingId(id)
-    setDeleteError(null)
-    const supabase = createClient()
-    const { error } = await supabase.from('cassa_chiusure').delete().eq('id', id)
-    setWorkingId(null)
-    if (error) { setDeleteError(error.message); return }
-    setDaEliminare(null)
-    // Aggiornamento ottimistico per un feedback immediato, poi un reload
-    // completo (con guardia di staleness) per allinearsi allo stato reale
-    // — invece di affidarsi al solo canale realtime, che su una
-    // connessione lenta può arrivare in ritardo o fuori ordine.
-    setRighe(prev => prev.filter(r => r.id !== id))
-    load()
-  }
-
-  const [viewer, setViewer] = useState<Riga | null>(null)
+  const stato = (r: Riga): [string, Tono] => r.stato !== 'confermata' ? ['In verifica', 'warn'] : revisione.has(r.id) ? ['In revisione', 'warn'] : ['Confermata', 'ok']
+  const apri = (r: Riga) => router.push(`/cassa/chiusura?restaurant_id=${restaurant?.id}&data=${r.data}`)
+  const colonne = tel ? 'grid-cols-[56px_1fr_auto]' : 'grid-cols-[minmax(0,1.3fr)_140px_140px_128px]'
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-4 pt-5">
-          {role === 'manager' ? (
-            <div className="space-y-2">
-              <Label>Ristoranti</Label>
-              <RestaurantMultiSelect restaurants={restaurants} selected={selectedRestaurants} onChange={setSelectedRestaurants} />
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <Label>Ristorante</Label>
-              <div className="flex h-9 w-fit min-w-40 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                {restaurants[0]?.name ?? 'Nessun ristorante assegnato'}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Mese</Label>
-            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-auto cassa-numeric" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button type="button" onClick={() => router.push('/cassa/chiusura')}>
-          <Plus className="w-4 h-4" /> Nuova chiusura
-        </Button>
+    <Contenitore>
+      <div className={cn('flex flex-none items-center gap-3 pb-3', tel ? 'px-4 pt-2' : 'px-8 pt-1')}>
+        <NavMese mese={mese} min="2020-01" max={meseOggi} onCambia={m => { avvia(); setMese(m) }} className={tel ? 'flex-1' : ''} />
       </div>
-
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-border bg-background px-4 py-2.5 font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground">
-          <span>Giorno</span><span className="text-right">Incasso</span><span className="w-[92px] text-right">Stato</span>
+      <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className={cn('relative flex min-h-0 flex-1 flex-col', tel ? 'px-4' : 'px-8')}>
+        <div className="anim-swapin flex max-h-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-card">
+          <div className={cn('grid flex-none gap-2.5 border-b border-border px-3.5 py-2.5 font-mono text-[11px] font-medium uppercase tracking-[.5px] text-muted-foreground', colonne)}>
+            <span>Giorno</span><span className="text-right">Incasso</span>{!tel && <span className="text-right">Busta</span>}<span className="w-[84px] justify-self-end text-right">Stato</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {errore ? (
+              <div className="flex flex-col items-center gap-1 px-[18px] py-12 text-center">
+                <span className="text-[15px] font-semibold text-neg">Caricamento non riuscito</span>
+                <button type="button" onClick={carica} className="mt-3 flex h-11 items-center rounded-[12px] border border-line-strong px-[18px] text-sm font-semibold active:scale-[0.97]">Riprova</button>
+              </div>
+            ) : righe.length === 0 && sk === 'no' ? (
+              <div className="anim-swapin flex flex-col items-center gap-1 px-[18px] py-12 text-center text-pretty">
+                <span className="text-[15px] font-semibold">Nessuna chiusura a {meseNome(`${mese}-01`).toLowerCase()}</span>
+                <span className="text-[13px] text-muted-foreground">Le chiusure inviate compaiono qui, dalla più recente.</span>
+              </div>
+            ) : righe.map((r, i) => {
+              const [s, t] = stato(r)
+              return (
+                <button key={r.id} type="button" onClick={() => apri(r)}
+                  className={cn('anim-swapin grid h-[52px] w-full items-center gap-2.5 border-b border-border px-3.5 text-left transition-transform active:scale-[0.995]', colonne)}
+                  style={{ animationDelay: `${Math.min(i, 12) * 70}ms` }}>
+                  <span className="font-mono text-sm font-medium">{tel ? dataNum(r.data) : dataBreve(r.data)}</span>
+                  <span className="text-right font-mono text-[15px] font-medium">{eur(Number(r.totale_entrate))}</span>
+                  {!tel && <span className="text-right font-mono text-sm text-muted-foreground">{r.stato === 'confermata' ? eur(Number(r.contanti_per_banca)) : '—'}</span>}
+                  <span className="flex w-[84px] justify-end justify-self-end"><Pillola tono={t}>{s}</Pillola></span>
+                </button>
+              )
+            })}
+          </div>
         </div>
-        <CardContent className="px-4 pt-0">
-          {loading ? (
-            <div className="divide-y divide-border">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div className="space-y-1.5 min-w-0">
-                    <Skeleton className="h-4 w-40" />
-                    <Skeleton className="h-3 w-56" />
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Skeleton className="h-8 w-8 rounded-md" />
-                    <Skeleton className="h-8 w-8 rounded-md" />
-                    <Skeleton className="h-8 w-8 rounded-md" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : righe.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessuna chiusura confermata nel mese selezionato.</p>
-          ) : (
-            <div className="divide-y divide-border">
-              {righe.map(r => {
-                const isBalanced = Math.abs(r.differenza) < 0.005
-                const dataLabel = formatInTimeZone(`${r.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })
-                const busy = workingId === r.id
-                return (
-                  <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
-                        <span className="min-w-0 truncate"><span className="font-mono text-sm font-medium">{dataLabel.slice(0, 5)}</span>{role === 'manager' && <span className="ml-2 text-sm text-muted-foreground">{r.restaurant_name}</span>}</span>
-                        <span className="text-right font-mono text-sm">€ {r.totale_entrate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        <span className={cn('w-[92px] rounded-full px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-[.04em]', isBalanced ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
-                          {isBalanced ? 'Quadra' : `${r.differenza > 0 ? '+' : ''}${r.differenza.toFixed(2).replace('.', ',')}`}
-                        </span>
-                      </div>
-                      <p className="sr-only">{r.restaurant_name} · {dataLabel}</p>
-                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
-                        <span className="whitespace-nowrap">Entrate € {eur2(r.totale_entrate)}</span>
-                        <span>·</span>
-                        <span className="whitespace-nowrap">Spese € {eur2(r.totale_spese_giornaliere)}</span>
-                        <span>·</span>
-                        <span className={cn(isBalanced ? 'text-cassa-positive' : 'text-cassa-negative', 'font-medium whitespace-nowrap')}>
-                          {isBalanced ? 'in pareggio' : `differenza ${r.differenza > 0 ? '+' : ''}${eur2(r.differenza)} €`}
-                        </span>
-                      </p>
-                      <p className="cassa-numeric text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-1.5">
-                        <span className="whitespace-nowrap">Contanti € {eur2(r.entrate_contanti)}</span>
-                        <span>·</span>
-                        <span className="whitespace-nowrap">POS € {eur2(r.entrate_pos)}</span>
-                        <span>·</span>
-                        <span className="whitespace-nowrap">Bonifico € {eur2(r.entrate_bonifico)}</span>
-                        <span>·</span>
-                        <span className="whitespace-nowrap">
-                          Margine Operativo{' '}
-                          {(r.totale_entrate - r.totale_spese_giornaliere) < 0 ? '−' : ''}€ {eur2(Math.abs(r.totale_entrate - r.totale_spese_giornaliere))}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="Modifica"
-                        disabled={busy}
-                        onClick={() => router.push(`/cassa/chiusura?restaurant_id=${r.restaurant_id}&data=${r.data}`)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      {role === 'manager' && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          title="Visualizza PDF"
-                          disabled={busy}
-                          onClick={() => setViewer(r)}
-                        >
-                          <FileText className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {role === 'manager' && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          title="Elimina"
-                          disabled={busy}
-                          onClick={() => setDaEliminare(r)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <CassaFileViewer
-        open={!!viewer}
-        onOpenChange={open => { if (!open) setViewer(null) }}
-        request={viewer ? { url: '/api/cassa/chiusura-export', body: { chiusura_id: viewer.id } } : null}
-        format={viewer ? 'pdf' : null}
-        title={viewer ? `${viewer.restaurant_name} · ${formatInTimeZone(`${viewer.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}` : ''}
-        fileNameBase={viewer ? `chiusura-${viewer.restaurant_name.replace(/[^a-zA-Z0-9]+/g, '-')}-${viewer.data}` : 'chiusura'}
-      />
-
-      <Dialog open={!!daEliminare} onOpenChange={open => { if (!open) { setDaEliminare(null); setDeleteError(null) } }}>
-        <DialogContent className="cassa-perforated-top">
-          <DialogHeader>
-            <DialogTitle className="cassa-display text-lg">Eliminare questa chiusura?</DialogTitle>
-          </DialogHeader>
-          {daEliminare && (
-            <p className="text-sm text-muted-foreground">
-              {daEliminare.restaurant_name} · {formatInTimeZone(`${daEliminare.data}T12:00:00Z`, TZ, 'dd/MM/yyyy', { locale: it })}
-              {' '}— verranno eliminate definitivamente anche le spese collegate. L&apos;operazione non è reversibile.
-            </p>
-          )}
-          {deleteError && <p className="text-sm text-destructive">Errore nell&apos;eliminazione: {deleteError}</p>}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setDaEliminare(null); setDeleteError(null) }} disabled={!!workingId}>
-              Annulla
-            </Button>
-            <Button type="button" variant="destructive" onClick={confermaEliminazione} disabled={!!workingId}>
-              {workingId ? <><Loader2 className="w-4 h-4 animate-spin" /> Eliminazione…</> : 'Elimina'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+        {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
+      </div>
+    </Contenitore>
   )
 }

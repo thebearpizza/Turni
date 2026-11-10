@@ -10,7 +10,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import { StatoIcona } from '@/components/cassa/PrenotazioneIcona'
 import { PrenotazioneStatoDialog } from '@/components/cassa/PrenotazioneStatoDialog'
 import { PrenotazioneFormDialog, type BozzaCoda } from '@/components/cassa/PrenotazioneFormDialog'
@@ -109,11 +110,11 @@ function Sezione({
         type="button"
         onClick={onToggle}
         aria-expanded={aperta}
-        className="flex w-full items-center gap-2 rounded-md bg-secondary px-3 py-2 text-left text-secondary-foreground"
+        className="flex h-11 w-full items-center gap-2 rounded-[10px] bg-[oklch(0.97_0.01_250)] px-3.5 text-left active:scale-[0.99] dark:bg-secondary"
       >
         <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', !aperta && '-rotate-90')} />
-        <span className="cassa-display flex-1 text-base">{titolo}</span>
-        <span className="cassa-numeric text-sm text-muted-foreground">
+        <span className="flex-1 text-[15px] font-semibold">{titolo}</span>
+        <span className="font-mono tabular-nums text-sm text-muted-foreground">
           {prenotazioni.length} / {contaCoperti(prenotazioni)}
         </span>
       </button>
@@ -145,7 +146,7 @@ function RigaPrenotazione({
   // già.
   if (p.passante) {
     return (
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-[14px] border border-border bg-card">
         <div className="flex items-center gap-3 p-3">
           <button
             type="button"
@@ -158,7 +159,7 @@ function RigaPrenotazione({
           </button>
           <div className="min-w-0 flex-1 font-medium leading-tight">Passante</div>
           <div className="shrink-0 text-right leading-none">
-            <span className="cassa-numeric text-lg font-semibold">{formatPax(p)}</span>
+            <span className="font-mono tabular-nums text-lg font-semibold">{formatPax(p)}</span>
             <span className="ml-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">pax</span>
           </div>
         </div>
@@ -176,7 +177,7 @@ function RigaPrenotazione({
                                { label: 'Seduta',      icona: <Armchair className="h-4 w-4" /> }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="overflow-hidden rounded-[14px] border border-border bg-card">
       <div className="flex items-start gap-3 p-3">
         <button type="button" onClick={onStato} aria-label={`Cambia stato di ${nomeCompleto(p)}`}>
           <StatoIcona stato={p.stato} origine={p.origine} scontoPercentuale={p.sconto_percentuale} />
@@ -185,7 +186,7 @@ function RigaPrenotazione({
         <button type="button" onClick={onEspandi} className="min-w-0 flex-1 text-left">
           <div className="break-words font-medium leading-tight">{nomeCompleto(p)}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span className="cassa-numeric">{normalizzaOrario(p.orario)}</span>
+            <span className="font-mono tabular-nums">{normalizzaOrario(p.orario)}</span>
             {etichettaInsegna && (
               <span className={cn(
                 'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
@@ -196,7 +197,7 @@ function RigaPrenotazione({
             )}
             {dettaglioBambini(p) && <span>· {dettaglioBambini(p)}</span>}
             {p.sconto_percentuale != null && (
-              <span className="font-medium text-[var(--cassa-copper)]">
+              <span className="font-medium text-warn">
                 −{p.sconto_percentuale}% di sconto
               </span>
             )}
@@ -204,7 +205,7 @@ function RigaPrenotazione({
         </button>
 
         <div className="shrink-0 text-right leading-none">
-          <span className="cassa-numeric text-lg font-semibold">{formatPax(p)}</span>
+          <span className="font-mono tabular-nums text-lg font-semibold">{formatPax(p)}</span>
           <span className="ml-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">pax</span>
         </div>
       </div>
@@ -679,31 +680,26 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
           <button
             type="button"
             onClick={() => setRiepilogoAperto(true)}
-            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-[var(--cassa-copper)] hover:underline"
+            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-warn hover:underline"
           >
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span className="cassa-numeric">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
+            <span className="font-mono tabular-nums">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
           </button>
         )}
-        <h1 className="titolo-pagina">Prenotazioni</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          TheFork e Restoo in un&apos;unica agenda di servizio.
-        </p>
+        {/* Titolo e sottotitolo stanno nell'intestazione del guscio. */}
       </div>
 
-      {restaurants.length > 1 && (
-        <Select value={restaurantId} onValueChange={setRestaurantId}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      )}
+      {/* Locale a pillole come nelle altre schermate di Cassa (MTCassa). */}
+      <PilloleLocali
+        locali={restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) }))}
+        selezionati={restaurantId ? [restaurantId] : []}
+        onCambia={x => { if (x[0]) setRestaurantId(x[0]) }}
+      />
 
       {/* Barra giorno + servizio: frecce per scorrere i giorni, il tasto
           centrale apre il calendario di sistema, quello a destra alterna
           pranzo e cena. */}
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-2">
+      <div className="flex items-center gap-1 rounded-[14px] border border-border bg-card p-1 shadow-[0_4px_20px_rgba(20,30,50,.08)]">
         <Button
           type="button"
           variant="ghost"
@@ -715,7 +711,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         </Button>
 
         <div className="relative min-w-0 flex-1">
-          <div className="flex h-9 items-center justify-center rounded-md bg-primary px-2 text-sm font-medium text-primary-foreground">
+          <div className="flex h-10 items-center justify-center rounded-[10px] bg-primary px-2 text-[13px] font-medium text-primary-foreground">
             {etichettaGiorno(data)}
           </div>
           {/* Input nativo sovrapposto e trasparente: è il modo che apre il
@@ -789,20 +785,20 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
       </div>
 
       {avviso && <p className="text-sm text-muted-foreground">{avviso}</p>}
-      {errore && <p className="text-sm text-destructive">Errore nel caricamento: {errore}</p>}
+      {errore && <p className="text-sm text-neg">Errore nel caricamento: {errore}</p>}
 
       {!caricamento && confermate.length + sedute.length === 0 && nAltroServizio > 0 && (
         <button
           type="button"
           onClick={() => setServizio(altroServizio)}
-          className="flex w-full items-center gap-2 rounded-md border border-[var(--cassa-copper)]/40 bg-[var(--cassa-copper)]/10 px-3 py-2.5 text-left text-sm"
+          className="anim-swapin flex w-full items-center gap-2 rounded-[10px] bg-warn-tint px-3.5 py-3 text-left text-sm font-medium text-warn active:scale-[0.99]"
         >
-          <Info className="h-4 w-4 shrink-0 text-[var(--cassa-copper)]" />
+          <Info className="h-4 w-4 shrink-0 text-warn" />
           <span className="flex-1">
             Nessuna prenotazione a {servizio}. Ce ne sono{' '}
-            <span className="cassa-numeric font-medium">{nAltroServizio}</span> a {altroServizio}.
+            <span className="font-mono tabular-nums font-medium">{nAltroServizio}</span> a {altroServizio}.
           </span>
-          <span className="shrink-0 font-medium text-[var(--cassa-copper)]">
+          <span className="shrink-0 font-medium text-warn">
             Vai a {altroServizio}
           </span>
         </button>
@@ -818,14 +814,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className={cn('h-2 w-2 rounded-full', puntoInsegna('benthos'))} />
-                <span className="cassa-numeric font-medium text-foreground">{paxServizio.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
+                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className={cn('h-2 w-2 rounded-full', puntoInsegna('crunch'))} />
-                <span className="cassa-numeric font-medium text-foreground">{paxServizio.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
+                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
               </span>
               <span>
-                <span className="cassa-numeric font-medium text-foreground">{paxServizio.restoo}</span> pax dirette (Restoo)
+                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.restoo}</span> pax dirette (Restoo)
               </span>
             </p>
           )}
@@ -840,14 +836,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
               {fasce.map(f => (
                 <div key={f.orario}>
                   <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
-                    <span className={cn('cassa-numeric w-14 text-sm', f.prenotazioni.length === 0 && 'text-muted-foreground')}>
+                    <span className={cn('font-mono tabular-nums w-14 text-sm', f.prenotazioni.length === 0 && 'text-muted-foreground')}>
                       {f.orario}
                     </span>
                     {f.fuoriFascia && (
                       <span className="text-[11px] text-muted-foreground">fuori fascia</span>
                     )}
                     <span className="flex-1" />
-                    <span className="cassa-numeric text-sm text-muted-foreground">
+                    <span className="font-mono tabular-nums text-sm text-muted-foreground">
                       {f.prenotazioni.length} / {f.coperti}
                     </span>
                     <button

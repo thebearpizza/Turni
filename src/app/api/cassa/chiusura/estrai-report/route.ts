@@ -82,7 +82,7 @@ export async function POST(request: Request) {
   // Vendite per categoria/prodotto per l'Analisi — anche queste in
   // silenzio, mai bloccanti: la chiusura potrebbe non esistere ancora
   // (report caricato prima di qualunque salvataggio di Fase 1), stessa
-  // logica "trova o crea" di assicuraChiusura in SpeseBozzaCard.
+  // logica "trova o crea" di assicuraChiusura in ChiusuraCassaClient.
   if (estratto.prodotti.length > 0) {
     let chiusuraId: string | null = null
     const { data: esistente } = await supabase

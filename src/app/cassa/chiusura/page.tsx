@@ -9,7 +9,7 @@ export default async function ChiusuraCassaPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id')
+    .select('role, restaurant_id, full_name')
     .eq('id', user.id)
     .single()
 
@@ -30,6 +30,7 @@ export default async function ChiusuraCassaPage() {
         restaurants={restaurants ?? []}
         fixedRestaurantId={null}
         userId={user.id}
+        nomeUtente={profile.full_name ?? ''}
       />
     )
   }
@@ -48,6 +49,7 @@ export default async function ChiusuraCassaPage() {
       restaurants={restaurant ? [restaurant] : []}
       fixedRestaurantId={profile.restaurant_id}
       userId={user.id}
+      nomeUtente={profile.full_name ?? ''}
     />
   )
 }

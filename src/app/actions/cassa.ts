@@ -1,6 +1,7 @@
 'use server'
 
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import webpush from 'web-push'
 import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
@@ -27,7 +28,7 @@ interface ChiusuraNotificaRow {
 // viene confermata per la prima volta (bozza → confermata) — non per le
 // correzioni successive di una chiusura già confermata, già notificate a
 // parte da richiedi-modifica/modifica-approve. Chiamata fire-and-forget da
-// QuadraturaFase.tsx dopo il salvataggio riuscito: qualunque errore qui non
+// ChiusuraCassaClient.tsx dopo il salvataggio riuscito: qualunque errore qui non
 // deve mai bloccare il flusso di chi sta chiudendo la cassa, quindi non
 // rilancia mai eccezioni verso il chiamante.
 export async function notificaChiusuraConfermata(chiusuraId: string): Promise<void> {
@@ -90,5 +91,51 @@ export async function notificaChiusuraConfermata(chiusuraId: string): Promise<vo
     )
   } catch {
     // Best-effort: la chiusura è già salvata, un errore nella notifica non deve propagarsi.
+  }
+}
+
+// "Invia sollecito" del manager (Cassa › Chiusure, chiusura mancante):
+// notifica in-app + push ai cassieri del locale perché inviino la
+// chiusura di quel giorno. Il controllo di autorizzazione è esplicito
+// (manager che gestisce il locale): la scrittura passa poi dal client
+// admin, perché la RLS non permette di creare notifiche per altri.
+export async function sollecitaChiusura(restaurantId: string, data: string): Promise<{ ok: true; inviati: number } | { ok: false; errore: string }> {
+  try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, errore: 'Data non valida' }
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { ok: false, errore: 'Non autenticato' }
+    const { data: profilo } = await supabase.from('profiles').select('role, managed_restaurant_ids').eq('id', user.id).single()
+    if (profilo?.role !== 'manager') return { ok: false, errore: 'Non autorizzato' }
+    const gestiti = profilo.managed_restaurant_ids as string[] | null
+    // La RLS di restaurants mostra al manager solo i locali che gestisce:
+    // se non lo vede, non può sollecitarne il personale.
+    const { data: locale } = await supabase.from('restaurants').select('id, name').eq('id', restaurantId).maybeSingle()
+    if (!locale || (gestiti !== null && !gestiti.includes(restaurantId))) return { ok: false, errore: 'Non autorizzato' }
+
+    const admin = createAdminClient()
+    const { data: cassieri } = await admin.from('profiles').select('id').eq('role', 'cassiere').eq('restaurant_id', restaurantId)
+    const ids = ((cassieri ?? []) as { id: string }[]).map(c => c.id)
+    if (!ids.length) return { ok: false, errore: 'Nessun cassiere associato al locale' }
+
+    const dataLabel = formatInTimeZone(`${data}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it })
+    const title = 'Chiusura da inviare'
+    const message = `Manca la chiusura cassa di ${dataLabel} (${locale.name}): inviala appena puoi.`
+    const link = '/cassa/chiusura'
+    const { error } = await admin.from('notifications').insert(ids.map(id => ({ user_id: id, title, message, link })))
+    if (error) return { ok: false, errore: error.message }
+
+    const { data: subs } = await admin.from('push_subscriptions').select('endpoint, p256dh, auth_key').in('user_id', ids)
+    await Promise.allSettled(((subs ?? []) as { endpoint: string; p256dh: string; auth_key: string }[]).map(async sub => {
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } }, JSON.stringify({ title, body: message, url: link }))
+      } catch (err: unknown) {
+        const status = (err as { statusCode?: number }).statusCode
+        if (status === 410 || status === 404) await admin.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+      }
+    }))
+    return { ok: true, inviati: ids.length }
+  } catch {
+    return { ok: false, errore: 'Invio non riuscito' }
   }
 }

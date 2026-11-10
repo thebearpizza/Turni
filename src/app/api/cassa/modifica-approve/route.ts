@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sanitizeModificaPayload } from '@/lib/cassa/modificaFields'
+import { leggiModifica } from '@/app/api/cassa/modificaPayload'
 import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 
@@ -8,7 +8,11 @@ import { NextResponse } from 'next/server'
 // Body: { modificaId: string, action: 'approve' | 'reject' }
 // Manager-only. Approve: applica il payload alla chiusura originale (i
 // campi derivati vengono ricalcolati dal trigger). Reject: la chiusura
-// originale resta invariata.
+// originale resta invariata. Il payload può contenere anche modifiche
+// alle spese (vedi modificaPayload.ts), applicate dopo i campi.
+// Finché non c'è la RPC atomica proposta (approva_modifica_chiusura) i
+// passi sono in sequenza: la richiesta passa ad "approvata" solo se tutti
+// riescono, così un errore a metà lascia la richiesta da rivedere.
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -36,14 +40,30 @@ export async function POST(request: Request) {
   const newStato = action === 'approve' ? 'approvata' : 'rifiutata'
 
   if (action === 'approve') {
-    const payload = sanitizeModificaPayload(modifica.payload)
-    if (!payload) return NextResponse.json({ error: 'Payload della richiesta non valido' }, { status: 400 })
+    const letta = leggiModifica(modifica.payload)
+    if (!letta) return NextResponse.json({ error: 'Payload della richiesta non valido' }, { status: 400 })
 
-    const { error: updErr } = await supabase
-      .from('cassa_chiusure')
-      .update({ ...payload, updated_by: user.id })
-      .eq('id', modifica.chiusura_id)
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
+    if (Object.keys(letta.campi).length) {
+      const { error: updErr } = await supabase
+        .from('cassa_chiusure')
+        .update({ ...letta.campi, updated_by: user.id })
+        .eq('id', modifica.chiusura_id)
+      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
+    }
+    for (const m of letta.spese.modifica) {
+      const { error: e } = await supabase.from('cassa_spese').update({ importo: m.importo }).eq('id', m.id).eq('chiusura_id', modifica.chiusura_id)
+      if (e) return NextResponse.json({ error: e.message }, { status: 500 })
+    }
+    if (letta.spese.elimina.length) {
+      const { error: e } = await supabase.from('cassa_spese').delete().in('id', letta.spese.elimina).eq('chiusura_id', modifica.chiusura_id)
+      if (e) return NextResponse.json({ error: e.message }, { status: 500 })
+    }
+    if (letta.spese.aggiungi.length) {
+      const { error: e } = await supabase.from('cassa_spese').insert(
+        letta.spese.aggiungi.map(a => ({ ...a, chiusura_id: modifica.chiusura_id, created_by: modifica.richiesto_da }))
+      )
+      if (e) return NextResponse.json({ error: e.message }, { status: 500 })
+    }
   }
 
   const { error } = await supabase
@@ -61,10 +81,11 @@ export async function POST(request: Request) {
       message: action === 'approve'
         ? 'La tua richiesta di modifica alla chiusura cassa è stata approvata e applicata.'
         : 'La tua richiesta di modifica alla chiusura cassa è stata rifiutata dal manager.',
-      link: '/cassa/chiusura',
+      link: '/cassa/lista-chiusure',
     })
   }
 
   revalidatePath('/cassa/approvazioni')
+  revalidatePath('/cassa/lista-chiusure')
   return NextResponse.json({ success: true, stato: newStato })
 }
