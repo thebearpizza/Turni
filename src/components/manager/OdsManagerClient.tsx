@@ -1,428 +1,380 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { createOdsTask } from '@/app/actions/ods'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
-import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
-import { DEPARTMENTS, ODS_TYPE_LABELS, ODS_DAYS_IT } from '@/types'
-import { LoadingDots } from '@/components/shared/LoadingDots'
-import type { OdsTask, OdsCompletion, OdsTaskType } from '@/types'
+import { cn } from '@/lib/utils'
 import { chiediConferma } from '@/components/shared/Conferma'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
+import { DEPARTMENTS, ODS_DAYS_IT, ODS_TYPE_LABELS } from '@/types'
+import type { OdsTask, OdsTaskType } from '@/types'
+import {
+  BarraAltro, ElencoAltro, PannelloDettaglio, GrigliaAltro, FoglioAltro, TestataFoglio, CorpoFoglio, Campo, Testo,
+  GruppoPillole, Nota, PulsantiSalva, Badge, useUscita, useTelefono, USCITA,
+  type RigaAltro, type DatiDettaglio, type Tono,
+} from '@/components/altro/comuni'
+
+// ODS. Manager e direttore: scheda di Altro (MTAltro.dc.html, sec "ods"):
+// reparti come schede, completamenti di oggi per persona, ricorrenza,
+// dettaglio con chi ha fatto e chi no, foglio "Nuovo ordine di servizio".
+// Capo servizio: "ODS sala" di Capo Servizio.dc.html (7d), con
+// l'avanzamento di oggi del proprio reparto.
 
 const TZ = 'Europe/Rome'
+const GG = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'] as const
+type Giorno = typeof GG[number]
+const daGiorno = (g: Giorno) => ODS_DAYS_IT[GG.indexOf(g)]
+const aGiorno = (d: string) => GG[ODS_DAYS_IT.indexOf(d.toLowerCase() as typeof ODS_DAYS_IT[number])] ?? d.slice(0, 3)
+const RIC: OdsTaskType[] = ['quotidiana', 'settimanale', 'bisettimanale', 'straordinaria']
+/** Giorni da scegliere per ricorrenza (prototipo: Settimanale 1, Bisettimanale 2, Straordinaria 1). */
+const N_GIORNI: Record<OdsTaskType, number> = { quotidiana: 0, settimanale: 1, bisettimanale: 2, straordinaria: 1 }
 
-type StaffMember = { id: string; full_name: string; department: string | null }
-type RestaurantItem = { id: string; name: string }
-type CompletionWithProfile = OdsCompletion & {
-  profile?: { id: string; full_name: string } | null
-}
+export type CompletamentoRiga = { task_id: string; user_id: string; completed_at: string; profile?: { id: string; full_name: string } | null }
+export type PersonaOds = { id: string; full_name: string; department: string | null; restaurant_id: string | null }
 
 interface Props {
-  initialTasks:       OdsTask[]
-  completions:        CompletionWithProfile[]
-  staff:              StaffMember[]
-  restaurants:        RestaurantItem[]
-  currentUserId:      string
-  currentUserRole:    string
-  currentDepartment:  string | null
+  vista: 'manager' | 'direttore' | 'capo'
+  initialTasks: OdsTask[]
+  completions: CompletamentoRiga[]
+  staff: PersonaOds[]
+  restaurants: { id: string; name: string }[]
+  currentUserId: string
+  currentDepartment: string | null
   currentRestaurantId: string | null
-  currentIsDirettore?: boolean
 }
 
-export function OdsManagerClient({
-  initialTasks, completions, staff, restaurants,
-  currentUserId, currentUserRole, currentDepartment, currentRestaurantId,
-  currentIsDirettore = false,
-}: Props) {
+function sogliaOds(): string {
+  const now = new Date()
+  const h = parseInt(formatInTimeZone(now, TZ, 'H'), 10)
+  const rif = h < 4 ? new Date(now.getTime() - 864e5) : now
+  return fromZonedTime(`${formatInTimeZone(rif, TZ, 'yyyy-MM-dd')}T04:00:00`, TZ).toISOString()
+}
+const oraRoma = (iso: string) => formatInTimeZone(new Date(iso), TZ, 'H:mm')
+
+function ricorrenza(t: OdsTask): string {
+  const l = ODS_TYPE_LABELS[t.type]
+  return t.recurrence_days.length && t.type !== 'quotidiana' ? `${l} · ${t.recurrence_days.map(d => aGiorno(d).toLowerCase()).join(', ')}` : l
+}
+
+export function OdsManagerClient(p: Props) {
   const { isPending } = useAccountStatus()
-  const isManager = currentUserRole === 'manager'
-  // Direttore (capo_servizio): operates across all departments of its restaurant.
-  const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
-  // Whether the department field is locked to the caller's own department.
-  const deptLocked = !!currentDepartment && !isDirettore
+  const [tasks, setTasks] = useState(p.initialTasks)
+  const [compl, setCompl] = useState(p.completions)
+  const [nuovi, setNuovi] = useState<string[]>([])
 
-  const [tasks, setTasks]             = useState<OdsTask[]>(initialTasks)
-  const [deptFilter, setDeptFilter]   = useState<string>('tutti')
-  const [restFilter, setRestFilter]   = useState<string>('tutti')
+  // Le notifiche "ODS completato" si considerano lette aprendo la pagina
+  // (solo quelle degli ODS, non quelle di altre sezioni).
+  useEffect(() => {
+    createClient().from('notifications').update({ read_at: new Date().toISOString() })
+      .eq('user_id', p.currentUserId).is('read_at', null).like('link', '%/ods%').then(() => {})
+  }, [p.currentUserId])
 
-  // Mark ODS notifications as read when this page is mounted — scoped to
-  // this user and to ODS links only, altrimenti azzera anche notifiche di
-  // altre sezioni (es. richieste di assenza) senza che siano state viste.
+  // Realtime: un compito spuntato da un dipendente compare subito.
+  const idsRef = useRef(new Set(tasks.map(t => t.id)))
+  useEffect(() => { idsRef.current = new Set(tasks.map(t => t.id)) }, [tasks])
+  const ricarica = useCallback(async () => {
+    const { data } = await createClient().from('ods_completions')
+      .select('task_id, user_id, completed_at, profile:profiles!user_id(id, full_name)').gte('completed_at', sogliaOds())
+    if (data) setCompl((data as unknown as CompletamentoRiga[]).filter(c => idsRef.current.has(c.task_id)))
+  }, [])
   useEffect(() => {
     const supabase = createClient()
-    supabase
-      .from('notifications')
-      .update({ read_at: new Date().toISOString() })
-      .eq('user_id', currentUserId)
-      .is('read_at', null)
-      .like('link', '%/ods%')
-      .then(() => {})
-  }, [currentUserId])
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving]     = useState(false)
+    let t: ReturnType<typeof setTimeout> | null = null
+    const ch = supabase.channel('rt-ods-completions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ods_completions' }, () => { if (t) clearTimeout(t); t = setTimeout(ricarica, 300) })
+      .subscribe()
+    return () => { if (t) clearTimeout(t); supabase.removeChannel(ch) }
+  }, [ricarica])
 
-  // Read receipt dialog
-  const [viewingTask, setViewingTask] = useState<OdsTask | null>(null)
+  const perTask = useMemo(() => {
+    const m = new Map<string, CompletamentoRiga[]>()
+    compl.forEach(c => m.set(c.task_id, [...(m.get(c.task_id) ?? []), c]))
+    m.forEach(v => v.sort((a, b) => a.completed_at.localeCompare(b.completed_at)))
+    return m
+  }, [compl])
 
-  // Form state
-  const [fTitle, setFTitle]           = useState('')
-  const [fDept, setFDept]             = useState<string>(currentDepartment ?? '')
-  const [fType, setFType]             = useState<OdsTaskType>('quotidiana')
-  const [fDays, setFDays]             = useState<string[]>([])
-  const [fAssignedTo, setFAssignedTo] = useState<string>('__none__')
-  const [fRestaurantId, setFRestaurantId] = useState<string>(currentRestaurantId ?? '')
+  const [oggiNome] = useState(() => formatInTimeZone(new Date(Date.now() - 4 * 3600e3), TZ, 'EEEE', { locale: it }).toLowerCase())
+  const diOggi = (t: OdsTask) => t.type === 'quotidiana' || t.type === 'straordinaria' || t.recurrence_days.some(d => d.toLowerCase() === oggiNome)
 
-  // Build completion map: taskId → list of completors
-  const completionMap: Record<string, CompletionWithProfile[]> = {}
-  completions.forEach(c => {
-    if (!completionMap[c.task_id]) completionMap[c.task_id] = []
-    completionMap[c.task_id].push(c)
+  async function elimina(t: OdsTask, poi: () => void) {
+    if (!(await chiediConferma({ titolo: "Eliminare l'ordine di servizio?", testo: 'Sparisce dalla lista di tutto il reparto.' }))) return
+    const { error } = await createClient().from('ods_tasks').delete().eq('id', t.id)
+    if (error) { toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' }); return }
+    setTasks(x => x.filter(y => y.id !== t.id))
+    poi()
+    toast({ title: 'ODS eliminato' })
+  }
+
+  const form = useNuovoOds({
+    ...p, deptBloccato: p.vista === 'capo' ? p.currentDepartment : null,
+    onCreati: ts => { setTasks(x => [...ts, ...x]); setNuovi(n => [...n, ...ts.map(t => t.id)]) },
   })
 
-  // Manager restaurant filter — applied before department filter
-  const tasksByRestaurant = (isManager && restFilter !== 'tutti')
-    ? tasks.filter(t => t.restaurant_id === restFilter)
-    : tasks
+  const comune = { tasks, perTask, diOggi, elimina, nuovi, apriForm: form.apri, disabilitato: isPending }
+  return (
+    <>
+      {p.vista === 'capo' ? <OdsCapo {...p} {...comune} /> : <OdsAltro {...p} {...comune} />}
+      {form.foglio}
+    </>
+  )
+}
 
-  // Visible departments derive from the already-restaurant-filtered list
-  const allDepts = Array.from(new Set(tasksByRestaurant.map(t => t.department))).sort()
+interface Comune {
+  tasks: OdsTask[]
+  perTask: Map<string, CompletamentoRiga[]>
+  diOggi: (t: OdsTask) => boolean
+  elimina: (t: OdsTask, poi: () => void) => void
+  nuovi: string[]
+  apriForm: () => void
+  disabilitato: boolean
+}
 
-  // Il capo servizio vede gli ODS del suo reparto (design: "ODS sala").
-  const filteredTasks = deptLocked
-    ? tasksByRestaurant.filter(t => t.department === currentDepartment)
-    : deptFilter === 'tutti'
-      ? tasksByRestaurant
-      : tasksByRestaurant.filter(t => t.department === deptFilter)
+/** Persone attese su un ODS oggi: l'assegnatario o tutto il reparto del locale. */
+function attese(t: OdsTask, staff: PersonaOds[]): { id: string; nome: string }[] {
+  if (t.assigned_to) return [{ id: t.assigned_to, nome: t.assignee?.full_name ?? staff.find(s => s.id === t.assigned_to)?.full_name ?? '—' }]
+  return staff.filter(s => s.restaurant_id === t.restaurant_id && s.department === t.department).map(s => ({ id: s.id, nome: s.full_name }))
+}
 
-  // Staff scoped to the selected department (for the create form).
-  // A direttore can assign to anyone in the currently-selected department.
-  // NB: lo staff arriva dalla page senza restaurant_id, quindi qui non si
-  // può ancora escludere il personale di altri locali — solo il reparto.
-  const scopedStaff = isDirettore || !currentDepartment
-    ? (fDept ? staff.filter(s => s.department === fDept) : staff)
-    : staff.filter(s => s.department === fDept || s.department === currentDepartment)
-
-  function resetForm() {
-    setFTitle('')
-    setFDept(currentDepartment ?? '')
-    setFType('quotidiana')
-    setFDays([])
-    setFAssignedTo('__none__')
-    setFRestaurantId(currentRestaurantId ?? '')
+function useDettaglio() {
+  const [sel, setSel] = useState<string | null>(null)
+  const [esce, setEsce] = useState(false)
+  const t = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (t.current) clearTimeout(t.current) }, [])
+  return {
+    sel, esce, setSel,
+    scegli: (k: string) => { if (t.current) clearTimeout(t.current); setEsce(false); setSel(k) },
+    chiudi: () => { setEsce(true); if (t.current) clearTimeout(t.current); t.current = setTimeout(() => { setSel(null); setEsce(false) }, USCITA) },
   }
+}
 
-  function toggleDay(day: string) {
-    setFDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+function datiDettaglio(t: OdsTask, staff: PersonaOds[], comp: CompletamentoRiga[], nomeLoc: string, onElimina: () => void): DatiDettaglio {
+  const pp = attese(t, staff), fatti = new Map(comp.map(c => [c.user_id, c]))
+  const n = Math.max(pp.length, 1), dn = comp.length
+  // Chi ha spuntato senza essere fra gli attesi (es. spostato di reparto) compare comunque.
+  const extra = comp.filter(c => !pp.some(x => x.id === c.user_id)).map(c => ({ id: c.user_id, nome: c.profile?.full_name ?? '—' }))
+  const chi = t.assignee?.full_name
+  return {
+    titolo: t.title,
+    sotto: (chi ? chi + ' · ' : '') + t.department + ' · ' + nomeLoc + ' · ' + ricorrenza(t),
+    tag: dn >= n ? 'Completato' : `${dn} su ${n}`, tono: dn >= n ? 'ok' : 'warn',
+    stats: [
+      { l: 'Completato da', v: dn + (dn === 1 ? ' persona' : ' persone') },
+      { l: 'Riparte', v: t.type === 'straordinaria' ? 'Una volta' : t.type === 'quotidiana' ? 'Domani alle 04:00' : t.recurrence_days.map(d => aGiorno(d).toLowerCase()).join(', ') + ' alle 04:00' },
+    ],
+    sezioni: [{
+      h: 'Oggi',
+      righe: [...pp, ...extra].map(x => {
+        const c = fatti.get(x.id)
+        return { l: x.nome, v: c ? 'Fatto alle ' + oraRoma(c.completed_at) : 'Da fare', c: c ? 'var(--ok)' : 'var(--muted-foreground)' }
+      }),
+    }],
+    azioni: [{ l: 'Elimina ODS', stile: 'neg', onClick: onElimina }],
   }
+}
 
-  async function handleCreate() {
-    if (!fTitle.trim() || !fDept) return
-    setSaving(true)
-    try {
-      const task = await createOdsTask({
-        title:           fTitle.trim(),
-        department:      fDept,
-        restaurant_id:   (fRestaurantId || currentRestaurantId) ?? '',
-        type:            fType,
-        recurrence_days: (fType === 'settimanale' || fType === 'bisettimanale') ? fDays : [],
-        assigned_to:     fAssignedTo === '__none__' ? null : fAssignedTo,
-      })
-      setTasks(prev => [task, ...prev])
-      resetForm()
-      setShowForm(false)
-    } catch (err) {
-      console.error('Errore creazione ODS:', err)
-      toast({
-        title: 'Creazione non riuscita',
-        description: err instanceof Error ? err.message : 'Riprova più tardi',
-        variant: 'destructive',
-      })
-    } finally {
-      setSaving(false)
+// ── Manager e direttore ──────────────────────────────────────────────────
+
+function OdsAltro({ vista, staff, restaurants, tasks, perTask, diOggi, elimina, nuovi, apriForm, disabilitato }: Props & Comune) {
+  const single = vista === 'direttore'
+  const [loc, setLoc] = useState<string | null>(null)
+  const [reps, setReps] = useState<string[]>([])
+  const det = useDettaglio()
+  const { stato: sk, avvia, pronto } = useScheletro(false)
+  const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
+  const info = (id: string) => locali.find(l => l.id === id)
+
+  const O = tasks.filter(t => loc === null || t.restaurant_id === loc)
+  const L = reps.length ? O.filter(t => reps.includes(t.department)) : O
+  const stato = (t: OdsTask) => { const n = Math.max(attese(t, staff).length, 1), dn = (perTask.get(t.id) ?? []).length; return { n, dn, pieno: dn >= n } }
+
+  const righe: RigaAltro[] = L.map(t => {
+    const s = stato(t), oggi = diOggi(t)
+    const tono: Tono = oggi && s.pieno ? 'ok' : t.type === 'straordinaria' ? 'warn' : 'neu'
+    return {
+      key: t.id, a: t.title, as: info(t.restaurant_id)?.nome ?? '—', lc: info(t.restaurant_id)?.colore ?? 'var(--line-strong)',
+      // Un ricorrente che oggi non tocca non ha un avanzamento da mostrare.
+      b: oggi ? `${s.dn} / ${s.n}` : '—', c: t.assignee?.full_name ?? t.department, t: ODS_TYPE_LABELS[t.type], tono, nuova: nuovi.includes(t.id),
     }
-  }
+  })
+  const oggiL = L.filter(diOggi)
+  const kpis = [{ l: 'Completati oggi', v: `${oggiL.filter(t => stato(t).pieno).length} / ${oggiL.length}` }, { l: 'Reset', v: '04:00' }]
+  const schede = DEPARTMENTS.map(r => ({
+    k: r, l: r, on: reps.includes(r),
+    // Scegliere tutti i reparti uno per uno equivale a nessun filtro.
+    onClick: () => { setReps(x => { const n = x.includes(r) ? x.filter(y => y !== r) : [...x, r]; return n.length === DEPARTMENTS.length ? [] : n }); det.setSel(null) },
+  }))
 
-  async function handleDelete(id: string) {
-    if (!(await chiediConferma({ titolo: "Eliminare l'ordine di servizio?", testo: 'Sparisce dalla lista di tutto il reparto.' }))) return
-    const supabase = createClient()
-    const { error } = await supabase.from('ods_tasks').delete().eq('id', id)
-    if (error) {
-      toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' })
-      return
-    }
-    setTasks(prev => prev.filter(t => t.id !== id))
-  }
-
-  const canDelete = (task: OdsTask) =>
-    isManager ||
-    (currentUserRole === 'capo_servizio' &&
-      (isDirettore || !currentDepartment || task.department === currentDepartment))
-
-  const todayName = formatInTimeZone(new Date(), TZ, 'EEEE', { locale: it }).toLowerCase()
+  const t = L.find(x => x.id === det.sel)
+  const d = t ? datiDettaglio(t, staff, perTask.get(t.id) ?? [], info(t.restaurant_id)?.nome ?? '', () => elimina(t, () => det.setSel(null))) : null
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Titolo grande con avanzamento di oggi (capo servizio e direttore
-          hanno l'intestazione del locale; il manager ha "ODS" nel guscio). */}
-      {(() => {
-        const diOggi = filteredTasks.filter(t => t.type === 'quotidiana' || t.type === 'straordinaria' || t.recurrence_days.some(d => d.toLowerCase() === todayName))
-        const fatti = diOggi.filter(t => (completionMap[t.id] ?? []).length > 0).length
-        return (
-          <div className="flex flex-col gap-3 px-1">
-            <div className="flex items-baseline justify-between">
-              <h1 className="text-[28px] font-semibold tracking-[-0.8px]">
-                {isManager ? 'Ordini di servizio' : `ODS${deptLocked && currentDepartment ? ` ${currentDepartment.toLowerCase()}` : ''}`}
-              </h1>
-              <span className="font-mono text-sm font-medium text-muted-foreground">{fatti}/{diOggi.length}</span>
-            </div>
-            <div className="h-1 overflow-hidden rounded-full bg-border">
-              <div className="h-1 bg-turni transition-[width] duration-500" style={{ width: diOggi.length ? `${(fatti / diOggi.length) * 100}%` : '0%' }} />
-            </div>
-          </div>
-        )
-      })()}
-
-      {isManager && restaurants.length > 0 && (
-        <RestaurantFilter
-          restaurants={restaurants}
-          value={restFilter}
-          onChange={v => { setRestFilter(v); setDeptFilter('tutti') }}
+    <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
+      <BarraAltro
+        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => { setLoc(ids[0] ?? null); det.setSel(null); avvia(); pronto() }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" /> : undefined}
+        schede={schede} kpis={kpis} nuovo={{ l: 'Nuovo ODS', onClick: apriForm, disabilitato }}
+      />
+      <GrigliaAltro>
+        <ElencoAltro
+          testate={[{ l: 'Ordine di servizio', a: 'left' }, { l: 'Oggi', a: 'right' }, { l: 'Reparto', a: 'right' }, { l: 'Ricorrenza', a: 'right' }]}
+          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={det.sel} onScegli={det.scegli}
+          vuoto={{ t: 'Nessun ordine di servizio', s: reps.length || loc ? 'Nessun ODS per questo filtro.' : 'Crea il primo con Nuovo ODS.' }}
         />
-      )}
-
-      {!deptLocked && allDepts.length > 1 && (
-        <div className="flex flex-wrap gap-1.5">
-          {['tutti', ...allDepts].map(dept => (
-            <button
-              key={dept}
-              onClick={() => setDeptFilter(dept)}
-              className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium capitalize transition-colors active:scale-[0.97] ${
-                deptFilter === dept ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
-              }`}
-            >
-              {dept === 'tutti' ? 'Tutti' : dept}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {filteredTasks.length === 0 ? (
-        <div className="rounded-[14px] border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">Nessun ordine di servizio</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filteredTasks.map((task, i) => {
-            const taskCompletions = completionMap[task.id] ?? []
-            const isVisibleToday =
-              task.type === 'quotidiana' || task.type === 'straordinaria' ||
-              task.recurrence_days.some(d => d.toLowerCase() === todayName)
-            const fatto = taskCompletions.length > 0
-            const ultimo = taskCompletions[taskCompletions.length - 1]
-            const chi = fatto
-              ? `${ultimo?.profile?.full_name ?? 'Qualcuno'}${ultimo ? ` · ${formatInTimeZone(new Date(ultimo.completed_at), TZ, 'HH:mm')}` : ''}${taskCompletions.length > 1 ? ` e altri ${taskCompletions.length - 1}` : ''}`
-              : task.assignee
-                ? task.assignee.full_name
-                : task.type === 'straordinaria' ? 'Straordinario · da assegnare'
-                : `Tutto il reparto ${task.department.toLowerCase()} · ${task.type === 'quotidiana' ? 'quotidiano' : task.recurrence_days.join(', ')}`
-            return (
-              <div
-                key={task.id}
-                className={`anim-inrise flex flex-col gap-2 rounded-[12px] border border-border bg-card px-3.5 py-3 ${!isVisibleToday ? 'opacity-50' : ''}`}
-                style={{ animationDelay: `${Math.min(i, 10) * 70}ms` }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-[15px] font-medium leading-snug">{task.title}</span>
-                  <span className={`flex-none rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.04em] ${
-                    fatto ? 'bg-ok-tint text-ok' : !isVisibleToday ? 'bg-secondary text-muted-foreground' : 'bg-secondary text-muted-foreground'
-                  }`}>
-                    {fatto ? 'Fatto' : isVisibleToday ? 'Da fare' : 'Non oggi'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => fatto && setViewingTask(task)}
-                    className="min-w-0 flex-1 truncate text-left text-[13px] text-muted-foreground"
-                  >
-                    {chi}
-                  </button>
-                  {(isManager || isDirettore) && (
-                    <span className="flex-none text-[11px] font-medium uppercase tracking-[.04em] text-muted-foreground">{task.department}</span>
-                  )}
-                  {canDelete(task) && (
-                    <button type="button" onClick={() => handleDelete(task.id)} className="flex-none text-xs font-semibold text-neg active:scale-[0.97]">Elimina</button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="sticky bottom-0 -mx-1 bg-gradient-to-t from-background via-background to-transparent px-1 pb-1 pt-3">
-        <Button
-          size="lg"
-          className="w-full"
-          onClick={() => { resetForm(); setShowForm(true) }}
-          disabled={isPending}
-          title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}
-        >
-          + Nuovo ordine di servizio
-        </Button>
-      </div>
-
-      {/* ── Create modal ───────────────────────────────────────────── */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Nuovo Ordine di Servizio</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-
-            <div className="space-y-2">
-              <Label>Istruzione *</Label>
-              <Textarea
-                value={fTitle}
-                onChange={e => setFTitle(e.target.value)}
-                rows={2}
-                placeholder="Descrivi il compito da eseguire..."
-              />
-            </div>
-
-            {/* Reparto */}
-            <div className="space-y-2">
-              <Label>Reparto *</Label>
-              {deptLocked ? (
-                <div className="flex h-10 items-center rounded-sm border border-input bg-muted px-3 text-sm text-muted-foreground">
-                  {currentDepartment}
-                </div>
-              ) : (
-                <Select value={fDept} onValueChange={setFDept}>
-                  <SelectTrigger><SelectValue placeholder="Seleziona reparto" /></SelectTrigger>
-                  <SelectContent>
-                    {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* Restaurant — only manager */}
-            {isManager && restaurants.length > 0 && (
-              <div className="space-y-2">
-                <Label>Ristorante *</Label>
-                <Select value={fRestaurantId} onValueChange={setFRestaurantId}>
-                  <SelectTrigger><SelectValue placeholder="Seleziona ristorante" /></SelectTrigger>
-                  <SelectContent>
-                    {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Type */}
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select value={fType} onValueChange={v => { setFType(v as OdsTaskType); setFDays([]) }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(ODS_TYPE_LABELS) as OdsTaskType[]).map(t => (
-                    <SelectItem key={t} value={t}>{ODS_TYPE_LABELS[t]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Day picker for weekly/biweekly */}
-            {(fType === 'settimanale' || fType === 'bisettimanale') && (
-              <div className="space-y-2">
-                <Label>
-                  Giorni
-                  {fType === 'settimanale' && ' (1 giorno)'}
-                  {fType === 'bisettimanale' && ' (2 giorni)'}
-                </Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {ODS_DAYS_IT.map(day => (
-                    <button
-                      key={day}
-                      type="button"
-                      onClick={() => {
-                        if (fType === 'settimanale') {
-                          setFDays(fDays[0] === day ? [] : [day])
-                        } else {
-                          toggleDay(day)
-                        }
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-sm border capitalize transition-colors ${
-                        fDays.includes(day)
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-card text-muted-foreground border-border hover:bg-accent'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Assigned to */}
-            <div className="space-y-2">
-              <Label>Assegna a (opzionale)</Label>
-              <Select value={fAssignedTo} onValueChange={setFAssignedTo}>
-                <SelectTrigger><SelectValue placeholder="Nessuna assegnazione specifica" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Tutto il reparto</SelectItem>
-                  {scopedStaff.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.full_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button
-              onClick={handleCreate}
-              disabled={saving || !fTitle.trim() || !fDept || (isManager && !fRestaurantId)}
-            >
-              {saving ? <>Salvataggio<LoadingDots /></> : 'Crea Ordine'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Completions dialog ─────────────────────────────────────── */}
-      <Dialog open={!!viewingTask} onOpenChange={() => setViewingTask(null)}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Chi ha completato</DialogTitle>
-            {viewingTask && (
-              <p className="text-sm text-muted-foreground mt-0.5 truncate">{viewingTask.title}</p>
-            )}
-          </DialogHeader>
-          {viewingTask && (
-            <div className="divide-y divide-border">
-              {(completionMap[viewingTask.id] ?? []).map(c => (
-                <div key={c.id} className="flex items-center justify-between py-2.5 gap-4">
-                  <span className="text-sm font-medium">{c.profile?.full_name ?? '—'}</span>
-                  <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                    {formatInTimeZone(new Date(c.completed_at), TZ, 'dd-MM-yyyy HH:mm')}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewingTask(null)}>Chiudi</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <PannelloDettaglio d={d} chiave={`ods|${det.sel}|${loc}`} esce={det.esce} onChiudi={det.chiudi} />
+      </GrigliaAltro>
+      {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
     </div>
   )
+}
+
+// ── Capo servizio: ODS del reparto ───────────────────────────────────────
+
+function OdsCapo({ staff, restaurants, currentDepartment, tasks, perTask, diOggi, elimina, apriForm, disabilitato }: Props & Comune) {
+  const det = useDettaglio()
+  const [oggiNome] = useState(() => formatInTimeZone(new Date(Date.now() - 4 * 3600e3), TZ, 'EEEE', { locale: it }).toLowerCase())
+  const mie = tasks.filter(t => !currentDepartment || t.department === currentDepartment)
+  // Prima quelli di oggi, poi i ricorrenti di altri giorni (attenuati).
+  const lista = [...mie.filter(diOggi), ...mie.filter(t => !diOggi(t))]
+  const oggi = mie.filter(diOggi), fatti = oggi.filter(t => (perTask.get(t.id) ?? []).length > 0).length
+  const rep = (currentDepartment ?? '').toLowerCase()
+
+  const meta = (t: OdsTask) => {
+    const c = perTask.get(t.id) ?? []
+    if (c.length) { const u = c[c.length - 1]; return `${u.profile?.full_name ?? 'Qualcuno'} · ${oraRoma(u.completed_at)}${c.length > 1 ? ` e altri ${c.length - 1}` : ''}` }
+    if (t.assignee) return t.assignee.full_name + (t.type === 'quotidiana' ? '' : ' · ' + (diOggi(t) ? oggiNome : t.recurrence_days.join(', ')))
+    if (t.type === 'straordinaria') return 'Straordinario · da assegnare'
+    return `Tutta la ${rep || 'squadra'} · ${t.type === 'quotidiana' ? 'quotidiano' : diOggi(t) ? oggiNome : t.recurrence_days.join(', ')}`
+  }
+  const t = mie.find(x => x.id === det.sel)
+  const d = t ? datiDettaglio(t, staff, perTask.get(t.id) ?? [], restaurants.find(r => r.id === t.restaurant_id)?.name ?? '', () => elimina(t, () => det.setSel(null))) : null
+
+  return (
+    <div className="mx-auto box-border flex h-full w-full max-w-[640px] flex-col">
+      <div className="flex flex-none flex-col gap-3 px-5 pb-3 pt-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[28px] font-semibold tracking-[-0.8px]">ODS{rep ? ' ' + rep : ''}</span>
+          <span className="font-mono text-sm font-medium text-muted-foreground">{fatti}/{oggi.length}</span>
+        </div>
+        <div className="h-1 overflow-hidden rounded-sm bg-border">
+          <div className="h-1 bg-turni transition-[width] duration-500" style={{ width: oggi.length ? `${(fatti / oggi.length) * 100}%` : '0%' }} />
+        </div>
+      </div>
+      <div className="mx-4 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain">
+        {lista.length === 0 && (
+          <div className="anim-swapin rounded-[14px] border border-dashed border-line-strong px-4 py-10 text-center">
+            <span className="block text-[15px] font-semibold">Nessun ordine di servizio</span>
+            <span className="text-[13px] text-muted-foreground">Crealo con il pulsante qui sotto.</span>
+          </div>
+        )}
+        {lista.map((x, i) => {
+          const fatto = (perTask.get(x.id) ?? []).length > 0, adesso = diOggi(x)
+          return (
+            <button key={x.id} type="button" onClick={() => det.scegli(x.id)}
+              className={cn('anim-inrise grid min-h-[60px] flex-none items-center gap-x-2.5 gap-y-0.5 rounded-[14px] border border-border bg-card px-3.5 py-2 text-left active:scale-[0.99]', !adesso && 'opacity-50')}
+              style={{ gridTemplateColumns: '1fr auto', animationDelay: `${Math.min(i, 10) * 70}ms` }}>
+              <span className="text-[15px] font-medium">{x.title}</span>
+              <Badge tono={fatto ? 'ok' : 'neu'}>{fatto ? 'Fatto' : adesso ? 'Da fare' : 'Non oggi'}</Badge>
+              <span className="text-xs text-muted-foreground">{meta(x)}</span>
+            </button>
+          )
+        })}
+      </div>
+      <div className="flex-none px-4 py-3">
+        <button type="button" onClick={apriForm} disabled={disabilitato}
+          className="flex h-12 w-full items-center justify-center rounded-[12px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-40">
+          + Nuovo ordine di servizio
+        </button>
+      </div>
+      <PannelloDettaglio d={d} chiave={`ods-capo|${det.sel}`} esce={det.esce} onChiudi={det.chiudi} sempreFoglio />
+    </div>
+  )
+}
+
+// ── Foglio "Nuovo ordine di servizio" ────────────────────────────────────
+
+interface StatoOds { t: string; loc: string | null; rep: string | null; asg: 'Tutto il reparto' | 'Una persona'; p1: string | null; ric: OdsTaskType; gg: Giorno[] }
+
+function useNuovoOds({ vista, staff, restaurants, currentRestaurantId, deptBloccato, onCreati }: Props & { deptBloccato: string | null; onCreati: (t: OdsTask[]) => void }) {
+  const tel = useTelefono()
+  const single = vista !== 'manager'
+  const f = useUscita<StatoOds>()
+  const [invio, setInvio] = useState(false)
+  const NW = f.dati
+  const set = (x: Partial<StatoOds>) => f.setDati(d => (d ? { ...d, ...x } : d))
+  const apri = () => f.apri({ t: '', loc: single ? currentRestaurantId : null, rep: deptBloccato, asg: 'Tutto il reparto', p1: null, ric: 'quotidiana', gg: [] })
+
+  const gN = NW ? N_GIORNI[NW.ric] : 0
+  const ok = !!NW && !!NW.t.trim() && !!NW.rep && NW.gg.length === gN && (NW.asg !== 'Una persona' || !!NW.p1)
+  const persone = NW?.rep ? staff.filter(s => s.department === NW.rep && (NW.loc === null || s.restaurant_id === NW.loc)) : []
+  const nomeLoc = (id: string | null) => restaurants.find(r => r.id === id)?.name ?? ''
+
+  async function crea() {
+    if (!NW || !ok || !NW.rep) return
+    const p1 = NW.asg === 'Una persona' ? staff.find(s => s.id === NW.p1) : undefined
+    // "Tutti i locali": un ODS per ogni locale (il compito vale per ogni
+    // reparto omonimo); con una persona, il suo locale.
+    const locali = p1 ? [p1.restaurant_id] : NW.loc ? [NW.loc] : restaurants.map(r => r.id)
+    const giorni = GG.filter(g => NW.gg.includes(g)).map(daGiorno)
+    setInvio(true)
+    const creati: OdsTask[] = []
+    try {
+      for (const rid of locali) {
+        if (!rid) continue
+        creati.push(await createOdsTask({ title: NW.t.trim(), department: NW.rep, restaurant_id: rid, type: NW.ric, recurrence_days: gN ? giorni : [], assigned_to: p1?.id ?? null }))
+      }
+      onCreati(creati)
+      f.chiudi()
+      toast({ title: creati.length > 1 ? `ODS creato in ${creati.length} locali` : 'ODS creato' })
+    } catch (e) {
+      if (creati.length) onCreati(creati)
+      toast({ title: 'Creazione non riuscita', description: e instanceof Error ? e.message : 'Riprova più tardi', variant: 'destructive' })
+    } finally {
+      setInvio(false)
+    }
+  }
+
+  const gL = NW?.ric === 'bisettimanale' ? 'Giorni della settimana · scegline 2' : NW?.ric === 'straordinaria' ? 'Giorno' : 'Giorno della settimana'
+  const nota = !gN
+    ? 'I quotidiani ripartono ogni notte alle 04:00. Ti avvisiamo quando qualcuno completa.'
+    : NW?.ric === 'straordinaria' ? 'Compare una sola volta, il prossimo giorno scelto, e poi sparisce.' : 'Riparte alle 04:00 dei giorni scelti. Ti avvisiamo quando qualcuno completa.'
+
+  const foglio = (
+    <FoglioAltro aperto={!!NW} esce={f.esce} onChiudi={() => f.chiudi()} testata={<TestataFoglio titolo="Nuovo ordine di servizio" onChiudi={() => f.chiudi()} />}>
+      {NW && (
+        <CorpoFoglio>
+          <Campo etichetta="Compito"><Testo value={NW.t} onChange={v => set({ t: v })} placeholder="Es. Pulizia frigo bibite" /></Campo>
+          {!single && (
+            <GruppoPillole etichetta="Locale" opzioni={[{ v: '', l: 'Tutti i locali' }, ...restaurants.map(r => ({ v: r.id, l: r.name }))]}
+              scelte={[NW.loc ?? '']} onTocca={v => set({ loc: v || null, p1: null })} />
+          )}
+          {deptBloccato ? (
+            <Campo etichetta="Reparto"><div className="flex h-10 items-center self-start rounded-full border border-primary bg-primary px-3.5 text-[13px] font-medium text-primary-foreground">{deptBloccato}</div></Campo>
+          ) : (
+            <GruppoPillole etichetta="Reparto" opzioni={DEPARTMENTS.map(v => ({ v, l: v }))} scelte={NW.rep ? [NW.rep] : []} onTocca={v => set({ rep: v, p1: null })} />
+          )}
+          <GruppoPillole etichetta="Assegna a" opzioni={(['Tutto il reparto', 'Una persona'] as const).map(v => ({ v, l: v }))} scelte={[NW.asg]} onTocca={v => set({ asg: v })} />
+          {NW.asg === 'Una persona' && NW.rep && (
+            <GruppoPillole key={'p1-' + NW.rep} anima etichetta="Persona"
+              opzioni={persone.map(s => ({ v: s.id, l: s.full_name + (NW.loc === null && !single ? ' · ' + nomeLoc(s.restaurant_id) : '') }))}
+              scelte={NW.p1 ? [NW.p1] : []} onTocca={v => set({ p1: v })} />
+          )}
+          <GruppoPillole etichetta="Ricorrenza" opzioni={RIC.map(v => ({ v, l: ODS_TYPE_LABELS[v] }))} scelte={[NW.ric]}
+            onTocca={v => set({ ric: v, gg: v === NW.ric ? NW.gg : [] })} />
+          {gN > 0 && (
+            <GruppoPillole key={'gg-' + NW.ric} anima griglia7 etichetta={gL} opzioni={GG.map(v => ({ v, l: v }))} scelte={NW.gg}
+              // Con un solo giorno si sostituisce; con due si tengono gli ultimi due toccati.
+              onTocca={v => set({ gg: NW.gg.includes(v) ? NW.gg.filter(x => x !== v) : gN === 1 ? [v] : [...NW.gg, v].slice(-gN) })} />
+          )}
+          <Nota>{nota}</Nota>
+          <PulsantiSalva onAnnulla={() => f.chiudi()} onSalva={crea} etichetta={invio && tel ? 'Creo…' : 'Crea ODS'} attivo={ok} occupato={invio} />
+        </CorpoFoglio>
+      )}
+    </FoglioAltro>
+  )
+  return { apri, foglio }
 }

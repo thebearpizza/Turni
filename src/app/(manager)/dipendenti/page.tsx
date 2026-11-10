@@ -1,14 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { DipendentiClient } from '@/components/manager/DipendentiClient'
+import { DipendentiClient, type DipendenteRiga } from '@/components/manager/DipendentiClient'
+import type { ShiftSlot } from '@/types'
 
-export default async function DipendentiPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ restaurant_id?: string }>
-}) {
-  const { restaurant_id: restaurantIdParam } = await searchParams
-
+export default async function DipendentiPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -18,39 +13,28 @@ export default async function DipendentiPage({
     .eq('id', user!.id)
     .single()
 
-  // Riservato a manager e direttori — il capo servizio non gestisce dipendenti
-  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
+  const isManager = profile?.role === 'manager'
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  // Riservato a manager e direttori: il capo servizio non gestisce dipendenti.
+  if (!isManager && !isDirettore) redirect('/dashboard')
+  const locale = isDirettore ? profile?.restaurant_id ?? null : null
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
-    .order('name')
+  let qRist = supabase.from('restaurants').select('id, name').order('name')
+  // I consulenti del lavoro hanno la loro sezione: qui solo lo staff dei locali.
+  let qDip = supabase.from('profiles').select('*, restaurant:restaurants(id, name)').neq('role', 'consulente_lavoro').order('full_name')
+  let qFasce = supabase.from('shift_slots').select('*').order('department').order('start_time')
+  if (locale) { qRist = qRist.eq('id', locale); qDip = qDip.eq('restaurant_id', locale); qFasce = qFasce.eq('restaurant_id', locale) }
 
-  let query = supabase
-    .from('profiles')
-    .select('*, restaurant:restaurants(id, name)')
-    .order('full_name')
-
-  if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
-    // Capo servizio is always locked to own restaurant — URL param ignored
-    query = query.eq('restaurant_id', profile.restaurant_id)
-  } else if (profile?.role === 'manager' && restaurantIdParam) {
-    query = query.eq('restaurant_id', restaurantIdParam)
-  }
-
-  const { data: dipendenti } = await query
+  const [{ data: restaurants }, { data: dipendenti }, { data: fasce }] = await Promise.all([qRist, qDip, qFasce])
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <DipendentiClient
-        key={restaurantIdParam ?? 'tutti'}
-        initialDipendenti={dipendenti ?? []}
-        restaurants={restaurants ?? []}
-        currentUserRole={profile?.role ?? 'capo_servizio'}
-        currentIsDirettore={profile?.is_direttore ?? false}
-        currentRestaurantId={profile?.restaurant_id ?? null}
-        currentRestaurantFilter={restaurantIdParam ?? null}
-      />
-    </div>
+    <DipendentiClient
+      initialDipendenti={(dipendenti ?? []) as DipendenteRiga[]}
+      restaurants={restaurants ?? []}
+      fasce={(fasce ?? []) as ShiftSlot[]}
+      single={isDirettore}
+      currentUserId={user!.id}
+      currentRestaurantId={locale}
+    />
   )
 }

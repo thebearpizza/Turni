@@ -19,15 +19,5 @@ export default async function AccountPendentiPage() {
 
   const pending = await getPendingAccounts()
 
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="titolo-pagina">Account Pendenti</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gestisci le richieste di accesso a inTurno.
-        </p>
-      </div>
-      <AccountPendentiClient initialAccounts={pending} />
-    </div>
-  )
+  return <AccountPendentiClient initialAccounts={pending} />
 }

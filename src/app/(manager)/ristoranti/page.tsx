@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { RestaurantsClient } from '@/components/manager/RestaurantsClient'
+import type { Restaurant, ShiftSlot } from '@/types'
 
 export default async function RistorantiPage() {
   const supabase = await createClient()
@@ -14,14 +15,10 @@ export default async function RistorantiPage() {
 
   if (profile?.role !== 'manager') redirect('/dashboard')
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('*')
-    .order('name')
+  const [{ data: restaurants }, { data: fasce }] = await Promise.all([
+    supabase.from('restaurants').select('*').order('name'),
+    supabase.from('shift_slots').select('*').order('department').order('start_time'),
+  ])
 
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <RestaurantsClient initialRestaurants={restaurants ?? []} />
-    </div>
-  )
+  return <RestaurantsClient initialRestaurants={(restaurants ?? []) as Restaurant[]} initialFasce={(fasce ?? []) as ShiftSlot[]} />
 }

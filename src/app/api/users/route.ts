@@ -289,6 +289,30 @@ export async function PATCH(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Username modificabile dal foglio "Modifica dipendente" (design): cambia
+  // anche l'email fittizia di accesso, altrimenti il login col nuovo nome
+  // non funzionerebbe. Solo dopo che i controlli di perimetro sopra sono
+  // passati; un manager non può rinominare un altro manager.
+  const nuovoUsername: unknown = patchBody.username
+  if (typeof nuovoUsername === 'string' && nuovoUsername && nuovoUsername !== profile.username) {
+    if (!USERNAME_RE.test(nuovoUsername)) {
+      return NextResponse.json({ error: 'Username: solo lettere minuscole, numeri, punti, trattini e underscore' }, { status: 400 })
+    }
+    if (targetBefore?.role === 'manager' && id !== caller.id) {
+      return NextResponse.json({ error: "Non puoi cambiare l'username di un altro Manager" }, { status: 403 })
+    }
+    const { error: authErr } = await admin.auth.admin.updateUserById(id, { email: usernameToEmail(nuovoUsername) })
+    if (authErr) {
+      const msg = /already|registered|exists/i.test(authErr.message) ? 'Username già in uso' : authErr.message
+      return NextResponse.json({ error: msg, profile }, { status: 400 })
+    }
+    const { data: aggiornato, error: uErr } = await admin
+      .from('profiles').update({ username: nuovoUsername }).eq('id', id)
+      .select('*, restaurant:restaurants(id, name)').single()
+    if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 })
+    return NextResponse.json(aggiornato)
+  }
+
   return NextResponse.json(profile)
 }
 

@@ -1,864 +1,346 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import {
-  Plus, ChevronDown, ChevronUp, Trash2, Pencil, Paperclip, X,
-  Clock, BriefcaseBusiness, Send, Eye, EyeOff, CornerDownLeft,
-} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { it } from 'date-fns/locale'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Skeleton } from '@/components/ui/skeleton'
-import { RestaurantMultiSelect } from '@/components/shared/RestaurantMultiSelect'
-import type { Profile, Restaurant, ConsultantMessage } from '@/types'
-import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
+import { chiediConferma } from '@/components/shared/Conferma'
+import { generateUnifiedPDF } from '@/lib/generateUnifiedPDF'
+import type { ConsultantMessage, Profile } from '@/types'
+import {
+  BarraAltro, ElencoAltro, PannelloDettaglio, GrigliaAltro, FoglioAltro, TestataFoglio, CorpoFoglio, Campo, Testo,
+  GruppoPillole, Nota, PulsantiSalva, useUscita, USCITA, GRIGIO_TUTTI, CLASSE_INPUT, ICONA_RIGENERA, ICONA_X,
+  generaPassword, usernameDa, type RigaAltro, type DatiDettaglio, type Scheda,
+} from '@/components/altro/comuni'
+import { FoglioCredenziali, type StatoCredenziali } from '@/components/altro/Credenziali'
+
+// Consulenti del lavoro (scheda "Consulenti" di Dipendenti, solo manager).
+// Il design non ha questa schermata: segue lo schema di MTAltro — elenco,
+// dettaglio con accesso, locali autorizzati e la bacheca privata dei
+// messaggi (con allegati unificati in un PDF), foglio Nuovo/Modifica
+// consulente e foglio del messaggio.
 
 const TZ = 'Europe/Rome'
 const MAX_BYTES = 10 * 1024 * 1024
+type Consulente = Pick<Profile, 'id' | 'full_name' | 'username' | 'last_active_at' | 'consultant_restaurant_ids' | 'can_view_hours'>
 
-function fmtDate(iso: string | null) {
-  if (!iso) return 'Mai'
-  return formatInTimeZone(new Date(iso), TZ, 'dd-MM-yyyy HH:mm', { locale: it })
-}
+const data = (iso: string | null) => (iso ? formatInTimeZone(new Date(iso), TZ, 'dd/MM/yyyy HH:mm') : 'Mai')
+const dataCorta = (iso: string | null) => (iso ? formatInTimeZone(new Date(iso), TZ, 'dd/MM HH:mm') : 'Mai')
 
-interface ConsultantProfile extends Pick<Profile, 'id' | 'full_name' | 'username' | 'last_active_at' | 'consultant_restaurant_ids' | 'can_view_hours'> {}
+interface StatoForm { id: string | null; t: string; u: string | null; pw: string; locali: string[]; ore: boolean }
+interface StatoMsg { cid: string; titolo: string; corpo: string; file: File[]; risposta: ConsultantMessage | null }
 
-interface Props {
+export function ConsulenteLavoroManager({ managerId, restaurants, schede, disabilitato }: {
   managerId: string
-  restaurants: Pick<Restaurant, 'id' | 'name'>[]
-}
+  restaurants: { id: string; name: string }[]
+  /** Schede della barra di Dipendenti (reparti + Consulenti). */
+  schede: Scheda[]
+  disabilitato?: boolean
+}) {
+  const [lista, setLista] = useState<Consulente[] | null>(null)
+  const [thread, setThread] = useState<Record<string, ConsultantMessage[]>>({})
+  const [sel, setSel] = useState<string | null>(null)
+  const [esceD, setEsceD] = useState(false)
+  const [aperto, setAperto] = useState<string | null>(null)
+  const tD = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tCr = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (tD.current) clearTimeout(tD.current); if (tCr.current) clearTimeout(tCr.current) }, [])
 
-export function ConsulenteLavoroManager({ managerId, restaurants }: Props) {
-  const [consultants, setConsultants]     = useState<ConsultantProfile[]>([])
-  const [loadingList, setLoadingList]     = useState(true)
-  const [expandedId, setExpandedId]       = useState<string | null>(null)
-
-  // Create / edit modal
-  const [modalOpen, setModalOpen]         = useState(false)
-  const [editTarget, setEditTarget]       = useState<ConsultantProfile | null>(null)
-  const [formName, setFormName]               = useState('')
-  const [formUsername, setFormUsername]       = useState('')
-  const [formPassword, setFormPassword]       = useState('')
-  const [formNewPassword, setFormNewPassword] = useState('')
-  const [showNewPwd, setShowNewPwd]           = useState(false)
-  const [formRestaurants, setFormRestaurants] = useState<string[]>([])
-  const [formHours, setFormHours]             = useState(false)
-  const [formSaving, setFormSaving]           = useState(false)
-  const [formError, setFormError]             = useState<string | null>(null)
-
-  // Delete confirm
-  const [deleteTarget, setDeleteTarget]   = useState<ConsultantProfile | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
-  // Per-consultant thread state
-  const [threads, setThreads]   = useState<Record<string, ConsultantMessage[]>>({})
-  const [threadLoading, setThreadLoading] = useState<Record<string, boolean>>({})
-
-  // Compose message state (per consultant id → open)
-  const [composeOpen, setComposeOpen]       = useState<Record<string, boolean>>({})
-  const [composeTitle, setComposeTitle]     = useState<Record<string, string>>({})
-  const [composeBody, setComposeBody]       = useState<Record<string, string>>({})
-  const [composeFiles, setComposeFiles]     = useState<Record<string, File[]>>({})
-  const [composeSending, setComposeSending] = useState<Record<string, boolean>>({})
-  const [composeMerging, setComposeMerging] = useState<Record<string, boolean>>({})
-  const [composeError, setComposeError]     = useState<Record<string, string | null>>({})
-
-  // Message expand / delete / reply state
-  const [msgExpanded, setMsgExpanded]   = useState<Record<string, string | null>>({})
-  const [msgDeleting, setMsgDeleting]   = useState<Record<string, boolean>>({})
-  const [deleteMsgTarget, setDeleteMsgTarget] = useState<{ consultantId: string; msg: ConsultantMessage } | null>(null)
-  const [replyTo, setReplyTo]           = useState<Record<string, ConsultantMessage | null>>({})
-
-  const loadConsultants = useCallback(async () => {
-    setLoadingList(true)
-    const res = await fetch('/api/users?role=consulente_lavoro')
-    if (res.ok) {
-      const data = await res.json()
-      setConsultants(data)
-    }
-    setLoadingList(false)
+  const caricaThread = useCallback(async (id: string) => {
+    const res = await fetch(`/api/consultant-messages?consultantId=${id}`)
+    if (res.ok) { const m: ConsultantMessage[] = await res.json(); setThread(t => ({ ...t, [id]: m })) }
   }, [])
+  const carica = useCallback(async () => {
+    const res = await fetch('/api/users?role=consulente_lavoro')
+    if (!res.ok) { toast({ title: 'Consulenti non caricati', variant: 'destructive' }); setLista([]); return }
+    const cs: Consulente[] = await res.json()
+    setLista(cs)
+    // Le bacheche private servono già nell'elenco (messaggi da leggere).
+    cs.forEach(c => caricaThread(c.id))
+  }, [caricaThread])
+  useEffect(() => { carica() }, [carica])
 
-  useEffect(() => { loadConsultants() }, [loadConsultants])
-
-  // Supabase Realtime — listen to all consultant_messages for this manager
+  // Realtime: risposte del consulente e messaggi eliminati compaiono subito.
   useEffect(() => {
     const supabase = createClient()
-    const channel = supabase
-      .channel('consultant-messages-manager')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'consultant_messages', filter: `manager_id=eq.${managerId}` },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const msg = payload.new as ConsultantMessage
-            setThreads(prev => {
-              const cId = msg.consultant_id
-              if (!(cId in prev)) return prev          // thread not yet loaded — skip
-              if (prev[cId].some(m => m.id === msg.id)) return prev  // duplicate guard
-              return { ...prev, [cId]: [msg, ...prev[cId]] }
-            })
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = (payload.old as { id: string }).id
-            setThreads(prev => {
-              const next: Record<string, ConsultantMessage[]> = {}
-              for (const [cId, msgs] of Object.entries(prev)) {
-                next[cId] = msgs.filter(m => m.id !== deletedId)
-              }
-              return next
-            })
-            setMsgExpanded(prev => {
-              const next = { ...prev }
-              for (const [cId, openId] of Object.entries(prev)) {
-                if (openId === deletedId) next[cId] = null
-              }
-              return next
-            })
-          }
+    const ch = supabase.channel('consultant-messages-manager')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'consultant_messages', filter: `manager_id=eq.${managerId}` }, p => {
+        if (p.eventType === 'INSERT') {
+          const m = p.new as ConsultantMessage
+          setThread(t => (!(m.consultant_id in t) || t[m.consultant_id].some(x => x.id === m.id) ? t : { ...t, [m.consultant_id]: [m, ...t[m.consultant_id]] }))
+        } else if (p.eventType === 'DELETE') {
+          const id = (p.old as { id: string }).id
+          setThread(t => Object.fromEntries(Object.entries(t).map(([k, v]) => [k, v.filter(m => m.id !== id)])))
+        } else if (p.eventType === 'UPDATE') {
+          const m = p.new as ConsultantMessage
+          setThread(t => (m.consultant_id in t ? { ...t, [m.consultant_id]: t[m.consultant_id].map(x => (x.id === m.id ? m : x)) } : t))
         }
-      )
+      })
       .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
+    return () => { supabase.removeChannel(ch) }
   }, [managerId])
 
-  async function loadThread(consultantId: string) {
-    setThreadLoading(prev => ({ ...prev, [consultantId]: true }))
-    const res = await fetch(`/api/consultant-messages?consultantId=${consultantId}`)
-    if (res.ok) {
-      const data: ConsultantMessage[] = await res.json()
-      setThreads(prev => ({ ...prev, [consultantId]: data }))
+  const nonLetti = (id: string) => (thread[id] ?? []).filter(m => !m.sent_by_manager && !m.read_at).length
+  const nomeLoc = (id: string) => restaurants.find(r => r.id === id)?.name ?? ''
+  const righe: RigaAltro[] = (lista ?? []).map(c => {
+    const n = nonLetti(c.id), ids = c.consultant_restaurant_ids ?? []
+    return {
+      key: c.id, a: c.full_name, as: c.username ?? '—', lc: GRIGIO_TUTTI,
+      b: n ? `${n} da leggere` : String((thread[c.id] ?? []).length), cc: n ? 'var(--warn)' : undefined, c: dataCorta(c.last_active_at),
+      t: ids.length === 1 ? nomeLoc(ids[0]) || '1 locale' : `${ids.length} locali`, tono: n ? 'warn' : 'neu',
     }
-    setThreadLoading(prev => ({ ...prev, [consultantId]: false }))
-  }
+  })
 
-  function handleAccordionToggle(id: string) {
-    if (expandedId === id) {
-      setExpandedId(null)
-    } else {
-      setExpandedId(id)
-      if (!threads[id]) loadThread(id)
-    }
-  }
-
-  // ── Create / edit consultant ──────────────────────────────────────────────
-  function openCreate() {
-    setEditTarget(null)
-    setFormName(''); setFormUsername(''); setFormPassword(''); setFormNewPassword('')
-    setShowNewPwd(false)
-    setFormRestaurants([]); setFormHours(false)
-    setFormError(null)
-    setModalOpen(true)
-  }
-
-  function openEdit(c: ConsultantProfile) {
-    setEditTarget(c)
-    setFormName(c.full_name)
-    setFormUsername(c.username ?? '')
-    setFormPassword('')
-    setFormNewPassword('')
-    setShowNewPwd(false)
-    setFormRestaurants(c.consultant_restaurant_ids ?? [])
-    setFormHours(c.can_view_hours)
-    setFormError(null)
-    setModalOpen(true)
-  }
-
-  async function handleSave() {
-    setFormSaving(true)
-    setFormError(null)
-    try {
-      if (editTarget) {
-        const res = await fetch('/api/users', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: editTarget.id,
-            full_name: formName,
-            role: 'consulente_lavoro',
-            consultant_restaurant_ids: formRestaurants,
-            can_view_hours: formHours,
-            can_post_bulletin: false,
-          }),
-        })
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
-
-        if (formNewPassword.trim()) {
-          if (formNewPassword.length < 6) throw new Error('La password deve essere di almeno 6 caratteri')
-          const pwRes = await fetch('/api/users/password', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: editTarget.id, password: formNewPassword }),
-          })
-          if (!pwRes.ok) { const e = await pwRes.json(); throw new Error(e.error) }
-        }
-      } else {
-        if (!formUsername.trim() || !formPassword.trim() || !formName.trim()) {
-          throw new Error('Username, password e nome sono obbligatori')
-        }
-        const res = await fetch('/api/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: formUsername,
-            password: formPassword,
-            full_name: formName,
-            role: 'consulente_lavoro',
-            consultant_restaurant_ids: formRestaurants,
-            can_view_hours: formHours,
-            can_post_bulletin: false,
-          }),
-        })
-        if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
-      }
-      setModalOpen(false)
-      await loadConsultants()
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : 'Errore salvataggio')
-    } finally {
-      setFormSaving(false)
+  // ── Messaggi ───────────────────────────────────────────────────────────
+  async function apriMessaggio(c: Consulente, m: ConsultantMessage) {
+    setAperto(a => (a === m.id ? null : m.id))
+    if (!m.sent_by_manager && !m.read_at) {
+      const res = await fetch(`/api/consultant-messages/${m.id}/read`, { method: 'POST' })
+      if (res.ok) { const { read_at } = await res.json(); setThread(t => ({ ...t, [c.id]: (t[c.id] ?? []).map(x => (x.id === m.id ? { ...x, read_at } : x)) })) }
     }
   }
-
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleteLoading(true)
-    const res = await fetch(`/api/users?id=${deleteTarget.id}`, { method: 'DELETE' })
-    if (res.ok) {
-      setDeleteTarget(null)
-      await loadConsultants()
-    }
-    setDeleteLoading(false)
-  }
-
-  // ── Messaging ─────────────────────────────────────────────────────────────
-  function handleReply(consultantId: string, msg: ConsultantMessage) {
-    setReplyTo(prev => ({ ...prev, [consultantId]: msg }))
-    setComposeOpen(prev => ({ ...prev, [consultantId]: true }))
-    // Pre-fill subject only if compose is blank
-    setComposeTitle(prev => ({
-      ...prev,
-      [consultantId]: prev[consultantId]?.trim() ? prev[consultantId] : `Re: ${msg.title}`,
-    }))
-  }
-
-  async function handleSendMessage(consultantId: string) {
-    const title = composeTitle[consultantId] ?? ''
-    const body  = composeBody[consultantId] ?? ''
-    if (!title.trim() || !body.trim()) return
-
-    const filesToSend = composeFiles[consultantId] ?? []
-    const total = filesToSend.reduce((sum, f) => sum + f.size, 0)
-    if (total > MAX_BYTES) {
-      setComposeError(prev => ({ ...prev, [consultantId]: 'Il limite massimo per gli allegati è di 10 MB totali' }))
-      return
-    }
-
-    setComposeError(prev => ({ ...prev, [consultantId]: null }))
-
-    try {
-      const attachments: Array<{ name: string; path: string }> = []
-
-      if (filesToSend.length > 0) {
-        // Phase 1: merge & compress all files into one PDF client-side
-        setComposeMerging(prev => ({ ...prev, [consultantId]: true }))
-        const unifiedFile = await generateUnifiedPDF(filesToSend)
-        setComposeMerging(prev => ({ ...prev, [consultantId]: false }))
-
-        // Phase 2: upload the single unified PDF
-        setComposeSending(prev => ({ ...prev, [consultantId]: true }))
-        const fd = new FormData()
-        fd.append('file', unifiedFile)
-        fd.append('consultantId', consultantId)
-        const uploadRes = await fetch('/api/consultant-messages/upload', { method: 'POST', body: fd })
-        if (!uploadRes.ok) {
-          const e = await uploadRes.json()
-          throw new Error(e.error ?? 'Errore upload')
-        }
-        const uploaded = await uploadRes.json()
-        attachments.push({ name: unifiedFile.name, path: uploaded.path })
-      } else {
-        setComposeSending(prev => ({ ...prev, [consultantId]: true }))
-      }
-
-      const res = await fetch('/api/consultant-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          consultantId,
-          title,
-          body,
-          attachments,
-          reply_to_id: replyTo[consultantId]?.id ?? null,
-        }),
-      })
-      if (!res.ok) {
-        const e = await res.json()
-        throw new Error(e.error ?? 'Errore invio')
-      }
-      setComposeTitle(prev => ({ ...prev, [consultantId]: '' }))
-      setComposeBody(prev => ({ ...prev, [consultantId]: '' }))
-      setComposeFiles(prev => ({ ...prev, [consultantId]: [] }))
-      setComposeOpen(prev => ({ ...prev, [consultantId]: false }))
-      setReplyTo(prev => ({ ...prev, [consultantId]: null }))
-      await loadThread(consultantId)
-    } catch (e) {
-      setComposeMerging(prev => ({ ...prev, [consultantId]: false }))
-      setComposeError(prev => ({ ...prev, [consultantId]: e instanceof Error ? e.message : 'Errore' }))
-    } finally {
-      setComposeSending(prev => ({ ...prev, [consultantId]: false }))
-    }
-  }
-
-  async function handleMsgExpand(consultantId: string, msg: ConsultantMessage) {
-    const currentOpen = msgExpanded[consultantId]
-    const isAlreadyOpen = currentOpen === msg.id
-
-    setMsgExpanded(prev => ({ ...prev, [consultantId]: isAlreadyOpen ? null : msg.id }))
-
-    // Mark as read if manager is reading a consultant reply
-    if (!isAlreadyOpen && !msg.sent_by_manager && !msg.read_at) {
-      const res = await fetch(`/api/consultant-messages/${msg.id}/read`, { method: 'POST' })
-      if (res.ok) {
-        const { read_at } = await res.json()
-        setThreads(prev => ({
-          ...prev,
-          [consultantId]: (prev[consultantId] ?? []).map(m =>
-            m.id === msg.id ? { ...m, read_at } : m
-          ),
-        }))
-      }
-    }
-  }
-
-  async function handleMsgDelete(consultantId: string, msgId: string) {
-    setMsgDeleting(prev => ({ ...prev, [msgId]: true }))
-    const res = await fetch(`/api/consultant-messages?id=${msgId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setThreads(prev => ({
-        ...prev,
-        [consultantId]: (prev[consultantId] ?? []).filter(m => m.id !== msgId),
-      }))
-      // Collapse if the deleted message was open
-      setMsgExpanded(prev => ({
-        ...prev,
-        [consultantId]: prev[consultantId] === msgId ? null : prev[consultantId],
-      }))
-    }
-    setMsgDeleting(prev => ({ ...prev, [msgId]: false }))
-    setDeleteMsgTarget(null)
-  }
-
-  async function handleMsgDownload(consultantId: string, msg: ConsultantMessage, att: { name: string; path: string }) {
-    const res = await fetch(`/api/consultant-messages/${msg.id}/download`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: att.path, name: att.name }),
-    })
+  async function scarica(c: Consulente, m: ConsultantMessage, att: { name: string; path: string }) {
+    const res = await fetch(`/api/consultant-messages/${m.id}/download`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(att) })
     if (!res.ok) { toast({ title: 'Impossibile generare il link', variant: 'destructive' }); return }
     const { signedUrl, downloaded_at } = await res.json()
-    if (downloaded_at) {
-      setThreads(prev => ({
-        ...prev,
-        [consultantId]: (prev[consultantId] ?? []).map(m =>
-          m.id === msg.id ? { ...m, downloaded_at } : m
-        ),
-      }))
+    if (downloaded_at) setThread(t => ({ ...t, [c.id]: (t[c.id] ?? []).map(x => (x.id === m.id ? { ...x, downloaded_at } : x)) }))
+    const a = document.createElement('a'); a.href = signedUrl; a.download = att.name; document.body.appendChild(a); a.click(); a.remove()
+  }
+  async function eliminaMessaggio(c: Consulente, m: ConsultantMessage) {
+    if (!(await chiediConferma({ titolo: 'Eliminare il messaggio?', testo: m.attachments?.length ? "Anche l'allegato viene rimosso definitivamente." : 'Il messaggio sparisce anche per il consulente.' }))) return
+    const res = await fetch(`/api/consultant-messages?id=${m.id}`, { method: 'DELETE' })
+    if (!res.ok) { toast({ title: 'Eliminazione non riuscita', variant: 'destructive' }); return }
+    setThread(t => ({ ...t, [c.id]: (t[c.id] ?? []).filter(x => x.id !== m.id) }))
+    toast({ title: 'Messaggio eliminato' })
+  }
+
+  const fm = useUscita<StatoMsg>()
+  const NM = fm.dati
+  const [fase, setFase] = useState<'no' | 'pdf' | 'invio'>('no')
+  const setM = (x: Partial<StatoMsg>) => fm.setDati(d => (d ? { ...d, ...x } : d))
+  const totale = NM ? NM.file.reduce((s, f) => s + f.size, 0) : 0
+  async function invia() {
+    if (!NM || !NM.titolo.trim() || !NM.corpo.trim()) return
+    if (totale > MAX_BYTES) { toast({ title: 'Allegati oltre 10 MB', variant: 'destructive' }); return }
+    try {
+      const attachments: { name: string; path: string }[] = []
+      if (NM.file.length) {
+        // Tutti gli allegati diventano un unico PDF compresso, poi si carica.
+        setFase('pdf')
+        const pdf = await generateUnifiedPDF(NM.file)
+        setFase('invio')
+        const fd = new FormData(); fd.append('file', pdf); fd.append('consultantId', NM.cid)
+        const up = await fetch('/api/consultant-messages/upload', { method: 'POST', body: fd })
+        if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error ?? 'Caricamento non riuscito')
+        attachments.push({ name: pdf.name, path: (await up.json()).path })
+      } else setFase('invio')
+      const res = await fetch('/api/consultant-messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consultantId: NM.cid, title: NM.titolo.trim(), body: NM.corpo.trim(), attachments, reply_to_id: NM.risposta?.id ?? null }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Invio non riuscito')
+      await caricaThread(NM.cid)
+      fm.chiudi()
+      toast({ title: 'Messaggio inviato' })
+    } catch (e) {
+      toast({ title: 'Messaggio non inviato', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally {
+      setFase('no')
     }
-    const a = document.createElement('a')
-    a.href = signedUrl
-    a.download = att.name
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+  }
+
+  // ── Consulente: nuovo / modifica ──────────────────────────────────────
+  const ff = useUscita<StatoForm>()
+  const NF = ff.dati
+  const [salvando, setSalvando] = useState(false)
+  const [confElimina, setConfElimina] = useState(false)
+  const setF = (x: Partial<StatoForm>) => ff.setDati(d => (d ? { ...d, ...x } : d))
+  const userF = NF ? (NF.u != null ? NF.u : usernameDa(NF.t, (lista ?? []).map(c => c.username ?? ''))) : ''
+  const okF = !!NF && !!NF.t.trim() && !!userF
+  const cr = useUscita<StatoCredenziali>()
+
+  async function salva() {
+    if (!NF || !okF) return
+    setSalvando(true)
+    const campi = { full_name: NF.t.trim(), role: 'consulente_lavoro', consultant_restaurant_ids: NF.locali, can_view_hours: NF.ore, can_post_bulletin: false }
+    try {
+      const res = await fetch('/api/users', {
+        method: NF.id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(NF.id ? { id: NF.id, ...campi } : { ...campi, username: userF, password: NF.pw }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Salvataggio non riuscito')
+      if (NF.id && NF.pw) {
+        const r2 = await fetch('/api/users/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: NF.id, password: NF.pw }) })
+        if (!r2.ok) throw new Error((await r2.json().catch(() => ({}))).error ?? 'Password non aggiornata')
+      }
+      ff.chiudi()
+      await carica()
+      if (NF.pw) {
+        const c: StatoCredenziali = { nome: NF.t.trim(), user: userF, pw: NF.pw, modo: NF.id ? 'reset' : 'nuovo', chiede: false }
+        if (tCr.current) clearTimeout(tCr.current)
+        tCr.current = setTimeout(() => cr.apri(c), USCITA + 20)
+      } else toast({ title: `Dati di ${NF.t.trim()} aggiornati` })
+    } catch (e) {
+      toast({ title: NF.id ? 'Modifica non riuscita' : 'Consulente non creato', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally {
+      setSalvando(false)
+    }
+  }
+  async function elimina() {
+    if (!NF?.id) return
+    if (!confElimina) { setConfElimina(true); return }
+    setSalvando(true)
+    const res = await fetch(`/api/users?id=${NF.id}`, { method: 'DELETE' })
+    setSalvando(false)
+    if (!res.ok) { toast({ title: 'Eliminazione non riuscita', variant: 'destructive' }); return }
+    ff.chiudi(); setSel(null)
+    toast({ title: 'Consulente eliminato' })
+    carica()
+  }
+
+  // ── Dettaglio ──────────────────────────────────────────────────────────
+  const c = (lista ?? []).find(x => x.id === sel)
+  let d: DatiDettaglio | null = null
+  if (c) {
+    const msgs = thread[c.id] ?? []
+    // Messaggi principali dal più recente, risposte sotto il loro messaggio.
+    const top = msgs.filter(m => !m.reply_to_id).sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const risposte = (id: string) => msgs.filter(m => m.reply_to_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const ordinati = top.flatMap(m => [{ m, r: false }, ...risposte(m.id).map(x => ({ m: x, r: true }))])
+    const bacheca: ReactNode = (
+      <div className="flex flex-col">
+        <span className="pb-1.5 text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Bacheca privata · {msgs.length}</span>
+        {!(c.id in thread) && <span className="py-2 text-[13px] text-muted-foreground">Caricamento dei messaggi…</span>}
+        {c.id in thread && !msgs.length && <span className="py-2 text-[13px] text-muted-foreground">Nessun messaggio ancora.</span>}
+        <div className="flex flex-col gap-1.5">
+          {ordinati.map(({ m, r }) => {
+            const nl = !m.sent_by_manager && !m.read_at, on = aperto === m.id
+            return (
+              <div key={m.id} className={cn('rounded-[10px] border', r && 'ml-5', nl ? 'border-[oklch(0.8_0.06_180)] bg-[oklch(0.97_0.015_180)] dark:bg-[oklch(0.25_0.03_180)]' : 'border-border bg-background')}>
+                <button type="button" onClick={() => apriMessaggio(c, m)} className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left active:scale-[0.99]">
+                  <span className="mt-[5px] h-2 w-2 flex-none rounded-full" style={{ background: nl ? 'oklch(0.58 0.12 180)' : 'transparent' }} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className={cn('text-sm', nl ? 'font-semibold' : 'font-medium')}>{r ? '↳ ' : ''}{m.title}</span>
+                    <span className="text-xs text-muted-foreground">{m.sent_by_manager ? 'Da te' : 'Da ' + c.full_name} · {data(m.created_at)}{m.attachments?.length ? ' · allegato' : ''}</span>
+                  </span>
+                </button>
+                {on && (
+                  <div className="anim-swapin flex flex-col gap-2 border-t border-border px-3 pb-3 pt-2.5">
+                    <span className="whitespace-pre-wrap text-sm leading-[1.45]">{m.body}</span>
+                    {m.attachments?.map(a => (
+                      <button key={a.path} type="button" onClick={() => scarica(c, m, a)} className="flex h-10 items-center gap-2 self-start rounded-[8px] border border-line-strong px-3 text-[13px] font-medium active:scale-[0.98]">{a.name}</button>
+                    ))}
+                    {m.sent_by_manager && (m.read_at || m.downloaded_at) && (
+                      <span className="text-xs text-muted-foreground">{m.read_at ? 'Letto il ' + data(m.read_at) : ''}{m.read_at && m.downloaded_at ? ' · ' : ''}{m.downloaded_at ? 'allegato scaricato il ' + data(m.downloaded_at) : ''}</span>
+                    )}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => fm.apri({ cid: c.id, titolo: `Re: ${m.title}`, corpo: '', file: [], risposta: m })} className="flex h-10 items-center rounded-[8px] border border-line-strong px-3 text-[13px] font-medium active:scale-[0.98]">Rispondi</button>
+                      <button type="button" onClick={() => eliminaMessaggio(c, m)} className="flex h-10 items-center rounded-[8px] border border-[oklch(0.85_0.05_25)] px-3 text-[13px] font-medium text-neg active:scale-[0.98] dark:border-[oklch(0.45_0.08_25)]">Elimina</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+    d = {
+      titolo: c.full_name, sotto: 'Consulente del lavoro' + (c.username ? ' · ' + c.username : ''), tag: c.can_view_hours ? 'Presenze e ore' : 'Presenze', tono: 'tl',
+      sezioni: [{
+        h: 'Accesso', righe: [
+          { l: 'Ultimo accesso', v: data(c.last_active_at) },
+          { l: 'Locali autorizzati', v: (c.consultant_restaurant_ids ?? []).map(nomeLoc).filter(Boolean).join(', ') || 'Nessuno' },
+          { l: 'Report ore', v: c.can_view_hours ? 'Sì' : 'No' },
+        ],
+        coda: <div className="pt-4">{bacheca}</div>,
+      }],
+      azioni: [
+        { l: 'Nuovo messaggio', stile: 'contorno', onClick: () => fm.apri({ cid: c.id, titolo: '', corpo: '', file: [], risposta: null }) },
+        { l: 'Modifica', stile: 'nero', onClick: () => { setConfElimina(false); ff.apri({ id: c.id, t: c.full_name, u: c.username ?? '', pw: '', locali: c.consultant_restaurant_ids ?? [], ore: c.can_view_hours }) }, disabilitata: disabilitato },
+      ],
+    }
   }
 
   return (
-    <div className="mt-6">
-      {/* Section header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <BriefcaseBusiness className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Consulenti del Lavoro</h2>
-        </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-1.5 h-9 px-3 rounded-sm text-sm font-medium border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Nuovo Consulente
-        </button>
-      </div>
+    <div className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
+      <BarraAltro schede={schede} kpis={[{ l: 'Consulenti', v: lista ? String(lista.length) : '—' }, { l: 'Da leggere', v: String((lista ?? []).reduce((s, x) => s + nonLetti(x.id), 0)) }]}
+        nuovo={{ l: 'Nuovo consulente', disabilitato, onClick: () => { setConfElimina(false); ff.apri({ id: null, t: '', u: null, pw: generaPassword(), locali: [], ore: false }) } }} />
+      <GrigliaAltro>
+        <ElencoAltro
+          testate={[{ l: 'Consulente', a: 'left' }, { l: 'Messaggi', a: 'right' }, { l: 'Ultimo accesso', a: 'right' }, { l: 'Locali', a: 'right' }]}
+          colonne="minmax(0,1.4fr) 110px 110px 132px" righe={righe} scelta={sel}
+          onScegli={k => { if (tD.current) clearTimeout(tD.current); setEsceD(false); setSel(k); setAperto(null) }}
+          vuoto={lista ? { t: 'Nessun consulente', s: 'Crea l’accesso del consulente del lavoro con Nuovo consulente.' } : { t: 'Caricamento…', s: '' }}
+        />
+        <PannelloDettaglio d={d} chiave={`cons|${sel}`} esce={esceD} onChiudi={() => { setEsceD(true); if (tD.current) clearTimeout(tD.current); tD.current = setTimeout(() => { setSel(null); setEsceD(false) }, USCITA) }} />
+      </GrigliaAltro>
 
-      {loadingList && (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="border border-border rounded-md px-4 py-3 flex items-center justify-between gap-3">
-              <div className="space-y-1.5 flex-1 min-w-0">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-32" />
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <Skeleton className="h-7 w-7 rounded" />
-                <Skeleton className="h-7 w-7 rounded" />
-                <Skeleton className="h-7 w-7 rounded" />
-              </div>
+      <FoglioAltro aperto={!!NF} esce={ff.esce} onChiudi={() => ff.chiudi()} testata={<TestataFoglio titolo={NF?.id ? 'Modifica consulente' : 'Nuovo consulente'} onChiudi={() => ff.chiudi()} />}>
+        {NF && (
+          <CorpoFoglio>
+            <Campo etichetta="Nome e cognome"><Testo value={NF.t} onChange={v => setF({ t: v })} placeholder="Es. Studio Rossi" /></Campo>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo etichetta="Username">
+                {NF.id
+                  ? <div className={cn(CLASSE_INPUT, 'flex items-center bg-background font-mono font-medium text-muted-foreground')}>{userF}</div>
+                  : <Testo mono autoCapitalize="none" value={userF} onChange={v => setF({ u: v.toLowerCase().replace(/[^a-z0-9._-]/g, '') })} />}
+              </Campo>
+              <Campo etichetta="Password">
+                <div className="box-border flex h-[52px] items-center gap-0.5 rounded-[6px] border border-line-strong bg-background pl-3.5 pr-1">
+                  <span key={NF.pw || 'inv'} className={cn('anim-swapin min-w-0 flex-1 truncate font-mono text-lg font-medium tracking-[.06em]', !NF.pw && 'text-base tracking-normal text-muted-foreground')}>{NF.pw || 'invariata'}</span>
+                  <button type="button" aria-label="Rigenera password" onClick={() => setF({ pw: generaPassword() })} className="flex h-11 w-11 flex-none items-center justify-center rounded-[8px] text-[oklch(0.35_0.01_250)] active:scale-[0.94] dark:text-[oklch(0.8_0.01_250)]">{ICONA_RIGENERA}</button>
+                </div>
+              </Campo>
             </div>
-          ))}
-        </div>
-      )}
-      {!loadingList && consultants.length === 0 && (
-        <p className="text-sm text-muted-foreground">Nessun consulente creato.</p>
-      )}
+            <GruppoPillole etichetta="Locali autorizzati" opzioni={restaurants.map(r => ({ v: r.id, l: r.name }))} scelte={NF.locali}
+              onTocca={v => setF({ locali: NF.locali.includes(v) ? NF.locali.filter(x => x !== v) : [...NF.locali, v] })} />
+            <GruppoPillole etichetta="Report ore" opzioni={[{ v: 'si', l: 'Sì' }, { v: 'no', l: 'Solo presenze' }]} scelte={[NF.ore ? 'si' : 'no']} onTocca={v => setF({ ore: v === 'si' })} />
+            <Nota>{NF.id ? 'Rigenera la password solo se va cambiata: dopo il salvataggio la vedi per condividerla.' : 'La password è generata: la rivedi dopo il salvataggio per condividerla con il consulente.'}</Nota>
+            <PulsantiSalva onAnnulla={() => ff.chiudi()} onSalva={salva} etichetta={NF.id ? 'Salva modifiche' : 'Crea accesso'} attivo={okF} occupato={salvando}
+              elimina={NF.id ? { conferma: confElimina, onClick: elimina } : undefined} />
+          </CorpoFoglio>
+        )}
+      </FoglioAltro>
 
-      {/* Consultant list */}
-      <div className="space-y-2">
-        {consultants.map(c => {
-          const isOpen = expandedId === c.id
-          const thread = threads[c.id] ?? []
-          const hasUnread = thread.some(m => !m.sent_by_manager && !m.read_at)
-
-          return (
-            <div key={c.id} className="border border-border rounded-md overflow-hidden bg-card">
-              {/* Row */}
-              <div className="flex items-center gap-3 px-4 py-3">
-                {/* Left: name + meta */}
-                <button
-                  className="flex-1 min-w-0 flex flex-col items-start text-left"
-                  onClick={() => handleAccordionToggle(c.id)}
-                >
-                  <div className="flex items-center gap-2">
-                    {hasUnread && <span className="w-2 h-2 rounded-full bg-primary shrink-0" />}
-                    <span className="text-sm font-medium truncate">{c.full_name}</span>
-                    <span className="text-xs text-muted-foreground">({c.username})</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                    <Clock className="w-3 h-3" />
-                    Ultimo accesso: {fmtDate(c.last_active_at)}
-                  </span>
-                </button>
-
-                {/* Right: edit / delete / expand */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => openEdit(c)}
-                    className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
-                    title="Modifica"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(c)}
-                    className="p-1.5 rounded hover:bg-destructive/10 transition-colors text-destructive"
-                    title="Elimina"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleAccordionToggle(c.id)}
-                    className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
-                  >
-                    {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
-                </div>
+      <FoglioAltro aperto={!!NM} esce={fm.esce} onChiudi={() => { if (fase === 'no') fm.chiudi() }} testata={<TestataFoglio titolo={NM?.risposta ? 'Rispondi' : 'Nuovo messaggio'} onChiudi={() => { if (fase === 'no') fm.chiudi() }} />}>
+        {NM && (
+          <CorpoFoglio>
+            {NM.risposta && (
+              <div className="flex items-start gap-2 rounded-[10px] bg-background px-3.5 py-3 text-[13px]">
+                <span className="min-w-0 flex-1"><span className="text-muted-foreground">In risposta a </span><span className="font-medium">“{NM.risposta.title}”</span></span>
+                <button type="button" aria-label="Annulla risposta" onClick={() => setM({ risposta: null })} className="-m-1 flex h-8 w-8 flex-none items-center justify-center text-muted-foreground">{ICONA_X}</button>
               </div>
-
-              {/* Accordion — private message thread */}
-              {isOpen && (
-                <div className="border-t border-border bg-muted/30 p-4 space-y-4">
-                  {/* Compose toggle */}
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bacheca Privata</p>
-                    <button
-                      onClick={() => setComposeOpen(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
-                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                    >
-                      <Send className="w-3 h-3" />
-                      Nuovo messaggio
-                    </button>
-                  </div>
-
-                  {/* Compose form */}
-                  {composeOpen[c.id] && (
-                    <div className="border border-border rounded-md p-3 space-y-2.5 bg-card">
-                      {/* Reply context banner */}
-                      {replyTo[c.id] && (
-                        <div className="flex items-start gap-2 rounded-sm bg-primary/5 border border-primary/20 px-3 py-2 text-xs">
-                          <CornerDownLeft className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <span className="text-muted-foreground">In risposta a: </span>
-                            <span className="font-medium">&ldquo;{replyTo[c.id]!.title}&rdquo;</span>
-                            <p className="text-muted-foreground truncate mt-0.5">
-                              {replyTo[c.id]!.body.length > 80
-                                ? replyTo[c.id]!.body.slice(0, 80) + '…'
-                                : replyTo[c.id]!.body}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => setReplyTo(prev => ({ ...prev, [c.id]: null }))}
-                            className="shrink-0 text-muted-foreground hover:text-foreground"
-                            title="Annulla risposta"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
-                      <div className="space-y-1">
-                        <Label className="text-xs">Oggetto</Label>
-                        <Input
-                          value={composeTitle[c.id] ?? ''}
-                          onChange={e => setComposeTitle(prev => ({ ...prev, [c.id]: e.target.value }))}
-                          placeholder="Oggetto"
-                          className="h-8 text-sm rounded-sm"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Messaggio</Label>
-                        <textarea
-                          value={composeBody[c.id] ?? ''}
-                          onChange={e => setComposeBody(prev => ({ ...prev, [c.id]: e.target.value }))}
-                          rows={3}
-                          placeholder="Scrivi qui..."
-                          className="w-full rounded-sm border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Allegati <span className="text-muted-foreground font-normal">(opzionale, max 10 MB totali — unificati in un unico PDF)</span></Label>
-                        <input
-                          type="file"
-                          multiple
-                          disabled={composeMerging[c.id] || composeSending[c.id]}
-                          onChange={e => {
-                            const incoming = Array.from(e.target.files ?? [])
-                            // Reset immediately so the same file can be re-selected and
-                            // subsequent picks don't accumulate inside the DOM input itself.
-                            e.target.value = ''
-                            const accumulated = [...(composeFiles[c.id] ?? []), ...incoming]
-                            const total = accumulated.reduce((sum, f) => sum + f.size, 0)
-                            if (total > MAX_BYTES) {
-                              setComposeError(prev => ({ ...prev, [c.id]: `Il limite massimo è 10 MB (attuale: ${(total / 1024 / 1024).toFixed(1)} MB)` }))
-                              return
-                            }
-                            setComposeError(prev => ({ ...prev, [c.id]: null }))
-                            setComposeFiles(prev => ({ ...prev, [c.id]: accumulated }))
-                          }}
-                          className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-primary file:text-primary-foreground disabled:opacity-50"
-                        />
-                        {(composeFiles[c.id]?.length ?? 0) > 0 && !composeMerging[c.id] && (
-                          <ul className="mt-1 space-y-1">
-                            {composeFiles[c.id].map((file, idx) => (
-                              <li key={idx} className="flex items-center justify-between gap-2 rounded bg-muted/60 px-2 py-1">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
-                                  <span className="text-[10px] truncate">{file.name}</span>
-                                  <span className="text-[10px] text-muted-foreground shrink-0">({(file.size / 1024).toFixed(0)} KB)</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setComposeFiles(prev => ({
-                                    ...prev,
-                                    [c.id]: (prev[c.id] ?? []).filter((_, i) => i !== idx),
-                                  }))}
-                                  className="shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                                  title="Rimuovi"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </li>
-                            ))}
-                            <p className="text-[10px] text-muted-foreground pt-0.5">
-                              Totale: {(composeFiles[c.id].reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB · verranno unificati in un PDF
-                            </p>
-                          </ul>
-                        )}
-                        {composeMerging[c.id] && (
-                          <p className="text-[10px] text-warn animate-pulse">
-                            Elaborazione e unificazione file in corso...
-                          </p>
-                        )}
-                      </div>
-                      {composeError[c.id] && <p className="text-xs text-destructive">{composeError[c.id]}</p>}
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => setComposeOpen(prev => ({ ...prev, [c.id]: false }))}
-                          disabled={composeMerging[c.id] || composeSending[c.id]}
-                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Annulla
-                        </button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleSendMessage(c.id)}
-                          disabled={composeMerging[c.id] || composeSending[c.id] || !composeTitle[c.id]?.trim() || !composeBody[c.id]?.trim()}
-                          className="h-7 text-xs"
-                        >
-                          {composeMerging[c.id] ? 'Elaborazione...' : composeSending[c.id] ? 'Invio...' : 'Invia'}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Message thread */}
-                  {threadLoading[c.id] ? (
-                    <p className="text-xs text-muted-foreground">Caricamento messaggi...</p>
-                  ) : thread.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Nessun messaggio ancora.</p>
-                  ) : (() => {
-                    // Build threaded display order: top-level newest-first,
-                    // replies oldest-first directly below their parent.
-                    const topLevel = thread
-                      .filter(m => !m.reply_to_id)
-                      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                    const replyMap: Record<string, ConsultantMessage[]> = {}
-                    thread.filter(m => !!m.reply_to_id).forEach(m => {
-                      const pid = m.reply_to_id!
-                      if (!replyMap[pid]) replyMap[pid] = []
-                      replyMap[pid].push(m)
-                    })
-                    Object.values(replyMap).forEach(arr =>
-                      arr.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-                    )
-                    const displayList = topLevel.flatMap(msg => [
-                      { msg, isReply: false },
-                      ...(replyMap[msg.id] ?? []).map(r => ({ msg: r, isReply: true })),
-                    ])
-
-                    return (
-                      <div className="space-y-2">
-                        {displayList.map(({ msg, isReply }) => {
-                          const isExpanded = msgExpanded[c.id] === msg.id
-                          const fromConsultant = !msg.sent_by_manager
-                          const unread = fromConsultant && !msg.read_at
-
-                          return (
-                            <div
-                              key={msg.id}
-                              className={isReply ? 'ml-6 pl-3 border-l-2 border-primary/20' : ''}
-                            >
-                              <div className={`border rounded overflow-hidden ${unread ? 'border-primary/40 bg-primary/5' : 'border-border bg-background'}`}>
-                                <div className="flex items-center gap-1 pr-2">
-                                  {/* Expand trigger */}
-                                  <button
-                                    onClick={() => handleMsgExpand(c.id, msg)}
-                                    className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/50 transition-colors"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        {unread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                                        {isReply && <CornerDownLeft className="w-3 h-3 text-primary/50 shrink-0" />}
-                                        <p className="text-xs font-medium truncate">{msg.title}</p>
-                                      </div>
-                                      <p className="text-[11px] text-muted-foreground">
-                                        {fromConsultant ? `Da ${c.full_name}` : 'Da te'} · {fmtDate(msg.created_at)}
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      {msg.attachments?.length > 0 && <Paperclip className="w-3 h-3 text-muted-foreground" />}
-                                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-                                    </div>
-                                  </button>
-                                  {/* Reply */}
-                                  <button
-                                    onClick={() => handleReply(c.id, msg)}
-                                    className="shrink-0 p-1.5 rounded transition-colors text-muted-foreground hover:text-primary"
-                                    title="Rispondi"
-                                  >
-                                    <CornerDownLeft className="w-3.5 h-3.5" />
-                                  </button>
-                                  {/* Delete */}
-                                  <button
-                                    onClick={() => setDeleteMsgTarget({ consultantId: c.id, msg })}
-                                    disabled={msgDeleting[msg.id]}
-                                    className="shrink-0 p-1.5 rounded transition-colors disabled:opacity-50 text-destructive hover:text-destructive"
-                                    title="Elimina messaggio"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-
-                                {isExpanded && (
-                                  <div className="px-3 pb-3 pt-2 border-t border-border space-y-2">
-                                    <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
-
-                                    {msg.attachments?.length > 0 && (
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Allegati</p>
-                                        {msg.attachments.map((att, i) => (
-                                          <button
-                                            key={i}
-                                            onClick={() => handleMsgDownload(c.id, msg, att)}
-                                            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                                          >
-                                            <Paperclip className="w-3 h-3" />
-                                            {att.name}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    <div className="space-y-0.5 pt-0.5">
-                                      {msg.read_at && msg.sent_by_manager && (
-                                        <p className="text-[10px] text-muted-foreground">Letto il: {fmtDate(msg.read_at)}</p>
-                                      )}
-                                      {msg.downloaded_at && msg.sent_by_manager && (
-                                        <p className="text-[10px] text-muted-foreground">Allegato scaricato il: {fmtDate(msg.downloaded_at)}</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Create / Edit modal */}
-      <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
-        <DialogContent onInteractOutside={e => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>{editTarget ? 'Modifica Consulente' : 'Nuovo Consulente del Lavoro'}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Nome completo</Label>
-              <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Es. Mario Rossi" className="h-10 rounded-sm" />
-            </div>
-
-            {!editTarget && (
-              <>
-                <div className="space-y-1.5">
-                  <Label>Username</Label>
-                  <Input value={formUsername} onChange={e => setFormUsername(e.target.value)} placeholder="Es. mario.rossi" className="h-10 rounded-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Password</Label>
-                  <Input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)} placeholder="Min. 6 caratteri" className="h-10 rounded-sm" />
-                </div>
-              </>
             )}
-
-            {editTarget && (
-              <>
-                <p className="text-xs text-muted-foreground">Username: <span className="font-mono">{editTarget.username}</span> (non modificabile)</p>
-                <div className="space-y-1.5">
-                  <Label>Nuova password <span className="text-muted-foreground font-normal">(opzionale)</span></Label>
-                  <div className="relative">
-                    <Input
-                      type={showNewPwd ? 'text' : 'password'}
-                      value={formNewPassword}
-                      onChange={e => setFormNewPassword(e.target.value)}
-                      placeholder="Lascia vuoto per non modificare"
-                      className="h-10 rounded-sm pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPwd(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      tabIndex={-1}
-                    >
-                      {showNewPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+            <Campo etichetta="Oggetto"><Testo value={NM.titolo} onChange={v => setM({ titolo: v })} placeholder="Es. Buste paga di ottobre" /></Campo>
+            <Campo etichetta="Messaggio">
+              <textarea value={NM.corpo} onChange={e => setM({ corpo: e.target.value })} placeholder="Scrivi al consulente…" className={cn(CLASSE_INPUT, 'h-[110px] resize-none py-3 text-[15px] leading-[1.45]')} />
+            </Campo>
+            <Campo etichetta="Allegati">
+              <label className={cn('flex h-[52px] cursor-pointer items-center justify-center rounded-[6px] border border-dashed border-line-strong text-sm font-medium text-muted-foreground active:scale-[0.98]', fase !== 'no' && 'pointer-events-none opacity-40')}>
+                + Aggiungi file o foto
+                <input type="file" multiple className="hidden" onChange={e => {
+                  const nuovi = Array.from(e.target.files ?? []); e.target.value = ''
+                  const tutti = [...NM.file, ...nuovi]
+                  if (tutti.reduce((s, f) => s + f.size, 0) > MAX_BYTES) { toast({ title: 'Il limite degli allegati è 10 MB in totale', variant: 'destructive' }); return }
+                  setM({ file: tutti })
+                }} />
+              </label>
+              {NM.file.map((f, i) => (
+                <div key={f.name + i} className="flex h-10 items-center gap-2 rounded-[8px] bg-background pl-3 pr-1 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{Math.round(f.size / 1024)} KB</span>
+                  <button type="button" aria-label="Togli" onClick={() => setM({ file: NM.file.filter((_, j) => j !== i) })} className="flex h-8 w-8 items-center justify-center text-muted-foreground">{ICONA_X}</button>
                 </div>
-              </>
-            )}
+              ))}
+            </Campo>
+            <Nota>{fase === 'pdf' ? 'Unisco gli allegati in un PDF…' : 'Gli allegati vengono uniti in un unico PDF (massimo 10 MB). Il consulente riceve il messaggio nella sua area.'}</Nota>
+            <PulsantiSalva onAnnulla={() => fm.chiudi()} onSalva={invia} etichetta={fase === 'pdf' ? 'Preparo il PDF…' : fase === 'invio' ? 'Invio…' : 'Invia'} attivo={!!NM.titolo.trim() && !!NM.corpo.trim()} occupato={fase !== 'no'} />
+          </CorpoFoglio>
+        )}
+      </FoglioAltro>
 
-            <div className="space-y-1.5">
-              <Label>Ristoranti autorizzati</Label>
-              <RestaurantMultiSelect restaurants={restaurants} selected={formRestaurants} onChange={setFormRestaurants} emptyLabel="Nessun ristorante selezionato" />
-            </div>
-
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formHours}
-                onChange={e => setFormHours(e.target.checked)}
-                className="w-4 h-4 rounded accent-primary"
-              />
-              <span className="text-sm">Visualizzazione report ore</span>
-            </label>
-          </div>
-
-          {formError && (
-            <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{formError}</p>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)} disabled={formSaving} className="h-10 rounded-sm">
-              Annulla
-            </Button>
-            <Button onClick={handleSave} disabled={formSaving} className="h-10 rounded-sm">
-              {formSaving ? 'Salvataggio...' : editTarget ? 'Salva modifiche' : 'Crea consulente'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete message confirmation */}
-      <Dialog open={!!deleteMsgTarget} onOpenChange={open => { if (!open) setDeleteMsgTarget(null) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Elimina messaggio</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Sei sicuro di voler eliminare <strong>&ldquo;{deleteMsgTarget?.msg.title}&rdquo;</strong>?
-            {(deleteMsgTarget?.msg.attachments?.length ?? 0) > 0
-              ? " L'allegato verrà rimosso definitivamente."
-              : ' Questa azione è irreversibile.'}
-          </p>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteMsgTarget(null)}
-              disabled={!!deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id]}
-              className="h-10 rounded-sm"
-            >
-              Annulla
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteMsgTarget && handleMsgDelete(deleteMsgTarget.consultantId, deleteMsgTarget.msg.id)}
-              disabled={!!deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id]}
-              className="h-10 rounded-sm"
-            >
-              {deleteMsgTarget && msgDeleting[deleteMsgTarget.msg.id] ? 'Eliminazione...' : 'Conferma'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirm dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Elimina consulente</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Stai per eliminare <strong>{deleteTarget?.full_name}</strong>. Questa azione è irreversibile e rimuoverà anche tutti i messaggi.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteLoading} className="h-10 rounded-sm">
-              Annulla
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading} className="h-10 rounded-sm">
-              {deleteLoading ? 'Eliminazione...' : 'Elimina'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <FoglioCredenziali cr={cr.dati} esce={cr.esce} onChiudi={() => cr.chiudi()} onRigenera={() => {}} onImposta={() => {}} />
     </div>
   )
 }

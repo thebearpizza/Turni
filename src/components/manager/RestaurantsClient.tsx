@@ -1,587 +1,288 @@
 'use client'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { TimeInput } from '@/components/ui/time-input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Plus, QrCode, Pencil, Trash2, MapPin, Clock, X } from 'lucide-react'
-import QRCode from 'qrcode'
-import type { Restaurant, ShiftSlot, Department } from '@/types'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
+import { CampoNumerico } from '@/components/ui/tastierino'
+import { CampoOrario } from '@/components/ui/rotella'
 import { DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
-import { chiediConferma } from '@/components/shared/Conferma'
+import type { Department, Restaurant, ShiftSlot } from '@/types'
+import {
+  BarraAltro, ElencoAltro, PannelloDettaglio, GrigliaAltro, FoglioAltro, TestataFoglio, CorpoFoglio, Campo, Testo,
+  GruppoPillole, Nota, PulsantiSalva, PilloleSenzaTutti, useUscita, useDoppioTocco, ICONA_MIRINO,
+  type RigaAltro, type DatiDettaglio,
+} from '@/components/altro/comuni'
+import { FoglioQr } from '@/components/altro/QrLocale'
 
-// 0=Dom..6=Sab — mostrati come Lun→Dom per convenzione
-const DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 0] as const
+// Ristoranti (MTAltro.dc.html, sec "ristoranti"): un locale alla volta
+// dalle pillole; elenco delle fasce di servizio (orario, persone minime,
+// notturna); dettaglio del locale con coordinate GPS e raggio di
+// timbratura, giorni di chiusura da toccare, QR timbratura, Modifica ed
+// Elimina a due tocchi; foglio Nuovo/Modifica ristorante con "Usa la mia
+// posizione". Sul telefono elenco e dettaglio scorrono insieme.
 
-interface Props {
-  initialRestaurants: Restaurant[]
-}
+const RAGGIO_TIMBRATURA = '100 m' // stesso valore di /api/scan (RAGGIO_MAX)
+const GIORNI = [1, 2, 3, 4, 5, 6, 0] // Lun → Dom (0 = domenica)
+const RE_GPS = /^\s*-?\d{1,2}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?\s*$/
 
-const emptySlotForm = () => ({
-  department: '' as Department | '',
-  name: '',
-  start_time: '',
-  end_time: '',
-  required_count: 1,
-  days_of_week: [] as number[],  // vuoto = tutti i giorni
-})
+const hhmm = (t: string) => t.slice(0, 5)
+const minuti = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+const notturna = (s: { start_time: string; end_time: string }) => minuti(s.end_time) <= minuti(s.start_time)
 
-export function RestaurantsClient({ initialRestaurants }: Props) {
+interface Props { initialRestaurants: Restaurant[]; initialFasce: ShiftSlot[] }
+interface StatoRist { id: string | null; t: string; a: string; g: string; rilevo: boolean }
+interface StatoFascia { id: string | null; rep: Department | null; nome: string; a: string; b: string; n: number; gg: number[] }
+
+export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
   const { isPending } = useAccountStatus()
-  const [restaurants, setRestaurants] = useState<Restaurant[]>(initialRestaurants)
+  const [rist, setRist] = useState(initialRestaurants)
+  const [fasce, setFasce] = useState(initialFasce)
+  const [loc, setLoc] = useState<string | null>(initialRestaurants[0]?.id ?? null)
+  const [sel, setSel] = useState<string | null>(null)
+  const [nuove, setNuove] = useState<string[]>([])
+  const doppio = useDoppioTocco()
+  const { stato: sk, avvia, pronto } = useScheletro(false)
 
-  // ── Restaurant form ───────────────────────────────────────────────────
-  const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState<Restaurant | null>(null)
-  const [name, setName] = useState('')
-  const [address, setAddress] = useState('')
-  const [latitude, setLatitude] = useState('')
-  const [longitude, setLongitude] = useState('')
-  const [closingDays, setClosingDays] = useState<number[]>([])
-  const [loading, setLoading] = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const locali = useMemo(() => rist.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [rist])
+  const R = rist.find(r => r.id === loc) ?? rist[0] ?? null
+  const colore = locali.find(l => l.id === R?.id)?.colore ?? 'var(--line-strong)'
+  const FA = R ? fasce.filter(s => s.restaurant_id === R.id).sort((x, y) => DEPARTMENTS.indexOf(x.department) - DEPARTMENTS.indexOf(y.department) || x.start_time.localeCompare(y.start_time)) : []
 
-  // ── ShiftSlots dialog ─────────────────────────────────────────────────
-  const [slotsRestaurant, setSlotsRestaurant] = useState<Restaurant | null>(null)
-  const [slots, setSlots] = useState<ShiftSlot[]>([])
-  const [slotsLoading, setSlotsLoading] = useState(false)
-  const [slotForm, setSlotForm] = useState(emptySlotForm())
-  const [editingSlot, setEditingSlot] = useState<ShiftSlot | null>(null)
-  const [slotSaving, setSlotSaving] = useState(false)
-  const [slotError, setSlotError] = useState<string | null>(null)
+  const righe: RigaAltro[] = FA.map(s => ({
+    key: s.id, a: `${s.department} · ${s.name}`, as: R?.name ?? '', lc: colore,
+    b: `${hhmm(s.start_time)}–${hhmm(s.end_time)}`, c: `${s.required_count} ${s.required_count === 1 ? 'persona' : 'persone'}`,
+    t: notturna(s) ? 'Notturno (+1)' : 'Standard', tono: notturna(s) ? 'warn' : 'neu', nuova: nuove.includes(s.id),
+  }))
+  const chiusi = R?.closing_days ?? []
+  const kpis = [{ l: 'Fasce', v: String(FA.length) }, { l: 'Chiuso', v: chiusi.length ? GIORNI.filter(g => chiusi.includes(g)).map(g => WEEK_DAYS_SHORT[g]).join(', ') : 'Mai' }]
 
-  // ── Helpers ───────────────────────────────────────────────────────────
-  function toggleClosingDay(day: number) {
-    setClosingDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+  function scegliLoc(id: string) { setLoc(id); setSel(null); doppio.reset(); avvia(); pronto() }
+
+  // ── Giorni di chiusura: si salvano al tocco ────────────────────────────
+  async function toccaGiorno(g: number) {
+    if (!R) return
+    const prima = R.closing_days ?? [], dopo = prima.includes(g) ? prima.filter(x => x !== g) : [...prima, g]
+    setRist(rs => rs.map(r => (r.id === R.id ? { ...r, closing_days: dopo } : r)))
+    const { error } = await createClient().from('restaurants').update({ closing_days: dopo }).eq('id', R.id)
+    if (error) {
+      setRist(rs => rs.map(r => (r.id === R.id ? { ...r, closing_days: prima } : r)))
+      toast({ title: 'Giorni di chiusura non salvati', description: error.message, variant: 'destructive' })
+    } else toast({ title: dopo.includes(g) ? `Chiuso il ${WEEK_DAYS_SHORT[g].toLowerCase()}` : `Aperto il ${WEEK_DAYS_SHORT[g].toLowerCase()}` })
+  }
+
+  // ── Ristorante: nuovo / modifica / elimina ─────────────────────────────
+  const fr = useUscita<StatoRist>()
+  const [salvando, setSalvando] = useState(false)
+  const NR = fr.dati
+  const setR = (x: Partial<StatoRist>) => fr.setDati(d => (d ? { ...d, ...x } : d))
+  const gpsOk = !!NR && RE_GPS.test(NR.g)
+  const okR = !!NR && !!NR.t.trim() && !!NR.a.trim() && gpsOk
+  const coord = (r: Restaurant) => (r.latitude != null && r.longitude != null ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}` : '')
+
+  function posizione() {
+    if (!navigator.geolocation) { toast({ title: 'Posizione non disponibile su questo dispositivo', variant: 'destructive' }); return }
+    setR({ rilevo: true })
+    navigator.geolocation.getCurrentPosition(
+      p => fr.setDati(d => (d ? { ...d, g: `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`, rilevo: false } : d)),
+      () => { setR({ rilevo: false }); toast({ title: 'Posizione non rilevata', description: 'Inserisci le coordinate a mano.', variant: 'destructive' }) },
+      { enableHighAccuracy: true, timeout: 6000 },
     )
   }
 
-  function toggleSlotDay(day: number) {
-    setSlotForm(f => ({
-      ...f,
-      days_of_week: f.days_of_week.includes(day)
-        ? f.days_of_week.filter(d => d !== day)
-        : [...f.days_of_week, day],
-    }))
-  }
-
-  function openCreate() {
-    setEditing(null)
-    setName(''); setAddress(''); setLatitude(''); setLongitude('')
-    setClosingDays([])
-    setSaveError(null)
-    setShowForm(true)
-  }
-
-  function openEdit(r: Restaurant) {
-    setEditing(r)
-    setName(r.name)
-    setAddress(r.address ?? '')
-    setLatitude(r.latitude != null ? String(r.latitude) : '')
-    setLongitude(r.longitude != null ? String(r.longitude) : '')
-    setClosingDays(r.closing_days ?? [])
-    setSaveError(null)
-    setShowForm(true)
-  }
-
-  async function handleSave() {
-    setLoading(true)
-    setSaveError(null)
+  async function salvaRist() {
+    if (!NR || !okR) return
+    const [lat, lng] = NR.g.split(',').map(v => +(+v.trim()).toFixed(6))
+    const campi = { name: NR.t.trim(), address: NR.a.trim(), latitude: lat, longitude: lng }
     const supabase = createClient()
-    const lat = latitude !== '' ? parseFloat(latitude) : null
-    const lng = longitude !== '' ? parseFloat(longitude) : null
-
-    if (editing) {
-      const { data, error } = await supabase
-        .from('restaurants')
-        .update({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays })
-        .eq('id', editing.id)
-        .select()
-        .single()
-      if (error) { setSaveError(error.message); setLoading(false); return }
-      if (data) setRestaurants(rs => rs.map(r => r.id === data.id ? data : r))
-    } else {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase
-        .from('restaurants')
-        .insert({ name, address: address || null, latitude: lat, longitude: lng, closing_days: closingDays, owner_id: user?.id ?? null })
-        .select()
-        .single()
-      if (error) { setSaveError(error.message); setLoading(false); return }
-      if (data) {
-        setRestaurants(rs => [...rs, data])
-        // Un manager con scope limitato (managed_restaurant_ids non nullo)
-        // deve poter gestire subito il ristorante appena creato: senza
-        // aggiungerlo al proprio scope resterebbe fuori dalla propria
-        // gestione, invisibile ai propri report. Solo il proprietario della
-        // piattaforma (managed_restaurant_ids null) non ne ha bisogno: vede
-        // già tutto.
-        const { data: myProfile } = await supabase
-          .from('profiles')
-          .select('managed_restaurant_ids')
-          .eq('id', user!.id)
-          .single()
-        const managed = myProfile?.managed_restaurant_ids as string[] | null
-        if (managed !== null) {
-          await supabase
-            .from('profiles')
-            .update({ managed_restaurant_ids: [...(managed ?? []), data.id] })
-            .eq('id', user!.id)
-        }
+    setSalvando(true)
+    try {
+      if (NR.id) {
+        const { data, error } = await supabase.from('restaurants').update(campi).eq('id', NR.id).select().single()
+        if (error || !data) throw new Error(error?.message)
+        setRist(rs => rs.map(r => (r.id === data.id ? (data as Restaurant) : r)))
+        fr.chiudi()
+        toast({ title: 'Ristorante aggiornato' })
+      } else {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('restaurants').insert({ ...campi, closing_days: [], owner_id: user?.id ?? null }).select().single()
+        if (error || !data) throw new Error(error?.message)
+        // Un manager con perimetro limitato deve poter gestire subito il
+        // locale appena creato: lo si aggiunge ai suoi locali (il
+        // proprietario della piattaforma, null, vede già tutto).
+        const { data: io } = await supabase.from('profiles').select('managed_restaurant_ids').eq('id', user!.id).single()
+        const managed = io?.managed_restaurant_ids as string[] | null
+        if (managed !== null) await supabase.from('profiles').update({ managed_restaurant_ids: [...(managed ?? []), data.id] }).eq('id', user!.id)
+        setRist(rs => [...rs, data as Restaurant])
+        fr.chiudi()
+        setLoc(data.id); setSel(null)
+        toast({ title: 'Ristorante creato' })
       }
+    } catch (e) {
+      toast({ title: NR.id ? 'Modifica non riuscita' : 'Ristorante non creato', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally {
+      setSalvando(false)
     }
-
-    setShowForm(false)
-    setLoading(false)
   }
 
-  async function handleDelete(id: string) {
-    if (!(await chiediConferma({ titolo: 'Eliminare il ristorante?', testo: "L'azione è irreversibile." }))) return
-    setDeleting(id)
+  async function eliminaRist(r: Restaurant) {
+    const { error } = await createClient().from('restaurants').delete().eq('id', r.id)
+    if (error) { toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' }); return }
+    const resto = rist.filter(x => x.id !== r.id)
+    setRist(resto)
+    setLoc(resto[0]?.id ?? null); setSel(null)
+    toast({ title: `Ristorante ${r.name} eliminato` })
+  }
+
+  // ── Fasce di servizio ──────────────────────────────────────────────────
+  const ff = useUscita<StatoFascia>()
+  const NF = ff.dati
+  const setF = (x: Partial<StatoFascia>) => ff.setDati(d => (d ? { ...d, ...x } : d))
+  const okF = !!NF && !!NF.rep && !!NF.nome.trim() && !!NF.a && !!NF.b && NF.n >= 1
+  async function salvaFascia() {
+    if (!NF || !okF || !R) return
+    const campi = { department: NF.rep, name: NF.nome.trim(), start_time: NF.a, end_time: NF.b, required_count: NF.n, days_of_week: NF.gg }
     const supabase = createClient()
-    const { error } = await supabase.from('restaurants').delete().eq('id', id)
-    if (error) {
-      toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' })
-      setDeleting(null)
-      return
+    setSalvando(true)
+    const { data, error } = NF.id
+      ? await supabase.from('shift_slots').update(campi).eq('id', NF.id).select().single()
+      : await supabase.from('shift_slots').insert({ ...campi, restaurant_id: R.id }).select().single()
+    setSalvando(false)
+    if (error || !data) { toast({ title: 'Fascia non salvata', description: error?.message, variant: 'destructive' }); return }
+    const s = data as ShiftSlot
+    setFasce(xs => (NF.id ? xs.map(x => (x.id === s.id ? s : x)) : [...xs, s]))
+    if (!NF.id) { setNuove(n => [...n, s.id]); setSel(s.id) }
+    ff.chiudi()
+    toast({ title: NF.id ? 'Fascia aggiornata' : 'Fascia aggiunta' })
+  }
+  async function eliminaFascia(s: ShiftSlot) {
+    const { error } = await createClient().from('shift_slots').delete().eq('id', s.id)
+    if (error) { toast({ title: 'Eliminazione non riuscita', description: error.message, variant: 'destructive' }); return }
+    setFasce(xs => xs.filter(x => x.id !== s.id))
+    setSel(null)
+    toast({ title: 'Fascia eliminata' })
+  }
+
+  const qr = useUscita<Restaurant>()
+
+  // ── Dettaglio del locale ───────────────────────────────────────────────
+  let d: DatiDettaglio | null = null
+  if (R) {
+    const s = FA.find(x => x.id === sel)
+    const giorni = s?.days_of_week?.length ? GIORNI.filter(g => s.days_of_week.includes(g)).map(g => WEEK_DAYS_SHORT[g]).join(', ') : 'Tutti'
+    const btn = 'flex h-11 items-center justify-center rounded-[8px] border text-sm font-semibold active:scale-[0.98]'
+    d = {
+      titolo: R.name, sotto: R.address || 'Indirizzo non impostato', tag: R.is_demo ? 'Demo' : 'Attivo', tono: R.is_demo ? 'warn' : 'ok',
+      stats: [{ l: 'Coordinate GPS', v: coord(R) || '—' }, { l: 'Raggio timbratura', v: RAGGIO_TIMBRATURA }],
+      sezioni: [
+        ...(s ? [{
+          h: `Fascia selezionata · ${s.department} ${s.name.toLowerCase()}`,
+          righe: [
+            { l: 'Orario', v: `${hhmm(s.start_time)}–${hhmm(s.end_time)}${notturna(s) ? ' (+1)' : ''}` },
+            { l: 'Persone minime', v: String(s.required_count) },
+            { l: 'Giorni', v: giorni },
+            { l: 'Usata da', v: 'generazione turni e coperture' },
+          ],
+          coda: (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" className={`${btn} border-line-strong`}
+                onClick={() => ff.apri({ id: s.id, rep: s.department, nome: s.name, a: hhmm(s.start_time), b: hhmm(s.end_time), n: s.required_count, gg: s.days_of_week ?? [] })}>Modifica fascia</button>
+              <button type="button" onClick={() => doppio.tocca('f' + s.id, () => eliminaFascia(s))}
+                className={doppio.armato === 'f' + s.id ? `${btn} border-[oklch(0.45_0.1_25)] bg-[oklch(0.45_0.1_25)] text-white` : `${btn} border-[oklch(0.85_0.05_25)] text-neg dark:border-[oklch(0.45_0.08_25)]`}>
+                {doppio.armato === 'f' + s.id ? 'Conferma' : 'Elimina fascia'}
+              </button>
+            </div>
+          ),
+        }] : []),
+        { h: 'Giorni di chiusura · tocca per cambiare', righe: [] },
+      ],
+      giorni: GIORNI.map(g => ({ l: WEEK_DAYS_SHORT[g], on: chiusi.includes(g), onClick: () => toccaGiorno(g) })),
+      azioni: [
+        { l: 'QR timbratura', stile: 'contorno', onClick: () => qr.apri(R) },
+        { l: 'Modifica', stile: 'contorno', onClick: () => fr.apri({ id: R.id, t: R.name, a: R.address ?? '', g: coord(R), rilevo: false }) },
+        doppio.armato === 'r' + R.id
+          ? { l: 'Conferma', stile: 'negPieno', onClick: () => doppio.tocca('r' + R.id, () => eliminaRist(R)) }
+          : { l: 'Elimina', stile: 'neg', onClick: () => doppio.tocca('r' + R.id, () => {}) },
+      ],
     }
-    setRestaurants(rs => rs.filter(r => r.id !== id))
-    setDeleting(null)
   }
 
-  async function downloadQR(restaurant: Restaurant) {
-    const url = await QRCode.toDataURL(restaurant.qr_secret, {
-      width: 400, margin: 2,
-      color: { dark: '#0f172a', light: '#ffffff' },
-    })
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `QR-${restaurant.name.replace(/\s+/g, '-')}.png`
-    a.click()
-  }
-
-  // ── Shift slots management ────────────────────────────────────────────
-  async function openSlots(r: Restaurant) {
-    setSlotsRestaurant(r)
-    setSlotsLoading(true)
-    setSlotForm(emptySlotForm())
-    setEditingSlot(null)
-    setSlotError(null)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('shift_slots')
-      .select('*')
-      .eq('restaurant_id', r.id)
-      .order('department')
-      .order('start_time')
-    setSlots((data ?? []) as ShiftSlot[])
-    setSlotsLoading(false)
-  }
-
-  function startEditSlot(s: ShiftSlot) {
-    setEditingSlot(s)
-    setSlotForm({
-      department: s.department,
-      name:       s.name,
-      start_time: s.start_time.slice(0, 5),
-      end_time:   s.end_time.slice(0, 5),
-      required_count: s.required_count,
-      days_of_week:   s.days_of_week,
-    })
-    setSlotError(null)
-  }
-
-  function cancelEditSlot() {
-    setEditingSlot(null)
-    setSlotForm(emptySlotForm())
-    setSlotError(null)
-  }
-
-  async function handleSaveSlot() {
-    if (!slotsRestaurant || !slotForm.department || !slotForm.name || !slotForm.start_time || !slotForm.end_time) return
-    setSlotSaving(true); setSlotError(null)
-    const supabase = createClient()
-
-    if (editingSlot) {
-      const { data, error } = await supabase
-        .from('shift_slots')
-        .update({
-          department:     slotForm.department,
-          name:           slotForm.name,
-          start_time:     slotForm.start_time,
-          end_time:       slotForm.end_time,
-          required_count: slotForm.required_count,
-          days_of_week:   slotForm.days_of_week,
-        })
-        .eq('id', editingSlot.id)
-        .select()
-        .single()
-      if (error) { setSlotError(error.message) }
-      else if (data) {
-        setSlots(prev => prev.map(s => s.id === editingSlot.id ? data as ShiftSlot : s))
-        setEditingSlot(null)
-        setSlotForm(emptySlotForm())
-      }
-    } else {
-      const { data, error } = await supabase
-        .from('shift_slots')
-        .insert({
-          restaurant_id:  slotsRestaurant.id,
-          department:     slotForm.department,
-          name:           slotForm.name,
-          start_time:     slotForm.start_time,
-          end_time:       slotForm.end_time,
-          required_count: slotForm.required_count,
-          days_of_week:   slotForm.days_of_week,
-        })
-        .select()
-        .single()
-      if (error) { setSlotError(error.message) }
-      else if (data) {
-        setSlots(prev => [...prev, data as ShiftSlot])
-        setSlotForm(emptySlotForm())
-      }
-    }
-    setSlotSaving(false)
-  }
-
-  async function handleDeleteSlot(id: string) {
-    const supabase = createClient()
-    const { error } = await supabase.from('shift_slots').delete().eq('id', id)
-    if (error) {
-      setSlotError(error.message)
-      return
-    }
-    setSlots(prev => prev.filter(s => s.id !== id))
-    if (editingSlot?.id === id) cancelEditSlot()
-  }
-
-  function isOvernight(start: string, end: string) {
-    const [sh, sm] = start.split(':').map(Number)
-    const [eh, em] = end.split(':').map(Number)
-    return eh * 60 + em <= sh * 60 + sm
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="titolo-pagina">Ristoranti</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{restaurants.length} ristoranti</p>
-        </div>
-        <Button onClick={openCreate} size="sm" disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-          <Plus className="w-4 h-4" /> Nuovo Ristorante
-        </Button>
-      </div>
-
-      {restaurants.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Nessun ristorante. Aggiungine uno per iniziare.
-          </CardContent>
-        </Card>
+    <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
+      <BarraAltro
+        locali={locali.length ? <PilloleSenzaTutti locali={locali} scelto={R?.id ?? null} onScegli={scegliLoc} /> : undefined}
+        kpis={R ? kpis : []} nuovo={{ l: 'Nuovo ristorante', onClick: () => fr.apri({ id: null, t: '', a: '', g: '', rilevo: false }), disabilitato: isPending }}
+      />
+      {R ? (
+        <GrigliaAltro inLinea>
+          <ElencoAltro inLinea
+            testate={[{ l: 'Fascia di servizio', a: 'left' }, { l: 'Orario', a: 'right' }, { l: 'Minimo', a: 'right' }, { l: 'Tipo', a: 'right' }]}
+            colonne="minmax(0,1.2fr) 110px 110px 110px" righe={righe} scelta={sel} onScegli={k => setSel(s => (s === k ? null : k))}
+            vuoto={{ t: 'Nessuna fascia di servizio', s: 'Le fasce dicono quante persone servono per reparto: le usa la generazione dei turni.' }}
+            coda={
+              <div className="p-3">
+                <button type="button" onClick={() => ff.apri({ id: null, rep: null, nome: '', a: '', b: '', n: 1, gg: [] })}
+                  className="flex h-12 w-full items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.98]">
+                  + Aggiungi fascia
+                </button>
+              </div>
+            }
+          />
+          <PannelloDettaglio inLinea d={d} chiave={`rist|${R.id}`} esce={false} onChiudi={() => setSel(null)} />
+        </GrigliaAltro>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {restaurants.map(r => (
-            <Card key={r.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-base">{r.name}</CardTitle>
-                  <Badge variant="outline" className="text-xs shrink-0">Attivo</Badge>
-                </div>
-                {r.address && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <MapPin className="w-3 h-3" /> {r.address}
-                  </p>
-                )}
-                {r.closing_days?.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Chiuso: {r.closing_days.map(d => WEEK_DAYS_SHORT[d]).join(', ')}
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" size="sm" onClick={() => downloadQR(r)} className="flex-1">
-                    <QrCode className="w-4 h-4" /> QR Code
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openSlots(r)} className="flex-1">
-                    <Clock className="w-4 h-4" /> Fasce orarie
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openEdit(r)}>
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="outline" size="sm"
-                    onClick={() => handleDelete(r.id)}
-                    disabled={deleting === r.id}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="anim-swapin flex flex-1 flex-col items-center justify-center gap-1 rounded-[12px] border border-dashed border-line-strong px-6 text-center">
+          <span className="text-[17px] font-semibold">Nessun ristorante</span>
+          <span className="text-sm text-muted-foreground">Aggiungine uno con Nuovo ristorante per iniziare.</span>
         </div>
       )}
+      {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
 
-      {/* ── Edit / Create restaurant ────────────────────────────────────── */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editing ? 'Modifica Ristorante' : 'Nuovo Ristorante'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nome *</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="La Bella Italia" />
-            </div>
-            <div className="space-y-2">
-              <Label>Indirizzo</Label>
-              <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="Via Roma 1, Milano" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Latitudine</Label>
-                <Input type="number" step="0.000001" value={latitude}
-                  onChange={e => setLatitude(e.target.value)} placeholder="41.902782" />
-              </div>
-              <div className="space-y-2">
-                <Label>Longitudine</Label>
-                <Input type="number" step="0.000001" value={longitude}
-                  onChange={e => setLongitude(e.target.value)} placeholder="12.496366" />
-              </div>
-            </div>
-
-            {/* Giorno/i di chiusura ordinaria */}
-            <div className="space-y-2">
-              <Label>Giorno/i di chiusura settimanale</Label>
-              <p className="text-xs text-muted-foreground -mt-1">
-                Il giorno in cui il ristorante non apre. L'IA non genererà turni in questi giorni.
-              </p>
+      <FoglioAltro aperto={!!NR} esce={fr.esce} onChiudi={() => fr.chiudi()} testata={<TestataFoglio titolo={NR?.id ? 'Modifica ristorante' : 'Nuovo ristorante'} onChiudi={() => fr.chiudi()} />}>
+        {NR && (
+          <CorpoFoglio>
+            <Campo etichetta="Nome del locale"><Testo value={NR.t} onChange={v => setR({ t: v })} placeholder="Es. Chiaia" /></Campo>
+            <Campo etichetta="Indirizzo"><Testo value={NR.a} onChange={v => setR({ a: v })} placeholder="Es. Via Chiaia 45, Napoli" /></Campo>
+            <Campo etichetta="Coordinate GPS">
               <div className="flex flex-wrap gap-2">
-                {DAY_OPTIONS.map(d => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => toggleClosingDay(d)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                      closingDays.includes(d)
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background border-border text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {WEEK_DAYS_SHORT[d]}
-                  </button>
-                ))}
+                <Testo mono inputMode="decimal" value={NR.g} onChange={v => setR({ g: v.replace(/[^0-9.,\s-]/g, '') })} placeholder="40.8390, 14.2440" className="flex-[1_1_220px]" />
+                <button type="button" onClick={posizione} disabled={NR.rilevo}
+                  className="box-border flex h-[52px] flex-[1_0_auto] items-center justify-center gap-2 whitespace-nowrap rounded-[6px] border border-line-strong px-3.5 text-sm font-medium active:scale-[0.98]">
+                  {ICONA_MIRINO}{NR.rilevo ? 'Rilevo…' : 'Usa la mia posizione'}
+                </button>
               </div>
+            </Campo>
+            <Nota>Usa la tua posizione se sei nel locale, altrimenti inserisci le coordinate a mano. Il QR di timbratura viene generato subito; fasce e giorni di chiusura li imposti dopo.</Nota>
+            <PulsantiSalva onAnnulla={() => fr.chiudi()} onSalva={salvaRist} etichetta={NR.id ? 'Salva modifiche' : 'Crea ristorante'} attivo={okR} occupato={salvando} />
+          </CorpoFoglio>
+        )}
+      </FoglioAltro>
+
+      <FoglioAltro aperto={!!NF} esce={ff.esce} onChiudi={() => ff.chiudi()} testata={<TestataFoglio titolo={NF?.id ? 'Modifica fascia' : 'Nuova fascia'} onChiudi={() => ff.chiudi()} />}>
+        {NF && (
+          <CorpoFoglio>
+            <GruppoPillole etichetta="Reparto" opzioni={DEPARTMENTS.map(v => ({ v, l: v }))} scelte={NF.rep ? [NF.rep] : []} onTocca={v => setF({ rep: v })} />
+            <Campo etichetta="Nome della fascia"><Testo value={NF.nome} onChange={v => setF({ nome: v })} placeholder="Es. Pranzo, Cena, Apertura" /></Campo>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo etichetta="Inizio"><CampoOrario value={NF.a} onChange={v => setF({ a: v })} className="h-[52px] rounded-[6px] border-line-strong text-xl" /></Campo>
+              <Campo etichetta="Fine"><CampoOrario value={NF.b} onChange={v => setF({ b: v })} className="h-[52px] rounded-[6px] border-line-strong text-xl" /></Campo>
             </div>
-          </div>
-          {saveError && (
-            <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{saveError}</p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={loading || !name.trim()}>
-              {loading ? 'Salvataggio...' : 'Salva'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <Campo etichetta="Persone minime">
+              <CampoNumerico value={NF.n} onChange={v => setF({ n: v })} decimali={0} min={1} max={30} className="h-[52px] rounded-[6px] border-line-strong" />
+            </Campo>
+            <GruppoPillole etichetta="Giorni (vuoto = tutti)" griglia7 opzioni={GIORNI.map(g => ({ v: String(g), l: WEEK_DAYS_SHORT[g] }))} scelte={NF.gg.map(String)}
+              onTocca={v => { const g = Number(v); setF({ gg: NF.gg.includes(g) ? NF.gg.filter(x => x !== g) : [...NF.gg, g] }) }} />
+            <Nota>{NF.a && NF.b && notturna({ start_time: NF.a, end_time: NF.b })
+              ? 'Fascia notturna: finisce il giorno dopo (+1) ma resta nello stesso giorno lavorativo.'
+              : 'La generazione dei turni copre ogni fascia con almeno queste persone.'}</Nota>
+            <PulsantiSalva onAnnulla={() => ff.chiudi()} onSalva={salvaFascia} etichetta={NF.id ? 'Salva modifiche' : 'Aggiungi fascia'} attivo={okF} occupato={salvando} />
+          </CorpoFoglio>
+        )}
+      </FoglioAltro>
 
-      {/* ── Fasce orarie (ShiftSlots) ───────────────────────────────────── */}
-      <Dialog open={!!slotsRestaurant} onOpenChange={open => { if (!open) setSlotsRestaurant(null) }}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Fasce orarie — {slotsRestaurant?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-5">
-            <p className="text-sm text-muted-foreground">
-              Le fasce orarie definiscono quante persone servono per reparto in ogni turno.
-              L'IA le usa come riferimento per generare i turni automaticamente.
-            </p>
-
-            {/* Elenco slot esistenti */}
-            {slotsLoading ? (
-              <div className="w-full rounded-md border overflow-hidden">
-                <div className="h-8 bg-secondary" />
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 px-2 py-2 border-t border-border">
-                    <Skeleton className="h-3.5 w-16" />
-                    <Skeleton className="h-3.5 w-20" />
-                    <Skeleton className="h-3.5 w-16" />
-                    <Skeleton className="h-3.5 w-6" />
-                    <Skeleton className="h-3.5 w-24" />
-                  </div>
-                ))}
-              </div>
-            ) : slots.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">Nessuna fascia configurata.</p>
-            ) : (
-              <div className="w-full rounded-md border overflow-auto max-h-[240px]">
-                <table className="border-collapse text-xs w-full">
-                  <thead>
-                    <tr className="bg-secondary text-white">
-                      <th className="px-2 py-1.5 text-left">Reparto</th>
-                      <th className="px-2 py-1.5 text-left">Nome</th>
-                      <th className="px-2 py-1.5 text-center">Orario</th>
-                      <th className="px-2 py-1.5 text-center">N.</th>
-                      <th className="px-2 py-1.5 text-left">Giorni</th>
-                      <th className="px-2 py-1.5"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {slots.map(s => (
-                      <tr key={s.id} className={`even:bg-background dark:even:bg-secondary ${editingSlot?.id === s.id ? 'ring-2 ring-inset ring-primary/30' : ''}`}>
-                        <td className="px-2 py-1 border border-border">{s.department}</td>
-                        <td className="px-2 py-1 border border-border">{s.name}</td>
-                        <td className="px-2 py-1 border border-border text-center whitespace-nowrap tabular-nums">
-                          {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
-                          {isOvernight(s.start_time, s.end_time) && (
-                            <span className="ml-0.5 text-[10px] text-warn" title="Termina il giorno successivo">(+1)</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1 border border-border text-center">{s.required_count}</td>
-                        <td className="px-2 py-1 border border-border text-xs text-muted-foreground">
-                          {s.days_of_week.length === 0
-                            ? 'Tutti'
-                            : [1,2,3,4,5,6,0].filter(d => s.days_of_week.includes(d)).map(d => WEEK_DAYS_SHORT[d]).join(', ')
-                          }
-                        </td>
-                        <td className="px-2 py-1 border border-border text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <Button
-                              variant="ghost" size="icon"
-                              onClick={() => startEditSlot(s)}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost" size="icon"
-                              onClick={() => handleDeleteSlot(s.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Form aggiunta/modifica slot */}
-            <div className="border-t border-border pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">
-                  {editingSlot ? `Modifica: ${editingSlot.name}` : 'Aggiungi fascia oraria'}
-                </Label>
-                {editingSlot && (
-                  <Button variant="ghost" size="sm" onClick={cancelEditSlot} className="h-7 text-xs gap-1 text-muted-foreground">
-                    <X className="w-3 h-3" /> Annulla
-                  </Button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Reparto *</Label>
-                  <Select
-                    value={slotForm.department}
-                    onValueChange={v => setSlotForm(f => ({ ...f, department: v as Department }))}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Seleziona reparto" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Nome fascia *</Label>
-                  <Input
-                    value={slotForm.name}
-                    onChange={e => setSlotForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="es. Pranzo, Cena, Apertura"
-                    className="h-9 text-sm"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Ora inizio *</Label>
-                  <TimeInput value={slotForm.start_time}
-                    onChange={v => setSlotForm(f => ({ ...f, start_time: v }))}
-                    className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Ora fine *</Label>
-                  <TimeInput value={slotForm.end_time}
-                    onChange={v => setSlotForm(f => ({ ...f, end_time: v }))}
-                    className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Persone *</Label>
-                  <Input type="number" min={1} max={20} value={slotForm.required_count}
-                    onChange={e => setSlotForm(f => ({ ...f, required_count: parseInt(e.target.value) || 1 }))}
-                    className="h-9 text-sm" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Giorni <span className="font-normal text-muted-foreground">(vuoto = tutti)</span></Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {DAY_OPTIONS.map(d => (
-                    <button
-                      key={d} type="button"
-                      onClick={() => toggleSlotDay(d)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        slotForm.days_of_week.includes(d)
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background border-border text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      {WEEK_DAYS_SHORT[d]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {slotForm.start_time && slotForm.end_time && isOvernight(slotForm.start_time, slotForm.end_time) && (
-                <p className="text-xs text-warn">
-                  ⚠ Turno notturno: termina il giorno successivo (+1)
-                </p>
-              )}
-              {slotError && <p className="text-xs text-destructive">{slotError}</p>}
-              <Button
-                size="sm" onClick={handleSaveSlot}
-                disabled={slotSaving || !slotForm.department || !slotForm.name || !slotForm.start_time || !slotForm.end_time}
-              >
-                {editingSlot
-                  ? <><Pencil className="w-4 h-4" /> {slotSaving ? 'Salvataggio…' : 'Salva modifiche'}</>
-                  : <><Plus className="w-4 h-4" /> {slotSaving ? 'Salvataggio…' : 'Aggiungi fascia'}</>
-                }
-              </Button>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSlotsRestaurant(null)}>Chiudi</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <FoglioQr locale={qr.dati} aperto={!!qr.dati} esce={qr.esce} onChiudi={() => qr.chiudi()} />
     </div>
   )
 }

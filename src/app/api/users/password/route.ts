@@ -13,12 +13,20 @@ export async function PUT(request: Request) {
 
   const { data: callerProfile } = await supabase
     .from('profiles')
-    .select('role, managed_restaurant_ids')
+    .select('role, managed_restaurant_ids, is_direttore, restaurant_id, account_status')
     .eq('id', caller.id)
     .single()
 
-  if (callerProfile?.role !== 'manager') {
+  // Manager, oppure direttore (capo servizio con is_direttore) confinato al
+  // proprio locale: nel design anche il direttore ha "Reimposta password"
+  // in Dipendenti.
+  const isManager = callerProfile?.role === 'manager'
+  const isDirettore = callerProfile?.role === 'capo_servizio' && callerProfile.is_direttore === true
+  if (!isManager && !isDirettore) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  }
+  if ((callerProfile as { account_status?: string }).account_status === 'pending') {
+    return NextResponse.json({ error: 'Account in attesa di approvazione. La demo è in sola lettura.' }, { status: 403 })
   }
 
   // ── Parse body ──────────────────────────────────────────────────────────
@@ -51,12 +59,20 @@ export async function PUT(request: Request) {
     )
   }
 
+  // Il direttore: solo dipendenti e capi servizio del suo locale (mai
+  // consulenti, cassieri inclusi come per Dipendenti, mai sé stesso qui).
+  if (!isManager) {
+    if (targetProfile.role === 'consulente_lavoro' || targetProfile.restaurant_id === null || targetProfile.restaurant_id !== callerProfile!.restaurant_id || targetId === caller.id) {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+    }
+  }
+
   // Un manager gestisce solo gli utenti dei propri ristoranti — un
   // consulente del lavoro condiviso fra più aziende non deve poter avere
   // la password reimpostata da un manager che non è "suo".
   // managed_restaurant_ids null = proprietario della piattaforma, vede tutto.
-  const managedIds = callerProfile.managed_restaurant_ids as string[] | null
-  if (managedIds !== null) {
+  const managedIds = callerProfile!.managed_restaurant_ids as string[] | null
+  if (isManager && managedIds !== null) {
     const targetInScope = targetProfile.role === 'consulente_lavoro'
       ? (targetProfile.consultant_restaurant_ids ?? []).some((id: string) => managedIds.includes(id))
       : targetProfile.restaurant_id !== null && managedIds.includes(targetProfile.restaurant_id)

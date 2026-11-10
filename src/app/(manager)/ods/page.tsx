@@ -1,9 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
-import { OdsManagerClient } from '@/components/manager/OdsManagerClient'
+import { OdsManagerClient, type CompletamentoRiga, type PersonaOds } from '@/components/manager/OdsManagerClient'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import type { OdsTask } from '@/types'
 
 const TZ = 'Europe/Rome'
 
+// Gli ODS ripartono alle 04:00: prima di quell'ora "oggi" è ancora ieri.
 function getOdsCutoff(): string {
   const now = new Date()
   const romeHour = parseInt(formatInTimeZone(now, TZ, 'H'), 10)
@@ -18,75 +20,42 @@ export default async function OdsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, department, restaurant_id, can_post_bulletin, is_direttore')
+    .select('role, department, restaurant_id, is_direttore')
     .eq('id', user!.id)
     .single()
 
-  const cutoff = getOdsCutoff()
+  const isManager = profile?.role === 'manager'
+  const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  const vista = isManager ? 'manager' : isDirettore ? 'direttore' : 'capo'
+  // Direttore e capo servizio: sempre e solo il proprio locale.
+  const locale = isManager ? null : profile?.restaurant_id ?? null
 
-  const isCapo = profile?.role === 'capo_servizio'
-  const restaurantFilter = isCapo ? profile?.restaurant_id : null
+  let qTask = supabase.from('ods_tasks').select('*, assignee:profiles!assigned_to(id, full_name)').order('created_at', { ascending: false })
+  let qStaff = supabase.from('profiles').select('id, full_name, department, restaurant_id').in('role', ['dipendente', 'capo_servizio']).order('full_name')
+  let qRist = supabase.from('restaurants').select('id, name').order('name')
+  if (locale) { qTask = qTask.eq('restaurant_id', locale); qStaff = qStaff.eq('restaurant_id', locale); qRist = qRist.eq('id', locale) }
 
-  let tasksQuery = supabase
-    .from('ods_tasks')
-    .select('*, assignee:profiles!assigned_to(id, full_name)')
-    .order('created_at', { ascending: false })
-
-  // Direttore / capo_servizio: hard-scope to their restaurant
-  if (restaurantFilter) {
-    tasksQuery = tasksQuery.eq('restaurant_id', restaurantFilter)
-  }
-
-  let completionsQuery = supabase
-    .from('ods_completions')
-    .select('task_id, user_id, completed_at, profile:profiles!user_id(id, full_name)')
-    .gte('completed_at', cutoff)
-
-  // Dipendenti for assigned_to dropdown (scoped to restaurant)
-  let staffQuery = supabase
-    .from('profiles')
-    .select('id, full_name, department')
-    .in('role', ['dipendente', 'capo_servizio'])
-    .order('full_name')
-
-  if (restaurantFilter) {
-    staffQuery = staffQuery.eq('restaurant_id', restaurantFilter)
-  }
-
-  const [
-    { data: rawTasks },
-    { data: rawCompletions },
-    { data: staff },
-    { data: restaurants },
-  ] = await Promise.all([
-    tasksQuery,
-    completionsQuery,
-    staffQuery,
-    profile?.role === 'manager'
-      ? supabase.from('restaurants').select('id, name').order('name')
-      : Promise.resolve({ data: [] }),
+  const [{ data: tasks }, { data: completions }, { data: staff }, { data: restaurants }] = await Promise.all([
+    qTask,
+    supabase.from('ods_completions').select('task_id, user_id, completed_at, profile:profiles!user_id(id, full_name)').gte('completed_at', getOdsCutoff()),
+    qStaff,
+    qRist,
   ])
 
-  // Scope completions to visible task IDs — prevents capo_servizio from
-  // receiving completion records that belong to other restaurants.
-  const taskIdSet = new Set((rawTasks ?? []).map(t => (t as { id: string }).id))
-  const completions = restaurantFilter
-    ? (rawCompletions ?? []).filter(c => taskIdSet.has((c as { task_id: string }).task_id))
-    : rawCompletions
+  // Solo i completamenti degli ODS visibili: il capo servizio non riceve
+  // quelli degli altri locali.
+  const ids = new Set((tasks ?? []).map(t => (t as { id: string }).id))
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <OdsManagerClient
-        initialTasks={(rawTasks as unknown as import('@/types').OdsTask[]) ?? []}
-        completions={(completions ?? []) as unknown as (import('@/types').OdsCompletion & { profile?: { id: string; full_name: string } | null })[]}
-        staff={staff ?? []}
-        restaurants={restaurants ?? []}
-        currentUserId={user!.id}
-        currentUserRole={profile?.role ?? 'capo_servizio'}
-        currentDepartment={profile?.department ?? null}
-        currentRestaurantId={profile?.restaurant_id ?? null}
-        currentIsDirettore={profile?.is_direttore ?? false}
-      />
-    </div>
+    <OdsManagerClient
+      vista={vista}
+      initialTasks={(tasks ?? []) as unknown as OdsTask[]}
+      completions={((completions ?? []) as unknown as CompletamentoRiga[]).filter(c => ids.has(c.task_id))}
+      staff={(staff ?? []) as PersonaOds[]}
+      restaurants={restaurants ?? []}
+      currentUserId={user!.id}
+      currentDepartment={profile?.department ?? null}
+      currentRestaurantId={locale}
+    />
   )
 }

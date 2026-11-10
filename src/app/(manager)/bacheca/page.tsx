@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import { BachecaClient } from '@/components/manager/BachecaClient'
-import { QrLocaleRiga } from '@/components/manager/QrLocaleRiga'
+import { BachecaClient, type ComunicatoRiga, type LetturaRiga } from '@/components/manager/BachecaClient'
+import { RUOLI_BACHECA, type PersonaStaff } from '@/components/altro/destinatari'
+
+const SELECT = '*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name, role)'
 
 export default async function BachecaPage() {
   const supabase = await createClient()
@@ -8,53 +10,46 @@ export default async function BachecaPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, can_post_bulletin, is_direttore, restaurant:restaurants(name, qr_secret)')
+    .select('role, restaurant_id, can_post_bulletin, is_direttore, department, restaurant:restaurants(id, name, qr_secret)')
     .eq('id', user!.id)
     .single()
 
+  const isManager = profile?.role === 'manager'
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
+  // Manager e direttore: scheda Bacheca di Altro (MTAltro, il direttore con
+  // un solo locale). Capo servizio: Bacheca con QR del locale e messaggi.
+  const vista = isManager ? 'manager' : isDirettore ? 'direttore' : 'capo'
+  const locale = isManager ? null : profile?.restaurant_id ?? null
 
-  let dipendentiQuery = supabase
-    .from('profiles')
-    .select('id, full_name, role')
-    .in('role', ['capo_servizio', 'dipendente'])
-    .order('full_name')
+  let qRist = supabase.from('restaurants').select('id, name').order('name')
+  let qStaff = supabase.from('profiles').select('id, full_name, role, is_direttore, restaurant_id, department').in('role', RUOLI_BACHECA).order('full_name')
+  if (locale) { qRist = qRist.eq('id', locale); qStaff = qStaff.eq('restaurant_id', locale) }
 
-  if (isDirettore && profile?.restaurant_id) {
-    dipendentiQuery = dipendentiQuery.eq('restaurant_id', profile.restaurant_id)
-  }
+  const [{ data: restaurants }, { data: bulletins }, { data: staff }] = await Promise.all([
+    qRist,
+    supabase.from('bulletins').select(SELECT).order('created_at', { ascending: false }).limit(100),
+    qStaff,
+  ])
 
-  const [{ data: restaurants }, { data: bulletins }, { data: dipendenti }] =
-    await Promise.all([
-      supabase.from('restaurants').select('id, name').order('name'),
-      supabase.from('bulletins')
-        .select('*, restaurant:restaurants(id, name), author:profiles!created_by(id, full_name)')
-        .order('created_at', { ascending: false })
-        .limit(50),
-      dipendentiQuery,
-    ])
+  const ids = (bulletins ?? []).map(b => b.id as string)
+  const { data: reads } = ids.length
+    ? await supabase.from('bulletin_reads').select('bulletin_id, user_id, read_at').in('bulletin_id', ids)
+    : { data: [] }
 
-  const canPost = profile?.role === 'manager' ||
-    (profile?.role === 'capo_servizio' && profile.can_post_bulletin)
-
-  const locale = (Array.isArray(profile?.restaurant) ? profile?.restaurant[0] : profile?.restaurant) as { name: string; qr_secret: string | null } | null | undefined
-  const qr = profile?.role === 'capo_servizio' && locale?.qr_secret
-    ? <QrLocaleRiga nome={locale.name} qrSecret={locale.qr_secret} />
-    : undefined
+  const rest = Array.isArray(profile?.restaurant) ? profile?.restaurant[0] : profile?.restaurant
+  const canPost = isManager || isDirettore || (profile?.role === 'capo_servizio' && profile.can_post_bulletin === true)
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-4 pt-1">
-      <BachecaClient
-        initialBulletins={bulletins ?? []}
-        restaurants={restaurants ?? []}
-        dipendenti={dipendenti ?? []}
-        currentUserId={user!.id}
-        currentUserRole={profile?.role ?? 'capo_servizio'}
-        currentRestaurantId={profile?.restaurant_id ?? null}
-        canPost={canPost ?? false}
-        isDirettore={isDirettore}
-        intestazione={qr}
-      />
-    </div>
+    <BachecaClient
+      vista={vista}
+      initialBulletins={(bulletins ?? []) as unknown as ComunicatoRiga[]}
+      initialReads={(reads ?? []) as LetturaRiga[]}
+      restaurants={restaurants ?? []}
+      staff={(staff ?? []) as PersonaStaff[]}
+      currentUserId={user!.id}
+      currentRestaurantId={locale}
+      canPost={canPost}
+      qr={rest ? { name: (rest as { name: string }).name, qr_secret: (rest as { qr_secret: string | null }).qr_secret ?? null } : null}
+    />
   )
 }
