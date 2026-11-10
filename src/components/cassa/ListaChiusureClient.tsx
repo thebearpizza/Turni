@@ -62,7 +62,7 @@ export function ListaChiusureClient({ restaurant }: { restaurant: { id: string; 
     return () => { sb.removeChannel(ch) }
   }, [carica])
 
-  const stato = (r: Riga): [string, Tono] => r.stato !== 'confermata' ? ['In verifica', 'warn'] : revisione.has(r.id) ? ['In revisione', 'warn'] : ['Confermata', 'ok']
+  const stato = (r: Riga): [string, Tono] => r.stato !== 'confermata' ? ['In bozza', 'warn'] : revisione.has(r.id) ? ['In revisione', 'warn'] : ['Confermata', 'ok']
   const apri = (r: Riga) => router.push(`/cassa/chiusura?restaurant_id=${restaurant?.id}&data=${r.data}`)
   const colonne = tel ? 'grid-cols-[56px_1fr_auto]' : 'grid-cols-[minmax(0,1.3fr)_140px_140px_128px]'
 

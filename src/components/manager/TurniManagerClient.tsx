@@ -39,6 +39,7 @@ import { AiScheduleDraftView } from './AiScheduleDraftView'
 // turno è subito visibile ai dipendenti.
 
 const SELECT_TURNI = '*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)'
+const ETICHETTA_ASSENZA_GRIGLIA: Record<string, string> = { malattia: 'Malattia', ferie: 'Ferie', assenza_ingiustificata: 'Assente' }
 
 type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null; role?: string | null; weekly_hours_target?: number | null }
 type RestaurantItem = { id: string; name: string }
@@ -90,7 +91,10 @@ export function TurniManagerClient({
   // Come nel prototipo si guarda un locale alla volta (il primo); "Tutti i
   // locali" resta perché le pillole condivise lo mostrano sempre.
   const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
-  const [loc, setLoc] = useState<string | null>(() => isManager ? (restaurants[0]?.id ?? null) : null)
+  // Locali scelti nelle pillole, a selezione multipla (vuoto = tutti): si
+  // può lavorare su più locali insieme, come deciso dal gestore.
+  const [locs, setLocs] = useState<string[]>(() => isManager && restaurants[0] ? [restaurants[0].id] : [])
+  const loc = locs.length === 1 ? locs[0] : null
   const [reps, setReps] = useState<string[]>([])
   const [vista, setVista] = useState<'week' | 'day'>('week')
   const [giornoSel, setGiornoSel] = useState(() => Math.max(0, giorniSettimana(lunediDi(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))).indexOf(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))))
@@ -139,16 +143,20 @@ export function TurniManagerClient({
     q = scopeTurnsQuery(q, scope, currentUserId)
     const [{ data, error }, ass] = await Promise.all([
       q,
-      isCapo && currentRestaurantId
-        ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').eq('restaurant_id', currentRestaurantId).lte('start_date', fine).gte('end_date', lun)
-        : Promise.resolve({ data: null }),
+      // Assenze approvate della settimana per tutti (griglia e timeline):
+      // il manager le vede su tutti i suoi locali (RLS), gli altri sul proprio.
+      (isManager
+        ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').lte('start_date', fine).gte('end_date', lun)
+        : currentRestaurantId
+          ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').eq('restaurant_id', currentRestaurantId).lte('start_date', fine).gte('end_date', lun)
+          : Promise.resolve({ data: null })),
     ])
     if (error) { toast({ title: 'Caricamento dei turni non riuscito', description: error.message, variant: 'destructive' }); return false }
     caricate.current.add(lun)
     setTurns(p => mergeTurns(p, (data ?? []) as unknown as Turn[]))
     if (ass.data) setAssenze(p => [...p, ...(ass.data as AssenzaReparto[])])
     return true
-  }, [currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, isCapo])
+  }, [currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, isManager])
 
   async function vaiASettimana(lun: string) {
     setLunedi(lun)
@@ -157,13 +165,13 @@ export function TurniManagerClient({
     await caricaSettimana(lun)
     scheletroPronto()
   }
-  function cambiaLocale(id: string | null) {
-    setLoc(id); setReps([])
+  function cambiaLocali(ids: string[]) {
+    setLocs(ids); setReps([])
     avviaScheletro(); scheletroPronto()
   }
 
   // ── Dati della vista ─────────────────────────────────────────────────
-  const staffLoc = isManager && loc ? staff.filter(s => s.restaurant_id === loc) : staff
+  const staffLoc = isManager && locs.length ? staff.filter(s => s.restaurant_id && locs.includes(s.restaurant_id)) : staff
   const reparti = [...new Set(staffLoc.map(s => s.department).filter((d): d is string => !!d))]
     .sort((a, b) => pesoReparto(a) - pesoReparto(b) || a.localeCompare(b))
   const E = reps.length ? staffLoc.filter(s => s.department && reps.includes(s.department)) : staffLoc
@@ -192,12 +200,13 @@ export function TurniManagerClient({
     sotto: [s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? ''), isManager && !loc ? nomeLocale(s.restaurant_id) : ''].filter(Boolean).join(' · '),
     obiettivo: s.weekly_hours_target ?? 40,
     celle: giorni.map(g => perCella.get(`${s.id}|${g}`) ?? []),
+    assenze: giorni.map(g => { const a = assenze.find(x => x.user_id === s.id && x.start_date <= g && x.end_date >= g && x.type !== 'riposo'); return a ? ETICHETTA_ASSENZA_GRIGLIA[a.type] ?? 'Assente' : null }),
   }))
   const gruppiTimeline: GruppoTimeline[] = perReparto(s => ({ id: s.id, nome: s.full_name, turni: perCella.get(`${s.id}|${giorni[giornoSel]}`) ?? [] }))
   const dipendentiFoglio = staffLoc
     .slice().sort((a, b) => pesoReparto(a.department) - pesoReparto(b.department) || a.full_name.localeCompare(b.full_name, 'it'))
     .map(s => ({ id: s.id, nome: s.full_name, rep: s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? '') }))
-  const sottoFoglio = (loc ? nomeLocale(loc) : isManager ? 'Tutti i locali' : nomeLocale(currentRestaurantId) || 'Il tuo locale')
+  const sottoFoglio = (loc ? nomeLocale(loc) : isManager ? (locs.length ? locs.map(nomeLocale).join(', ') : 'Tutti i locali') : nomeLocale(currentRestaurantId) || 'Il tuo locale')
 
   // ── Scritture ────────────────────────────────────────────────────────
   const inputPer = (userId: string, date: string, x: Partial<TurnInput>): TurnInput => {
@@ -445,7 +454,7 @@ export function TurniManagerClient({
         <div data-sk-keep="" className={cn('flex min-w-0 items-center gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', tel ? '-mx-4 flex-[1_1_100%] px-4' : 'flex-[0_1_auto]')}>
           {multiLoc && (
             <>
-              <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => cambiaLocale(ids[0] ?? null)} className="mx-0 flex-none overflow-visible px-0" />
+              <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={locs} onCambia={cambiaLocali} className="mx-0 flex-none overflow-visible px-0" />
               <span className="h-7 w-px flex-none bg-[oklch(0.88_0.01_250)] dark:bg-border" style={{ margin: '0 4px' }} />
             </>
           )}

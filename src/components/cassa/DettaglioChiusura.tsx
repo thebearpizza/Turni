@@ -133,7 +133,7 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
   const nomeCat = (id: string | null) => categorie.find(c => c.id === id)?.nome
 
   const statoBadge = pendente ? <Pillola tono="warn" className="px-3.5 py-2 text-[13px] normal-case tracking-normal">In revisione</Pillola>
-    : appenaInviata ? <Pillola tono="warn" className="px-3.5 py-2 text-[13px] normal-case tracking-normal">In attesa di verifica</Pillola>
+    : appenaInviata ? <Pillola tono="ok" className="px-3.5 py-2 text-[13px] normal-case tracking-normal">Inviata</Pillola>
     : <Pillola tono="ok" className="px-3.5 py-2 text-[13px] normal-case tracking-normal">Confermata</Pillola>
   const ora = formatInTimeZone(new Date(chiusura.updated_at), TZ, 'HH:mm')
 

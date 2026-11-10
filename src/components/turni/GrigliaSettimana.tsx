@@ -17,6 +17,8 @@ export interface RigaGriglia {
   sotto: string
   obiettivo: number // ore settimanali
   celle: Turn[][] // 7 giorni, già ordinati per inizio
+  /** Assenza approvata per ognuno dei 7 giorni (etichetta), o null. */
+  assenze?: (string | null)[]
 }
 export interface GruppoGriglia { n: string; righe: RigaGriglia[] }
 
@@ -100,7 +102,14 @@ export function GrigliaSettimana({ tel, giorni, oggi, gruppi, onTurno, onVuota, 
                                 : <span>{hm(toM(t.start_time))}–{hm(toM(t.end_time))}</span>}
                           </button>
                         ))}
-                        {fs.length === 0 && (
+                        {/* Ferie e malattie approvate in rosso, come in Direttore v2. */}
+                        {r.assenze?.[i] && (
+                          <span className={cn('flex items-center justify-center overflow-hidden whitespace-nowrap rounded-[6px] bg-neg-tint font-medium text-neg', tel ? 'text-[10px]' : 'text-xs')}
+                            style={{ height: fs.length ? 22 : 46 }}>
+                            {tel ? r.assenze[i]!.slice(0, 4) + '.' : r.assenze[i]}
+                          </span>
+                        )}
+                        {fs.length === 0 && !r.assenze?.[i] && (
                           <button
                             type="button" onClick={() => onVuota(r.id, giorni[i])} aria-label="Aggiungi turno"
                             className="flex h-[46px] items-center justify-center rounded-[6px] border border-dashed border-[oklch(0.86_0.01_250)] text-[oklch(0.65_0.01_250)] hover:bg-[oklch(0.97_0.01_250)] hover:text-[oklch(0.4_0.01_250)] active:scale-[0.96] dark:border-line-strong dark:hover:bg-[oklch(0.24_0.01_250)] dark:hover:text-foreground"

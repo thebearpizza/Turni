@@ -385,13 +385,3 @@ html[data-splash="volo"] [data-guscio-entra] { animation: swapin 680ms cubic-bez
   .splash-marchio { animation: none; }
 }
 
-/* ── Solo verticale sul telefono (README: smartphone 390×844 solo in
-   verticale). Il manifest lo chiede dove il sistema lo rispetta; dove no
-   (Safari su iPhone) in orizzontale si chiede di ruotare il telefono. */
-.avviso-orientamento { display: none; }
-@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
-  .avviso-orientamento {
-    position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-    background: var(--background); color: var(--foreground); text-align: center; padding: 24px;
-  }
-}

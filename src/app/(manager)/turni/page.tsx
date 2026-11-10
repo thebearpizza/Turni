@@ -56,9 +56,17 @@ export default async function TurniPage() {
     .order('day_of_week')
   standardQuery = scopeTurnsQuery(standardQuery, scopeProfile, user!.id)
 
-  // Malattie e ferie approvate del periodo: il capo servizio le vede in
-  // rosso nella timeline del reparto (Capo Servizio.dc.html).
-  const absencesQuery = profile?.role === 'capo_servizio' && !profile?.is_direttore && profile?.restaurant_id
+  // Malattie e ferie approvate del periodo: in rosso nella timeline del capo
+  // servizio e nella griglia settimanale (Direttore v2). Il manager le legge
+  // su tutti i suoi locali (RLS), gli altri sul proprio.
+  const absencesQuery = profile?.role === 'manager'
+    ? supabase
+        .from('absences')
+        .select('user_id, type, start_date, end_date')
+        .eq('status', 'approved')
+        .lte('start_date', initialRangeEnd)
+        .gte('end_date', initialRangeStart)
+    : profile?.restaurant_id
     ? supabase
         .from('absences')
         .select('user_id, type, start_date, end_date')

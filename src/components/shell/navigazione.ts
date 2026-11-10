@@ -93,7 +93,9 @@ const ALTRO_MANAGER: Sezione[] = [
   // Fuori dal design ma ancora raggiungibili (link delle notifiche, account
   // da approvare del proprietario della piattaforma).
   S('account', 'Account', '/account-pendenti', 'Account in attesa', 'Nuovi manager da approvare', { badge: 'account', soloProprietario: true }),
-  S('prenotazioni', 'Prenotazioni', '/cassa/prenotazioni', 'Prenotazioni', 'Agenda del servizio', { nascosta: true }),
+  // Prenotazioni resta tra le schede di Altro per scelta del gestore, anche
+  // se il design non la prevede.
+  S('prenotazioni', 'Prenotazioni', '/cassa/prenotazioni', 'Prenotazioni', 'Agenda del servizio'),
   S('timbrature', 'Approvazioni', '/approvazioni', 'Approvazioni', 'Timbrature con foto e richieste', { nascosta: true }),
   S('dashboard', 'Riepilogo', '/dashboard', 'Riepilogo', 'Presenze di oggi', { nascosta: true }),
 ]
