@@ -1,273 +1,101 @@
+import { redirect } from 'next/navigation'
+import { formatInTimeZone } from 'date-fns-tz'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { autoCloseStaleShifts } from '@/lib/autoCloseStaleShifts'
-import { Users, Clock, CalendarX, CheckCircle, MessageSquare } from 'lucide-react'
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import Link from 'next/link'
 import { CapoServizioTimbraturaSection } from '@/components/manager/CapoServizioTimbraturaSection'
-import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroManager'
-import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
-import { PresenzePreviewClient, type PresenzaPreviewRow } from '@/components/manager/PresenzePreviewClient'
-import { RestaurantQrCard } from '@/components/manager/RestaurantQrCard'
-import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { PresenzeOggiLista } from '@/components/presenze/PresenzeOggiLista'
+import { HomeManager } from '@/components/home/HomeManager'
+import { ReportClient } from '@/components/manager/ReportClient'
 import { presenzeOggi } from '@/lib/presenzeOggi'
+import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
+import { datiHomeManager } from '@/lib/homeManager'
 
 const TZ = 'Europe/Rome'
 
+// Home di capo servizio e direttore.
+// - Capo servizio (Capo Servizio.dc.html, 7a): la timbratura identica al
+//   dipendente e sotto le presenze di oggi del suo reparto.
+// - Direttore (Direttore Smartphone / Tablet v2): la Home del manager su un
+//   solo locale (MTHome "single"), con sopra la sua timbratura.
+// Il manager ha la Home su /hub: il vecchio "Riepilogo" non esiste più.
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, restaurant_id, is_direttore, department, restaurant:restaurants(name, latitude, longitude, qr_secret)')
-    .eq('id', user!.id)
+    .select('role, restaurant_id, is_direttore, department, full_name, restaurant:restaurants(name, latitude, longitude)')
+    .eq('id', user.id)
     .single()
 
-  const isManager   = profile?.role === 'manager'
-  const isDirettore = profile?.role === 'capo_servizio' && (profile as { is_direttore?: boolean }).is_direttore === true
-  const canSeeFallback = isManager || isDirettore
+  if (profile?.role === 'manager') redirect('/hub')
+  if (!profile || profile.role !== 'capo_servizio' || !profile.restaurant_id) redirect('/login')
 
-  // Chiudi le timbrature con uscita dimenticata prima di calcolare i KPI,
-  // così "presenti oggi" e l'anteprima presenze non restano gonfiati.
+  const isDirettore = profile.is_direttore === true
+  const restaurantId = profile.restaurant_id as string
+  const rest = (Array.isArray(profile.restaurant) ? profile.restaurant[0] : profile.restaurant) as { name: string; latitude: number | null; longitude: number | null } | null
+
+  // Chiudi le timbrature con uscita dimenticata prima di calcolare le
+  // presenze, così "in servizio" non resta gonfiato.
   await autoCloseStaleShifts(createAdminClient())
 
   const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
-  const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
+  const reparto = isDirettore ? null : (profile.department ?? null)
 
-  const isCapoServizio = profile?.role === 'capo_servizio'
-  const restaurantFilter = isCapoServizio && profile?.restaurant_id
-    ? profile.restaurant_id : null
-
-  const baseProfiles = supabase.from('profiles').select('id', { count: 'exact' }).in('role', ['dipendente', 'capo_servizio'])
-  const basePresenti = supabase.from('attendances').select('id', { count: 'exact' }).is('check_out', null).gte('check_in', todayStart)
-  const baseAssenze  = supabase.from('absences').select('id', { count: 'exact' }).eq('status', 'approved').lte('start_date', todayRome).gte('end_date', todayRome)
-  const basePending  = supabase.from('absences').select('id', { count: 'exact' }).eq('status', 'pending')
-  let baseBulletins  = supabase.from('bulletins').select('id', { count: 'exact', head: true })
-  if (restaurantFilter) {
-    baseBulletins = baseBulletins.or(`restaurant_id.eq.${restaurantFilter},restaurant_id.is.null`)
-  }
-
-  // Fetch own open attendance for capo_servizio timbratura section
-  const [
-    { count: totalDipendenti },
-    { count: presenti },
-    { count: assenzeOggi },
-    { count: richiestePending },
-    { count: bachecaCount },
-    openAttendanceResult,
-  ] = await Promise.all([
-    restaurantFilter ? baseProfiles.eq('restaurant_id', restaurantFilter) : baseProfiles,
-    restaurantFilter ? basePresenti.eq('restaurant_id', restaurantFilter) : basePresenti,
-    restaurantFilter ? baseAssenze.eq('restaurant_id', restaurantFilter)  : baseAssenze,
-    restaurantFilter ? basePending.eq('restaurant_id', restaurantFilter)  : basePending,
-    baseBulletins,
-    isCapoServizio
-      ? supabase
-          .from('attendances')
-          .select('*')
-          .eq('user_id', user!.id)
-          .is('check_out', null)
-          .order('check_in', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+  const [{ data: aperta }, { data: mieiTurni }] = await Promise.all([
+    supabase.from('attendances').select('*').eq('user_id', user.id).is('check_out', null).order('check_in', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('turns').select('start_time, end_time, is_rest_day').eq('user_id', user.id).eq('date', todayRome).order('start_time'),
   ])
+  const fasce = (mieiTurni ?? []).filter(t => !t.is_rest_day).map(t => `${t.start_time.slice(0, 5)} – ${t.end_time.slice(0, 5)}`)
+  const turnoOggi = fasce.length ? `Turno di oggi · ${reparto ? reparto + ' ' : ''}${fasce.join(' / ')}` : 'Nessun turno oggi'
 
-  // Capo Servizio / Direttore: la 4ª card mostra i Messaggi in Bacheca al posto
-  // delle Richieste in Attesa (riservate ad Assenze/Approvazioni del manager)
-  const stats = isCapoServizio
-    ? [
-        { label: 'Dipendenti Totali',   value: totalDipendenti ?? 0, icon: Users,          color: 'text-muted-foreground',    href: '/dipendenti' },
-        { label: 'Presenti Oggi',       value: presenti        ?? 0, icon: CheckCircle,    color: 'text-ok', href: '/dashboard'  },
-        { label: 'Assenti Oggi',        value: assenzeOggi     ?? 0, icon: CalendarX,      color: 'text-neg',     href: '/dashboard'  },
-        { label: 'Messaggi in Bacheca', value: bachecaCount    ?? 0, icon: MessageSquare,  color: 'text-muted-foreground',  href: '/bacheca'    },
-      ]
-    : [
-        { label: 'Dipendenti Totali',   value: totalDipendenti  ?? 0, icon: Users,       color: 'text-muted-foreground',    href: '/dipendenti' },
-        { label: 'Presenti Oggi',       value: presenti         ?? 0, icon: CheckCircle, color: 'text-ok', href: '/presenze'   },
-        { label: 'Assenti Oggi',        value: assenzeOggi      ?? 0, icon: CalendarX,   color: 'text-neg',     href: '/assenze'    },
-        { label: 'Richieste in Attesa', value: richiestePending ?? 0, icon: Clock,       color: 'text-warn',   href: '/approvazioni' },
-      ]
+  const timbratura = (
+    <CapoServizioTimbraturaSection
+      initialOpenAttendance={aperta ?? null}
+      restaurantLat={rest?.latitude ?? null}
+      restaurantLng={rest?.longitude ?? null}
+      variante={isDirettore ? 'compatta' : 'grande'}
+      turnoOggi={turnoOggi}
+    />
+  )
 
-  const lat = (profile?.restaurant as { latitude?: number | null } | null)?.latitude ?? null
-  const lng = (profile?.restaurant as { longitude?: number | null } | null)?.longitude ?? null
-
-  // Capo servizio e direttore: Home del design (timbratura in alto, sotto le
-  // presenze di oggi). Il capo servizio vede il suo reparto, il direttore
-  // tutto il locale e approva le timbrature con foto dalla riga.
-  if (isCapoServizio && restaurantFilter) {
-    const reparto = isDirettore ? null : ((profile as { department?: string | null }).department ?? null)
-    const [righe, { data: mieiTurni }] = await Promise.all([
-      presenzeOggi(supabase, restaurantFilter, reparto),
-      supabase.from('turns').select('start_time, end_time, is_rest_day, department').eq('user_id', user!.id).eq('date', todayRome).order('start_time'),
-    ])
-    const fasce = (mieiTurni ?? []).filter(t => !t.is_rest_day).map(t => `${t.start_time.slice(0, 5)} – ${t.end_time.slice(0, 5)}`)
-    const turnoOggi = fasce.length ? `Turno di oggi · ${reparto ? reparto + ' ' : ''}${fasce.join(' / ')}` : 'Nessun turno oggi'
+  if (isDirettore) {
     return (
-      <div className={isDirettore ? 'flex flex-col gap-3 px-4 pt-1' : 'flex flex-col'}>
-        <PushNotificationPrompt />
-        <CapoServizioTimbraturaSection
-          initialOpenAttendance={openAttendanceResult.data ?? null}
-          restaurantLat={lat}
-          restaurantLng={lng}
-          variante={isDirettore ? 'compatta' : 'grande'}
-          turnoOggi={turnoOggi}
-        />
-        <div className={isDirettore ? '' : 'mx-4 mt-6'}>
-          <PresenzeOggiLista
-            titolo={isDirettore ? 'Presenze di oggi' : `Presenze di oggi${reparto ? ` in ${reparto.toLowerCase()}` : ''}`}
-            righe={righe}
-            puoApprovare={isDirettore}
-          />
-        </div>
-      </div>
+      <HomeManager
+        d={await datiHomeManager(supabase, restaurantId)}
+        singolo
+        nome={profile.full_name ?? ''}
+        sopra={<div className="flex flex-none flex-col gap-3"><PushNotificationPrompt />{timbratura}</div>}
+        report={
+          // Il foglio presenze del mese dentro la Home (MTReport compatto):
+          // il componente porta i suoi margini laterali di pagina.
+          <div className="-mx-4 h-full sm:-mx-8">
+            <ReportClient
+              restaurants={[{ id: restaurantId, name: rest?.name ?? '' }]}
+              singolo
+              puoModificare
+              vedeOre
+              utenteId={user.id}
+              localeIniziale={restaurantId}
+            />
+          </div>
+        }
+      />
     )
   }
 
+  const righe = await presenzeOggi(supabase, restaurantId, reparto)
   return (
-    <div className="px-4 pt-1 lg:px-8">
-      {isManager && <PushNotificationPrompt />}
-
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {stats.map(({ label, value, icon: Icon, color, href }) => (
-          <Link
-            key={label}
-            href={href}
-            className="bg-card border border-border rounded-md p-4 block
-              transition-all duration-200 cursor-pointer
-              hover:shadow-md hover:-translate-y-0.5
-              hover:bg-background
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <p className="text-xs text-muted-foreground font-medium">{label}</p>
-            <div className="flex items-end justify-between mt-2">
-              <span className="text-3xl font-bold tracking-tight">{value}</span>
-              <Icon className={`w-6 h-6 ${color} opacity-70`} />
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Timbratura — solo capo_servizio */}
-      {isCapoServizio && (
-        <CapoServizioTimbraturaSection
-          initialOpenAttendance={openAttendanceResult.data ?? null}
-          restaurantLat={(profile?.restaurant as { latitude?: number | null } | null)?.latitude ?? null}
-          restaurantLng={(profile?.restaurant as { longitude?: number | null } | null)?.longitude ?? null}
-        />
-      )}
-
-      {/* Timbrature di emergenza — manager e direttori */}
-      {canSeeFallback && (
-        <FallbackPendingSection
-          isManager={isManager}
-          restaurantId={isDirettore ? (profile?.restaurant_id ?? null) : null}
-        />
-      )}
-
-      {/* QR Code timbratura — capo servizio e direttori */}
-      {isCapoServizio && profile?.restaurant && (
-        <RestaurantQrCard
-          restaurantName={(profile.restaurant as unknown as { name: string }).name}
-          qrSecret={(profile.restaurant as unknown as { qr_secret: string }).qr_secret}
-        />
-      )}
-
-      {/* Preview presenze di oggi — capo servizio e direttori. Sola
-          lettura per entrambi: aggiungere/modificare una presenza da qui
-          non è più consentito neanche al direttore. */}
-      {isCapoServizio && restaurantFilter && (
-        <PresenzePreviewSection restaurantId={restaurantFilter} isDirettore={false} />
-      )}
-
-      {/* Consulenti del Lavoro — solo manager */}
-      {isManager && (
-        <ConsulenteLavoroManagerSection managerId={user!.id} />
-      )}
-
+    <div className="flex min-h-full flex-col sm:h-full">
+      <PushNotificationPrompt />
+      <div className="flex-none">{timbratura}</div>
+      <PresenzeOggiLista
+        titolo={`Presenze di oggi${reparto ? ` in ${reparto.toLowerCase()}` : ''}`}
+        righe={righe}
+        className="mx-4 mb-4 mt-6 min-h-[260px] flex-1"
+      />
     </div>
-  )
-}
-
-async function PresenzePreviewSection({
-  restaurantId,
-  isDirettore,
-}: {
-  restaurantId: string
-  isDirettore: boolean
-}) {
-  const supabase = await createClient()
-  const todayRome = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
-  const todayStart = fromZonedTime(`${todayRome}T00:00:00`, TZ).toISOString()
-
-  const [{ data: presenze }, { data: dipendenti }] = await Promise.all([
-    supabase
-      .from('attendances')
-      .select('id, user_id, check_in, check_out, profile:profiles(id, full_name)')
-      .eq('restaurant_id', restaurantId)
-      .gte('check_in', todayStart)
-      .order('check_in', { ascending: false }),
-    isDirettore
-      ? supabase
-          .from('profiles')
-          .select('id, full_name')
-          .eq('restaurant_id', restaurantId)
-          .in('role', ['dipendente', 'capo_servizio'])
-          .order('full_name')
-      : Promise.resolve({ data: [] }),
-  ])
-
-  return (
-    <PresenzePreviewClient
-      initialRows={(presenze as unknown as PresenzaPreviewRow[]) ?? []}
-      dipendenti={dipendenti ?? []}
-      isDirettore={isDirettore}
-    />
-  )
-}
-
-async function FallbackPendingSection({
-  isManager,
-  restaurantId,
-}: {
-  isManager: boolean
-  restaurantId: string | null
-}) {
-  const supabase = await createClient()
-  let query = supabase
-    .from('attendances')
-    .select('id, user_id, check_in, check_out, fallback_photo_path_in, fallback_photo_path_out, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
-    .eq('needs_manager_approval', true)
-    .order('check_in', { ascending: false })
-
-  if (!isManager && restaurantId) {
-    query = query.eq('restaurant_id', restaurantId)
-  }
-
-  const { data } = await query
-  if (!data?.length) return null
-
-  return (
-    <div className="mt-6">
-      <FallbackApprovalSection initialPending={data as unknown as PendingItem[]} />
-    </div>
-  )
-}
-
-async function ConsulenteLavoroManagerSection({ managerId }: { managerId: string }) {
-  const supabase = await createClient()
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
-    .order('name')
-
-  return (
-    <ConsulenteLavoroManager
-      managerId={managerId}
-      restaurants={restaurants ?? []}
-    />
   )
 }

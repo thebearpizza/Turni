@@ -25,7 +25,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
   const [message, setMessage]         = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [now, setNow]                 = useState(new Date())
   const [gpsFailed, setGpsFailed]     = useState(false)
-  const { status: geoStatus, check: checkGeo, userCoordsRef } = useGeofence()
+  const { status: geoStatus, distance, check: checkGeo, userCoordsRef } = useGeofence()
 
   // L'ora (o il tempo in servizio) avanza ogni secondo.
   useEffect(() => {
@@ -93,7 +93,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
     } finally {
       setLoading(false)
     }
-  }, [attendance])
+  }, [attendance, userCoordsRef])
 
   async function handleFallbackPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const photo = e.target.files?.[0]
@@ -147,6 +147,7 @@ export function CapoServizioTimbraturaSection({ initialOpenAttendance, restauran
         onFoto={handleFallbackPhoto}
         variante={variante}
         onSimula={() => handleScan('__SIMULATE__')}
+        distanza={distance}
       />
       {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
     </>

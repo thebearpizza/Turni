@@ -1,21 +1,16 @@
-import { Skeleton } from '@/components/ui/skeleton'
-
+// Attesa della Home del manager con la sua forma (MTHome): riepilogo,
+// quattro indicatori e le due card affiancate.
 export default function Loading() {
+  const b = 'skeleton-shimmer rounded-[12px]'
   return (
-    <div className="p-6 lg:p-10 max-w-3xl mx-auto">
-      <div className="mb-8 space-y-2">
-        <Skeleton className="h-7 w-40" />
-        <Skeleton className="h-4 w-64" />
+    <div className="flex flex-col gap-3 px-4 sm:h-full sm:gap-4 sm:px-8">
+      <div className={`${b} hidden h-[76px] sm:block`} />
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
+        {[0, 1, 2, 3].map(i => <div key={i} className={`${b} h-[132px] ${i === 2 ? 'max-sm:hidden' : ''} ${i === 3 ? 'max-sm:col-span-2' : ''}`} />)}
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="border rounded-lg p-6 space-y-3">
-            <Skeleton className="h-11 w-11 rounded-lg" />
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="h-4 w-full" />
-          </div>
-        ))}
+      <div className="grid gap-3 sm:min-h-0 sm:flex-1 sm:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] sm:gap-4">
+        <div className={`${b} h-[320px] sm:h-auto`} />
+        <div className={`${b} h-[52px] sm:h-auto`} />
       </div>
     </div>
   )

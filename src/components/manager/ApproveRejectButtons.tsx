@@ -1,6 +1,4 @@
 'use client'
-import { Button } from '@/components/ui/button'
-import { Check, X, Loader2 } from 'lucide-react'
 
 interface Props {
   onApprove: () => void
@@ -10,20 +8,17 @@ interface Props {
   rejecting?: boolean
 }
 
-// Stessa coppia Approva/Rifiuta in tutta l'area manager (Approvazioni,
-// timbrature di emergenza, account pendenti): prima erano tre rese diverse
-// per icone, dimensioni e classi pur trattandosi della stessa identica azione.
+// Coppia Rifiuta / Approva del design ("Da fare" di MTHome): Rifiuta
+// bordato, Approva nero, alti 40 px. Stessa resa in tutte le approvazioni.
 export function ApproveRejectButtons({ onApprove, onReject, disabled, approving, rejecting }: Props) {
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      <Button size="sm" onClick={onApprove} disabled={disabled} aria-label="Approva">
-        {approving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-        Approva
-      </Button>
-      <Button variant="destructive" size="sm" onClick={onReject} disabled={disabled} aria-label="Rifiuta">
-        {rejecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-        Rifiuta
-      </Button>
+    <div className="flex flex-none gap-1.5">
+      <button type="button" onClick={onReject} disabled={disabled} className="flex h-10 items-center rounded-[8px] border border-line-strong px-3 text-[13px] font-medium active:scale-[0.97] disabled:opacity-60">
+        {rejecting ? 'Rifiuto…' : 'Rifiuta'}
+      </button>
+      <button type="button" onClick={onApprove} disabled={disabled} className="flex h-10 items-center rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-60">
+        {approving ? 'Approvo…' : 'Approva'}
+      </button>
     </div>
   )
 }

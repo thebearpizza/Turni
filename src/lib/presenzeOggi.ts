@@ -92,7 +92,7 @@ export async function presenzeOggi(supabase: SupabaseClient, restaurantId: strin
       if (adesso >= inizioTurno) {
         const [h1, m1] = inizioTurno.split(':').map(Number), [h2, m2] = adesso.split(':').map(Number)
         const min = h2 * 60 + m2 - (h1 * 60 + m1)
-        righe.push({ ...base, stato: 'ritardo', dettaglio: 'non timbrato', badge: `Ritardo ${min}'` })
+        righe.push({ ...base, stato: 'ritardo', dettaglio: 'non timbrato', badge: `Ritardo ${min}′` })
       } else {
         righe.push({ ...base, stato: 'atteso', dettaglio: '', badge: `Alle ${inizioTurno}` })
       }

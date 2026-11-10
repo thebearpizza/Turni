@@ -1,61 +1,51 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ApprovazioniClient } from '@/components/manager/ApprovazioniClient'
-import { FallbackApprovalSection, type PendingItem } from '@/components/manager/FallbackApprovalSection'
+import { formatInTimeZone } from 'date-fns-tz'
+import { ApprovazioniClient, type Richiesta } from '@/components/manager/ApprovazioniClient'
+import { fmtGiorni, TIPI_ASSENZA } from '@/lib/homeManager'
 
+const TZ = 'Europe/Rome'
+
+// Approvazioni (timbrature con foto e richieste di assenza): stessa lista
+// del "Da fare" della Home, ci arrivano i link delle notifiche.
 export default async function ApprovazioniPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, restaurant_id, is_direttore')
-    .eq('id', user!.id)
-    .single()
-
-  // Riservato a manager e direttori
-  if (profile?.role === 'capo_servizio' && profile.is_direttore !== true) redirect('/dashboard')
-
-  const isManager   = profile?.role === 'manager'
+  const { data: profile } = await supabase.from('profiles').select('role, restaurant_id, is_direttore').eq('id', user.id).single()
+  const isManager = profile?.role === 'manager'
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
-  const canSeeFallback = isManager || isDirettore
+  if (!isManager && !isDirettore) redirect('/dashboard')
+  const filtro = isDirettore ? profile?.restaurant_id ?? '00000000-0000-0000-0000-000000000000' : null
 
-  let absencesQuery = supabase
-    .from('absences')
-    .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
+  let qFoto = supabase.from('attendances')
+    .select('id, check_in, check_out, fallback_photo_path_in, fallback_photo_path_out, restaurant:restaurants(name), profile:profiles!user_id(full_name)')
+    .eq('needs_manager_approval', true).order('check_in', { ascending: false })
+  let qAss = supabase.from('absences')
+    .select('id, type, start_date, end_date, notes, restaurant:restaurants(name), profile:profiles!user_id(full_name)')
+    .eq('status', 'pending').order('start_date')
+  if (filtro) { qFoto = qFoto.eq('restaurant_id', filtro); qAss = qAss.eq('restaurant_id', filtro) }
+  const [{ data: foto }, { data: assenze }] = await Promise.all([qFoto, qAss])
 
-  if (profile?.role === 'capo_servizio' && profile.restaurant_id) {
-    absencesQuery = absencesQuery.eq('restaurant_id', profile.restaurant_id)
-  }
+  const uno = <X,>(v: X | X[] | null | undefined): X | null => (Array.isArray(v) ? v[0] ?? null : v ?? null)
+  const nome = (p: unknown) => uno(p as { full_name: string } | { full_name: string }[] | null)?.full_name ?? '—'
+  const locale = (r: unknown) => uno(r as { name: string } | { name: string }[] | null)?.name ?? ''
+  const ora = (iso: string) => formatInTimeZone(new Date(iso), TZ, 'HH:mm')
+  const giorno = (iso: string) => formatInTimeZone(new Date(iso), TZ, 'dd/MM')
 
-  // Pending fallback attendances — only for manager / direttore
-  let pendingFallback: PendingItem[] = []
-  if (canSeeFallback) {
-    let pendingQuery = supabase
-      .from('attendances')
-      .select('id, user_id, check_in, check_out, fallback_photo_path_in, fallback_photo_path_out, restaurant_id, profile:profiles(full_name), restaurant:restaurants(name)')
-      .eq('needs_manager_approval', true)
-      .order('check_in', { ascending: false })
+  const richieste: Richiesta[] = [
+    ...(foto ?? []).map(f => ({
+      id: f.id as string, tipo: 'foto' as const, nome: nome(f.profile), badge: 'Timbro con foto',
+      dettaglio: [`${giorno(f.check_in)} · entrata ${ora(f.check_in)}${f.check_out ? ` · uscita ${ora(f.check_out)}` : ''}`, locale(f.restaurant)].filter(Boolean).join(' · '),
+      foto: [f.fallback_photo_path_in && { path: f.fallback_photo_path_in as string, l: 'Ingresso' }, f.fallback_photo_path_out && { path: f.fallback_photo_path_out as string, l: 'Uscita' }].filter(Boolean) as { path: string; l: string }[],
+    })),
+    ...(assenze ?? []).map(a => ({
+      id: a.id as string, tipo: 'assenza' as const, nome: nome(a.profile), badge: TIPI_ASSENZA[a.type as string] ?? (a.type as string),
+      dettaglio: [fmtGiorni(a.start_date as string, a.end_date as string), locale(a.restaurant)].filter(Boolean).join(' · '),
+      nota: (a.notes as string | null) ?? null, foto: [],
+    })),
+  ]
 
-    if (isDirettore && profile?.restaurant_id) {
-      pendingQuery = pendingQuery.eq('restaurant_id', profile.restaurant_id)
-    }
-
-    const { data } = await pendingQuery
-    pendingFallback = (data ?? []) as unknown as PendingItem[]
-  }
-
-  const { data: requests, error: requestsError } = await absencesQuery
-  if (requestsError) console.error('[approvazioni] query error:', requestsError.message)
-
-  return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      {canSeeFallback && (
-        <FallbackApprovalSection initialPending={pendingFallback} />
-      )}
-      <ApprovazioniClient initialRequests={requests ?? []} />
-    </div>
-  )
+  return <ApprovazioniClient iniziali={richieste} />
 }

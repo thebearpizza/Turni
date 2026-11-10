@@ -1,150 +1,104 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent } from '@/components/ui/card'
-import { ApproveRejectButtons } from '@/components/manager/ApproveRejectButtons'
-import { CalendarX } from 'lucide-react'
-import { formatDate } from '@/lib/utils'
-import { toast } from '@/hooks/use-toast'
-import type { Absence, AbsenceType } from '@/types'
-import { ABSENCE_LABELS } from '@/types'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
+import { decidi } from '@/components/home/DaFare'
+import { FoglioFoto } from '@/components/home/FoglioFoto'
+import { useFoglio } from '@/components/home/Foglio'
+import { ApproveRejectButtons } from '@/components/manager/ApproveRejectButtons'
 
-type RequestWithRelations = Absence & {
-  profile?: { id: string; full_name: string } | null
-  restaurant?: { id: string; name: string } | null
+export interface Richiesta {
+  id: string
+  tipo: 'foto' | 'assenza'
+  nome: string
+  badge: string
+  dettaglio: string
+  nota?: string | null
+  foto: { path: string; l: string }[]
 }
 
-interface Props {
-  initialRequests: RequestWithRelations[]
-}
-
-const typeBadgeClass: Record<AbsenceType, string> = {
-  ferie: 'bg-secondary text-muted-foreground',
-  malattia: 'bg-secondary text-muted-foreground',
-  riposo: 'bg-neg-tint text-neg',
-  assenza_ingiustificata: 'bg-secondary text-muted-foreground',
-}
-
-export function ApprovazioniClient({ initialRequests }: Props) {
-  const [requests, setRequests] = useState<RequestWithRelations[]>(initialRequests)
-  const [processing, setProcessing] = useState<string | null>(null)
+// Approvazioni: timbrature con foto e richieste di assenza in attesa, con
+// le stesse righe del "Da fare" della Home (MTHome). La foto si guarda in
+// un foglio (Direttore v2, 9a) da cui si approva o rifiuta. La lista si
+// aggiorna da sola quando qualcun altro decide.
+export function ApprovazioniClient({ iniziali }: { iniziali: Richiesta[] }) {
   const router = useRouter()
+  const [uscita, setUscita] = useState<Set<string>>(new Set())
+  const [via, setVia] = useState<Set<string>>(new Set())
+  const [inCorso, setInCorso] = useState<string | null>(null)
+  const foglio = useFoglio<Richiesta>()
+  const voci = iniziali.filter(r => !via.has(r.id))
 
-  // Supabase Realtime — keep the pending list in sync across all sessions
   useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('rt-approvazioni-absences')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'absences' },
-        async (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const rec = payload.new as { id: string; status: string }
-            if (rec.status !== 'pending') return
-            // Fetch with joins — payload.new doesn't include profile/restaurant
-            const { data } = await supabase
-              .from('absences')
-              .select('*, profile:profiles(id, full_name), restaurant:restaurants(id, name)')
-              .eq('id', rec.id)
-              .single()
-            if (!data) return
-            setRequests(prev =>
-              prev.some(r => r.id === data.id)
-                ? prev
-                : [data as RequestWithRelations, ...prev]
-            )
-          } else if (payload.eventType === 'UPDATE') {
-            const rec = payload.new as { id: string; status: string }
-            if (rec.status !== 'pending') {
-              // Approved or rejected elsewhere → remove from queue
-              setRequests(prev => prev.filter(r => r.id !== rec.id))
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = (payload.old as { id: string }).id
-            setRequests(prev => prev.filter(r => r.id !== deletedId))
-          }
-        }
-      )
+    const sb = createClient()
+    const ch = sb.channel('rt-approvazioni')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'absences' }, () => router.refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances' }, () => router.refresh())
       .subscribe()
+    return () => { sb.removeChannel(ch) }
+  }, [router])
 
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  async function handleAction(id: string, action: 'approve' | 'reject') {
-    setProcessing(id)
-    const res = await fetch('/api/assenze', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
-    })
-    if (res.ok) {
-      setRequests(rs => rs.filter(r => r.id !== id))
-      // Re-render server components on this page (FallbackApprovalSection)
-      router.refresh()
-    } else {
-      const e = await res.json().catch(() => null)
-      toast({
-        title: action === 'approve' ? 'Approvazione non riuscita' : 'Rifiuto non riuscito',
-        description: e?.error ?? undefined,
-        variant: 'destructive',
-      })
+  async function agisci(r: Richiesta, azione: 'approve' | 'reject') {
+    setInCorso(r.id)
+    const ok = await decidi(r.tipo, r.id, azione)
+    setInCorso(null)
+    if (!ok) {
+      toast({ title: azione === 'approve' ? "Errore durante l'approvazione. Riprova." : 'Errore durante il rifiuto. Riprova.', variant: 'destructive' })
+      return
     }
-    setProcessing(null)
+    toast({ title: `${azione === 'approve' ? 'Approvata' : 'Rifiutata'}: ${r.tipo === 'foto' ? 'timbratura con foto' : r.badge.toLowerCase()} di ${r.nome.split(' ')[0]}` })
+    if (foglio.valore?.id === r.id) foglio.chiudi()
+    setUscita(p => new Set(p).add(r.id))
+    setTimeout(() => { setVia(p => new Set(p).add(r.id)); router.refresh() }, 320)
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="titolo-pagina">Approvazioni</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            {requests.length} richieste in attesa
-          </p>
+    <div className="flex flex-col px-4 pb-2 sm:h-full sm:px-8">
+      <div className="anim-swapin flex min-h-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card sm:flex-1">
+        <div className="flex flex-none items-center gap-2.5 border-b border-border px-3.5 py-3.5 sm:px-[18px]">
+          <span className="text-[17px] font-semibold">Da approvare</span>
+          <span className="flex-1 font-mono text-[13px] font-medium text-muted-foreground">{voci.length ? `${voci.length} in attesa` : ''}</span>
         </div>
-      </div>
-
-      {requests.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-3">
-            <CalendarX className="w-12 h-12 opacity-30" />
-            <p>Nessuna richiesta in attesa</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {requests.map(r => (
-            <Card key={r.id}>
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-semibold">{r.profile?.full_name ?? '—'}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeBadgeClass[r.type]}`}>
-                        {ABSENCE_LABELS[r.type]}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Dal {formatDate(r.start_date)} al {formatDate(r.end_date)}
-                    </p>
-                    {r.restaurant && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{r.restaurant.name}</p>
-                    )}
-                    {r.notes && (
-                      <p className="text-sm mt-2 text-foreground/80 bg-muted rounded px-3 py-2">{r.notes}</p>
-                    )}
-                  </div>
-                  <ApproveRejectButtons
-                    onApprove={() => handleAction(r.id, 'approve')}
-                    onReject={() => handleAction(r.id, 'reject')}
-                    disabled={processing === r.id}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {voci.length === 0 ? (
+            <div className="anim-swapin flex flex-col items-center gap-1 px-[18px] py-12 text-center">
+              <span className="text-[15px] font-semibold">Tutto in ordine</span>
+              <span className="text-[13px] text-muted-foreground">Nessuna richiesta in attesa.</span>
+            </div>
+          ) : voci.map(r => (
+            <div key={r.id} className={cn('flex flex-wrap items-center gap-3 border-b border-[oklch(0.93_0.01_250)] px-3.5 py-3 dark:border-border sm:flex-nowrap sm:px-[18px]', uscita.has(r.id) && 'anim-swapout')}>
+              <div className="flex min-w-0 flex-[1_1_200px] flex-col gap-[3px]">
+                <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                  {r.nome}
+                  <span className="rounded-full bg-warn-tint px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.05em] text-warn">{r.badge}</span>
+                </span>
+                <span className="text-[13px] text-muted-foreground">{r.dettaglio}</span>
+                {r.nota && <span className="text-[13px] leading-snug text-pretty">{r.nota}</span>}
+              </div>
+              {r.foto.length > 0 && (
+                <button type="button" onClick={() => foglio.apri(r)} className="flex h-10 flex-none items-center gap-1.5 rounded-[8px] border border-line-strong px-3 text-[13px] font-medium active:scale-[0.97]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+                  Foto
+                </button>
+              )}
+              <ApproveRejectButtons disabled={inCorso === r.id} onApprove={() => agisci(r, 'approve')} onReject={() => agisci(r, 'reject')} />
+            </div>
           ))}
         </div>
+      </div>
+      {foglio.valore && (
+        <FoglioFoto
+          titolo={`Timbratura di ${foglio.valore.nome}`}
+          foto={foglio.valore.foto}
+          meta={[{ l: 'Timbratura', v: foglio.valore.dettaglio.split(' · ').slice(0, 2).join(' · ') }, { l: 'Motivo', v: 'GPS non verificato' }]}
+          uscita={foglio.uscita}
+          inCorso={inCorso === foglio.valore.id}
+          onChiudi={foglio.chiudi}
+          onRifiuta={() => agisci(foglio.valore!, 'reject')}
+          onApprova={() => agisci(foglio.valore!, 'approve')}
+        />
       )}
     </div>
   )
