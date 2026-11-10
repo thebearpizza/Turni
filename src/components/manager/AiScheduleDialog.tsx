@@ -1,358 +1,205 @@
 'use client'
-import { useState } from 'react'
-import { startOfWeek, addDays, addWeeks, format } from 'date-fns'
-import { it } from 'date-fns/locale'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { ChevronLeft, ChevronRight, Sparkles, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
-import {
-  generateAiSchedule, checkExistingTurns,
-  type GenerateParams,
-} from '@/app/actions/aiTurni'
+import { useEffect, useRef, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
+import { generateAiSchedule, checkExistingTurns, type GenerateParams } from '@/app/actions/aiTurni'
 import type { Department, AiScheduleDraft, AiScheduleDraftTurn, ExtraordinaryClosure } from '@/types'
-import { DEPARTMENTS, WEEK_DAYS_SHORT } from '@/types'
+import { DEPARTMENTS } from '@/types'
+import {
+  FoglioTurni, Pillola, PulsantiFine, Segmento, ICONA_IA, ICONA_X, USCITA, WD,
+  etichettaSettimana, giorniSettimana, giornoLungo, numeroGiorno, piuGiorni,
+} from '@/components/turni/comuni'
 
-// Re-export GenerateParams for use in parent
+// "Genera con IA" nel linguaggio dei fogli di MTTurni: settimana con le
+// frecce, reparti a pillole, scelta fra integrare o rigenerare i turni già
+// presenti, chiusure straordinarie sui giorni della settimana e note libere.
+// La proposta generata si rivede in AiScheduleDraftView prima di confermarla.
+
 export type { GenerateParams }
 
 interface Props {
-  open:              boolean
-  onClose:           () => void
-  restaurantId:      string
-  currentDept:       Department | null  // null = tutti (manager/direttore)
-  currentUserRole:   string
+  open:               boolean
+  onClose:            () => void
+  restaurantId:       string
+  restaurantName:     string
+  weekStart:          string // lunedì della settimana visualizzata
+  currentDept:        Department | null
+  currentUserRole:    string
   currentIsDirettore: boolean
-  onDraftCreated:    (draft: AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) => void
+  onDraftCreated:     (draft: AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) => void
 }
 
-type Step = 'params' | 'notes' | 'generating' | 'done'
-type ExistingMode = 'integrate' | 'replace' | null
+type Modo = 'integrate' | 'replace'
 
-const DAYS_ORDERED = [1, 2, 3, 4, 5, 6, 0] as const  // Lun→Dom
-
-export function AiScheduleDialog({
-  open, onClose, restaurantId, currentDept, currentUserRole, currentIsDirettore, onDraftCreated,
-}: Props) {
-  const isManager = currentUserRole === 'manager'
-  const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
-
-  // ── Selezione settimana ───────────────────────────────────────────────
-  const [weekOffset, setWeekOffset] = useState(1)  // default: prossima settimana
-  const weekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 1 })
-  const weekStartStr = format(weekStart, 'yyyy-MM-dd')
-  const weekLabel = `${format(weekStart, 'd MMM', { locale: it })} – ${format(addDays(weekStart, 6), 'd MMM yyyy', { locale: it })}`
-
-  // ── Reparti ───────────────────────────────────────────────────────────
-  const assignableDepts: Department[] = (isManager || isDirettore)
-    ? DEPARTMENTS
-    : (currentDept ? [currentDept] : [])
-  const [selectedDepts, setSelectedDepts] = useState<Department[]>(assignableDepts)
-
-  function toggleDept(d: Department) {
-    setSelectedDepts(prev =>
-      prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]
-    )
-    clearExistingCheck()
+export function AiScheduleDialog(p: Props) {
+  // Montato solo quando è aperto: ogni apertura riparte dai valori iniziali.
+  const [vivo, setVivo] = useState(p.open)
+  const [esce, setEsce] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  if (p.open && !vivo) { setVivo(true); setEsce(false) }
+  if (!p.open && vivo) setVivo(false)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  const chiudi = () => {
+    setEsce(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => { setEsce(false); p.onClose() }, USCITA)
   }
+  if (!vivo) return null
+  return <Contenuto {...p} esce={esce} chiudi={chiudi} />
+}
 
-  // Stessa regola usata sia per il controllo dei turni esistenti sia per la
-  // generazione vera: null solo quando manager/direttore hanno tutti i
-  // reparti selezionati (= nessuno scope). Per un capo servizio non
-  // direttore selectedDepts è sempre [currentDept], mai vuoto.
-  function computeScope(): Department[] | null {
-    return (isManager || isDirettore) && selectedDepts.length === DEPARTMENTS.length
-      ? null
-      : selectedDepts
-  }
+function Contenuto({ restaurantId, restaurantName, weekStart, currentDept, currentUserRole, currentIsDirettore, onDraftCreated, esce, chiudi }: Props & { esce: boolean; chiudi: () => void }) {
+  const tutti = currentUserRole === 'manager' || (currentUserRole === 'capo_servizio' && currentIsDirettore)
+  const assegnabili: Department[] = tutti ? DEPARTMENTS : (currentDept ? [currentDept] : [])
 
-  // ── Turni esistenti ───────────────────────────────────────────────────
-  const [existingCount, setExistingCount] = useState<number | null>(null)
-  const [existingMode, setExistingMode] = useState<ExistingMode>(null)
+  const [lun, setLun] = useState(weekStart)
+  const [reparti, setReparti] = useState<Department[]>(assegnabili)
+  const [esistenti, setEsistenti] = useState<number | null>(null)
+  const [modo, setModo] = useState<Modo | null>(null)
+  const [chiusure, setChiusure] = useState<ExtraordinaryClosure[]>([])
+  const [cGiorno, setCGiorno] = useState<number | null>(null)
+  const [cRep, setCRep] = useState<Department | ''>('')
+  const [note, setNote] = useState('')
+  const [passo, setPasso] = useState<'params' | 'notes' | 'generating'>('params')
+  const [occupato, setOccupato] = useState(false)
+  const giorni = giorniSettimana(lun)
 
-  // Il conteggio/la scelta integrate-o-replace valgono solo per la
-  // combinazione settimana+reparti su cui sono stati calcolati: cambiandola
-  // vanno azzerati esplicitamente ad ogni punto che la modifica (frecce
-  // settimana, toggle reparto), altrimenti il pannello ambra mostra dati di
-  // un'altra settimana e la guardia su existingMode resta sbloccata per errore.
-  function clearExistingCheck() {
-    setExistingCount(null)
-    setExistingMode(null)
-  }
+  // Il conteggio dei turni esistenti vale per settimana+reparti su cui è
+  // stato calcolato: cambiandoli si azzera.
+  const azzera = () => { setEsistenti(null); setModo(null) }
+  const scope = (): Department[] | null => tutti && reparti.length === DEPARTMENTS.length ? null : reparti
 
-  // ── Chiusure straordinarie ────────────────────────────────────────────
-  const [showClosures, setShowClosures] = useState(false)
-  const [closures, setClosures] = useState<ExtraordinaryClosure[]>([])
-  const [closureDate, setClosureDate] = useState('')
-  const [closureDept, setClosureDept] = useState<Department | ''>('')
-
-  function addClosure() {
-    if (!closureDate) return
-    setClosures(prev => [...prev, { date: closureDate, department: closureDept || undefined }])
-    setClosureDate(''); setClosureDept('')
-  }
-  function removeClosure(i: number) {
-    setClosures(prev => prev.filter((_, idx) => idx !== i))
-  }
-
-  // ── Note NL ───────────────────────────────────────────────────────────
-  const [notes, setNotes] = useState('')
-
-  // ── Step & status ─────────────────────────────────────────────────────
-  const [step, setStep] = useState<Step>('params')
-  const [error, setError] = useState<string | null>(null)
-
-  function resetAndClose() {
-    setStep('params'); setError(null); setExistingCount(null)
-    setExistingMode(null); setNotes(''); setClosures([])
-    setWeekOffset(1)
-    setSelectedDepts(assignableDepts)
-    onClose()
-  }
-
-  async function handleNext() {
-    setError(null)
-    if (step === 'params') {
-      // Controlla turni esistenti
-      const count = await checkExistingTurns(restaurantId, weekStartStr, computeScope())
-      setExistingCount(count)
-      if (count > 0 && existingMode === null) {
-        // Mostra la scelta integrate/replace prima di andare avanti
-        return
-      }
-      setStep('notes')
-    } else if (step === 'notes') {
-      await handleGenerate()
+  async function avanti() {
+    if (passo === 'params') {
+      setOccupato(true)
+      try {
+        const n = await checkExistingTurns(restaurantId, lun, scope())
+        setEsistenti(n)
+        if (n > 0 && modo === null) return
+        setPasso('notes')
+      } catch (e) {
+        toast({ title: 'Controllo dei turni non riuscito', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+      } finally { setOccupato(false) }
+      return
     }
-  }
-
-  async function handleGenerate() {
-    setStep('generating')
+    setPasso('generating')
     try {
       const draft = await generateAiSchedule({
-        restaurantId,
-        weekStart: weekStartStr,
-        departmentScope: computeScope(),
-        existingTurnsMode: existingMode ?? 'integrate',
-        extraordinaryClosures: closures,
-        notes: notes.trim() || undefined,
+        restaurantId, weekStart: lun, departmentScope: scope(), existingTurnsMode: modo ?? 'integrate',
+        extraordinaryClosures: chiusure, notes: note.trim() || undefined,
       })
+      toast({ title: `Proposta pronta: ${draft.turns.length} turni da rivedere` })
       onDraftCreated(draft)
-      resetAndClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Errore durante la generazione')
-      setStep('notes')
+      toast({ title: 'Generazione non riuscita', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+      setPasso('notes')
     }
   }
 
-  const canProceed =
-    selectedDepts.length > 0 &&
-    (existingCount === null || existingCount === 0 || existingMode !== null)
+  const puo = reparti.length > 0 && (esistenti === null || esistenti === 0 || modo !== null)
+  const freccia = (d: 'sx' | 'dx') => (
+    <button
+      type="button" aria-label={d === 'sx' ? 'Settimana precedente' : 'Settimana successiva'}
+      onClick={() => { setLun(piuGiorni(lun, d === 'sx' ? -7 : 7)); azzera(); setChiusure([]) }}
+      className="flex h-10 w-10 flex-none items-center justify-center rounded-[20px] border border-[oklch(0.88_0.01_250)] bg-card active:scale-[0.96] dark:border-line-strong"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d === 'sx' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} /></svg>
+    </button>
+  )
 
   return (
-    <Dialog open={open} onOpenChange={open => { if (!open) resetAndClose() }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
-            Genera turni con IA
-          </DialogTitle>
-        </DialogHeader>
-
-        {/* ── Step indicatore ─────────────────────────────────────── */}
-        {step !== 'generating' && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-            <span className={step === 'params' ? 'text-foreground font-medium' : ''}>1 Parametri</span>
-            <span>→</span>
-            <span className={step === 'notes' ? 'text-foreground font-medium' : ''}>2 Note</span>
+    <FoglioTurni aperto esce={esce} onChiudi={chiudi} titolo="Genera con IA" sotto={`${restaurantName} · ${passo === 'params' ? 'parametri' : 'esigenze della settimana'}`}>
+      {passo === 'generating' ? (
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <span className="animate-pulse text-foreground [&_svg]:h-10 [&_svg]:w-10">{ICONA_IA}</span>
+          <span className="text-[15px] font-semibold">Generazione in corso…</span>
+          <span className="text-[13px] text-muted-foreground">Analisi delle presenze storiche e distribuzione dei turni</span>
+        </div>
+      ) : passo === 'params' ? (
+        <>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Settimana</span>
+            <div className="flex items-center gap-2">
+              {freccia('sx')}<span className="flex-1 text-center text-[15px] font-semibold">{etichettaSettimana(lun)}</span>{freccia('dx')}
+            </div>
           </div>
-        )}
 
-        {/* ── Step 1: Parametri ───────────────────────────────────── */}
-        {step === 'params' && (
-          <div className="space-y-5">
-            {/* Settimana */}
-            <div className="space-y-1.5">
-              <Label>Settimana</Label>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" className="h-8 w-8"
-                  onClick={() => { setWeekOffset(w => w - 1); clearExistingCheck() }}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="flex-1 text-center text-sm font-medium">{weekLabel}</span>
-                <Button variant="outline" size="icon" className="h-8 w-8"
-                  onClick={() => { setWeekOffset(w => w + 1); clearExistingCheck() }}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
+          {tutti && (
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium">Reparti</span>
+              <div className="flex flex-wrap gap-1.5">
+                {DEPARTMENTS.map(d => (
+                  <Pillola key={d} attiva={reparti.includes(d)} onClick={() => { setReparti(r => r.includes(d) ? r.filter(x => x !== d) : [...r, d]); azzera() }}>{d}</Pillola>
+                ))}
               </div>
             </div>
+          )}
 
-            {/* Reparti */}
-            {(isManager || isDirettore) && (
-              <div className="space-y-1.5">
-                <Label>Reparti</Label>
-                <div className="flex flex-wrap gap-2">
-                  {DEPARTMENTS.map(d => (
-                    <button
-                      key={d} type="button"
-                      onClick={() => toggleDept(d)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                        selectedDepts.includes(d)
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background border-border text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
+          {esistenti !== null && esistenti > 0 && (
+            <div className="flex flex-col gap-2 rounded-[10px] bg-warn-tint p-3">
+              <span className="text-sm font-medium text-warn">{esistenti} turni già presenti in questa settimana</span>
+              <Segmento voci={[{ k: 'integrate' as Modo, l: 'Integra' }, { k: 'replace' as Modo, l: 'Rigenera tutto' }]} valore={modo ?? ('' as Modo)} onCambia={setModo} />
+              <span className="text-[13px] text-warn">{modo === 'replace' ? 'I turni esistenti verranno sostituiti.' : 'Si riempiono solo i giorni senza turni.'}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Chiusure straordinarie</span>
+            {chiusure.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {chiusure.map((c, i) => (
+                  <span key={i} className="flex h-[38px] items-center gap-1.5 rounded-full border border-border bg-card pl-3 pr-1 text-[13px] font-medium">
+                    {giornoLungo(c.date)} · {c.department ?? 'Tutto il locale'}
+                    <button type="button" aria-label="Rimuovi chiusura" onClick={() => setChiusure(p => p.filter((_, j) => j !== i))} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground">{ICONA_X(14)}</button>
+                  </span>
+                ))}
               </div>
             )}
-
-            {/* Turni esistenti — mostrato solo dopo il controllo */}
-            {existingCount !== null && existingCount > 0 && (
-              <div className="rounded-md border border-warn/30 bg-warn-tint p-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-warn shrink-0 mt-0.5" />
-                  <p className="text-sm text-warn">
-                    Trovati <strong>{existingCount}</strong> turni già presenti in questa settimana.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-1.5 pl-6">
-                  {(['integrate', 'replace'] as const).map(mode => (
-                    <label key={mode} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="existingMode"
-                        value={mode}
-                        checked={existingMode === mode}
-                        onChange={() => setExistingMode(mode)}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm">
-                        {mode === 'integrate'
-                          ? 'Integra (riempi solo i giorni senza turni)'
-                          : 'Rigenera tutto (sostituisce i turni esistenti)'}
-                      </span>
-                    </label>
-                  ))}
-                </div>
+            <div className="grid grid-cols-7 gap-1.5">
+              {giorni.map((g, d) => (
+                <button
+                  key={g} type="button" onClick={() => setCGiorno(cGiorno === d ? null : d)}
+                  className={cn('flex h-[52px] flex-col items-center justify-center gap-px rounded-[8px] border active:scale-[0.96]', cGiorno === d ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}
+                >
+                  <span className="text-[11px] font-medium opacity-80">{WD[d]}</span>
+                  <span className="font-mono text-[15px] font-semibold">{numeroGiorno(g)}</span>
+                </button>
+              ))}
+            </div>
+            {cGiorno !== null && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Pillola attiva={cRep === ''} onClick={() => setCRep('')}>Tutto il locale</Pillola>
+                {DEPARTMENTS.map(d => <Pillola key={d} attiva={cRep === d} onClick={() => setCRep(d)}>{d}</Pillola>)}
+                <button
+                  type="button"
+                  onClick={() => { setChiusure(p => [...p, { date: giorni[cGiorno], department: cRep || undefined }]); setCGiorno(null); setCRep('') }}
+                  className="flex h-[38px] items-center rounded-[8px] border border-dashed border-[oklch(0.75_0.01_250)] px-3 text-[13px] font-medium active:scale-[0.97] dark:border-line-strong"
+                >
+                  Aggiungi chiusura
+                </button>
               </div>
             )}
-
-            {/* Chiusure straordinarie — collassate */}
-            <div className="border border-border rounded-md">
-              <button
-                type="button"
-                onClick={() => setShowClosures(v => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <span>Chiusure straordinarie questa settimana{closures.length > 0 ? ` (${closures.length})` : ''}</span>
-                {showClosures ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-              {showClosures && (
-                <div className="px-3 pb-3 space-y-3 border-t border-border pt-3">
-                  <p className="text-xs text-muted-foreground">
-                    Aggiungi giorni in cui il ristorante (o un reparto) chiude eccezionalmente.
-                  </p>
-                  {closures.map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <span className="flex-1">
-                        {c.date} {c.department ? `— ${c.department}` : '— Tutto il locale'}
-                      </span>
-                      <button type="button" onClick={() => removeClosure(i)}
-                        className="text-destructive hover:text-destructive/80 text-xs">
-                        Rimuovi
-                      </button>
-                    </div>
-                  ))}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Data</Label>
-                      <Input type="date" value={closureDate}
-                        onChange={e => setClosureDate(e.target.value)}
-                        min={weekStartStr}
-                        max={format(addDays(weekStart, 6), 'yyyy-MM-dd')}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Reparto (opz.)</Label>
-                      <select
-                        value={closureDept}
-                        onChange={e => setClosureDept(e.target.value as Department | '')}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="">Tutto il locale</option>
-                        {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={addClosure} disabled={!closureDate}>
-                    Aggiungi chiusura
-                  </Button>
-                </div>
-              )}
-            </div>
           </div>
-        )}
+        </>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">Esigenze particolari</span>
+          <textarea
+            value={note} onChange={e => setNote(e.target.value)} rows={4}
+            placeholder="Es: sabato sera servono almeno 2 baristi, Marco è disponibile solo la mattina…"
+            className="resize-none rounded-[6px] border border-line-strong bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted-foreground focus:border-[oklch(0.58_0.12_180)]"
+          />
+          <span className="text-[13px] text-muted-foreground">Facoltative: l&apos;algoritmo ne terrà conto per la settimana {etichettaSettimana(lun)}.</span>
+        </div>
+      )}
 
-        {/* ── Step 2: Note ────────────────────────────────────────── */}
-        {step === 'notes' && (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Hai esigenze particolari per la settimana <strong>{weekLabel}</strong>?
-              Descrivile liberamente — l'algoritmo le terrà in conto.
-            </p>
-            <Textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={4}
-              placeholder="Es: sabato sera servono almeno 2 baristi, Marco è disponibile solo la mattina, chiudere il Bar domenica sera…"
-            />
-            <p className="text-xs text-muted-foreground">Facoltativo — puoi lasciarlo vuoto e procedere.</p>
-            {error && (
-              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{error}</p>
-            )}
-          </div>
-        )}
-
-        {/* ── Step: Generazione in corso ──────────────────────────── */}
-        {step === 'generating' && (
-          <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <div className="relative">
-              <Sparkles className="w-10 h-10 text-primary animate-pulse" />
-            </div>
-            <div className="text-center">
-              <p className="font-medium">Generazione in corso…</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Analisi delle presenze storiche e distribuzione dei turni
-              </p>
-            </div>
-          </div>
-        )}
-
-        {step !== 'generating' && (
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={resetAndClose}>Annulla</Button>
-            {step === 'notes' && (
-              <Button variant="outline" onClick={() => setStep('params')}>
-                <ChevronLeft className="w-4 h-4" /> Indietro
-              </Button>
-            )}
-            <Button onClick={handleNext} disabled={!canProceed}>
-              {step === 'params'
-                ? existingCount !== null && existingCount > 0 && existingMode === null
-                  ? 'Scegli modalità ↑'
-                  : 'Avanti →'
-                : <><Sparkles className="w-4 h-4" /> Genera turni</>
-              }
-            </Button>
-          </DialogFooter>
-        )}
-      </DialogContent>
-    </Dialog>
+      {passo !== 'generating' && (
+        <PulsantiFine
+          onAnnulla={passo === 'notes' ? () => setPasso('params') : chiudi}
+          onConferma={avanti} attivo={puo} occupato={occupato}
+          etichetta={passo === 'params' ? (esistenti && modo === null ? 'Scegli come procedere' : 'Avanti') : 'Genera turni'}
+        />
+      )}
+    </FoglioTurni>
   )
 }

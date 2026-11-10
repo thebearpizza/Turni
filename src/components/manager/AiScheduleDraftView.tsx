@@ -1,18 +1,21 @@
 'use client'
-import { useState } from 'react'
-import { addDays, format, parseISO } from 'date-fns'
-import { it } from 'date-fns/locale'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { TimeInput } from '@/components/ui/time-input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { X, CheckCircle2, AlertTriangle, ArrowRightLeft, Zap, Coffee } from 'lucide-react'
+import { Fragment, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 import { confirmAiDraft, discardAiDraft, updateDraftTurn, rejectDraftTurn } from '@/app/actions/aiTurni'
-import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
-import type { AiScheduleDraft, AiScheduleDraftTurn, AiScheduleWarning } from '@/types'
+import { TINTA_TURNO, tipoTurno } from '@/lib/turnColors'
+import type { AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
 import { chiediConferma } from '@/components/shared/Conferma'
+import { ModificaTurno, type SalvaModifica } from '@/components/turni/ModificaTurno'
+import {
+  FoglioTurni, Velo, USCITA, WD, etichettaSettimana, giorniSettimana, giornoLungo, hm, numeroGiorno,
+  pesoReparto, toM, useApertura, useTelefono, nomeBreve,
+} from '@/components/turni/comuni'
+
+// Proposta della IA da rivedere prima di confermarla, con la stessa griglia
+// e gli stessi colori della settimana di MTTurni. Tocca un turno per
+// modificarlo o toglierlo; un turno tolto (barrato) si ripristina con un
+// tocco. "Conferma turni" li rende subito visibili ai dipendenti.
 
 interface Props {
   draft:    AiScheduleDraft & { turns: AiScheduleDraftTurn[] }
@@ -21,304 +24,168 @@ interface Props {
   onConfirmed: () => void
 }
 
-type TurnStatus = AiScheduleDraftTurn['status']
-
-const TURN_BADGE: Record<string, string> = {
-  standard:    STANDARD_BADGE,
-  extraordinary: EXTRAORDINARY_BADGE,
-  rest:        RIPOSO_BADGE,
-  cross:       'bg-secondary text-muted-foreground border-border',
-  rejected:    'opacity-30 line-through bg-secondary text-muted-foreground border-border',
-}
-
-function getTurnBadge(t: AiScheduleDraftTurn): string {
-  if (t.status === 'rejected') return TURN_BADGE.rejected
-  if (t.is_rest_day) return TURN_BADGE.rest
-  if (t.is_cross_dept) return TURN_BADGE.cross
-  if (t.is_extraordinary) return TURN_BADGE.extraordinary
-  return TURN_BADGE.standard
-}
-
-// ── thCls / tdCls — stesse classi dell'app ────────────────────────────────
-const thCls = 'px-2 py-1.5 text-center font-semibold bg-secondary text-white whitespace-nowrap text-xs'
-const tdCls = 'px-1 py-1 text-center text-xs border border-border align-top'
-const tdNameCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap sticky left-0 bg-white z-10'
-
 export function AiScheduleDraftView({ draft, staff, onClose, onConfirmed }: Props) {
+  const tel = useTelefono()
   const [turns, setTurns] = useState<AiScheduleDraftTurn[]>(draft.turns)
-  const [confirming, setConfirming] = useState(false)
-  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [occupato, setOccupato] = useState(false)
+  const [esce, setEsce] = useState(false)
+  const modifica = useApertura<AiScheduleDraftTurn>()
+  const giorni = giorniSettimana(draft.week_start)
 
-  // ── Edit modal ────────────────────────────────────────────────────────
-  const [editingTurn, setEditingTurn] = useState<AiScheduleDraftTurn | null>(null)
-  const [editStart, setEditStart] = useState('')
-  const [editEnd, setEditEnd] = useState('')
-  const [editIsRest, setEditIsRest] = useState(false)
-  const [editSaving, setEditSaving] = useState(false)
+  const esci = (dopo: () => void) => { setEsce(true); setTimeout(dopo, USCITA) }
 
-  function openEdit(t: AiScheduleDraftTurn) {
-    setEditingTurn(t)
-    setEditStart(t.start_time.slice(0, 5))
-    setEditEnd(t.end_time.slice(0, 5))
-    setEditIsRest(t.is_rest_day)
-  }
-
-  async function handleEditSave() {
-    if (!editingTurn) return
-    setEditSaving(true)
+  async function salva(t: AiScheduleDraftTurn, v: SalvaModifica) {
+    const riposo = v.tipo === 'riposo'
+    const upd = { start_time: riposo ? '00:00' : v.a, end_time: riposo ? '00:00' : v.b, is_rest_day: riposo, is_extraordinary: v.tipo === 'straordinario' }
+    setOccupato(true)
     try {
-      await updateDraftTurn(editingTurn.id, {
-        start_time: editIsRest ? '00:00' : editStart,
-        end_time:   editIsRest ? '00:00' : editEnd,
-        is_rest_day: editIsRest,
-        status: 'modified',
-      })
-      setTurns(prev => prev.map(t => t.id === editingTurn.id
-        ? { ...t, start_time: editIsRest ? '00:00' : editStart, end_time: editIsRest ? '00:00' : editEnd, is_rest_day: editIsRest, status: 'modified' }
-        : t
-      ))
-      setEditingTurn(null)
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  async function handleReject(turnId: string) {
-    await rejectDraftTurn(turnId)
-    setTurns(prev => prev.map(t => t.id === turnId ? { ...t, status: 'rejected' } : t))
-  }
-
-  async function handleRestore(turnId: string) {
-    await updateDraftTurn(turnId, { status: 'pending' })
-    setTurns(prev => prev.map(t => t.id === turnId ? { ...t, status: 'pending' } : t))
-  }
-
-  async function handleConfirm() {
-    setConfirming(true); setConfirmError(null)
-    try {
-      await confirmAiDraft(draft.id)
-      onConfirmed()
+      await updateDraftTurn(t.id, upd)
+      setTurns(p => p.map(x => x.id === t.id ? { ...x, ...upd, status: 'modified' } : x))
+      modifica.chiudi()
     } catch (e) {
-      setConfirmError(e instanceof Error ? e.message : 'Errore durante la conferma')
-    } finally {
-      setConfirming(false)
+      toast({ title: 'Modifica non riuscita', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally { setOccupato(false) }
+  }
+  async function togli(t: AiScheduleDraftTurn) {
+    setOccupato(true)
+    try {
+      await rejectDraftTurn(t.id)
+      setTurns(p => p.map(x => x.id === t.id ? { ...x, status: 'rejected' } : x))
+      modifica.chiudi()
+    } catch (e) {
+      toast({ title: 'Operazione non riuscita', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally { setOccupato(false) }
+  }
+  async function ripristina(t: AiScheduleDraftTurn) {
+    try {
+      await updateDraftTurn(t.id, { status: 'pending' })
+      setTurns(p => p.map(x => x.id === t.id ? { ...x, status: 'pending' } : x))
+    } catch (e) {
+      toast({ title: 'Ripristino non riuscito', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
     }
   }
-
-  async function handleDiscard() {
+  async function conferma() {
+    setOccupato(true)
+    try {
+      const { created } = await confirmAiDraft(draft.id)
+      toast({ title: `${created} turni confermati, già visibili ai dipendenti` })
+      esci(onConfirmed)
+    } catch (e) {
+      toast({ title: 'Conferma non riuscita', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
+    } finally { setOccupato(false) }
+  }
+  async function scarta() {
     if (!(await chiediConferma({ titolo: 'Scartare la proposta?', testo: "L'azione non può essere annullata.", conferma: 'Scarta' }))) return
-    await discardAiDraft(draft.id)
-    onClose()
-  }
-
-  // ── Dati per la griglia ───────────────────────────────────────────────
-  const weekDays = Array.from({ length: 7 }, (_, i) =>
-    addDays(parseISO(draft.week_start + 'T00:00:00'), i)
-  )
-
-  const turnsByUserDate: Record<string, AiScheduleDraftTurn[]> = {}
-  for (const t of turns) {
-    const key = `${t.user_id}|${t.date}`
-    if (!turnsByUserDate[key]) turnsByUserDate[key] = []
-    turnsByUserDate[key].push(t)
-  }
-
-  // Staff con almeno un turno nella bozza: unione fra lo staff nello scope
-  // del capo servizio e i profili dei jolly di altro reparto — questi ultimi
-  // sono assenti da `staff` (che arriva già filtrato per reparto) ma la loro
-  // anagrafica è comunque inclusa nella bozza tramite la join profile:profiles.
-  // Senza questa unione le loro righe restavano invisibili pur venendo
-  // pubblicate alla conferma.
-  const draftProfiles = new Map<string, { id: string; full_name: string; department: string | null }>()
-  for (const s of staff) draftProfiles.set(s.id, s)
-  for (const t of turns) {
-    if (!draftProfiles.has(t.user_id) && t.profile) {
-      draftProfiles.set(t.user_id, { id: t.profile.id, full_name: t.profile.full_name, department: t.original_department })
+    try {
+      await discardAiDraft(draft.id)
+      toast({ title: 'Proposta scartata' })
+      esci(onClose)
+    } catch (e) {
+      toast({ title: 'Operazione non riuscita', description: e instanceof Error ? e.message : undefined, variant: 'destructive' })
     }
   }
-  const staffIds = new Set(staff.map(s => s.id))
-  const draftUserIds = new Set(turns.map(t => t.user_id))
-  const gridStaff = Array.from(draftProfiles.values()).filter(s => draftUserIds.has(s.id))
 
-  const activeWarnings: AiScheduleWarning[] = draft.warnings ?? []
-  const pendingCount = turns.filter(t => t.status !== 'rejected').length
+  // Righe: lo staff nello scope più i jolly di altro reparto presenti nella proposta.
+  const persone = new Map<string, { id: string; nome: string; rep: string | null; jolly: boolean }>()
+  for (const s of staff) persone.set(s.id, { id: s.id, nome: s.full_name, rep: s.department, jolly: false })
+  for (const t of turns) if (!persone.has(t.user_id) && t.profile) persone.set(t.user_id, { id: t.user_id, nome: t.profile.full_name, rep: t.original_department, jolly: true })
+  const conTurni = new Set(turns.map(t => t.user_id))
+  const gruppi = new Map<string, { id: string; nome: string; rep: string | null; jolly: boolean }[]>()
+  for (const p of persone.values()) if (conTurni.has(p.id)) gruppi.set(p.rep ?? 'Senza reparto', [...(gruppi.get(p.rep ?? 'Senza reparto') ?? []), p])
+  const ordinati = [...gruppi.entries()].sort(([a], [b]) => pesoReparto(a) - pesoReparto(b) || a.localeCompare(b))
+  const attivi = turns.filter(t => t.status !== 'rejected').length
+  const cols = tel ? '84px repeat(7,minmax(0,1fr))' : '170px repeat(7,minmax(0,1fr))'
+  const ed = modifica.dati
 
   return (
-    <div className="space-y-5">
-      {/* Header bozza */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-lg font-semibold">Bozza turni IA</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Settimana {format(parseISO(draft.week_start + 'T00:00:00'), 'd MMM', { locale: it })} –{' '}
-            {format(addDays(parseISO(draft.week_start + 'T00:00:00'), 6), 'd MMM yyyy', { locale: it })}
-            {' '}· {pendingCount} turni
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleDiscard}>Scarta bozza</Button>
-          <Button size="sm" onClick={handleConfirm} disabled={confirming || pendingCount === 0}>
-            <CheckCircle2 className="w-4 h-4" />
-            {confirming ? 'Pubblicazione…' : 'Conferma e Pubblica'}
-          </Button>
-        </div>
-      </div>
-
-      {confirmError && (
-        <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{confirmError}</p>
-      )}
-
-      {/* Warning panel */}
-      {activeWarnings.length > 0 && (
-        <div className="rounded-md border border-warn/30 bg-warn-tint p-3 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-warn">
-            <AlertTriangle className="w-4 h-4" />
-            {activeWarnings.length} avvisi di copertura
+    <>
+      <FoglioTurni
+        aperto esce={esce} onChiudi={() => esci(onClose)} larghezza={1200} altoTablet={48}
+        titolo="Proposta della IA" sotto={`Settimana ${etichettaSettimana(draft.week_start)} · ${attivi} turni`}
+      >
+        {(draft.warnings ?? []).length > 0 && (
+          <div className="flex flex-col gap-1 rounded-[10px] bg-warn-tint p-3 text-warn">
+            <span className="text-sm font-semibold">{draft.warnings.length} avvisi di copertura</span>
+            {draft.warnings.map((w, i) => <span key={i} className="text-[13px]"><b className="font-medium">{w.day} · {w.department} · {w.slot_name}:</b> {w.message}</span>)}
           </div>
-          <ul className="space-y-1 pl-5">
-            {activeWarnings.map((w, i) => (
-              <li key={i} className="text-xs text-warn">
-                <span className="font-medium">{w.day} · {w.department} · {w.slot_name}:</span> {w.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Legenda */}
-      <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${TURN_BADGE.standard}`} /> Turno
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${TURN_BADGE.extraordinary}`} /> Straordinario
-        </span>
-        <span className="flex items-center gap-1.5">
-          <ArrowRightLeft className="w-3 h-3 text-muted-foreground" /> Jolly (altro reparto)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${TURN_BADGE.rest}`} /> Riposo
-        </span>
-        <span className="flex items-center gap-1.5 ml-auto text-[10px] italic">
-          Click cella → modifica · × → rimuovi
-        </span>
-      </div>
-
-      {/* Griglia — stessa struttura di TurniManagerClient */}
-      <div className="w-full rounded-md border bg-card overflow-auto">
-        <table className="border-collapse text-xs w-full" style={{ minWidth: 'max-content' }}>
-          <thead>
-            <tr>
-              <th className={`${thCls} sticky left-0 z-20 text-left min-w-[150px]`}>Dipendente</th>
-              {weekDays.map(day => (
-                <th key={format(day, 'yyyy-MM-dd')} className={`${thCls} min-w-[100px]`}>
-                  <div className="capitalize">{format(day, 'EEE', { locale: it })}</div>
-                  <div className="font-normal opacity-80">{format(day, 'd/MM', { locale: it })}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {gridStaff.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="text-center py-6 text-muted-foreground text-xs">
-                  Nessun turno generato
-                </td>
-              </tr>
-            ) : gridStaff.map(member => (
-              <tr key={member.id} className="even:bg-background dark:even:bg-secondary">
-                <td className={tdNameCls}>
-                  {member.full_name}
-                  {member.department && (
-                    <span className="block text-[10px] font-normal text-muted-foreground">
-                      {member.department}{!staffIds.has(member.id) ? ' · jolly da altro reparto' : ''}
-                    </span>
-                  )}
-                </td>
-                {weekDays.map(day => {
-                  const dateStr = format(day, 'yyyy-MM-dd')
-                  const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
-                  return (
-                    <td key={dateStr} className={`${tdCls} p-1`}>
-                      <div className="flex flex-col gap-1 items-stretch min-w-[80px]">
-                        {cellTurns.map(turn => (
-                          <div
-                            key={turn.id}
-                            className={`flex items-center justify-between gap-0.5 rounded-sm border px-1 py-0.5 text-[10px] font-medium cursor-pointer group ${getTurnBadge(turn)}`}
-                          >
-                            <span onClick={() => openEdit(turn)} className="flex-1 flex items-center gap-0.5 min-w-0">
-                              {turn.is_cross_dept && <ArrowRightLeft className="w-2.5 h-2.5 shrink-0" />}
-                              {turn.is_extraordinary && <Zap className="w-2.5 h-2.5 shrink-0" />}
-                              {turn.is_rest_day ? 'Riposo' : `${turn.start_time.slice(0, 5)}–${turn.end_time.slice(0, 5)}`}
-                              {turn.status === 'modified' && <span className="opacity-60">*</span>}
-                            </span>
-                            {turn.status !== 'rejected' ? (
-                              <button
-                                type="button"
-                                onClick={e => { e.stopPropagation(); handleReject(turn.id) }}
-                                className="opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-destructive transition-opacity"
-                                aria-label="Rimuovi"
-                              >
-                                <X className="w-2.5 h-2.5" />
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={e => { e.stopPropagation(); handleRestore(turn.id) }}
-                                className="text-[9px] opacity-60 hover:opacity-100"
-                              >
-                                ↩
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── Edit turn modal ──────────────────────────────────────────── */}
-      <Dialog open={!!editingTurn} onOpenChange={open => { if (!open) setEditingTurn(null) }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Modifica turno</DialogTitle>
-            {editingTurn && (
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {staff.find(s => s.id === editingTurn.user_id)?.full_name} · {editingTurn.date}
-              </p>
-            )}
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
-              <Label>Giorno di riposo</Label>
-              <Switch checked={editIsRest} onCheckedChange={setEditIsRest} />
-            </div>
-            {!editIsRest && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Ora inizio</Label>
-                  <TimeInput value={editStart} onChange={setEditStart} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Ora fine</Label>
-                  <TimeInput value={editEnd} onChange={setEditEnd} />
-                </div>
+        )}
+        <div className="overflow-hidden rounded-[12px] border border-border">
+          <div className="grid border-b border-border bg-[oklch(0.97_0.01_250)] dark:bg-[oklch(0.23_0.01_250)]" style={{ gridTemplateColumns: cols }}>
+            <span />
+            {giorni.map((g, i) => (
+              <div key={g} className={cn('flex border-l border-[oklch(0.93_0.01_250)] dark:border-border', tel ? 'flex-col items-center py-1.5' : 'items-baseline gap-1.5 px-2.5 py-2')}>
+                <span className="text-xs font-medium text-muted-foreground">{WD[i]}</span>
+                <span className="font-mono text-[15px] font-semibold">{numeroGiorno(g)}</span>
               </div>
-            )}
+            ))}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingTurn(null)}>Annulla</Button>
-            <Button onClick={handleEditSave} disabled={editSaving || (!editIsRest && (!editStart || !editEnd))}>
-              {editSaving ? 'Salvataggio…' : 'Salva'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+          {ordinati.map(([rep, righe]) => (
+            <Fragment key={rep}>
+              <div className="border-b border-[oklch(0.93_0.01_250)] bg-[oklch(0.96_0.01_250)] px-4 py-[7px] text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:border-border dark:bg-[oklch(0.22_0.01_250)]">{rep}</div>
+              {righe.map(p => (
+                <div key={p.id} className="grid min-h-14 border-b border-[oklch(0.93_0.01_250)] dark:border-border" style={{ gridTemplateColumns: cols }}>
+                  <div className="flex min-w-0 flex-col justify-center px-2.5 sm:px-4">
+                    <span className="truncate text-[13px] font-medium sm:text-sm">{tel ? nomeBreve(p.nome) : p.nome}</span>
+                    {p.jolly && <span className="truncate text-xs text-muted-foreground">jolly</span>}
+                  </div>
+                  {giorni.map(g => {
+                    const fs = turns.filter(t => t.user_id === p.id && t.date === g).sort((a, b) => a.start_time.localeCompare(b.start_time))
+                    return (
+                      <div key={g} className="flex min-w-0 flex-col justify-center gap-1 border-l border-[oklch(0.93_0.01_250)] px-0.5 py-1 dark:border-border sm:p-1.5">
+                        {fs.map(t => {
+                          const via = t.status === 'rejected'
+                          return (
+                            <button
+                              key={t.id} type="button" onClick={() => via ? ripristina(t) : modifica.apri(t)}
+                              className={cn('flex items-center justify-center overflow-hidden whitespace-nowrap rounded-[6px] border font-mono font-medium active:scale-[0.96]', TINTA_TURNO[tipoTurno(t)],
+                                tel ? 'flex-col text-[10px] tracking-[-.02em]' : 'text-xs', via && 'line-through opacity-35')}
+                              style={{ height: tel ? (fs.length > 1 ? 34 : 46) : (fs.length > 1 ? 22 : 46) }}
+                              title={via ? 'Tocca per ripristinare' : t.warning ?? undefined}
+                            >
+                              {t.is_rest_day ? <span className="font-sans">{tel ? 'Rip.' : 'Riposo'}</span>
+                                : tel ? <><span>{hm(toM(t.start_time))}</span><span>{hm(toM(t.end_time))}</span></>
+                                : <span>{hm(toM(t.start_time))}–{hm(toM(t.end_time))}{t.status === 'modified' ? ' *' : ''}</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </Fragment>
+          ))}
+          {ordinati.length === 0 && <div className="py-10 text-center text-[13px] text-muted-foreground">Nessun turno generato</div>}
+        </div>
+        <span className="text-[13px] text-muted-foreground">Tocca un turno per modificarlo o toglierlo; tocca un turno barrato per ripristinarlo.</span>
+        <div className="grid grid-cols-[1fr_2fr] gap-2.5">
+          <button type="button" onClick={scarta} disabled={occupato} className="flex h-[52px] items-center justify-center rounded-[6px] bg-neg-tint text-[15px] font-semibold text-neg">Scarta proposta</button>
+          <button
+            type="button" onClick={conferma} disabled={occupato || attivi === 0}
+            className="flex h-[52px] items-center justify-center rounded-[6px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-40"
+          >
+            {occupato ? 'Conferma…' : `Conferma ${attivi} turni`}
+          </button>
+        </div>
+      </FoglioTurni>
+
+      <Velo aperto={!!ed} esce={modifica.esce} onChiudi={modifica.chiudi} altoTablet={220}>
+        {ed && (
+          <div onClick={e => e.stopPropagation()} style={{ width: tel ? '100%' : 'min(520px, 100%)' }}>
+            <ModificaTurno
+              key={ed.id}
+              nome={persone.get(ed.user_id)?.nome ?? ''} giorno={giornoLungo(ed.date)}
+              inizio={ed.is_rest_day ? '' : hm(toM(ed.start_time))} fine={ed.is_rest_day ? '' : hm(toM(ed.end_time))}
+              tipo={ed.is_rest_day ? 'riposo' : ed.is_extraordinary ? 'straordinario' : 'standard'}
+              tipi={[{ k: 'standard', l: 'Standard' }, { k: 'straordinario', l: 'Straordinario' }, { k: 'riposo', l: 'Riposo' }]}
+              raggio={tel ? '20px 20px 0 0' : '10px'} padB={tel ? 'calc(44px + env(safe-area-inset-bottom))' : '24px'}
+              ombra="0 20px 60px rgba(20,30,50,.2)" anim={modifica.esce ? 'anim-swapout' : 'anim-swapin'} occupato={occupato}
+              etichettaElimina="Togli" conNota={false}
+              onClose={modifica.chiudi} onSave={v => salva(ed, v)} onDelete={() => togli(ed)}
+            />
+          </div>
+        )}
+      </Velo>
+    </>
   )
 }

@@ -1,52 +1,52 @@
 'use client'
-import { Fragment, useState, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { formatInTimeZone } from 'date-fns-tz'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
 import {
-  createTurn, updateTurn, deleteTurn, createTurnsBulk,
-  upsertStandardShift, deleteStandardShift, populateFromStandard, copyWeek,
-  type TurnInput, type BulkTurnInput,
+  createTurn, updateTurn, deleteTurn, createTurnsBulk, populateFromStandard, copyWeek, salvaSettimanaTipo,
+  type TurnInput,
 } from '@/app/actions/turni'
 import { scopeTurnsQuery, type ScopeProfile } from '@/lib/turniScope'
-
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { TimeInput } from '@/components/ui/time-input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { RestaurantFilter } from '@/components/manager/RestaurantFilter'
-import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarRange, Copy, X, Sparkles } from 'lucide-react'
-import { formatInTimeZone } from 'date-fns-tz'
-import { startOfWeek, addDays, addWeeks, format, parseISO, eachDayOfInterval, getDay } from 'date-fns'
-import { it } from 'date-fns/locale'
+import { chiediConferma } from '@/components/shared/Conferma'
+import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { ScheletroForma } from '@/components/shared/ScheletroForma'
+import { useScheletro } from '@/components/shared/useScheletro'
+import { impostaSottotitolo } from '@/components/shell/intestazioneDinamica'
+import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import type { Turn, Department, StandardShift, AiScheduleDraft, AiScheduleDraftTurn } from '@/types'
+import {
+  TZ, Velo, useApertura, useTelefono, Segmento, ICONA_PIU, ICONA_FISSI, ICONA_COPIA, ICONA_IA,
+  pesoReparto, lunediDi, giorniSettimana, piuGiorni, etichettaSettimana, etichettaSettimanaStretta,
+  giornoLungo, hm, toM, nomeBreve, indiceGiorno,
+} from '@/components/turni/comuni'
+import { GrigliaSettimana, type GruppoGriglia } from '@/components/turni/GrigliaSettimana'
+import { TimelineGiorno, type GruppoTimeline } from '@/components/turni/TimelineGiorno'
+import { ModificaTurno, type SalvaModifica } from '@/components/turni/ModificaTurno'
+import { FoglioNuovoTurno, type RichiestaNuovo } from '@/components/turni/FoglioNuovoTurno'
+import { FoglioTurniFissi, dowDi, type GiornoSchema } from '@/components/turni/FoglioTurniFissi'
+import { TurniReparto, type AssenzaReparto } from '@/components/turni/TurniReparto'
 import { AiScheduleDialog } from './AiScheduleDialog'
 import { AiScheduleDraftView } from './AiScheduleDraftView'
-import { TurniTimeline } from './TurniTimeline'
-import { EXTRAORDINARY_BADGE, STANDARD_BADGE, RIPOSO_BADGE } from '@/lib/turnColors'
-import { chiediConferma } from '@/components/shared/Conferma'
 
-const TZ = 'Europe/Rome'
+// Sezione Turni (MTTurni.dc.html) per manager e direttore, e per il capo
+// servizio su tablet; sul telefono il capo servizio ha la timeline del suo
+// reparto (Capo Servizio.dc.html, TurniReparto). In alto locali e reparti,
+// Settimana/Giorno, Nuovo turno, Turni fissi, Copia settimana e Genera con
+// IA; sotto la settimana con le frecce. Niente bozze né "Pubblica": ogni
+// turno è subito visibile ai dipendenti.
+
+const SELECT_TURNI = '*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)'
 
 type StaffMember = { id: string; full_name: string; department: string | null; restaurant_id: string | null; role?: string | null; weekly_hours_target?: number | null }
 type RestaurantItem = { id: string; name: string }
-type MultiDayEntry = {
-  date: string
-  is_rest_day: boolean
-  start_time: string
-  end_time: string
-  is_extraordinary: boolean
-  notes: string
-  splitSegments: { start: string; end: string }[]
-}
 
 interface Props {
   initialTurns:          Turn[]
   initialStandardShifts: StandardShift[]
+  initialAbsences:       AssenzaReparto[]
   staff:                 StaffMember[]
   restaurants:           RestaurantItem[]
   currentUserId:         string
@@ -56,1356 +56,483 @@ interface Props {
   currentIsDirettore:    boolean
 }
 
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return h * 60 + m
-}
-
-// Durata di una fascia oraria in minuti; gestisce il turno notturno
-// (fine ≤ inizio → si estende al giorno dopo).
-function segmentMinutes(start: string, end: string): number {
-  const s = timeToMinutes(start)
-  let e = timeToMinutes(end)
-  if (e <= s) e += 24 * 60
-  return e - s
-}
-
-function formatMinutes(total: number): string {
-  const h = Math.floor(total / 60)
-  const m = total % 60
-  return m > 0 ? `${h}h ${String(m).padStart(2, '0')}` : `${h}h`
-}
-
-// Ordine dei reparti nella griglia (design MTTurni): sala prima, cucina in
-// fondo; reparti sconosciuti in ordine alfabetico, chi non ne ha per ultimo.
-const ORDINE_REPARTI = ['sala', 'pizzeria', 'bar', 'cucina']
-function pesoReparto(d: string | null): number {
-  if (!d) return 999
-  const i = ORDINE_REPARTI.indexOf(d.toLowerCase())
-  return i === -1 ? 100 : i
-}
-
-// Una fascia spezzata è incompleta se ha un solo orario compilato tra i due.
-function hasIncompleteSplit(segments: { start: string; end: string }[]): boolean {
-  return segments.some(s => (s.start && !s.end) || (!s.start && s.end))
-}
-
-// Aggiunge o aggiorna righe per id — mai una semplice concat. Il canale
-// realtime (sotto) fa il proprio giro di rete in parallelo a ogni
-// createTurn/createTurnsBulk, e spesso arriva PRIMA che l'update
-// ottimistico locale si applichi (soprattutto con molte righe create in
-// una volta, come in "Più Giorni" o Inserimento Multiplo): concatenare
-// alla cieca in quel caso fa comparire lo stesso turno due volte in
-// agenda — solo nello stato del browser, mai nel database (il vincolo di
-// unicità lo impedisce comunque lì) — finché non si ricarica la pagina,
-// che riparte da un fetch pulito e fa sparire il "doppione" fantasma.
+// Aggiunge o aggiorna per id, mai una concat: il realtime arriva spesso
+// prima dell'aggiornamento locale e una concat mostrerebbe doppioni.
 function mergeTurns(prev: Turn[], incoming: Turn[]): Turn[] {
-  let next = prev
-  for (const t of incoming) {
-    const idx = next.findIndex(x => x.id === t.id)
-    next = idx >= 0 ? next.map((x, i) => (i === idx ? t : x)) : [...next, t]
-  }
-  return next
+  if (!incoming.length) return prev
+  const m = new Map(prev.map(t => [t.id, t]))
+  for (const t of incoming) m.set(t.id, t)
+  return [...m.values()]
 }
 
-// Intestazione e colonna dipendente condividono lo stesso trattamento
-// neutro (bg-card + bordo) della Timeline Giornaliera sotto, invece di un
-// blocco colorato a sé stante — stesso linguaggio visivo in tutta la pagina.
-const thCls = 'px-1.5 py-2 text-center font-medium bg-card text-muted-foreground border-b border-border whitespace-nowrap'
-const tdCls = 'px-1 py-1 text-center text-xs border-b border-border whitespace-nowrap tabular-nums'
-const tdNameStaticCls = 'px-2 py-1 text-left text-xs font-medium border border-border whitespace-nowrap bg-card'
-
-const TURN_TYPE_OPTIONS = [
-  { value: false, label: 'Turno di Lavoro' },
-  { value: true, label: 'Riposo' },
-]
-
-// date-fns getDay(): 0=Dom .. 6=Sab
-const WEEK_DAY_OPTIONS = [
-  { value: 1, label: 'Lun' },
-  { value: 2, label: 'Mar' },
-  { value: 3, label: 'Mer' },
-  { value: 4, label: 'Gio' },
-  { value: 5, label: 'Ven' },
-  { value: 6, label: 'Sab' },
-  { value: 0, label: 'Dom' },
-]
+const errore = (e: unknown) => e instanceof Error ? e.message : undefined
 
 export function TurniManagerClient({
-  initialTurns, initialStandardShifts, staff, restaurants,
-  currentUserId, currentUserRole, currentDepartment, currentRestaurantId,
-  currentIsDirettore,
+  initialTurns, initialStandardShifts, initialAbsences, staff, restaurants,
+  currentUserId, currentUserRole, currentDepartment, currentRestaurantId, currentIsDirettore,
 }: Props) {
   const { isPending } = useAccountStatus()
+  const tel = useTelefono()
   const isManager = currentUserRole === 'manager'
-  const isDirettore = currentUserRole === 'capo_servizio' && currentIsDirettore
+  const isCapo = currentUserRole === 'capo_servizio' && !currentIsDirettore
 
   const [turns, setTurns] = useState<Turn[]>(initialTurns)
-  const [weekOffset, setWeekOffset] = useState(0)
-  const [restFilter, setRestFilter] = useState<string>('tutti')
-  // Multi-selezione: array vuoto = tutti i reparti
-  const [deptFilter, setDeptFilter] = useState<string[]>([])
+  const [standard, setStandard] = useState<StandardShift[]>(initialStandardShifts)
+  const [assenze, setAssenze] = useState<AssenzaReparto[]>(initialAbsences)
+  const [adesso, setAdesso] = useState(() => Date.now())
+  const oggi = formatInTimeZone(new Date(adesso), TZ, 'yyyy-MM-dd')
+  const minutoOra = toM(formatInTimeZone(new Date(adesso), TZ, 'HH:mm'))
+  const lunediOggi = lunediDi(oggi)
+  const [lunedi, setLunedi] = useState(() => lunediDi(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')))
+  const giorni = useMemo(() => giorniSettimana(lunedi), [lunedi])
+  const domenica = giorni[6]
 
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  // `saving` (state) arriva a schermo con un giro di re-render: due click
-  // ravvicinati sul bottone — es. un salvataggio percepito come lento che
-  // spinge a ricliccare — possono passare entrambi prima che il bottone
-  // risulti visivamente disabilitato, creando due volte gli stessi turni.
-  // Un ref è letto/scritto in modo sincrono, immune a quel ritardo: la
-  // guardia in handleSave() lo controlla PRIMA di qualunque await.
-  const savingRef = useRef(false)
-  const [error, setError] = useState<string | null>(null)
-  const [editingTurn, setEditingTurn] = useState<Turn | null>(null)
+  // Come nel prototipo si guarda un locale alla volta (il primo); "Tutti i
+  // locali" resta perché le pillole condivise lo mostrano sempre.
+  const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
+  const [loc, setLoc] = useState<string | null>(() => isManager ? (restaurants[0]?.id ?? null) : null)
+  const [reps, setReps] = useState<string[]>([])
+  const [vista, setVista] = useState<'week' | 'day'>('week')
+  const [giornoSel, setGiornoSel] = useState(() => Math.max(0, giorniSettimana(lunediDi(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))).indexOf(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))))
+  const { stato: sk, avvia: avviaScheletro, pronto: scheletroPronto } = useScheletro(false)
 
-  // Form state
-  const [fUserId, setFUserId] = useState('')
-  const [fRestaurantId, setFRestaurantId] = useState(currentRestaurantId ?? '')
-  const [fDate, setFDate] = useState('')
-  const [fEndDate, setFEndDate] = useState('')
-  const [fDaysOfWeek, setFDaysOfWeek] = useState<number[]>([])
-  const [fStart, setFStart] = useState('')
-  const [fEnd, setFEnd] = useState('')
-  // Niente più un toggle in form: resta a false per ogni turno nuovo (singolo,
-  // multi-giorno o bulk). In modifica riparte dal valore già in DB (openEdit)
-  // e viaggia inalterato nel salvataggio, così un turno già straordinario non
-  // perde l'evidenziazione se lo si modifica per altro (es. solo le note).
-  const [fExtraordinary, setFExtraordinary] = useState(false)
-  const [fIsRestDay, setFIsRestDay] = useState(false)
-  const [fNotes, setFNotes] = useState('')
-  const [bulkMode, setBulkMode] = useState(false)
-  // Fasce aggiuntive dello stesso giorno (turno spezzato) — create insieme
-  // alla fascia principale con un solo Salva, senza riaprire il form.
-  const [fSplitSegments, setFSplitSegments] = useState<{ start: string; end: string }[]>([])
-  // Multi-giorno: fDate è il giorno attualmente "in composizione"; le frecce
-  // spostano avanti/indietro salvando il giorno corrente in questa coda,
-  // finché non si preme Salva che inserisce tutto in blocco.
-  const [multiDayMode, setMultiDayMode] = useState(false)
-  const [multiDayQueue, setMultiDayQueue] = useState<MultiDayEntry[]>([])
+  useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 60_000); return () => clearInterval(t) }, [])
 
-  // Turni Standard (Pattern Master)
-  const [standardShifts, setStandardShifts] = useState<StandardShift[]>(initialStandardShifts)
-  const [showStandardModal, setShowStandardModal] = useState(false)
-  const [sUserId, setSUserId] = useState('')
-  const [sDaysOfWeek, setSDaysOfWeek] = useState<number[]>([])
-  const [sStart, setSStart] = useState('')
-  const [sEnd, setSEnd] = useState('')
-  const [sSaving, setSSaving] = useState(false)
-  const [sError, setSError] = useState<string | null>(null)
-  const [populating, setPopulating] = useState(false)
-  const [copyingWeek, setCopyingWeek] = useState(false)
+  // Sottotitolo del guscio come nel design ("Settimana 12–18 ottobre"); il
+  // direttore e il capo hanno l'intestazione col locale.
+  useEffect(() => { if (isManager) impostaSottotitolo('Settimana ' + etichettaSettimanaStretta(lunedi)) }, [isManager, lunedi])
+  useEffect(() => () => impostaSottotitolo(null), [])
 
-  // AI Schedule
-  const [showAiDialog, setShowAiDialog] = useState(false)
-  const [aiDraft, setAiDraft] = useState<(AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) | null>(null)
-
-
-  // ── Realtime — REGOLA D'ORO: aggiornamento istantaneo via supabase_realtime ──
+  // ── Realtime ─────────────────────────────────────────────────────────
   useEffect(() => {
     const supabase = createClient()
-    const filter = !isManager && currentRestaurantId
-      ? `restaurant_id=eq.${currentRestaurantId}`
-      : undefined
-
+    const filter = !isManager && currentRestaurantId ? `restaurant_id=eq.${currentRestaurantId}` : undefined
     const channel = supabase
       .channel('rt-turni')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'turns', ...(filter ? { filter } : {}) },
-        async (payload) => {
-          // Capo Servizio (non direttore): il filtro realtime copre solo il
-          // ristorante — il reparto va verificato lato client.
-          const inDeptScope = (row: { department: string | null }) =>
-            isManager || isDirettore || !currentDepartment || row.department === currentDepartment
-
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const rec = payload.new as Turn
-            if (!inDeptScope(rec)) {
-              setTurns(prev => prev.filter(t => t.id !== rec.id))
-              return
-            }
-            const { data } = await supabase
-              .from('turns')
-              .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
-              .eq('id', rec.id)
-              .single()
-            if (!data) return
-            setTurns(prev => mergeTurns(prev, [data as unknown as Turn]))
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = (payload.old as { id: string }).id
-            setTurns(prev => prev.filter(t => t.id !== deletedId))
-          }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'turns', ...(filter ? { filter } : {}) }, async payload => {
+        // Capo servizio: il filtro realtime copre il ristorante, il reparto si verifica qui.
+        const inScope = (row: { department: string | null }) => !isCapo || !currentDepartment || row.department === currentDepartment
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const rec = payload.new as Turn
+          if (!inScope(rec)) { setTurns(p => p.filter(t => t.id !== rec.id)); return }
+          const { data } = await supabase.from('turns').select(SELECT_TURNI).eq('id', rec.id).single()
+          if (data) setTurns(p => mergeTurns(p, [data as unknown as Turn]))
+        } else if (payload.eventType === 'DELETE') {
+          const id = (payload.old as { id: string }).id
+          setTurns(p => p.filter(t => t.id !== id))
         }
-      )
+      })
       .subscribe()
-
     return () => { supabase.removeChannel(channel) }
-  }, [isManager, isDirettore, currentDepartment, currentRestaurantId])
+  }, [isManager, isCapo, currentDepartment, currentRestaurantId])
 
-  // ── Week navigation ──────────────────────────────────────────────
-  const weekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 1 })
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-  const weekStartStr = format(weekStart, 'yyyy-MM-dd')
-  const weekEndStr = format(addDays(weekStart, 6), 'yyyy-MM-dd')
+  // ── Settimane caricate al volo ───────────────────────────────────────
+  // Il server carica la settimana corrente ±1; le altre si chiedono quando
+  // si naviga, invece di scaricare tutta la storia dei turni.
+  const caricate = useRef<Set<string>>(new Set([-7, 0, 7].map(d => piuGiorni(lunediDi(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')), d))))
+  const caricaSettimana = useCallback(async (lun: string) => {
+    if (caricate.current.has(lun)) return true
+    const supabase = createClient()
+    const scope: ScopeProfile = { role: currentUserRole, restaurant_id: currentRestaurantId, department: currentDepartment, is_direttore: currentIsDirettore }
+    const fine = piuGiorni(lun, 6)
+    let q = supabase.from('turns').select(SELECT_TURNI).gte('date', lun).lte('date', fine)
+    q = scopeTurnsQuery(q, scope, currentUserId)
+    const [{ data, error }, ass] = await Promise.all([
+      q,
+      isCapo && currentRestaurantId
+        ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').eq('restaurant_id', currentRestaurantId).lte('start_date', fine).gte('end_date', lun)
+        : Promise.resolve({ data: null }),
+    ])
+    if (error) { toast({ title: 'Caricamento dei turni non riuscito', description: error.message, variant: 'destructive' }); return false }
+    caricate.current.add(lun)
+    setTurns(p => mergeTurns(p, (data ?? []) as unknown as Turn[]))
+    if (ass.data) setAssenze(p => [...p, ...(ass.data as AssenzaReparto[])])
+    return true
+  }, [currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, isCapo])
 
-  // Il fetch server-side iniziale (vedi turni/page.tsx) copre solo la
-  // settimana corrente ±1: navigando oltre, quella settimana va richiesta
-  // al volo — altrimenti la griglia risulterebbe vuota per le settimane non
-  // coperte dal caricamento iniziale, invece di scaricare l'intera storia
-  // dei turni ad ogni apertura della pagina.
-  const [loadedWeeks, setLoadedWeeks] = useState<Set<string>>(() => {
-    const base = startOfWeek(new Date(), { weekStartsOn: 1 })
-    return new Set([-1, 0, 1].map(o => format(addWeeks(base, o), 'yyyy-MM-dd')))
-  })
+  async function vaiASettimana(lun: string) {
+    setLunedi(lun)
+    setGiornoSel(lun === lunediOggi ? indiceGiorno(oggi) : 0)
+    avviaScheletro()
+    await caricaSettimana(lun)
+    scheletroPronto()
+  }
+  function cambiaLocale(id: string | null) {
+    setLoc(id); setReps([])
+    avviaScheletro(); scheletroPronto()
+  }
 
-  useEffect(() => {
-    if (loadedWeeks.has(weekStartStr)) return
-    let cancelled = false
-    async function loadWeek() {
-      const supabase = createClient()
-      const scopeProfile: ScopeProfile = {
-        role:          currentUserRole,
-        restaurant_id: currentRestaurantId,
-        department:    currentDepartment,
-        is_direttore:  currentIsDirettore,
-      }
-      let q = supabase
-        .from('turns')
-        .select('*, profile:profiles!user_id(id, full_name), restaurant:restaurants(id, name)')
-        .gte('date', weekStartStr)
-        .lte('date', weekEndStr)
-      q = scopeTurnsQuery(q, scopeProfile, currentUserId)
-      const { data } = await q
-      if (cancelled) return
-      setLoadedWeeks(prev => new Set(prev).add(weekStartStr))
-      if (data?.length) setTurns(prev => mergeTurns(prev, data as unknown as Turn[]))
+  // ── Dati della vista ─────────────────────────────────────────────────
+  const staffLoc = isManager && loc ? staff.filter(s => s.restaurant_id === loc) : staff
+  const reparti = [...new Set(staffLoc.map(s => s.department).filter((d): d is string => !!d))]
+    .sort((a, b) => pesoReparto(a) - pesoReparto(b) || a.localeCompare(b))
+  const E = reps.length ? staffLoc.filter(s => s.department && reps.includes(s.department)) : staffLoc
+  const nomeLocale = (id: string | null) => restaurants.find(r => r.id === id)?.name ?? ''
+
+  const perCella = useMemo(() => {
+    const m = new Map<string, Turn[]>()
+    for (const t of turns) {
+      if (t.date < lunedi || t.date > domenica) continue
+      const k = `${t.user_id}|${t.date}`
+      m.set(k, [...(m.get(k) ?? []), t])
     }
-    loadWeek()
-    return () => { cancelled = true }
-  }, [weekStartStr, weekEndStr, currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, loadedWeeks])
+    m.forEach(l => l.sort((a, b) => a.start_time.localeCompare(b.start_time)))
+    return m
+  }, [turns, lunedi, domenica])
 
-  const turnsByRestaurant = (isManager && restFilter !== 'tutti')
-    ? turns.filter(t => t.restaurant_id === restFilter)
-    : turns
-
-  const weekTurns = turnsByRestaurant.filter(t => t.date >= weekStartStr && t.date <= weekEndStr)
-
-  // ── Griglia stile Excel: dipendenti × giorni della settimana ─────
-  const turnsByUserDate: Record<string, Turn[]> = {}
-  weekTurns.forEach(t => {
-    const key = `${t.user_id}|${t.date}`
-    if (!turnsByUserDate[key]) turnsByUserDate[key] = []
-    turnsByUserDate[key].push(t)
-  })
-  Object.values(turnsByUserDate).forEach(list => list.sort((a, b) => a.start_time.localeCompare(b.start_time)))
-
-  const staffByRestaurant = (isManager && restFilter !== 'tutti')
-    ? staff.filter(s => s.restaurant_id === restFilter)
-    : staff
-
-  // Reparti disponibili nel ristorante selezionato (o in tutti, se nessun
-  // filtro ristorante è attivo) — pannello nascosto se c'è un solo reparto.
-  const allDepts = Array.from(
-    new Set(staffByRestaurant.map(s => s.department).filter((d): d is string => !!d))
-  ).sort()
-
-  const gridStaff = deptFilter.length === 0
-    ? staffByRestaurant
-    : staffByRestaurant.filter(s => s.department && deptFilter.includes(s.department))
-
-  // Righe raggruppate per reparto con intestazione di sezione (design MTTurni).
-  const gruppiReparto = Array.from(
-    gridStaff.reduce((m, s) => {
-      const k = s.department ?? null
-      if (!m.has(k)) m.set(k, [])
-      m.get(k)!.push(s)
-      return m
-    }, new Map<string | null, StaffMember[]>())
-  )
-    .map(([reparto, membri]) => ({ reparto, membri }))
-    .sort((a, b) => pesoReparto(a.reparto) - pesoReparto(b.reparto) || (a.reparto ?? '').localeCompare(b.reparto ?? ''))
-
-  function toggleDeptFilter(dept: string) {
-    setDeptFilter(prev => prev.includes(dept) ? prev.filter(d => d !== dept) : [...prev, dept])
+  const perReparto = <T,>(map: (s: StaffMember) => T) => {
+    const gruppi = new Map<string | null, StaffMember[]>()
+    for (const s of E) gruppi.set(s.department ?? null, [...(gruppi.get(s.department ?? null) ?? []), s])
+    return [...gruppi.entries()]
+      .sort(([a], [b]) => pesoReparto(a) - pesoReparto(b) || (a ?? '').localeCompare(b ?? ''))
+      .map(([n, membri]) => ({ n: n ?? 'Senza reparto', righe: membri.map(map) }))
   }
+  const gruppiGriglia: GruppoGriglia[] = perReparto(s => ({
+    id: s.id, nome: s.full_name, nomeBreve: nomeBreve(s.full_name),
+    sotto: [s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? ''), isManager && !loc ? nomeLocale(s.restaurant_id) : ''].filter(Boolean).join(' · '),
+    obiettivo: s.weekly_hours_target ?? 40,
+    celle: giorni.map(g => perCella.get(`${s.id}|${g}`) ?? []),
+  }))
+  const gruppiTimeline: GruppoTimeline[] = perReparto(s => ({ id: s.id, nome: s.full_name, turni: perCella.get(`${s.id}|${giorni[giornoSel]}`) ?? [] }))
+  const dipendentiFoglio = staffLoc
+    .slice().sort((a, b) => pesoReparto(a.department) - pesoReparto(b.department) || a.full_name.localeCompare(b.full_name, 'it'))
+    .map(s => ({ id: s.id, nome: s.full_name, rep: s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? '') }))
+  const sottoFoglio = (loc ? nomeLocale(loc) : isManager ? 'Tutti i locali' : nomeLocale(currentRestaurantId) || 'Il tuo locale')
 
-  // ── Employee dropdown scoping ────────────────────────────────────
-  // Direttore/Capo Servizio: `staff` arriva già filtrato dal server
-  // (scopeStaffQuery) per restaurant_id (+ department per i non-direttori).
-  // Manager: filtra per il ristorante selezionato nel form.
-  const scopedStaff = isManager
-    ? (fRestaurantId ? staff.filter(s => s.restaurant_id === fRestaurantId) : staff)
-    : staff
-
-  function resetForm() {
-    setEditingTurn(null)
-    setFUserId('')
-    setFRestaurantId(currentRestaurantId ?? '')
-    setFDate('')
-    setFEndDate('')
-    setFDaysOfWeek([])
-    setFStart('')
-    setFEnd('')
-    setFExtraordinary(false)
-    setFIsRestDay(false)
-    setFNotes('')
-    setBulkMode(false)
-    setFSplitSegments([])
-    setMultiDayMode(false)
-    setMultiDayQueue([])
-    setError(null)
-  }
-
-  function addSplitSegment() {
-    setFSplitSegments(prev => [...prev, { start: '', end: '' }])
-  }
-  function updateSplitSegment(idx: number, patch: Partial<{ start: string; end: string }>) {
-    setFSplitSegments(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
-  }
-  function removeSplitSegment(idx: number) {
-    setFSplitSegments(prev => prev.filter((_, i) => i !== idx))
-  }
-
-  // ── Turni Multi-giorno ────────────────────────────────────────────
-  // fDate rappresenta il giorno "in composizione"; le frecce salvano il
-  // giorno corrente nella coda e caricano il giorno successivo/precedente
-  // (già presente in coda, se già compilato).
-  function toggleMultiDayMode(v: boolean) {
-    setMultiDayMode(v)
-    setMultiDayQueue([])
-    if (v) {
-      setBulkMode(false)
-      setFDate(prev => prev || formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-      setFIsRestDay(false)
-      setFStart('')
-      setFEnd('')
-      setFExtraordinary(false)
-      setFNotes('')
-      setFSplitSegments([])
+  // ── Scritture ────────────────────────────────────────────────────────
+  const inputPer = (userId: string, date: string, x: Partial<TurnInput>): TurnInput => {
+    const s = staff.find(m => m.id === userId)
+    return {
+      user_id: userId, restaurant_id: s?.restaurant_id ?? currentRestaurantId ?? '', department: (s?.department ?? currentDepartment) as Department | null,
+      date, start_time: '18:00', end_time: '23:00', is_extraordinary: false, is_rest_day: false, notes: null, ...x,
     }
   }
 
-  function loadDayIntoComposer(dateStr: string, queue: MultiDayEntry[]) {
-    const existing = queue.find(e => e.date === dateStr)
-    setFDate(dateStr)
-    if (existing) {
-      setFIsRestDay(existing.is_rest_day)
-      setFStart(existing.is_rest_day ? '' : existing.start_time.slice(0, 5))
-      setFEnd(existing.is_rest_day ? '' : existing.end_time.slice(0, 5))
-      setFExtraordinary(existing.is_extraordinary)
-      setFNotes(existing.notes)
-      setFSplitSegments(existing.splitSegments)
-    } else {
-      setFIsRestDay(false)
-      setFStart('')
-      setFEnd('')
-      setFExtraordinary(false)
-      setFNotes('')
-      setFSplitSegments([])
-    }
+  // Un turno di lavoro prende il posto del riposo dello stesso giorno (come
+  // nel prototipo, che sostituisce il contenuto della cella).
+  async function togliRiposi(userId: string, date: string) {
+    const riposi = turns.filter(t => t.user_id === userId && t.date === date && t.is_rest_day)
+    for (const r of riposi) { await deleteTurn(r.id); setTurns(p => p.filter(t => t.id !== r.id)) }
   }
 
-  function goToDay(deltaDays: number) {
-    if (!fDate) return
-    if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
-      setError('Completa tutte le fasce del turno spezzato di questo giorno prima di continuare, oppure rimuovile.')
-      return
-    }
-    setError(null)
-    const nextQueue = commitCurrentDayIfValid(multiDayQueue)
-    setMultiDayQueue(nextQueue)
-    const newDate = format(addDays(parseISO(`${fDate}T00:00:00`), deltaDays), 'yyyy-MM-dd')
-    loadDayIntoComposer(newDate, nextQueue)
-  }
-
-  // Ritorna la coda aggiornata includendo il giorno attualmente in
-  // composizione, se compilato (riposo, oppure orario completo).
-  function commitCurrentDayIfValid(queue: MultiDayEntry[]): MultiDayEntry[] {
-    if (!fDate || (!fIsRestDay && (!fStart || !fEnd))) return queue
-    const entry: MultiDayEntry = {
-      date:             fDate,
-      is_rest_day:      fIsRestDay,
-      start_time:       fIsRestDay ? '00:00' : fStart,
-      end_time:         fIsRestDay ? '00:00' : fEnd,
-      is_extraordinary: fIsRestDay ? false : fExtraordinary,
-      notes:            fNotes.trim(),
-      splitSegments:    fIsRestDay ? [] : fSplitSegments.filter(s => s.start && s.end),
-    }
-    const idx = queue.findIndex(e => e.date === fDate)
-    const next = idx >= 0
-      ? queue.map((e, i) => i === idx ? entry : e)
-      : [...queue, entry]
-    return next.sort((a, b) => a.date.localeCompare(b.date))
-  }
-
-  function removeMultiDayEntry(dateStr: string) {
-    setMultiDayQueue(prev => prev.filter(e => e.date !== dateStr))
-  }
-
-  function openCreate() {
-    resetForm()
-    setShowForm(true)
-  }
-
-  // Creazione rapida da cella della griglia: precompila dipendente + data
-  function openCreateForCell(userId: string, dateStr: string) {
-    resetForm()
-    const member = staff.find(s => s.id === userId)
-    setFUserId(userId)
-    setFDate(dateStr)
-    if (isManager && member?.restaurant_id) setFRestaurantId(member.restaurant_id)
-    setShowForm(true)
-  }
-
-  function openEdit(turn: Turn) {
-    setEditingTurn(turn)
-    setFUserId(turn.user_id)
-    setFRestaurantId(turn.restaurant_id)
-    setFDate(turn.date)
-    setFStart(turn.start_time.slice(0, 5))
-    setFEnd(turn.end_time.slice(0, 5))
-    setFExtraordinary(turn.is_extraordinary)
-    setFIsRestDay(turn.is_rest_day)
-    setFNotes(turn.notes ?? '')
-    setBulkMode(false)
-    setFSplitSegments([])
-    setMultiDayMode(false)
-    setMultiDayQueue([])
-    setError(null)
-    setShowForm(true)
-  }
-
-  function toggleFDayOfWeek(day: number) {
-    setFDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
-  }
-
-  // Giorni della settimana compresi in un range di date (estremi inclusi):
-  // chi sceglie inizio/fine parte già con tutti i giorni coperti dal range
-  // preselezionati, invece di doverli ricomporre uno a uno — su un range di
-  // 7 o più giorni sono comunque tutti presenti, per costruzione.
-  function weekdaysInRange(start: string, end: string): number[] {
-    const s = new Date(`${start}T00:00:00`)
-    const e = new Date(`${end}T00:00:00`)
-    if (e < s) return []
-    return [...new Set(eachDayOfInterval({ start: s, end: e }).map(d => getDay(d)))]
-  }
-
-  async function handleSave() {
-    // Guardia sincrona (ref, non state): un secondo click arrivato prima
-    // che il bottone risulti visivamente disabilitato non deve avviare un
-    // secondo salvataggio in parallelo — altrimenti gli stessi turni
-    // vengono creati due volte, ciascun Promise.all con la sua serie di
-    // insert distinti (non un problema di merge/realtime, quello dedupe
-    // già correttamente per id: qui il doppio insert è reale).
-    if (!fUserId || savingRef.current) return
-    savingRef.current = true
+  async function creaDaFoglio(r: RichiestaNuovo): Promise<boolean> {
+    const riposo = r.tipo === 'riposo', st = r.tipo === 'straordinario'
     try {
-      if (multiDayMode) {
-        if (!fIsRestDay && hasIncompleteSplit(fSplitSegments)) {
-          setError('Completa tutte le fasce del turno spezzato di questo giorno prima di salvare, oppure rimuovile.')
-          return
-        }
-        const finalQueue = commitCurrentDayIfValid(multiDayQueue)
-        if (finalQueue.length === 0) {
-          setError('Compila almeno un giorno prima di salvare.')
-          return
-        }
-        setSaving(true)
-        setError(null)
-        try {
-          const selected = staff.find(s => s.id === fUserId)
-          const restaurant_id = selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? ''
-          const department = (selected?.department ?? currentDepartment) as Department | null
-          const creates: Promise<Turn | null>[] = []
-          for (const e of finalQueue) {
-            const shared = {
-              user_id:       fUserId,
-              restaurant_id,
-              department,
-              date:          e.date,
-              is_rest_day:   e.is_rest_day,
-              notes:         e.notes || null,
-            }
-            creates.push(createTurn({ ...shared, start_time: e.start_time, end_time: e.end_time, is_extraordinary: e.is_extraordinary }))
-            for (const seg of e.splitSegments) {
-              creates.push(createTurn({ ...shared, start_time: seg.start, end_time: seg.end, is_extraordinary: e.is_extraordinary }))
-            }
-          }
-          // null = turno identico già esistente, scartato in silenzio dal
-          // vincolo di unicità (protezione anti-doppione): niente da
-          // aggiungere allo stato locale, non un errore da mostrare.
-          const created = await Promise.all(creates)
-          setTurns(prev => mergeTurns(prev, created.filter((t): t is Turn => t !== null)))
-          resetForm()
-          setShowForm(false)
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Errore sconosciuto')
-        } finally {
-          setSaving(false)
-        }
-        return
+      let creati: Turn[] = []
+      if (r.settimane > 1) {
+        // Stesso orario per più settimane: una creazione in blocco per fascia.
+        const fasce = riposo ? [{ a: '00:00', b: '00:00' }] : r.voci[0].fasce
+        const base = inputPer(r.userId, lunedi, {})
+        const res = await Promise.all(fasce.map(f => createTurnsBulk({
+          user_id: r.userId, restaurant_id: base.restaurant_id, department: base.department,
+          start_date: lunedi, end_date: piuGiorni(lunedi, r.settimane * 7 - 1),
+          days_of_week: r.voci.map(v => dowDi(v.giorno)),
+          start_time: f.a, end_time: f.b, is_extraordinary: st, is_rest_day: riposo, notes: null,
+        })))
+        creati = res.flat()
+      } else {
+        const res = await Promise.all(r.voci.flatMap(v => (riposo ? [{ a: '00:00', b: '00:00' }] : v.fasce).map(f =>
+          createTurn(inputPer(r.userId, giorni[v.giorno], { start_time: f.a, end_time: f.b, is_extraordinary: st, is_rest_day: riposo })))))
+        creati = res.filter((t): t is Turn => t !== null)
       }
-
-      if (!fIsRestDay && (!fStart || !fEnd)) return
-      if (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) return
-
-      // Turno spezzato: ogni fascia aggiuntiva deve avere entrambi gli orari.
-      const canHaveSplit = !fIsRestDay && !editingTurn
-      if (canHaveSplit && hasIncompleteSplit(fSplitSegments)) {
-        setError('Completa tutte le fasce del turno spezzato prima di salvare, oppure rimuovile.')
-        return
-      }
-
-      setSaving(true)
-      setError(null)
-      try {
-        const selected = staff.find(s => s.id === fUserId)
-        const baseFields = {
-          user_id:          fUserId,
-          restaurant_id:    selected?.restaurant_id ?? fRestaurantId ?? currentRestaurantId ?? '',
-          department:       (selected?.department ?? currentDepartment) as Department | null,
-          start_time:       fIsRestDay ? '00:00' : fStart,
-          end_time:         fIsRestDay ? '00:00' : fEnd,
-          is_extraordinary: fIsRestDay ? false : fExtraordinary,
-          is_rest_day:      fIsRestDay,
-          notes:            fNotes.trim() || null,
-        }
-
-        if (bulkMode) {
-          const payload: BulkTurnInput = {
-            ...baseFields,
-            start_date:   fDate,
-            end_date:     fEndDate,
-            days_of_week: fDaysOfWeek,
-          }
-          // Fascia principale + eventuali fasce spezzate, ciascuna ripetuta
-          // sull'intero range/giorni scelti — una createTurnsBulk per fascia,
-          // stesso schema della creazione singola.
-          const created = await Promise.all([
-            createTurnsBulk(payload),
-            ...validSplitSegments.map(s => createTurnsBulk({ ...payload, start_time: s.start, end_time: s.end })),
-          ])
-          setTurns(prev => mergeTurns(prev, created.flat()))
-        } else {
-          const payload: TurnInput = { ...baseFields, date: fDate }
-          if (editingTurn) {
-            const updated = await updateTurn(editingTurn.id, payload)
-            setTurns(prev => prev.map(t => t.id === updated.id ? updated : t))
-          } else {
-            // Fascia principale + eventuali fasce spezzate, create insieme
-            // in un solo Salva (stesso dipendente/data/ristorante/reparto).
-            // null = doppione scartato in silenzio dal vincolo di unicità.
-            const created = await Promise.all([
-              createTurn(payload),
-              ...validSplitSegments.map(s => createTurn({ ...baseFields, date: fDate, start_time: s.start, end_time: s.end })),
-            ])
-            setTurns(prev => mergeTurns(prev, created.filter((t): t is Turn => t !== null)))
-          }
-        }
-        resetForm()
-        setShowForm(false)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Errore sconosciuto')
-      } finally {
-        setSaving(false)
-      }
-    } finally {
-      savingRef.current = false
-    }
-  }
-
-  async function handleDelete(id: string) {
-    if (!(await chiediConferma({ titolo: 'Eliminare il turno?', testo: 'Il dipendente non lo vedrà più tra i suoi turni.' }))) return false
-    try {
-      await deleteTurn(id)
-      setTurns(prev => prev.filter(t => t.id !== id))
-      toast({ title: 'Turno eliminato' })
+      setTurns(p => mergeTurns(p, creati))
+      if (!riposo) for (const v of r.voci) await togliRiposi(r.userId, giorni[v.giorno])
+      const n = creati.length
+      toast({ title: r.settimane > 1 ? `${n} turni creati su ${r.settimane} settimane` : n === 1 ? 'Turno creato' : `${n} turni creati` })
       return true
-    } catch (err) {
-      console.error('Errore eliminazione turno:', err)
-      toast({ title: 'Eliminazione non riuscita. Riprova.', variant: 'destructive' })
+    } catch (e) {
+      toast({ title: 'Creazione del turno non riuscita', description: errore(e), variant: 'destructive' })
       return false
     }
   }
 
-  // ── Turni Standard (Pattern Master) ──────────────────────────────
-  function resetStandardForm() {
-    setSUserId('')
-    setSDaysOfWeek([])
-    setSStart('')
-    setSEnd('')
-    setSError(null)
-  }
-
-  function toggleSDayOfWeek(day: number) {
-    setSDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
-  }
-
-  async function handleAddStandardShift() {
-    if (!sUserId || !sStart || !sEnd || sDaysOfWeek.length === 0) return
-    setSSaving(true)
-    setSError(null)
+  async function salvaModifica(t: Turn, v: SalvaModifica): Promise<boolean> {
+    const riposo = v.tipo === 'riposo'
     try {
-      const selected = staff.find(s => s.id === sUserId)
-      const created: StandardShift[] = []
-      for (const day of sDaysOfWeek) {
-        const shift = await upsertStandardShift({
-          user_id:       sUserId,
-          restaurant_id: selected?.restaurant_id ?? currentRestaurantId ?? '',
-          department:    (selected?.department ?? currentDepartment) as Department | null,
-          day_of_week:   day,
-          start_time:    sStart,
-          end_time:      sEnd,
-        })
-        created.push(shift as unknown as StandardShift)
-      }
-      setStandardShifts(prev =>
-        [...prev, ...created].sort((a, b) => a.day_of_week - b.day_of_week)
-      )
-      // Genera subito i turni reali per la settimana visualizzata, così il
-      // turno fisso compare anche in tabella (il Realtime aggiorna `turns`)
-      await populateFromStandard(weekStartStr, weekEndStr)
-      resetStandardForm()
-    } catch (err) {
-      setSError(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setSSaving(false)
+      const nuovo = await updateTurn(t.id, inputPer(t.user_id, t.date, {
+        restaurant_id: t.restaurant_id, department: t.department,
+        start_time: riposo ? '00:00' : v.a, end_time: riposo ? '00:00' : v.b,
+        is_extraordinary: !riposo && v.tipo === 'straordinario', is_rest_day: riposo, notes: v.nota || null,
+      }))
+      setTurns(p => mergeTurns(p, [nuovo]))
+      toast({ title: 'Turno aggiornato' })
+      return true
+    } catch (e) {
+      toast({ title: 'Salvataggio non riuscito', description: errore(e), variant: 'destructive' })
+      return false
     }
   }
 
-  async function handleDeleteStandardShift(id: string) {
-    if (!(await chiediConferma({ titolo: 'Eliminare il turno fisso?', testo: 'Non verrà più proposto nelle settimane successive.' }))) return
+  async function elimina(t: Turn): Promise<boolean> {
+    if (!(await chiediConferma({ titolo: 'Eliminare il turno?', testo: 'Il dipendente non lo vedrà più tra i suoi turni.' }))) return false
     try {
-      await deleteStandardShift(id)
-      setStandardShifts(prev => prev.filter(s => s.id !== id))
-    } catch (err) {
-      console.error('Errore eliminazione turno fisso:', err)
+      await deleteTurn(t.id)
+      setTurns(p => p.filter(x => x.id !== t.id))
+      toast({ title: 'Turno eliminato' })
+      return true
+    } catch (e) {
+      toast({ title: 'Eliminazione non riuscita', description: errore(e), variant: 'destructive' })
+      return false
     }
   }
 
-  // Applica i Turni Fissi alla settimana visualizzata — prima l'unico modo
-  // per farlo era aggiungere (o ricreare) un turno fisso, effetto
-  // collaterale non scopribile dall'interfaccia.
-  async function handlePopulateWeek() {
-    setPopulating(true)
+  // Trascinamento sulla timeline: aggiornamento ottimistico, ripristino se il server rifiuta.
+  async function sposta(t: Turn, a: number, b: number) {
+    const prima = t
+    const ora = { ...t, start_time: hm(a), end_time: hm(b) }
+    setTurns(p => mergeTurns(p, [ora]))
     try {
-      const { created, skipped } = await populateFromStandard(weekStartStr, weekEndStr)
-      toast({ title: 'Turni Fissi applicati', description: `${created} turni creati, ${skipped} già presenti o in riposo.` })
-    } catch (err) {
-      toast({ title: 'Errore', description: err instanceof Error ? err.message : 'Errore sconosciuto', variant: 'destructive' })
-    } finally {
-      setPopulating(false)
+      const nuovo = await updateTurn(t.id, inputPer(t.user_id, t.date, {
+        restaurant_id: t.restaurant_id, department: t.department, start_time: hm(a), end_time: hm(b),
+        is_extraordinary: t.is_extraordinary, is_rest_day: false, notes: t.notes,
+      }))
+      setTurns(p => mergeTurns(p, [nuovo]))
+      toast({ title: `Turno spostato alle ${hm(a)}–${hm(b)}` })
+    } catch (e) {
+      setTurns(p => mergeTurns(p, [prima]))
+      toast({ title: 'Spostamento non riuscito', description: errore(e), variant: 'destructive' })
     }
   }
 
-  async function handleCopyPreviousWeek() {
-    setCopyingWeek(true)
+  async function creaDaTimeline(userId: string, a: number, b: number) {
+    const data = giorni[giornoSel]
     try {
-      const prevWeekStartStr = format(addDays(weekStart, -7), 'yyyy-MM-dd')
-      const { created, skipped } = await copyWeek(prevWeekStartStr, weekStartStr)
-      toast({ title: 'Settimana precedente copiata', description: `${created} turni creati, ${skipped} già presenti.` })
-    } catch (err) {
-      toast({ title: 'Errore', description: err instanceof Error ? err.message : 'Errore sconosciuto', variant: 'destructive' })
-    } finally {
-      setCopyingWeek(false)
+      const t = await createTurn(inputPer(userId, data, { start_time: hm(a), end_time: hm(b) }))
+      if (t) setTurns(p => mergeTurns(p, [t]))
+      await togliRiposi(userId, data)
+      toast({ title: `Turno creato ${hm(a)}–${hm(b)}` })
+    } catch (e) {
+      toast({ title: 'Creazione del turno non riuscita', description: errore(e), variant: 'destructive' })
     }
   }
 
-  // Turno spezzato disponibile in creazione: singola, multi-giorno o bulk — non in modifica
-  const canHaveSplit = !fIsRestDay && !editingTurn
-  const validSplitSegments = fSplitSegments.filter(s => s.start && s.end)
-  const totalShiftMinutes = fStart && fEnd
-    ? segmentMinutes(fStart, fEnd) + validSplitSegments.reduce((sum, s) => sum + segmentMinutes(s.start, s.end), 0)
-    : 0
-  const hasIncompleteSplitSegment = canHaveSplit && hasIncompleteSplit(fSplitSegments)
+  const [copia, setCopia] = useState(false)
+  async function copiaSettimana() {
+    if (copia) return
+    setCopia(true)
+    try {
+      const { created, skipped } = await copyWeek(piuGiorni(lunedi, -7), lunedi)
+      caricate.current.delete(lunedi)
+      await caricaSettimana(lunedi)
+      toast({ title: created ? `${created} turni copiati dalla settimana precedente${skipped ? `, ${skipped} già presenti` : ''}` : 'Nessun turno da copiare dalla settimana precedente' })
+    } catch (e) {
+      toast({ title: 'Copia della settimana non riuscita', description: errore(e), variant: 'destructive' })
+    } finally { setCopia(false) }
+  }
 
-  // Multi-giorno: quanti giorni verrebbero salvati se si premesse Salva ora
-  // (coda + giorno corrente, se compilato e non già in coda).
-  const multiDayCurrentIsQueued = multiDayMode && fDate && multiDayQueue.some(e => e.date === fDate)
-  const multiDayCurrentIsValid = multiDayMode && !!fDate && (fIsRestDay || (!!fStart && !!fEnd))
-  const multiDayCount = multiDayMode
-    ? multiDayQueue.length + (multiDayCurrentIsValid && !multiDayCurrentIsQueued ? 1 : 0)
-    : 0
+  async function ricaricaSettimane(n: number) {
+    for (let w = 0; w < n; w++) caricate.current.delete(piuGiorni(lunedi, w * 7))
+    await caricaSettimana(lunedi)
+  }
+
+  async function popolaTutti(n: number): Promise<boolean> {
+    try {
+      const { created, skipped } = await populateFromStandard(lunedi, piuGiorni(lunedi, n * 7 - 1))
+      await ricaricaSettimane(n)
+      toast({ title: `${created} turni creati${skipped ? `, ${skipped} saltati perché già presenti` : ''}` })
+      return true
+    } catch (e) {
+      toast({ title: 'Popolamento non riuscito', description: errore(e), variant: 'destructive' })
+      return false
+    }
+  }
+
+  async function salvaFissi(userId: string, schema: GiornoSchema[], toccati: number[], n: number): Promise<boolean> {
+    try {
+      const giorniTipo = schema.map((x, d) => ({ day_of_week: dowDi(d), tipo: x.on === 'work' ? 'lavoro' as const : x.on === 'rip' ? 'riposo' as const : 'nessuno' as const, start_time: x.a, end_time: x.b }))
+      const r = await salvaSettimanaTipo({ user_id: userId, giorni: giorniTipo, toccati, lunedi, settimane: n })
+      setStandard(p => [...p.filter(s => s.user_id !== userId), ...(r.standard as StandardShift[])])
+      await ricaricaSettimane(n)
+      toast({ title: `${r.created} turni creati${r.skipped ? `, ${r.skipped} saltati perché già modificati` : ''}` })
+      if (r.riposiNonRicordati) toast({ title: 'I riposi sono stati applicati ma non salvati tra i turni fissi', variant: 'destructive' })
+      return true
+    } catch (e) {
+      toast({ title: 'Salvataggio dei turni fissi non riuscito', description: errore(e), variant: 'destructive' })
+      return false
+    }
+  }
+
+  // ── Fogli ────────────────────────────────────────────────────────────
+  const modifica = useApertura<Turn>()
+  const nuovo = useApertura<{ emp: string | null; giorni: number[]; k: number }>()
+  const fissi = useApertura<number>()
+  const [aiAperto, setAiAperto] = useState(false)
+  const [aiDraft, setAiDraft] = useState<(AiScheduleDraft & { turns: AiScheduleDraftTurn[] }) | null>(null)
+  const [occupato, setOccupato] = useState(false)
+  const contatore = useRef(0)
+  const apriNuovo = (emp: string | null, g: number[]) => { if (!isPending) nuovo.apri({ emp, giorni: g, k: ++contatore.current }) }
+  const restaurantAi = isManager ? (loc ?? '') : (currentRestaurantId ?? '')
+
+  const ed = modifica.dati
+  const fogli = (
+    <>
+      <Velo aperto={!!ed} esce={modifica.esce} onChiudi={modifica.chiudi} altoTablet={220}>
+        {ed && (
+          <div onClick={e => e.stopPropagation()} style={{ width: tel ? '100%' : 'min(520px, 100%)' }}>
+            <ModificaTurno
+              key={ed.id}
+              nome={staff.find(s => s.id === ed.user_id)?.full_name ?? ed.profile?.full_name ?? ''}
+              giorno={giornoLungo(ed.date)}
+              inizio={ed.is_rest_day ? '' : hm(toM(ed.start_time))} fine={ed.is_rest_day ? '' : hm(toM(ed.end_time))}
+              tipo={ed.is_extraordinary ? 'straordinario' : 'standard'} nota={ed.notes ?? ''}
+              raggio={tel ? '20px 20px 0 0' : '10px'} padB={tel ? 'calc(44px + env(safe-area-inset-bottom))' : '24px'}
+              ombra="0 20px 60px rgba(20,30,50,.2)" anim={modifica.esce ? 'anim-swapout' : 'anim-swapin'} occupato={occupato}
+              onClose={modifica.chiudi}
+              onSave={async v => { setOccupato(true); const ok = await salvaModifica(ed, v); setOccupato(false); if (ok) modifica.chiudi() }}
+              onDelete={async () => { setOccupato(true); const ok = await elimina(ed); setOccupato(false); if (ok) modifica.chiudi() }}
+            />
+          </div>
+        )}
+      </Velo>
+      {nuovo.dati && (
+        <FoglioNuovoTurno
+          key={nuovo.dati.k} esce={nuovo.esce} onChiudi={nuovo.chiudi}
+          sotto={`${sottoFoglio} · settimana ${etichettaSettimanaStretta(lunedi)}`}
+          dipendenti={dipendentiFoglio} giorni={giorni} iniziale={nuovo.dati} onCrea={creaDaFoglio}
+        />
+      )}
+      {fissi.dati !== null && (
+        <FoglioTurniFissi
+          key={fissi.dati} esce={fissi.esce} onChiudi={fissi.chiudi}
+          sotto={`${sottoFoglio} · orario ricorrente per giorno della settimana`}
+          dipendenti={dipendentiFoglio} standard={standard} onSalva={salvaFissi} onPopolaTutti={popolaTutti}
+        />
+      )}
+      <AiScheduleDialog
+        open={aiAperto} onClose={() => setAiAperto(false)}
+        restaurantId={restaurantAi} restaurantName={nomeLocale(restaurantAi)} weekStart={lunedi}
+        currentDept={currentDepartment as Department | null} currentUserRole={currentUserRole} currentIsDirettore={currentIsDirettore}
+        onDraftCreated={d => { setAiDraft(d); setAiAperto(false) }}
+      />
+      {aiDraft && (
+        <AiScheduleDraftView
+          draft={aiDraft} staff={staff}
+          onClose={() => setAiDraft(null)}
+          onConfirmed={async () => { const lun = aiDraft.week_start; setAiDraft(null); caricate.current.delete(lun); await caricaSettimana(lun) }}
+        />
+      )}
+    </>
+  )
+
+  // ── Capo servizio sul telefono: timeline del reparto ─────────────────
+  if (isCapo && tel) {
+    return (
+      <div className="box-border h-full px-4">
+        <TurniReparto
+          reparto={currentDepartment ?? 'Reparto'} lunedi={lunedi} giorni={giorni} oggi={oggi}
+          staff={staff} turni={turns.filter(t => t.date >= lunedi && t.date <= domenica)} assenze={assenze}
+          onSettimana={d => vaiASettimana(d === null ? lunediOggi : piuGiorni(lunedi, d * 7))}
+          onSposta={sposta} onSalva={salvaModifica} onElimina={elimina}
+          onAggiungi={g => apriNuovo(null, [g])}
+        />
+        {fogli}
+      </div>
+    )
+  }
+
+  // ── Barra ────────────────────────────────────────────────────────────
+  const settimanaCorrente = lunedi === lunediOggi
+  const passata = lunedi < lunediOggi
+  const statoSettimana = settimanaCorrente ? 'in corso · visibile ai dipendenti' : passata ? 'conclusa' : 'visibile ai dipendenti'
+  const multiLoc = isManager && locali.length > 1
+  const tastoCls = 'box-border flex h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-[8px] border border-line-strong bg-card text-sm font-medium active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100'
+  const disatt = isPending ? 'Disponibile dopo l\'attivazione' : undefined
+  const vediGiorno = !tel && vista === 'day'
 
   return (
-    <div>
-      {/* Header — i tasti vanno su una riga propria sotto il titolo su
-          mobile, senza mai sforare la larghezza dello schermo */}
-      <div className="mb-3 flex flex-col gap-3">
-        <h1 className="titolo-pagina">Turni</h1>
-        {/* Azioni del design: Nuovo e Turni fissi a sinistra, l'azione
-            principale nera; le altre in fila scorrevole. */}
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Button size="sm" variant="outline" className="flex-none" onClick={openCreate} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-            <Plus className="w-4 h-4" /> Nuovo
-          </Button>
-          <Button size="sm" variant="outline" className="flex-none" onClick={() => setShowStandardModal(true)} disabled={isPending} title={isPending ? 'Disponibile dopo l\'attivazione' : undefined}>
-            <CalendarRange className="w-4 h-4" /> Turni fissi
-          </Button>
-          <Button size="sm" variant="outline" className="flex-none" onClick={handlePopulateWeek} disabled={isPending || populating}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Genera i turni della settimana visualizzata dai Turni Fissi'}>
-            {populating ? 'Popolo…' : 'Popola settimana'}
-          </Button>
-          <Button size="sm" variant="outline" className="flex-none" onClick={handleCopyPreviousWeek} disabled={isPending || copyingWeek}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : 'Copia i turni della settimana precedente su questa'}>
-            <Copy className="w-4 h-4" /> {copyingWeek ? 'Copio…' : 'Copia settimana'}
-          </Button>
-          <Button size="sm" className="flex-none" onClick={() => setShowAiDialog(true)}
-            disabled={isPending || (isManager && restFilter === 'tutti')}
-            title={isPending ? 'Disponibile dopo l\'attivazione' : isManager && restFilter === 'tutti' ? 'Seleziona prima un ristorante dal filtro' : undefined}>
-            <Sparkles className="w-4 h-4" /> Genera con IA
-          </Button>
-        </div>
-      </div>
-
-      {/* Restaurant filter — manager only */}
-      {isManager && restaurants.length > 0 && (
-        <div className="mb-4">
-          <RestaurantFilter
-            restaurants={restaurants}
-            value={restFilter}
-            onChange={v => { setRestFilter(v); setDeptFilter([]) }}
-          />
-        </div>
-      )}
-
-      {/* Department filter — multi-selezione, mostrato solo se c'è più di un reparto */}
-      {allDepts.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setDeptFilter([])}
-            className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors active:scale-[0.97] ${
-              deptFilter.length === 0 ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
-            }`}
-          >
-            Tutti i reparti
-          </button>
-          {allDepts.map(dept => (
-            <button
-              key={dept}
-              onClick={() => toggleDeptFilter(dept)}
-              className={`flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium capitalize transition-colors active:scale-[0.97] ${
-                deptFilter.includes(dept) ? 'bg-primary text-primary-foreground' : 'border border-line-strong'
-              }`}
-            >
-              {dept}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Week navigation — frecce simmetriche ai lati, data centrata su una riga */}
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <button type="button" className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-line-strong bg-card active:scale-[0.96]" onClick={() => setWeekOffset(w => w - 1)} aria-label="Settimana precedente">
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <div className="text-center text-[15px] font-semibold tabular-nums">
-          {formatInTimeZone(weekStart, TZ, "d", { locale: it })} – {formatInTimeZone(addDays(weekStart, 6), TZ, "d MMMM", { locale: it })}
-        </div>
-        <button type="button" className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-line-strong bg-card active:scale-[0.96]" onClick={() => setWeekOffset(w => w + 1)} aria-label="Settimana successiva">
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-      {weekOffset !== 0 && (
-        <div className="text-center -mt-3 mb-5">
-          <button onClick={() => setWeekOffset(0)} className="text-xs text-muted-foreground hover:text-foreground underline">
-            torna a oggi
-          </button>
-        </div>
-      )}
-
-      {/* Griglia Turni — stile Excel: dipendenti × giorni della settimana.
-          Ogni cella mostra i turni (o riposi) del dipendente in quel giorno;
-          click su un turno per modificarlo, "+" per aggiungerne uno nuovo. */}
-      {/* Sul telefono il capo servizio lavora sulla timeline del giorno
-          (design "Turni sala"); la griglia settimanale resta su tablet/PC. */}
-      <div className={!isManager && !isDirettore ? 'hidden md:block' : undefined}>
-      <div className="w-full overflow-auto rounded-[12px] border border-border bg-card">
-        <table className="w-full border-collapse text-xs" style={{ minWidth: 'max-content' }}>
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-20 min-w-[104px] border-b border-r border-border bg-background px-2.5 py-2.5 text-left font-mono text-[10px] font-medium uppercase tracking-[1px] text-muted-foreground sm:min-w-[170px] sm:px-4">Dipendente</th>
-              {weekDays.map(day => {
-                const dateStr = format(day, 'yyyy-MM-dd')
-                const persone = gridStaff.filter(m => (turnsByUserDate[`${m.id}|${dateStr}`] ?? []).some(t => !t.is_rest_day)).length
-                const oggi = dateStr === formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
+    <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className={cn('relative box-border flex h-full flex-col', tel ? 'gap-2.5 px-4' : 'gap-3 px-8')}>
+      <div className="flex flex-none flex-wrap items-center gap-2.5">
+        <div data-sk-keep="" className={cn('flex min-w-0 items-center gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', tel ? '-mx-4 flex-[1_1_100%] px-4' : 'flex-[0_1_auto]')}>
+          {multiLoc && (
+            <>
+              <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => cambiaLocale(ids[0] ?? null)} className="mx-0 flex-none overflow-visible px-0" />
+              <span className="h-7 w-px flex-none bg-[oklch(0.88_0.01_250)] dark:bg-border" style={{ margin: '0 4px' }} />
+            </>
+          )}
+          {reparti.length > 1 && (
+            <div className={cn('flex gap-1.5', !isManager && tel && 'flex-auto')}>
+              {reparti.map(rp => {
+                const on = reps.includes(rp)
                 return (
-                  <th key={dateStr} className={`min-w-[52px] border-b border-r border-border px-1.5 py-2 text-left font-normal sm:min-w-[120px] sm:px-2.5 ${oggi ? 'bg-[oklch(0.95_0.03_240)] dark:bg-[oklch(0.25_0.04_240)]' : 'bg-background'}`}>
-                    <div className="flex items-baseline justify-between gap-1">
-                      <span className="flex flex-col text-[11px] capitalize text-muted-foreground sm:flex-row sm:items-baseline sm:gap-1 sm:text-[13px]">
-                        {formatInTimeZone(day, TZ, 'EEE', { locale: it })}
-                        <span className="font-mono text-[14px] font-semibold text-foreground">{formatInTimeZone(day, TZ, 'd', { locale: it })}</span>
-                      </span>
-                      <span className="hidden items-center gap-0.5 font-mono text-[10px] text-muted-foreground sm:flex" title={`${persone} in turno`}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
-                        {persone}
-                      </span>
-                    </div>
-                  </th>
+                  <button
+                    key={rp} type="button"
+                    onClick={() => setReps(p => { const r = on ? p.filter(x => x !== rp) : [...p, rp]; return r.length === reparti.length ? [] : r })}
+                    className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
+                      !isManager && tel && 'flex-1', on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}
+                  >
+                    {rp}
+                  </button>
                 )
               })}
-              <th className="min-w-[72px] border-b border-border bg-background px-2.5 py-2 text-right font-mono text-[10px] font-medium uppercase leading-tight tracking-[1px] text-muted-foreground sm:min-w-[92px] sm:px-3">Monte<br />ore</th>
-            </tr>
-          </thead>
-          <tbody>
-            {gridStaff.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="py-6 text-center text-xs text-muted-foreground">
-                  Nessun dipendente
-                </td>
-              </tr>
-            ) : gruppiReparto.map(gruppo => (
-              <Fragment key={gruppo.reparto ?? '_'}>
-                {gruppiReparto.length > 1 && (
-                  <tr>
-                    <td colSpan={9} className="border-b border-border bg-background px-2.5 py-1.5 sm:px-4">
-                      <span className="sticky left-2.5 font-mono text-[10px] font-semibold uppercase tracking-[1px] text-muted-foreground sm:left-4">
-                        {gruppo.reparto ?? 'Senza reparto'} <span className="ml-1 font-normal">{gruppo.membri.length}</span>
-                      </span>
-                    </td>
-                  </tr>
-                )}
-                {gruppo.membri.map(member => {
-                  // Monte ore settimanale: somma di tutte le fasce non-riposo
-                  // della settimana visualizzata, turni spezzati inclusi,
-                  // gestendo i turni notturni (fine ≤ inizio → oltre mezzanotte).
-                  const weeklyMinutes = weekDays.reduce((sum, day) => {
-                    const dateStr = format(day, 'yyyy-MM-dd')
-                    const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
-                    return sum + cellTurns
-                      .filter(t => !t.is_rest_day)
-                      .reduce((s, t) => s + segmentMinutes(t.start_time.slice(0, 5), t.end_time.slice(0, 5)), 0)
-                  }, 0)
-                  // Obiettivo: ore del part-time, 40 per chi è a tempo pieno.
-                  const obiettivo = member.weekly_hours_target ?? 40
-                  const oltre = weeklyMinutes > obiettivo * 60
-                  const sottotitolo = isManager && restFilter === 'tutti' && member.restaurant_id
-                    ? restaurants.find(r => r.id === member.restaurant_id)?.name ?? ''
-                    : member.role === 'capo_servizio' ? 'Capo servizio' : member.department ?? ''
-
-                  return (
-                    <tr key={member.id}>
-                      <td className="sticky left-0 z-10 border-b border-r border-border bg-card px-2.5 py-2 text-left sm:px-4">
-                        <span className="block max-w-[110px] truncate text-[13px] font-medium sm:max-w-[180px] sm:text-[14px]">{member.full_name}</span>
-                        {sottotitolo && <span className="block max-w-[110px] truncate text-[11px] text-muted-foreground first-letter:uppercase sm:max-w-[180px]">{sottotitolo}</span>}
-                      </td>
-                      {weekDays.map(day => {
-                        const dateStr = format(day, 'yyyy-MM-dd')
-                        const cellTurns = turnsByUserDate[`${member.id}|${dateStr}`] ?? []
-                        const doppio = cellTurns.length > 1
-                        return (
-                          <td key={dateStr} className="group border-b border-r border-border p-1 align-middle sm:p-1.5">
-                            {cellTurns.length === 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => openCreateForCell(member.id, dateStr)}
-                                className="flex h-12 w-full items-center justify-center rounded-[8px] border border-dashed border-transparent text-muted-foreground opacity-0 transition-opacity hover:border-line-strong hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-40"
-                                aria-label="Aggiungi turno"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                              </button>
-                            ) : (
-                              <div className="flex flex-col gap-1">
-                                {cellTurns.map(turn => (
-                                  <button
-                                    type="button"
-                                    key={turn.id}
-                                    onClick={() => openEdit(turn)}
-                                    className={`flex w-full items-center justify-center rounded-[7px] border px-1 font-mono text-[10px] font-medium leading-tight whitespace-nowrap active:scale-[0.97] sm:text-[12px] ${
-                                      doppio ? 'min-h-[22px] py-0.5' : 'h-12'
-                                    } ${turn.is_rest_day ? RIPOSO_BADGE : turn.is_extraordinary ? EXTRAORDINARY_BADGE : STANDARD_BADGE}`}
-                                  >
-                                    {turn.is_rest_day ? 'Riposo' : (
-                                      <span className={`flex leading-tight sm:flex-row ${doppio ? 'flex-row' : 'flex-col'}`}>
-                                        <span>{turn.start_time.slice(0, 5)}</span>
-                                        <span className={doppio ? "before:content-['–']" : "sm:before:content-['–']"}>{turn.end_time.slice(0, 5)}</span>
-                                      </span>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                        )
-                      })}
-                      <td className="border-b border-border px-2.5 py-2 text-right sm:px-3">
-                        <span className={`block whitespace-nowrap font-mono text-[13px] font-semibold sm:text-[14px] ${oltre ? 'text-neg' : ''}`}>
-                          {weeklyMinutes > 0 ? formatMinutes(weeklyMinutes) : '–'}
-                        </span>
-                        <span className="block whitespace-nowrap text-[10px] text-muted-foreground">su {obiettivo}h</span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+            </div>
+          )}
+        </div>
+        {!tel && <span className="flex-1" />}
+        {!tel && (
+          <Segmento
+            className="flex-none" alto={34} voceCls="flex-none px-3.5 font-medium"
+            voci={[{ k: 'week' as const, l: 'Settimana' }, { k: 'day' as const, l: 'Giorno' }]} valore={vista} onCambia={setVista}
+          />
+        )}
+        <button data-sk-keep="" type="button" onClick={() => apriNuovo(null, [])} disabled={isPending} title={disatt} className={cn(tastoCls, tel ? 'flex-[1_1_0] gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
+          {ICONA_PIU(16)}{tel ? 'Nuovo' : 'Nuovo turno'}
+        </button>
+        <button data-sk-keep="" type="button" onClick={() => fissi.apri(++contatore.current)} disabled={isPending} title={disatt} className={cn(tastoCls, tel ? 'flex-[1_1_0] gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
+          {ICONA_FISSI}Turni fissi
+        </button>
+        <button data-sk-keep="" type="button" onClick={copiaSettimana} disabled={isPending || copia} title={disatt ?? 'Copia i turni della settimana precedente su questa'} aria-label="Copia settimana" className={cn(tastoCls, tel ? 'flex-none px-0' : 'flex-none gap-2 px-3.5')}>
+          {ICONA_COPIA}{!tel && (copia ? 'Copio…' : 'Copia settimana')}
+        </button>
+        <button
+          data-sk-keep="" type="button" onClick={() => setAiAperto(true)} disabled={isPending || !restaurantAi}
+          title={disatt ?? (!restaurantAi ? 'Scegli prima un locale' : undefined)} aria-label="Genera con IA"
+          className={cn('flex h-10 min-w-10 flex-none items-center justify-center gap-2 rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100', tel ? 'px-0' : 'px-4')}
+        >
+          {ICONA_IA}{!tel && 'Genera con IA'}
+        </button>
       </div>
 
-      {/* Legenda */}
-      <div className="flex flex-wrap items-center gap-3 mt-3 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${STANDARD_BADGE}`} /> Turno standard
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${EXTRAORDINARY_BADGE}`} /> Straordinario
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-3 h-3 rounded-sm border ${RIPOSO_BADGE}`} /> Riposo
-        </span>
-      </div>
-      </div>
-
-      {/* Timeline giornaliera — stessa lista dipendenti della griglia (rispetta
-          i filtri ristorante/reparto), navigazione giorno per giorno */}
-      <TurniTimeline staff={gridStaff} turns={turnsByRestaurant} onEditTurn={openEdit} />
-
-      {/* ── Create / edit modal ─────────────────────────────────────── */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingTurn ? 'Modifica Turno' : bulkMode ? 'Inserimento Multiplo' : multiDayMode ? 'Turni su Più Giorni' : 'Nuovo Turno'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Restaurant — manager only */}
-            {isManager && restaurants.length > 0 && (
-              <div className="space-y-2">
-                <Label>Ristorante *</Label>
-                <Select value={fRestaurantId} onValueChange={v => { setFRestaurantId(v); setFUserId('') }}>
-                  <SelectTrigger><SelectValue placeholder="Seleziona ristorante" /></SelectTrigger>
-                  <SelectContent>
-                    {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Employee */}
-            <div className="space-y-2">
-              <Label>Dipendente *</Label>
-              <Select value={fUserId} onValueChange={setFUserId}>
-                <SelectTrigger><SelectValue placeholder="Seleziona dipendente" /></SelectTrigger>
-                <SelectContent>
-                  {scopedStaff.map(s => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.full_name}{s.department ? ` · ${s.department}` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Tipo: Turno di Lavoro o Riposo */}
-            <div className="space-y-2">
-              <Label>Tipo *</Label>
-              <div className="flex flex-wrap gap-2">
-                {TURN_TYPE_OPTIONS.map(o => (
-                  <button
-                    key={String(o.value)}
-                    type="button"
-                    onClick={() => { setFIsRestDay(o.value); if (o.value) setFSplitSegments([]) }}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                      fIsRestDay === o.value
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background border-border text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Inserimento Multiplo toggle — solo in creazione, esclude Multi-giorno */}
-            {!editingTurn && !multiDayMode && (
-              <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
-                <div>
-                  <Label className="text-sm">Inserimento Multiplo</Label>
-                  <p className="text-xs text-muted-foreground">Stesso orario ripetuto su un range di date, sui giorni selezionati</p>
-                </div>
-                <Switch checked={bulkMode} onCheckedChange={v => { setBulkMode(v); if (v) setFSplitSegments([]) }} />
-              </div>
-            )}
-
-            {/* Multi-giorno toggle — solo in creazione, esclude Inserimento Multiplo */}
-            {!editingTurn && !bulkMode && (
-              <div className="flex items-center justify-between rounded-sm border border-border px-3 py-2.5">
-                <div>
-                  <Label className="text-sm">Più Giorni (orari diversi)</Label>
-                  <p className="text-xs text-muted-foreground">Compila un turno diverso per ogni giorno, poi salva tutto insieme</p>
-                </div>
-                <Switch checked={multiDayMode} onCheckedChange={toggleMultiDayMode} />
-              </div>
-            )}
-
-            {/* Date */}
-            {multiDayMode ? (
-              <div className="space-y-2">
-                <Label>Giorno *</Label>
-                <div className="flex items-center justify-between gap-2 rounded-sm border border-border px-2 py-1.5">
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => goToDay(-1)} aria-label="Giorno precedente">
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <span className="text-sm font-medium capitalize text-center flex-1">
-                    {fDate ? formatInTimeZone(`${fDate}T12:00:00Z`, TZ, 'EEEE d MMMM', { locale: it }) : '—'}
-                  </span>
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => goToDay(1)} aria-label="Giorno successivo">
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Compila il turno di questo giorno, poi usa le frecce per passare al successivo.
-                </p>
-              </div>
-            ) : bulkMode ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Data inizio *</Label>
-                    <Input
-                      type="date"
-                      value={fDate}
-                      onChange={e => {
-                        const v = e.target.value
-                        setFDate(v)
-                        if (v && fEndDate) setFDaysOfWeek(weekdaysInRange(v, fEndDate))
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Data fine *</Label>
-                    <Input
-                      type="date"
-                      value={fEndDate}
-                      onChange={e => {
-                        const v = e.target.value
-                        setFEndDate(v)
-                        if (fDate && v) setFDaysOfWeek(weekdaysInRange(fDate, v))
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Giorni della settimana *</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {WEEK_DAY_OPTIONS.map(d => (
-                      <button
-                        key={d.value}
-                        type="button"
-                        onClick={() => toggleFDayOfWeek(d.value)}
-                        className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                          fDaysOfWeek.includes(d.value)
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-background border-border text-foreground hover:bg-accent'
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="space-y-2">
-                <Label>Data *</Label>
-                <Input type="date" value={fDate} onChange={e => setFDate(e.target.value)} />
-              </div>
-            )}
-
-            {/* Giorni già compilati nel piano multi-giorno */}
-            {multiDayMode && multiDayQueue.length > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-muted-foreground">
-                  Giorni in programma ({multiDayQueue.length})
-                </Label>
-                {multiDayQueue.map(e => (
-                  <div
-                    key={e.date}
-                    className={`flex items-center justify-between rounded-sm border px-2.5 py-1.5 text-xs ${
-                      e.date === fDate ? 'border-primary bg-primary/5' : 'border-border'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => loadDayIntoComposer(e.date, multiDayQueue)}
-                      className="flex-1 text-left"
-                    >
-                      <span className="font-medium capitalize">
-                        {formatInTimeZone(`${e.date}T12:00:00Z`, TZ, 'EEE d MMM', { locale: it })}
-                      </span>
-                      {' — '}
-                      {e.is_rest_day
-                        ? 'Riposo'
-                        : `${e.start_time.slice(0, 5)}–${e.end_time.slice(0, 5)}${e.splitSegments.length > 0 ? ` + ${e.splitSegments.length} fascia/e` : ''}`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeMultiDayEntry(e.date)}
-                      className="text-muted-foreground hover:text-destructive ml-2"
-                      aria-label="Rimuovi giorno"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {!fIsRestDay && (
-              <>
-                {/* Times */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Ora inizio *</Label>
-                    <TimeInput value={fStart} onChange={setFStart} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Ora fine *</Label>
-                    <TimeInput value={fEnd} onChange={setFEnd} />
-                  </div>
-                </div>
-
-                {/* Durata — somma anche le eventuali fasce spezzate qui sotto */}
-                {fStart && fEnd && (
-                  <p className="text-xs text-muted-foreground -mt-2">
-                    {validSplitSegments.length > 0 ? 'Durata totale (turno spezzato): ' : 'Durata turno: '}
-                    <span className="font-medium text-foreground">{formatMinutes(totalShiftMinutes)}</span>
-                  </p>
-                )}
-
-                {/* Turno spezzato — in creazione singola, multi-giorno o bulk (non in modifica) */}
-                {canHaveSplit && (
-                  <div className="space-y-3">
-                    {fSplitSegments.map((seg, idx) => (
-                      <div key={idx} className="rounded-sm border border-border bg-muted/20 p-3 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-xs font-semibold text-muted-foreground">
-                            Turno spezzato — fascia aggiuntiva {idx + 2}
-                          </Label>
-                          <button
-                            type="button"
-                            onClick={() => removeSplitSegment(idx)}
-                            className="text-muted-foreground hover:text-destructive"
-                            aria-label="Rimuovi fascia"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-2">
-                            <Label>Ora inizio *</Label>
-                            <TimeInput value={seg.start} onChange={v => updateSplitSegment(idx, { start: v })} />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Ora fine *</Label>
-                            <TimeInput value={seg.end} onChange={v => updateSplitSegment(idx, { end: v })} />
-                          </div>
-                        </div>
-                        {seg.start && seg.end && (
-                          <p className="text-xs text-muted-foreground">
-                            Durata fascia: <span className="font-medium text-foreground">{formatMinutes(segmentMinutes(seg.start, seg.end))}</span>
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                    <Button type="button" variant="outline" size="sm" onClick={addSplitSegment} className="w-full">
-                      <Plus className="w-3.5 h-3.5" /> Aggiungi turno spezzato
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label>Note</Label>
-              <Textarea
-                value={fNotes}
-                onChange={e => setFNotes(e.target.value)}
-                rows={2}
-                placeholder="Note opzionali..."
-              />
-            </div>
-
-            {error && (
-              <p className="text-xs text-destructive">{error}</p>
-            )}
+      <div className="flex flex-none flex-wrap items-center gap-2">
+        <button data-sk-keep="" type="button" onClick={() => vaiASettimana(piuGiorni(lunedi, -7))} aria-label="Settimana precedente" className="flex h-10 w-10 flex-none items-center justify-center rounded-[20px] border border-[oklch(0.88_0.01_250)] bg-card active:scale-[0.96] dark:border-line-strong">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
+        </button>
+        <div className={cn('flex flex-col items-center', tel ? 'min-w-0 flex-auto' : 'min-w-[180px] flex-none')}>
+          <span data-sk-keep="" className="text-[15px] font-semibold">{etichettaSettimana(lunedi)}</span>
+          <span className={cn('text-xs', passata ? 'text-muted-foreground' : 'text-ok')}>{statoSettimana}</span>
+        </div>
+        <button data-sk-keep="" type="button" onClick={() => vaiASettimana(piuGiorni(lunedi, 7))} aria-label="Settimana successiva" className="flex h-10 w-10 flex-none items-center justify-center rounded-[20px] border border-[oklch(0.88_0.01_250)] bg-card active:scale-[0.96] dark:border-line-strong">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+        </button>
+        {!settimanaCorrente && (
+          <button data-sk-keep="" type="button" onClick={() => vaiASettimana(lunediOggi)} className={cn('flex h-8 items-center rounded-full bg-[oklch(0.94_0.04_180)] px-3 text-[13px] font-medium text-[oklch(0.4_0.08_180)] active:scale-[0.97] dark:bg-[oklch(0.3_0.04_180)] dark:text-[oklch(0.85_0.07_180)]', tel && 'order-9')}>
+            Torna a questa settimana
+          </button>
+        )}
+        {!tel && <span className="flex-1" />}
+        {!tel && (
+          <div data-sk-keep="" className="flex items-center gap-3.5 text-xs font-medium text-[oklch(0.35_0.01_250)] dark:text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-[3px] border border-[oklch(0.82_0.06_250)] bg-[oklch(0.93_0.035_250)]" />Standard</span>
+            <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-[3px] border border-[oklch(0.84_0.06_25)] bg-[oklch(0.94_0.035_25)]" />Riposo</span>
           </div>
-          <DialogFooter>
-            {/* Elimina anche da qui: sul telefono la ✕ nella cella non c'è. */}
-            {editingTurn && (
-              <Button variant="destructive-soft" className="sm:mr-auto" onClick={async () => { const id = editingTurn.id; if (await handleDelete(id)) setShowForm(false) }}>
-                Elimina
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setShowForm(false)}>Annulla</Button>
-            <Button
-              onClick={handleSave}
-              disabled={
-                saving || !fUserId ||
-                (multiDayMode
-                  ? (multiDayCount === 0 || hasIncompleteSplitSegment)
-                  : (
-                      (!fIsRestDay && (!fStart || !fEnd)) ||
-                      (bulkMode ? (!fDate || !fEndDate || fDaysOfWeek.length === 0) : !fDate) ||
-                      hasIncompleteSplitSegment
-                    )
-                )
-              }
-            >
-              {saving
-                ? 'Salvataggio...'
-                : editingTurn
-                ? 'Salva modifiche'
-                : multiDayMode
-                ? `Crea turni (${multiDayCount} giorni)`
-                : bulkMode
-                ? 'Crea turni'
-                : 'Crea turno'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </div>
 
-      {/* ── Turni Fissi (Pattern Master) ────────────────────────────── */}
-      <Dialog open={showStandardModal} onOpenChange={setShowStandardModal}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Gestisci Turni Fissi</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="w-full rounded-md border bg-muted/20 overflow-auto max-h-[280px]">
-              <table className="border-collapse text-xs w-full">
-                <thead>
-                  <tr>
-                    <th className={`${thCls} text-left`}>Dipendente</th>
-                    <th className={thCls}>Giorno</th>
-                    <th className={thCls}>Orario</th>
-                    <th className={thCls}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {standardShifts.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="text-center py-4 text-muted-foreground text-xs">
-                        Nessun turno fisso configurato
-                      </td>
-                    </tr>
-                  ) : standardShifts.map(s => (
-                    <tr key={s.id} className="even:bg-background dark:even:bg-secondary">
-                      <td className={tdNameStaticCls}>{s.profile?.full_name ?? '—'}</td>
-                      <td className={tdCls}>{WEEK_DAY_OPTIONS.find(d => d.value === s.day_of_week)?.label}</td>
-                      <td className={tdCls}>{s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}</td>
-                      <td className={tdCls}>
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={() => handleDeleteStandardShift(s.id)}
-                          className="text-destructive hover:text-destructive h-6 w-6"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="space-y-3 border-t border-border pt-4">
-              <Label className="text-sm font-semibold">Aggiungi turno fisso</Label>
-              <div className="space-y-2">
-                <Label>Dipendente *</Label>
-                <Select value={sUserId} onValueChange={setSUserId}>
-                  <SelectTrigger><SelectValue placeholder="Seleziona dipendente" /></SelectTrigger>
-                  <SelectContent>
-                    {staff.map(s => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.full_name}{s.department ? ` · ${s.department}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>
-                  Giorni della settimana *
-                  {sDaysOfWeek.length > 0 && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {sDaysOfWeek.length} selezionati
-                    </span>
-                  )}
-                </Label>
-                <div className="flex flex-wrap gap-2">
-                  {WEEK_DAY_OPTIONS.map(d => (
-                    <button
-                      key={d.value}
-                      type="button"
-                      onClick={() => toggleSDayOfWeek(d.value)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                        sDaysOfWeek.includes(d.value)
-                          ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background border-border text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Ora inizio *</Label>
-                  <TimeInput value={sStart} onChange={setSStart} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Ora fine *</Label>
-                  <TimeInput value={sEnd} onChange={setSEnd} />
-                </div>
-              </div>
-              {sError && <p className="text-xs text-destructive">{sError}</p>}
-              <Button
-                size="sm"
-                onClick={handleAddStandardShift}
-                disabled={sSaving || !sUserId || !sStart || !sEnd || sDaysOfWeek.length === 0}
-              >
-                <Plus className="w-4 h-4" /> {sSaving ? 'Salvataggio...' : 'Aggiungi'}
-              </Button>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowStandardModal(false)}>Chiudi</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── AI Schedule ─────────────────────────────────────────────── */}
-      <AiScheduleDialog
-        open={showAiDialog}
-        onClose={() => setShowAiDialog(false)}
-        restaurantId={isManager ? (restFilter !== 'tutti' ? restFilter : '') : (currentRestaurantId ?? '')}
-        currentDept={currentDepartment as Department | null}
-        currentUserRole={currentUserRole}
-        currentIsDirettore={currentIsDirettore}
-        onDraftCreated={draft => { setAiDraft(draft); setShowAiDialog(false) }}
-      />
-
-      {/* Vista bozza AI */}
-      {aiDraft && (
-        <Dialog open={!!aiDraft} onOpenChange={open => { if (!open) setAiDraft(null) }}>
-          <DialogContent className="max-h-[95vh] overflow-y-auto max-w-5xl w-full">
-            <AiScheduleDraftView
-              draft={aiDraft}
-              staff={staff}
-              onClose={() => setAiDraft(null)}
-              onConfirmed={() => { setAiDraft(null) }}
-            />
-          </DialogContent>
-        </Dialog>
+      {vediGiorno ? (
+        <TimelineGiorno
+          giorni={giorni} sel={giornoSel} onSel={setGiornoSel} oggi={oggi} adesso={minutoOra} gruppi={gruppiTimeline}
+          onSposta={sposta} onCrea={creaDaTimeline} onTocca={t => modifica.apri(t)}
+        />
+      ) : (
+        <GrigliaSettimana
+          tel={tel} giorni={giorni} oggi={oggi} gruppi={gruppiGriglia}
+          onTurno={t => modifica.apri(t)}
+          onVuota={(uid, data) => apriNuovo(uid, [giorni.indexOf(data)])}
+          onGiorno={i => { setGiornoSel(i); setVista('day') }}
+        />
       )}
 
+      {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
+      {fogli}
     </div>
   )
 }

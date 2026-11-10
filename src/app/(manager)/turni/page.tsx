@@ -56,20 +56,33 @@ export default async function TurniPage() {
     .order('day_of_week')
   standardQuery = scopeTurnsQuery(standardQuery, scopeProfile, user!.id)
 
-  const [{ data: turns }, { data: staff }, { data: restaurants }, { data: standardShifts }] = await Promise.all([
+  // Malattie e ferie approvate del periodo: il capo servizio le vede in
+  // rosso nella timeline del reparto (Capo Servizio.dc.html).
+  const absencesQuery = profile?.role === 'capo_servizio' && !profile?.is_direttore && profile?.restaurant_id
+    ? supabase
+        .from('absences')
+        .select('user_id, type, start_date, end_date')
+        .eq('status', 'approved')
+        .eq('restaurant_id', profile.restaurant_id)
+        .lte('start_date', initialRangeEnd)
+        .gte('end_date', initialRangeStart)
+    : Promise.resolve({ data: [] })
+
+  const [{ data: turns }, { data: staff }, { data: restaurants }, { data: standardShifts }, { data: absences }] = await Promise.all([
     turnsQuery,
     staffQuery,
     profile?.role === 'manager'
       ? supabase.from('restaurants').select('id, name').order('name')
       : Promise.resolve({ data: [] }),
     standardQuery,
+    absencesQuery,
   ])
 
   return (
-    <div className="px-4 pt-1 pb-4 lg:px-8">
-      <TurniManagerClient
+    <TurniManagerClient
         initialTurns={(turns as unknown as import('@/types').Turn[]) ?? []}
         initialStandardShifts={(standardShifts as unknown as import('@/types').StandardShift[]) ?? []}
+        initialAbsences={(absences as { user_id: string; type: string; start_date: string; end_date: string }[] | null) ?? []}
         staff={staff ?? []}
         restaurants={restaurants ?? []}
         currentUserId={user!.id}
@@ -78,6 +91,5 @@ export default async function TurniPage() {
         currentRestaurantId={profile?.restaurant_id ?? null}
         currentIsDirettore={profile?.is_direttore ?? false}
       />
-    </div>
   )
 }

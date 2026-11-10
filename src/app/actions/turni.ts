@@ -438,6 +438,7 @@ export async function populateFromStandard(startDate: string, endDate: string): 
     start_time: string
     end_time: string
     is_extraordinary: boolean
+    is_rest_day: boolean
     created_by: string
   }> = []
   let skipped = 0
@@ -452,14 +453,18 @@ export async function populateFromStandard(startDate: string, endDate: string): 
         continue
       }
       existingKeys.add(key) // evita doppioni solo a parità di utente+data+ora inizio
+      // Riposo fisso (colonna is_rest_day proposta in migrazione: finché non
+      // esiste vale undefined e il turno resta di lavoro come prima).
+      const riposo = (shift as { is_rest_day?: boolean }).is_rest_day === true
       rows.push({
         user_id:          shift.user_id,
         restaurant_id:    shift.restaurant_id,
         department:       shift.department,
         date:             dateStr,
-        start_time:       shift.start_time,
-        end_time:         shift.end_time,
+        start_time:       riposo ? '00:00' : shift.start_time,
+        end_time:         riposo ? '00:00' : shift.end_time,
         is_extraordinary: false,
+        is_rest_day:      riposo,
         created_by:       user.id,
       })
     }
@@ -533,4 +538,126 @@ export async function copyWeek(sourceWeekStart: string, targetWeekStart: string)
   const created = inserted?.length ?? 0
   revalidatePath('/turni')
   return { created, skipped: rows.length - created }
+}
+
+// ── Settimana tipo di un dipendente (foglio "Turni fissi" del design) ────
+// Per ogni giorno della settimana: Lavoro (con orario), Riposo o Nessuno.
+// Si riscrivono solo i giorni toccati nel foglio (così un turno fisso
+// spezzato su due fasce, che il foglio non sa rappresentare, resta intatto
+// se non lo si modifica), poi si popolano `settimane` settimane a partire
+// dal lunedì visualizzato, saltando i giorni in cui il dipendente ha già un
+// turno (modificato a mano o creato in altro modo).
+
+export interface GiornoTipo {
+  day_of_week: number // 0=Dom .. 6=Sab
+  tipo:        'lavoro' | 'riposo' | 'nessuno'
+  start_time:  string
+  end_time:    string
+}
+
+const COLONNA_MANCANTE = (e: { code?: string; message?: string } | null) =>
+  !!e && (e.code === '42703' || e.code === 'PGRST204' || /is_rest_day/.test(e.message ?? ''))
+
+export async function salvaSettimanaTipo(input: {
+  user_id:   string
+  giorni:    GiornoTipo[]   // tutti e 7, per popolare
+  toccati:   number[]       // day_of_week da riscrivere nei turni fissi
+  lunedi:    string         // yyyy-MM-dd
+  settimane: number
+}): Promise<{ created: number; skipped: number; standard: unknown[]; riposiNonRicordati: boolean }> {
+  const { supabase, user, profile } = await getCaller()
+  if (input.settimane < 1 || input.settimane > 12) throw new Error('Numero di settimane non valido')
+
+  const { data: assignee } = await supabase
+    .from('profiles')
+    .select('id, restaurant_id, department')
+    .eq('id', input.user_id)
+    .single()
+  if (!assignee?.restaurant_id) throw new Error('Dipendente non trovato')
+  assertWithinScope(profile, { restaurant_id: assignee.restaurant_id, department: assignee.department })
+
+  // 1. Turni fissi dei giorni toccati
+  let riposiNonRicordati = false
+  if (input.toccati.length) {
+    const { error: delErr } = await supabase
+      .from('standard_shifts')
+      .delete()
+      .eq('user_id', input.user_id)
+      .in('day_of_week', input.toccati)
+    if (delErr) throw new Error(delErr.message)
+
+    const base = { user_id: input.user_id, restaurant_id: assignee.restaurant_id, department: assignee.department, created_by: user.id }
+    const lavoro = input.giorni
+      .filter(g => input.toccati.includes(g.day_of_week) && g.tipo === 'lavoro')
+      .map(g => ({ ...base, day_of_week: g.day_of_week, start_time: g.start_time, end_time: g.end_time }))
+    const riposi = input.giorni
+      .filter(g => input.toccati.includes(g.day_of_week) && g.tipo === 'riposo')
+      .map(g => ({ ...base, day_of_week: g.day_of_week, start_time: '00:00', end_time: '00:00', is_rest_day: true }))
+
+    if (lavoro.length) {
+      const { error } = await supabase.from('standard_shifts').insert(lavoro)
+      if (error) throw new Error(error.message)
+    }
+    if (riposi.length) {
+      const { error } = await supabase.from('standard_shifts').insert(riposi)
+      // Senza la colonna is_rest_day il riposo non si può ricordare tra i
+      // turni fissi: lo si applica comunque alle settimane scelte qui sotto.
+      if (COLONNA_MANCANTE(error)) riposiNonRicordati = true
+      else if (error) throw new Error(error.message)
+    }
+  }
+
+  // 2. Popola le settimane scelte
+  const inizio = parseISO(`${input.lunedi}T00:00:00`)
+  const fine = format(addDays(inizio, input.settimane * 7 - 1), 'yyyy-MM-dd')
+  const { data: esistenti, error: esErr } = await supabase
+    .from('turns')
+    .select('date')
+    .eq('user_id', input.user_id)
+    .gte('date', input.lunedi)
+    .lte('date', fine)
+  if (esErr) throw new Error(esErr.message)
+  const occupati = new Set((esistenti ?? []).map(t => t.date))
+
+  const perGiorno = new Map(input.giorni.map(g => [g.day_of_week, g]))
+  const rows: Record<string, unknown>[] = []
+  let skipped = 0
+  for (const d of eachDayOfInterval({ start: inizio, end: parseISO(`${fine}T00:00:00`) })) {
+    const g = perGiorno.get(getDay(d))
+    if (!g || g.tipo === 'nessuno') continue
+    const data = format(d, 'yyyy-MM-dd')
+    if (occupati.has(data)) { skipped++; continue }
+    const riposo = g.tipo === 'riposo'
+    rows.push({
+      user_id: input.user_id, restaurant_id: assignee.restaurant_id, department: assignee.department, date: data,
+      start_time: riposo ? '00:00' : g.start_time, end_time: riposo ? '00:00' : g.end_time,
+      is_extraordinary: false, is_rest_day: riposo, created_by: user.id,
+    })
+  }
+
+  let created = 0
+  if (rows.length) {
+    const { data: inserted, error } = await supabase
+      .from('turns')
+      .upsert(rows, { onConflict: 'user_id,date,start_time,end_time', ignoreDuplicates: true })
+      .select('id')
+    if (error) throw new Error(error.message)
+    created = inserted?.length ?? 0
+    skipped += rows.length - created
+    if (created) {
+      await notificaTurniDipendenti(
+        [input.user_id],
+        'Nuovi turni assegnati',
+        `${created} turni dal ${turnDateLabel(input.lunedi)} al ${turnDateLabel(fine)}`,
+      )
+    }
+  }
+
+  const { data: standard } = await supabase
+    .from('standard_shifts')
+    .select('*, profile:profiles!user_id(id, full_name)')
+    .eq('user_id', input.user_id)
+
+  revalidatePath('/turni')
+  return { created, skipped, standard: standard ?? [], riposiNonRicordati }
 }
