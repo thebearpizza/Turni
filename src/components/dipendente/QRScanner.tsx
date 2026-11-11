@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 interface Props {
@@ -52,8 +53,9 @@ export function QRScanner({ onScan, onClose }: Props) {
     }
   }, [onScan])
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+  // Nel body e sopra tutto: dentro la pagina la dock ne coprirebbe il fondo.
+  return createPortal(
+    <div className="fixed inset-0 z-[95] bg-black flex flex-col">
       <div className="flex items-center justify-between p-4">
         <p className="text-white font-medium">Inquadra il QR Code del ristorante</p>
         <button
@@ -66,6 +68,7 @@ export function QRScanner({ onScan, onClose }: Props) {
       <div className="flex-1 flex items-center justify-center">
         <div ref={containerRef} id="qr-reader" className="w-full max-w-sm" />
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

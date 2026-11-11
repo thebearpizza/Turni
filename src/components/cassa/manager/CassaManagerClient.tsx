@@ -20,6 +20,7 @@ import {
   eur, eur0, dataBreve, dataLunga, meseNome, giornoSettimana, piuGiorni, type Tono,
 } from '@/components/cassa/comuni'
 import { cn } from '@/lib/utils'
+import { createPortal } from 'react-dom'
 import type { CassaChiusura, CassaSpesa } from '@/types'
 
 // Cassa del manager (MTCassa, tablet e telefono): Chiusure, Approvazioni
@@ -56,6 +57,7 @@ interface Mod { id: string; chiusura_id: string; payload: unknown; created_at: s
 
 export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: SezioneCassa; restaurants: LocaleCassa[]; selIniziale?: string }) {
   const tel = useTelefono()
+  const sopraDock = (n: React.ReactNode) => (tel && typeof document !== 'undefined' ? createPortal(n, document.body) : n)
   const router = useRouter()
   const oggi = useMemo(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'), [])
   const ieri = piuGiorni(oggi, -1)
@@ -455,9 +457,13 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
             </div>
           </div>
 
-          {tel && aperto && <div onClick={chiudiDett} className="fixed inset-0 z-[49] transition-[background] duration-300" style={{ background: dEsce ? 'rgba(15,20,30,0)' : 'rgba(15,20,30,.22)' }} />}
+          {/* Sul telefono il dettaglio è un foglio dal basso: va nel body,
+              sopra la dock, che altrimenti ne coprirebbe i pulsanti in fondo
+              (il contenuto della pagina sta sotto la dock). */}
+          {sopraDock(<>
+          {tel && aperto && <div onClick={chiudiDett} className="fixed inset-0 z-[69] transition-[background] duration-300" style={{ background: dEsce ? 'rgba(15,20,30,0)' : 'rgba(15,20,30,.22)' }} />}
           {(!tel || aperto) && (
-            <div key={`${sec}|${sel}`} className={cn('z-50 flex min-h-0 flex-col overflow-hidden border border-border bg-card', dEsce ? 'anim-swapout' : 'anim-swapin',
+            <div key={`${sec}|${sel}`} className={cn('z-[70] flex min-h-0 flex-col overflow-hidden border border-border bg-card', dEsce ? 'anim-swapout' : 'anim-swapin',
               tel ? 'fixed inset-x-0 bottom-0 top-[12dvh] rounded-t-[20px] shadow-[0_20px_60px_rgba(20,30,50,.18)]' : 'relative rounded-[12px]')}>
               {!dett ? (
                 <div className="flex flex-1 items-center justify-center text-sm font-medium text-muted-foreground">Seleziona una riga per vedere il dettaglio.</div>
@@ -515,6 +521,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
               </>)}
             </div>
           )}
+          </>)}
         </div>
         {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
       </div>
