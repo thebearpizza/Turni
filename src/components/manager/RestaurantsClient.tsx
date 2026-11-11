@@ -301,7 +301,7 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
               </div>
             </Campo>
             <Nota>Usa la tua posizione se sei nel locale, altrimenti inserisci le coordinate a mano. Il QR di timbratura viene generato subito; fasce e giorni di chiusura li imposti dopo.</Nota>
-            <Campo etichetta="Codice destinatario SDI">
+            <Campo etichetta="Codice destinatario SDI (facoltativo)">
               <Testo mono autoCapitalize="characters" value={NR.c} onChange={v => setR({ c: pulisciCodice(v) })} placeholder="Es. M5UXCR1" className={cn('tracking-[.12em]', NR.c && !codiceOk && 'border-neg')} />
             </Campo>
             <Campo etichetta="Riferimenti per le fatture (facoltativo)">
@@ -327,7 +327,7 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
             </Campo>
             <Nota>{NR.c && !codiceOk
               ? 'Il codice destinatario ha 7 caratteri, lettere e numeri.'
-              : 'Le fatture XML si assegnano da sole al locale con questo codice. Se più locali hanno lo stesso codice, decidono i riferimenti: parole o indirizzi che compaiono nelle fatture di questo locale (destinazione, righe…). Se le ricevete via PEC, aggiungi anche l\'indirizzo PEC.'}</Nota>
+              : 'Le fatture XML si assegnano da sole al locale con questo codice. Se il codice manca o è condiviso con altri locali, decidono il nome del locale, la via dell\'indirizzo (es. «Nomentana») e i riferimenti: altre parole che compaiono nelle fatture di questo locale. Se le ricevete via PEC, aggiungi anche l\'indirizzo PEC.'}</Nota>
             <PulsantiSalva onAnnulla={() => fr.chiudi()} onSalva={salvaRist} etichetta={NR.id ? 'Salva modifiche' : 'Crea ristorante'} attivo={okR} occupato={salvando} />
           </CorpoFoglio>
         )}

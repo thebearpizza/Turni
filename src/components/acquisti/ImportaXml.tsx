@@ -96,6 +96,17 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
     n.set(f.chiave, { restaurant_id: id, via: id ? 'mano' : null, motivo: id ? 'Scelto a mano' : 'Da assegnare: lo sceglierai in Fatture', candidati: v?.candidati.length ? v.candidati : tutti })
     return n
   })
+  // "Tutte in un locale": quando i file arrivano dall'account di un solo
+  // locale (es. Crunch Teglia, stesso codice SDI degli altri) l'origine è
+  // certa e lo smistamento automatico non serve. Ogni riga resta
+  // modificabile anche dopo.
+  const assegnabili = fatture.filter(f => { const st = stato(f); return st !== 'presente' && st !== 'esclusa' })
+  const tutteIn = assegnabili.length > 0 && assegnabili.every(f => smist.get(f.chiave)?.via === 'mano' && localeDi(f) === localeDi(assegnabili[0])) ? localeDi(assegnabili[0]) : null
+  const assegnaTutte = (id: string | null) => setSmist(m => {
+    const n = new Map(m)
+    for (const f of assegnabili) n.set(f.chiave, { restaurant_id: id, via: id ? 'mano' : null, motivo: id ? 'Scelto a mano per tutte' : 'Da assegnare: lo sceglierai in Fatture', candidati: m.get(f.chiave)?.candidati.length ? m.get(f.chiave)!.candidati : tutti })
+    return n
+  })
   // Righe senza articolo a catalogo: tipologia proposta dall'IA (o scelta qui).
   const nuovoArticolo = (f: FatturaXml, i: number) => { const e = esiti.get(f.chiave); return !!e && !e.duplicato && (f.righe[i]?.prezzoTotale ?? 0) > 0 && !e.righe[i]?.catalogo_articolo_id }
   const tipologiaDi = (f: FatturaXml, i: number): ArticoloTipologia => tipScelte.get(`${f.chiave}|${i}`) ?? esiti.get(f.chiave)?.righe[i]?.tipologia_proposta ?? 'food'
@@ -201,6 +212,13 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
               <div key={k.l} className="flex flex-col gap-0.5 rounded-[8px] border border-border px-3 py-2.5"><span className={cn('font-mono text-[22px] font-semibold', k.c)}>{k.v}</span><span className="text-xs text-muted-foreground">{k.l}</span></div>
             ))}
           </div>
+          {!single && assegnabili.length > 1 && fase === 'sum' && (
+            <div className="flex flex-col gap-1.5 rounded-[8px] border border-border px-3.5 py-2.5">
+              <span className="text-[15px] font-semibold">Tutte di un solo locale?</span>
+              <span className="text-xs text-muted-foreground">Se i file vengono dall&apos;account di un locale, sceglilo qui: vale per tutte le fatture, poi puoi cambiare le singole.</span>
+              <GrigliaLocali tel={tel} locali={locali} scelto={tutteIn} onScegli={assegnaTutte} />
+            </div>
+          )}
           <div className="flex flex-col overflow-hidden rounded-[8px] border border-border">
             <div className="flex justify-between border-b border-border px-3.5 py-2.5"><span className="text-[15px] font-semibold">Fatture trovate</span><span className="font-mono text-[13px] font-medium text-muted-foreground">{eu(fatture.reduce((t, f) => t + lordoDi(f), 0), 0)}</span></div>
             {fatture.map(f => {

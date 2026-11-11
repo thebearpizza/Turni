@@ -5,7 +5,8 @@ import { generateWithFallback } from './fattureExtraction'
 // ricevono sullo stesso codice destinatario SDI (es. Dazio e Crunch
 // Talenti). In ordine, e fermandosi al primo esito certo:
 //   1. codice destinatario (o PEC) che corrisponde a un solo locale;
-//   2. nome del locale o uno dei suoi "riferimenti" che compare, a parole
+//   2. nome del locale, la sua via (dall'indirizzo) o uno dei suoi
+//      "riferimenti" che compare, a parole
 //      intere e senza distinzione di maiuscole, nei testi della fattura
 //      (destinazione, sede del cliente, causale, riferimenti, righe);
 //   3. l'IA, che risponde solo se è sicura;
@@ -40,6 +41,36 @@ export interface EsitoSmistamento { chiave: string; restaurant_id: string | null
 const parole = (s: string) => ' ' + s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' '
 const contiene = (testo: string, termine: string) => { const t = parole(termine); return t.trim().length >= 2 && parole(testo).includes(t) }
 
+// Toponimi che precedono il nome della via: "Via Nomentana 123" → "Nomentana".
+const TOPONIMI = /^(via|viale|v\.?\s?le|piazza|p\.?\s?zza|piazzale|p\.?\s?le|corso|c\.?\s?so|largo|vicolo|vico|strada|str\.|lungotevere|lungomare|circonvallazione|borgo|contrada|località|loc\.)\s+/i
+
+/**
+ * Termini ricavati dall'indirizzo del locale: la via intera ("Via
+ * Nomentana") e il solo nome ("Nomentana"), senza civico né città. Il nome
+ * da solo si scarta se è anche il nome di una città dei locali ("Via Roma,
+ * Roma"), che comparirebbe nella sede di qualsiasi fattura.
+ */
+export function terminiIndirizzo(indirizzo: string | null, locali: LocaleSmistamento[]): string[] {
+  const via = (indirizzo ?? '').split(',')[0].replace(/\s+(n\.?\s*)?\d+[a-z]?(\s*[/-]\s*\w+)?\s*$/i, '').trim()
+  if (!via) return []
+  const nome = via.replace(TOPONIMI, '').trim()
+  const citta = locali.flatMap(l => (l.indirizzo ?? '').split(',').slice(1)).map(x => x.replace(/\d+/g, '').replace(/\(\w+\)/g, '').trim()).filter(Boolean)
+  const out = [via]
+  if (nome !== via && nome.length >= 4 && !citta.some(c => parole(c) === parole(nome))) out.push(nome)
+  return out
+}
+
+/**
+ * Pezzi distintivi del nome: "Crunch! - Talenti" → "Talenti". Si scartano
+ * i pezzi che compaiono nel nome di un altro locale ("Crunch!" in "Crunch! Teglia"), che non distinguono nulla.
+ */
+export function terminiNome(nome: string, locali: LocaleSmistamento[]): string[] {
+  const pezzi = (n: string) => n.split(/\s+[-–—·|]\s+/).map(x => x.trim()).filter(x => parole(x).trim().length >= 4)
+  const pz = pezzi(nome)
+  if (pz.length < 2) return []
+  return pz.filter(p => !locali.some(l => l.nome !== nome && contiene(l.nome, p)))
+}
+
 const elenco = (nomi: string[]) => (nomi.length <= 1 ? nomi.join('') : `${nomi.slice(0, -1).join(', ')} e ${nomi[nomi.length - 1]}`)
 
 /**
@@ -61,7 +92,7 @@ export function smistaDeterministico(f: FatturaDaSmistare, locali: LocaleSmistam
   const pool = perCodice.length > 1 ? perCodice : locali
   const trovati: { l: LocaleSmistamento; termine: string; fonte: FonteIndizio }[] = []
   for (const l of pool) {
-    const termini = [l.nome, ...l.riferimenti.filter(r => !r.includes('@'))].map(t => t.trim()).filter(Boolean)
+    const termini = [l.nome, ...terminiNome(l.nome, locali), ...terminiIndirizzo(l.indirizzo, locali), ...l.riferimenti.filter(r => !r.includes('@'))].map(t => t.trim()).filter(Boolean)
     let migliore: { termine: string; fonte: FonteIndizio } | null = null
     for (const fonte of ORDINE_FONTI) {
       for (const x of f.indizi.filter(i => i.fonte === fonte)) {
