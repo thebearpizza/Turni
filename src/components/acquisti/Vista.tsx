@@ -1,10 +1,11 @@
 'use client'
+import { SelettoreMese } from '@/components/shared/SelettoreMese'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
-import { Badge, IcoDx, IcoGiu, IcoMatita, IcoSx, IcoX, TESTO, USCITA_MS, useMontato, type Tono } from './comuni'
+import { Badge, IcoGiu, IcoMatita, IcoX, TESTO, USCITA_MS, useMontato, type Tono } from './comuni'
 
 // Struttura comune delle quattro sezioni di MTAcquisti: barra in alto
 // (locali, mese, schede o filtri, indicatori, pulsante), elenco in una
@@ -87,11 +88,7 @@ export function Vista(p: Props) {
       <div className="flex flex-none flex-wrap items-center gap-2.5">
         {p.locali && <div data-sk-keep="" className={cn('min-w-0', tel ? 'flex-[1_1_100%]' : 'flex-[0_1_auto]')}>{p.locali}</div>}
         {p.mese && (
-          <div data-sk-keep="" className={cn('flex h-10 items-center justify-between gap-0.5 rounded-[9px] bg-[oklch(0.93_0.01_250)] px-[3px] dark:bg-secondary', tel ? 'flex-[1_1_0]' : 'flex-none')}>
-            <button type="button" onClick={p.mese.prec} aria-label="Mese precedente" className={cn('flex h-[34px] w-[34px] items-center justify-center rounded-[7px] active:scale-[0.94]', !p.mese.precOk && 'opacity-30')}><IcoSx /></button>
-            <span className="min-w-[116px] text-center text-[13px] font-medium">{p.mese.etichetta}</span>
-            <button type="button" onClick={p.mese.succ} aria-label="Mese successivo" className={cn('flex h-[34px] w-[34px] items-center justify-center rounded-[7px] active:scale-[0.94]', !p.mese.succOk && 'opacity-30')}><IcoDx /></button>
-          </div>
+          <SelettoreMese etichetta={p.mese.etichetta} onPrec={p.mese.prec} onSucc={p.mese.succ} precOk={p.mese.precOk} succOk={p.mese.succOk} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
         )}
         {p.schede && (
           <div className={cn('flex min-w-0 gap-0.5 overflow-x-auto rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] [scrollbar-width:none] dark:bg-secondary', tel ? 'order-3 flex-[1_1_100%]' : 'flex-none')}>

@@ -17,7 +17,7 @@ import { nomeBreve } from './datiShell'
 import { Notifiche } from './Notifiche'
 import { PannelloProfilo, TendinaProfilo, type RistoranteQr } from './Profilo'
 import { Assistente } from './Assistente'
-import { BarraCassaTablet, BarraSchede, ContatoreBadge, DockPillola } from './Dock'
+import { Accento, BarraCassaTablet, BarraSchede, ContatoreBadge, DockPillola } from './Dock'
 import { StrisciaOffline } from './StrisciaOffline'
 import { IconaCampanella, IconaProfilo, IconaScintilla } from './icone'
 
@@ -206,6 +206,8 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   let titolo = sezione?.titolo ?? 'inTurno'
   let sottotitolo = riempi((!telefono && sezione?.sottotitoloTablet) || sezione?.sottotitolo || '', locale?.nome)
   if (cfg.intestazioneLocale && locale) { titolo = locale.nome; sottotitolo = locale.sotto }
+  // Le approvazioni del direttore stanno sotto Home ma non sono la Home.
+  else if (cfg.saluto && area?.key === 'home' && pathname.startsWith('/approvazioni')) { titolo = 'Approvazioni'; sottotitolo = 'Timbrature con foto e richieste' }
   else if (cfg.saluto && area?.key === 'home') {
     titolo = `Ciao, ${nome.split(' ')[0]}`
     sottotitolo = ruolo === 'manager'
@@ -222,6 +224,44 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const conTelegram = ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'
   // Tocco su un'altra area: lo scheletro parte subito, senza aspettare la
   // risposta del server, così il tocco ha sempre un riscontro immediato.
+  // Schede in alto sul telefono: la scheda attiva viene portata in vista e
+  // si tiene traccia di quando resta altro da scorrere a destra.
+  const [altroASegmenti, setAltroASegmenti] = useState(false)
+  const registraSegmenti = useCallback((el: HTMLElement | null) => {
+    if (!el) return
+    const aggiorna = () => setAltroASegmenti(el.scrollLeft + el.clientWidth < el.scrollWidth - 8)
+    const att = el.querySelector<HTMLElement>('[data-attiva]')
+    if (att) el.scrollLeft = Math.max(0, att.offsetLeft + att.offsetWidth / 2 - el.clientWidth / 2)
+    aggiorna()
+    el.addEventListener('scroll', aggiorna, { passive: true })
+    return () => el.removeEventListener('scroll', aggiorna)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
+
+  // Sul telefono, scorrendo una lista verso il basso i blocchi marcati
+  // data-ritira (filtri, numeri di riepilogo) si ritirano per lasciare
+  // spazio al contenuto; tornano scorrendo in su o in cima. Si attiva solo
+  // se la lista ha abbastanza da scorrere, altrimenti il ritiro stesso la
+  // riporterebbe in cima e i blocchi andrebbero avanti e indietro.
+  const registraMain = useCallback((m: HTMLElement | null) => {
+    if (!m) return
+    const ultimo = new WeakMap<HTMLElement, number>()
+    let fermo = 0
+    const scorre = (e: Event) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement) || window.innerWidth >= 640) return
+      const y = t.scrollTop, prima = ultimo.get(t) ?? y
+      ultimo.set(t, y)
+      const ora = e.timeStamp
+      if (ora < fermo) return
+      const d = y - prima, on = m.hasAttribute('data-compatto')
+      if (!on && d > 4 && y > 40 && t.scrollHeight - t.clientHeight > 320) { m.setAttribute('data-compatto', ''); fermo = ora + 450 }
+      else if (on && (d < -8 || y <= 2)) { m.removeAttribute('data-compatto'); fermo = ora + 450 }
+    }
+    m.addEventListener('scroll', scorre, { capture: true, passive: true })
+    return () => m.removeEventListener('scroll', scorre, { capture: true })
+  }, [])
+
   const voceDock = (a: { key: string }) => { if (ov) chiudi(); if (a.key !== area?.key) setSk('on') }
   const conDock = cfg.aree.length > 1
   const dockFlottante = conDock && (cfg.stile === 'pillola')
@@ -235,7 +275,11 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
 
   const segmentiEl = conSegmenti && (
     <nav
+      ref={telefono ? registraSegmenti : undefined}
       className={cn(
+        // Con più schede di quante ne stanno (Altro) il bordo destro sfuma
+        // finché c'è altro da scorrere, così si capisce che la barra continua.
+        telefono && altroASegmenti && '[mask-image:linear-gradient(to_right,black_calc(100%-36px),transparent)]',
         'flex gap-[3px] border border-border bg-card shadow-[0_4px_20px_rgba(20,30,50,.08)] [scrollbar-width:none]',
         telefono
           ? 'relative z-[29] mx-4 mb-2.5 flex-none overflow-x-auto rounded-[14px] p-1'
@@ -254,8 +298,10 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
               telefono ? cn('h-10 rounded-[10px] px-2.5 text-[13px]', segmenti.length > 4 ? 'flex-none' : 'min-w-0 flex-[1_1_auto]') : 'h-12 w-[112px] rounded-[11px] text-sm',
               att ? 'bg-primary text-primary-foreground' : 'text-foreground'
             )}
+            data-attiva={att ? '' : undefined}
           >
             {s.label}
+            {att && area && <Accento area={area.key} className="bottom-[5px] w-3.5 sm:bottom-1.5" />}
             <ContatoreBadge n={badgeSezione(s)} invertito={att} />
           </Link>
         )
@@ -310,8 +356,10 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
         {/* eslint-disable-next-line @next/next/no-img-element -- logo statico, è il bersaglio del volo dello splash */}
         <img data-logo-intestazione="" src="/logo.svg" alt="inTurno" className={cn('flex-none', cassaTablet ? 'h-9 w-9' : 'mr-1 h-7 w-7 sm:h-9 sm:w-9')} />
         <div key={titolo + (sezione?.key ?? '')} data-guscio-entra="" style={{ ['--ritardo' as string]: '60ms' }} className="anim-swapin flex min-w-0 flex-col gap-0.5">
-          <span className={cn('truncate font-semibold leading-tight', cassaTablet ? 'text-[26px] tracking-[-0.6px]' : 'text-[22px] tracking-[-0.01em] sm:text-[26px]')}>{titolo}</span>
-          {sottotitolo && <span className="truncate text-[13px] text-muted-foreground sm:text-sm">{sottotitolo}</span>}
+          {/* Titoli lunghi (nome del locale) si rimpiccioliscono invece di
+              troncarsi; il sottotitolo sul telefono va su due righe. */}
+          <span className={cn('truncate font-semibold leading-tight', cassaTablet ? 'text-[26px] tracking-[-0.6px]' : cn('tracking-[-0.01em] sm:text-[26px]', titolo.length > 20 ? 'text-[17px]' : titolo.length > 15 ? 'text-[19px]' : 'text-[22px]'))}>{titolo}</span>
+          {sottotitolo && <span className="line-clamp-2 text-pretty text-[13px] leading-[1.25] text-muted-foreground sm:line-clamp-1 sm:text-sm">{sottotitolo}</span>}
         </div>
 
         {!telefono && segmentiEl}
@@ -397,6 +445,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
 
       <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative flex min-h-0 flex-1 flex-col">
         <main
+          ref={registraMain}
           key={pathname}
           data-titolo-shell={cfg.intestazioneLocale ? undefined : '1'}
           className={cn(

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import { ReportClient } from '@/components/manager/ReportClient'
 
 export default async function ReportPage() {
@@ -13,6 +14,9 @@ export default async function ReportPage() {
 
   const isManager = profile?.role === 'manager'
   const isDirettore = profile?.role === 'capo_servizio' && !!profile?.is_direttore
+  // Il capo servizio non ha il Report (decisione di prodotto): era tolto
+  // dal menu ma restava raggiungibile dall'indirizzo.
+  if (profile?.role === 'capo_servizio' && !isDirettore) redirect('/dashboard')
 
   // Il manager vede i locali che gestisce (tutti se proprietario della
   // piattaforma); direttore e capo servizio solo il proprio locale, senza

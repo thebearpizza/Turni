@@ -41,6 +41,14 @@ interface DockProps {
  * aspettare che la pagina nuova arrivi dal server; quando la navigazione
  * cambia davvero l'area attiva si torna a quella vera.
  */
+// Accento per area, appena accennato: una lineetta colorata sotto la voce
+// attiva (Turni blu, Cassa teal, Acquisti corallo). Il resto resta neutro.
+export const ACCENTO_AREA: Record<string, string> = { turni: 'var(--turni)', cassa: 'var(--cassa)', acquisti: 'var(--acquisti)' }
+export function Accento({ area, className }: { area: string; className?: string }) {
+  const c = ACCENTO_AREA[area]
+  return c ? <span aria-hidden className={cn('pointer-events-none absolute left-1/2 h-[3px] w-4 -translate-x-1/2 rounded-full', className)} style={{ background: c }} /> : null
+}
+
 function useAttivaSubito(attiva: string | null) {
   const [premuta, setPremuta] = useState<string | null>(null)
   const [ultima, setUltima] = useState(attiva)
@@ -82,7 +90,9 @@ export function DockPillola({ aree, attiva: vera, hrefArea, badgeArea, onVoce, s
               )}
             >
               {a.label}
-              {b > 0 && <ContatoreBadge n={b} className="absolute right-1 top-1 sm:static" />}
+              {att && <Accento area={a.key} className="bottom-[7px] sm:bottom-2" />}
+              {/* Sul telefono il numero sta nell'angolo, fuori dall'etichetta. */}
+              {b > 0 && <ContatoreBadge n={b} className="absolute right-0.5 top-0.5 h-4 min-w-4 px-1 text-[10px] sm:static sm:h-[18px] sm:min-w-[18px] sm:px-[5px] sm:text-[10.5px]" />}
             </Link>
           )
         })}

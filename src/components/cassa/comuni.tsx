@@ -1,4 +1,5 @@
 'use client'
+import { SelettoreMese } from '@/components/shared/SelettoreMese'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
@@ -345,12 +346,6 @@ export function Contenitore({ children }: { children: React.ReactNode }) {
 export function NavMese({ mese, min, max, onCambia, className }: { mese: string; min: string; max: string; onCambia: (m: string) => void; className?: string }) {
   const sposta = (n: number) => { const [y, m] = mese.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7) }
   const p = sposta(-1), s = sposta(1), puoP = p >= min, puoS = s <= max
-  return (
-    <div data-sk-keep="" className={cn('flex h-10 items-center justify-between gap-0.5 rounded-[9px] bg-[oklch(0.93_0.01_250)] px-[3px] dark:bg-secondary', className)}>
-      <button type="button" aria-label="Mese precedente" onClick={() => puoP && onCambia(p)} className="flex h-[34px] w-[34px] items-center justify-center rounded-[7px] active:scale-[0.94]" style={{ opacity: puoP ? 1 : 0.3 }}><Freccia dir="sx" /></button>
-      <span className="min-w-[116px] text-center text-[13px] font-medium">{meseNome(`${mese}-01`)} {mese.slice(0, 4)}</span>
-      <button type="button" aria-label="Mese successivo" onClick={() => puoS && onCambia(s)} className="flex h-[34px] w-[34px] items-center justify-center rounded-[7px] active:scale-[0.94]" style={{ opacity: puoS ? 1 : 0.3 }}><Freccia dir="dx" /></button>
-    </div>
-  )
+  return <SelettoreMese etichetta={`${meseNome(`${mese}-01`)} ${mese.slice(0, 4)}`} onPrec={() => onCambia(p)} onSucc={() => onCambia(s)} precOk={puoP} succOk={puoS} className={className} />
 }
 

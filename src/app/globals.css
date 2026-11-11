@@ -393,3 +393,24 @@ html[data-splash="volo"] [data-guscio-entra] { animation: swapin 680ms cubic-bez
    a metà: l'ultimo contenuto finirebbe sotto la dock. Per quelle pagine il
    contenitore cresce col contenuto. */
 .cassa:has(> [data-scorre-con-pagina]) { height: auto; min-height: 100%; }
+
+/* Blocchi che si ritirano scorrendo le liste sul telefono (vedi AppShell,
+   registraMain). --ritira-h: altezza massima da aperto (se supera 180 px);
+   --ritira-gap: lo spazio fra i blocchi del contenitore, da riassorbire. */
+@media (max-width: 639px) {
+  [data-ritira] {
+    max-height: var(--ritira-h, 180px);
+    transition: max-height 320ms cubic-bezier(0.22, 1, 0.36, 1), margin 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms;
+  }
+  [data-compatto] [data-ritira] {
+    max-height: 0 !important;
+    min-height: 0 !important;
+    margin-top: calc(-1 * var(--ritira-gap, 12px)) !important;
+    margin-bottom: 0 !important;
+    padding-block: 0 !important;
+    border-block-width: 0 !important;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+}

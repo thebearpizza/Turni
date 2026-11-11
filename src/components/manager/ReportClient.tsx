@@ -1,4 +1,5 @@
 'use client'
+import { SelettoreMese } from '@/components/shared/SelettoreMese'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
@@ -93,9 +94,6 @@ function ordinePillole(): string[] {
 }
 
 // ── Icone del prototipo ────────────────────────────────────────────────
-const Chev = ({ d }: { d: string }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>
-)
 const IconaX = ({ s = 20 }: { s?: number }) => (
   <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12" /><path d="M18 6L6 18" /></svg>
 )
@@ -367,15 +365,7 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
       <style>{CSS}</style>
 
       <div data-sk-keep="" className="flex flex-none flex-wrap items-center gap-2.5">
-        <button type="button" aria-label="Mese precedente" onClick={() => spostaMese(-1)}
-          className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-[var(--r-l2)] bg-card transition-transform active:scale-[0.96]">
-          <Chev d="M15 6l-6 6 6 6" />
-        </button>
-        <span className={cn('text-center text-[15px] font-semibold', tel ? 'min-w-0 flex-[1_1_0]' : 'min-w-[132px] flex-none')}>{etichettaMese}</span>
-        <button type="button" aria-label="Mese successivo" disabled={!avanti} onClick={() => spostaMese(1)}
-          className={cn('flex h-10 w-10 flex-none items-center justify-center rounded-full border border-[var(--r-l2)] bg-card transition-transform', avanti ? 'active:scale-[0.96]' : 'cursor-default opacity-30')}>
-          <Chev d="M9 6l6 6-6 6" />
-        </button>
+        <SelettoreMese etichetta={etichettaMese} onPrec={() => spostaMese(-1)} onSucc={() => spostaMese(1)} succOk={avanti} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
         {!singolo && restaurants.length > 1 && <>
           {!tel && <span className="mx-1 block h-7 w-px bg-[var(--r-l2)]" />}
           <PilloleLocali multipla tuttiComeVuoto etichettaTutti="Tutti" locali={locali} selezionati={sel} onCambia={setSel}

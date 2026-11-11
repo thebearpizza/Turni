@@ -29,7 +29,7 @@ function salva(ordine: string[]) {
 
 export interface LocalePillola { id: string; nome: string; colore: string }
 
-export function PilloleLocali({ locali, selezionati, onCambia, multipla = false, etichettaTutti = 'Tutti i locali', className, tuttiComeVuoto = false, nascondiSeUno = true, senzaTutti = false }: {
+export function PilloleLocali({ locali, selezionati, onCambia, multipla = false, etichettaTutti = 'Tutti', className, tuttiComeVuoto = false, nascondiSeUno = true, senzaTutti = false }: {
   locali: LocalePillola[]
   /** Locali scelti; vuoto = tutti. */
   selezionati: string[]

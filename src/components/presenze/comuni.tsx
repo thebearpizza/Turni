@@ -1,4 +1,5 @@
 'use client'
+import { SelettoreMese } from '@/components/shared/SelettoreMese'
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
@@ -70,13 +71,7 @@ export function FrecciaTonda({ dir, onClick, disabilitata }: { dir: 'sx' | 'dx';
 
 /** Barra del mese: ‹ Ottobre 2026 › (flessibile sul telefono, 132 px su tablet). */
 export function BarraMese({ mese, onPrec, onSucc, succDisabilitato }: { mese: string; onPrec: () => void; onSucc: () => void; succDisabilitato?: boolean }) {
-  return (
-    <>
-      <FrecciaTonda dir="sx" onClick={onPrec} />
-      <span className="min-w-0 flex-[1_1_0] text-center text-[15px] font-semibold sm:min-w-[132px] sm:flex-none">{etichettaMese(mese)}</span>
-      <FrecciaTonda dir="dx" onClick={onSucc} disabilitata={succDisabilitato} />
-    </>
-  )
+  return <SelettoreMese etichetta={etichettaMese(mese)} onPrec={onPrec} onSucc={onSucc} succOk={!succDisabilitato} className="flex-[1_1_0] sm:w-[220px] sm:flex-none" />
 }
 
 /** Pulsante principale nero della barra (Aggiungi presenza / Nuova assenza). */
