@@ -288,11 +288,17 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
         const chi = cs.length ? cs.join(', ') : null
         dett = {
           titolo, sotto: c ? 'bozza non ancora inviata' : 'nessuna chiusura inviata', t: c ? 'In bozza' : 'Mancante', tono: 'neg',
-          msg: { tono: 'neg', testo: chi ? `${c ? 'La chiusura è in bozza: il' : 'Il'} cassiere di turno (${chi}) non l'ha ancora inviata. Puoi sollecitarlo con una notifica.` : inArchivio ? 'Il locale è in archivio: la chiusura va inserita da Chiusura cassa.' : 'Al locale non è associato nessun cassiere: la chiusura va inserita da Chiusura cassa.' },
-          secs: [], azioni: chi ? [{ l: 'Invia sollecito', stile: 'ink', fai: async () => {
-            const r = await sollecitaChiusura(cur.li, cur.d)
-            toast(r.ok ? { title: `Sollecito inviato a ${chi}` } : { title: r.errore, variant: 'destructive' })
-          } }] : [{ l: 'Inserisci la chiusura', stile: 'ink', fai: () => router.push(`/cassa/chiusura?restaurant_id=${cur.li}&data=${cur.d}`) }],
+          msg: { tono: 'neg', testo: chi ? `${c ? 'La chiusura è in bozza: il' : 'Il'} cassiere di turno (${chi}) non l'ha ancora inviata. Puoi sollecitarlo con una notifica o inserirla tu.` : inArchivio ? 'Il locale è in archivio: la chiusura va inserita da Chiusura cassa.' : 'Al locale non è associato nessun cassiere: la chiusura va inserita da Chiusura cassa.' },
+          // Il manager può sempre inserire (o completare) la chiusura lui
+          // stesso; il sollecito al cassiere resta come alternativa.
+          secs: [], azioni: [
+            ...(chi ? [{ l: 'Invia sollecito', stile: 'line' as const, fai: async () => {
+              const r = await sollecitaChiusura(cur.li, cur.d)
+              toast(r.ok ? { title: `Sollecito inviato a ${chi}` } : { title: r.errore, variant: 'destructive' })
+            } }] : []),
+            { l: c ? 'Completa la chiusura' : 'Inserisci la chiusura', stile: 'ink' as const, fai: () => router.push(`/cassa/chiusura?restaurant_id=${cur.li}&data=${cur.d}`) },
+          ],
+          colsAzioni: chi ? '1fr 1.6fr' : '1fr',
         }
       } else {
         const md = modifiche.find(x => x.chiusura_id === c.id)
@@ -438,7 +444,18 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
           <div data-sk-keep="" className={tel ? 'min-w-0 flex-[1_1_100%]' : 'min-w-0 flex-[0_1_auto]'}>
             <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={loc} onCambia={cambiaLoc} className={tel ? '' : 'mx-0 px-0'} />
           </div>
-          {sec === 'chiusure' && <NavMese mese={mese} min="2020-01" max={oggi.slice(0, 7)} onCambia={cambiaMese} className={tel ? 'flex-[1_1_100%]' : ''} />}
+          {sec === 'chiusure' && <NavMese mese={mese} min="2020-01" max={oggi.slice(0, 7)} onCambia={cambiaMese} className={tel ? 'min-w-0 flex-[1_1_0]' : ''} />}
+          {/* Il manager inserisce una chiusura per qualunque locale e giorno: si
+              apre Chiusura cassa sul giorno predefinito e sul locale scelto
+              (giorno e locale si cambiano poi in alto). */}
+          {sec === 'chiusure' && (
+            <button type="button" data-sk-keep=""
+              onClick={() => router.push(loc.length === 1 ? `/cassa/chiusura?restaurant_id=${loc[0]}` : '/cassa/chiusura')}
+              className="flex h-11 flex-none items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+              {tel ? 'Nuova' : 'Nuova chiusura'}
+            </button>
+          )}
           {!tel && <span className="flex-1" />}
           {!tel && numeri}
         </div>

@@ -662,7 +662,8 @@ function BarraAlta({ tel, role, locali, restaurantId, data, oggi, calendario, on
         )}
       </div>
       {role === 'manager' && locali.length > 1 && (
-        <PilloleLocali locali={locali} selezionati={restaurantId ? [restaurantId] : []} onCambia={x => { if (x[0] && x[0] !== restaurantId) onLocale(x[0]) }}
+        // Una chiusura è sempre di un solo locale: niente "Tutti".
+        <PilloleLocali senzaTutti locali={locali} selezionati={restaurantId ? [restaurantId] : []} onCambia={x => { if (x[0] && x[0] !== restaurantId) onLocale(x[0]) }}
           className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
       )}
       {fasi}
