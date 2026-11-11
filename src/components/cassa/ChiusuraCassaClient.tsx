@@ -387,13 +387,13 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   const pannelloBozze = (
     nuova ? (
-      <div className={cn('mt-0 sm:mt-7', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+      <div className={cn('mt-0 sm:mt-7 sm:min-h-0 sm:overflow-y-auto sm:overscroll-contain', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
         <FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova bozza di spesa"
           destra={`${bozze.length} ${bozze.length === 1 ? 'bozza salvata' : 'bozze salvate'}`} cta="Salva bozza"
           onSalva={salvaBozza} onAnnulla={() => swapNuova(false)} gestisciCategorie={gestisci} />
       </div>
     ) : (
-      <div className={cn('flex flex-col overflow-hidden rounded-[8px] border border-line-strong bg-card', tel ? 'mt-1' : 'mt-7 [contain:size]', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+      <div className={cn('flex flex-col overflow-hidden rounded-[8px] border border-line-strong bg-card', tel ? 'mt-1' : 'mt-7 min-h-0', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
         <div className="flex items-baseline justify-between px-5 pb-3 pt-[18px]">
           <span className="text-[17px] font-semibold">Bozze di spesa</span>
           <span className="text-[13px] text-muted-foreground">inserite durante il turno</span>
@@ -429,11 +429,13 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   )
 
   const speseDelGiorno = (
-    <div className="mt-7 flex flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
-      <div className="flex items-baseline justify-between px-5 pb-3 pt-[18px]"><span className="text-[17px] font-semibold">Spese del giorno</span><span className="text-[13px] text-muted-foreground">dalla fase 2</span></div>
-      {spese.length === 0 && <div className="border-t border-border px-5 py-4 text-[13px] text-muted-foreground">Nessuna spesa registrata.</div>}
-      {listaSpese(true)}
-      <div className="flex h-14 items-center justify-between border-t border-border bg-[oklch(0.97_0.01_250)] px-5 dark:bg-secondary"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+    <div className="mt-7 flex max-h-[calc(100%-28px)] min-h-0 flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
+      <div className="flex flex-none items-baseline justify-between px-5 pb-3 pt-[18px]"><span className="text-[17px] font-semibold">Spese del giorno</span><span className="text-[13px] text-muted-foreground">dalla fase 2</span></div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {spese.length === 0 && <div className="border-t border-border px-5 py-4 text-[13px] text-muted-foreground">Nessuna spesa registrata.</div>}
+        {listaSpese(true)}
+      </div>
+      <div className="flex h-14 flex-none items-center justify-between border-t border-border bg-[oklch(0.97_0.01_250)] px-5 dark:bg-secondary"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
     </div>
   )
 
@@ -555,36 +557,45 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         </div>
       ) : (
         // ── Tablet (Chiusura Tablet v2) ───────────────────────────────
+        // Tutta la fase sta nello schermo dell'iPad: titolo e pulsanti
+        // (Indietro / Avanti) restano sempre visibili, scorrono solo i
+        // riquadri interni (campi, bozze, spese) quando non c'è spazio.
+        // Prima scorreva l'intera colonna e il pulsante "Avanti" finiva
+        // sotto il riquadro delle bozze, bloccando la chiusura.
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_400px]">
-          <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto overscroll-contain px-12 py-8">
-            <span key={`t${fase}`} className={cn('text-[22px] font-semibold tracking-[-0.3px]', animFase)}>{titoli[fase - 1]}</span>
+          <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-hidden px-12 py-6">
+            <span key={`t${fase}`} className={cn('flex-none text-[22px] font-semibold tracking-[-0.3px]', animFase)}>{titoli[fase - 1]}</span>
             <div key={fase} className={cn('flex min-h-0 flex-1 flex-col', animFase)}>
               {fase === 1 && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 gap-8">
-                  <div className="flex flex-col gap-x-6 gap-y-5">
+                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
+                  {/* iPad in orizzontale (altezza ridotta): campi su due colonne,
+                      così gli incassi stanno tutti nello schermo senza scorrere. */}
+                  <div className="-mr-2 grid min-h-0 content-start items-end gap-x-4 gap-y-4 overflow-y-auto overscroll-contain pb-1 pr-2 [@media(max-height:1100px)]:grid-cols-2">
                     <CampoCassa etichetta="Fondo cassa iniziale" nota={notaFondo} valore={valori.fondoI} onCambia={imposta('fondoI')} variante={fondoBloccato ? 'ro' : 'edit'} errore={mancanti.has('fondoI')} />
                     {([['contanti', 'Contanti'], ['pos', 'POS'], ['bonifico', 'Bonifico'], ['asporto', 'Incasso asporto']] as [Chiave, string][]).map(([k, l]) => (
                       <CampoCassa key={k} etichetta={l} valore={valori[k]} onCambia={imposta(k)} errore={mancanti.has(k)} />
                     ))}
                     <CampoCassa etichetta="Coperti" valore={valori.coperti} onCambia={imposta('coperti')} decimali={0} unita="n." errore={mancanti.has('coperti')} />
-                    <button type="button" onClick={report.apri} className="flex h-[52px] flex-none items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
+                    <button type="button" onClick={report.apri} className="col-span-full flex h-[52px] flex-none items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
                   </div>
                   {pannelloBozze}
                 </div>
               )}
               {fase === 2 && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 gap-8">
-                  <div className="flex flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
-                    {spese.length === 0 && <div className="border-b border-border px-[18px] py-6 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
-                    {listaSpese(false)}
-                    <div className="flex h-14 items-center justify-between px-[18px]"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
+                  <div className="flex max-h-full min-h-0 flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                      {spese.length === 0 && <div className="border-b border-border px-[18px] py-6 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
+                      {listaSpese(false)}
+                    </div>
+                    <div className="flex h-14 flex-none items-center justify-between border-t border-border px-[18px]"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
                   </div>
-                  <div className="self-start"><FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} /></div>
+                  <div className="max-h-full min-h-0 self-start overflow-y-auto overscroll-contain"><FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} /></div>
                 </div>
               )}
               {fase === 3 && (
-                <div className="grid grid-cols-2 items-stretch gap-8">
-                  <div className="flex flex-col gap-5">
+                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
+                  <div className="-mr-2 flex min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain pb-1 pr-2">
                     <CampoCassa etichetta="Fondo cassa finale" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} />
                     <CampoCassa etichetta="Banca teorica" valore={bancaTeorica} variante="auto" />
                     <CampoCassa etichetta="Contanti per banca" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
@@ -593,7 +604,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 </div>
               )}
             </div>
-            <div className="mt-auto flex flex-none justify-end gap-3">
+            <div className="flex flex-none justify-end gap-3">
               {fase > 1 && <button type="button" onClick={indietro} className="flex h-[60px] items-center rounded-[12px] border border-line-strong px-7 text-base font-medium active:scale-[0.98]">Indietro</button>}
               <button type="button" onClick={avanti} disabled={invio} className="flex h-[60px] items-center rounded-[12px] bg-primary px-9 text-[17px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : cta}</button>
             </div>

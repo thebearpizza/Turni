@@ -459,6 +459,11 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
           ref={registraMain}
           key={pathname}
           data-titolo-shell={cfg.intestazioneLocale ? undefined : '1'}
+          // Le pagine a tutto schermo (Contenitore della Cassa) lasciano in
+          // fondo lo spazio della dock flottante. Quando la barra in basso
+          // sta già sotto <main> (cassiere, dipendente) quello spazio non
+          // serve: prima restava una fascia vuota di 104 px sull'iPad.
+          style={dockFlottante ? undefined : { ['--spazio-dock' as string]: '0px' }}
           className={cn(
             'anim-swapin relative min-h-0 flex-1 overflow-y-auto overscroll-contain',
             dockFlottante ? 'pb-[calc(max(26px,env(safe-area-inset-bottom))+92px)] sm:pb-[calc(max(22px,env(safe-area-inset-bottom))+106px)]' : 'pb-4'
