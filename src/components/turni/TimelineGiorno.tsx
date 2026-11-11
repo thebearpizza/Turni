@@ -201,11 +201,13 @@ export function TimelineGiorno({ tel = false, giorni, sel, onSel, oggi, adesso, 
           ))}
         </div>
       </div>
-      <div className={cn('flex-none text-pretty border-t border-border text-muted-foreground', tel ? 'px-2.5 py-2 text-xs' : 'px-4 py-2.5 text-[12.5px]')}>
-        {tel
-          ? 'Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo. Tocca una riga vuota per aggiungerne uno.'
-          : 'Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo, uno spazio vuoto per crearne uno nuovo. Scatti di 15 minuti.'}
+      {/* Sul telefono la nota toglierebbe due righe all'elenco: i gesti sono
+          gli stessi del tablet e il tocco sul vuoto apre il modulo. */}
+      {!tel && (
+      <div className={cn('flex-none text-pretty border-t border-border text-muted-foreground', 'px-4 py-2.5 text-[12.5px]')}>
+        Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo, uno spazio vuoto per crearne uno nuovo. Scatti di 15 minuti.
       </div>
+      )}
     </div>
   )
 }

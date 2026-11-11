@@ -19,7 +19,7 @@ export function SelettoreMese({ etichetta, onPrec, onSucc, precOk = true, succOk
 }) {
   const freccia = 'flex h-10 w-10 flex-none items-center justify-center rounded-[8px] transition-transform active:scale-[0.94] disabled:opacity-30 disabled:active:scale-100'
   return (
-    <div data-sk-keep="" className={cn('flex h-11 min-w-0 items-center justify-between gap-0.5 rounded-[10px] bg-[oklch(0.93_0.01_250)] px-0.5 dark:bg-secondary', className)}>
+    <div data-sk-keep="" className={cn('flex h-11 min-w-[200px] items-center justify-between gap-0.5 rounded-[10px] bg-[oklch(0.93_0.01_250)] px-0.5 dark:bg-secondary', className)}>
       <button type="button" aria-label="Mese precedente" disabled={!precOk} onClick={onPrec} className={freccia}><Freccia d="M15 6l-6 6 6 6" /></button>
       <span className="min-w-[112px] flex-1 truncate whitespace-nowrap text-center text-sm font-medium">{etichetta}</span>
       <button type="button" aria-label="Mese successivo" disabled={!succOk} onClick={onSucc} className={freccia}><Freccia d="M9 6l6 6-6 6" /></button>
