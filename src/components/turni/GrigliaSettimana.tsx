@@ -55,7 +55,8 @@ export function GrigliaSettimana({ tel, giorni, oggi, gruppi, onTurno, onVuota, 
               {!tel && <span className="flex items-center gap-[3px] whitespace-nowrap font-mono text-[11px] font-medium text-[oklch(0.55_0.01_250)]" title={`${cnt} in turno`}>{ICONA_PERSONA}{cnt}</span>}
             </>
           )
-          return onGiorno && !tel
+          // Anche sul telefono il giorno in testa porta alla vista Giorno.
+          return onGiorno
             ? <button key={g} type="button" onClick={() => onGiorno(i)} className={cn(cls, 'text-left active:scale-[0.98]')}>{dentro}</button>
             : <div key={g} className={cls}>{dentro}</div>
         })}

@@ -365,15 +365,17 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
       <style>{CSS}</style>
 
       <div data-sk-keep="" className="flex flex-none flex-wrap items-center gap-2.5">
-        <SelettoreMese etichetta={etichettaMese} onPrec={() => spostaMese(-1)} onSucc={() => spostaMese(1)} succOk={avanti} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
+        {/* Ordine comune a tutte le sezioni: prima i locali, poi mese e azione
+            (sul telefono mese ed Excel dividono la seconda riga). */}
         {!singolo && restaurants.length > 1 && <>
+          <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={sel} onCambia={setSel}
+            className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
           {!tel && <span className="mx-1 block h-7 w-px bg-[var(--r-l2)]" />}
-          <PilloleLocali multipla tuttiComeVuoto etichettaTutti="Tutti" locali={locali} selezionati={sel} onCambia={setSel}
-            className={tel ? 'order-5 flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
         </>}
+        <SelettoreMese etichetta={etichettaMese} onPrec={() => spostaMese(-1)} onSucc={() => spostaMese(1)} succOk={avanti} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
         {!tel && <span className="flex-1" />}
         <button type="button" onClick={esportaExcel} disabled={scarica}
-          className={cn('flex h-10 items-center justify-center gap-2 rounded-[8px] border border-line-strong px-[14px] text-sm font-medium transition-transform active:scale-[0.97]', tel ? 'order-6 flex-[1_1_0]' : 'flex-none', scarica && 'opacity-60')}>
+          className={cn('flex h-10 flex-none items-center justify-center gap-2 rounded-[8px] border border-line-strong px-[14px] text-sm font-medium transition-transform active:scale-[0.97]', scarica && 'opacity-60')}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 4v11" /><path d="M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
           Excel
         </button>
@@ -381,14 +383,16 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
 
       <div key={`${mese}|${chiaveTarget}|${v}`} className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-border bg-card"
         style={{ animation: 'tblin 520ms cubic-bezier(0.22,1,0.36,1) backwards' }}>
-        <div className={cn('flex flex-none flex-wrap items-center gap-x-3.5 gap-y-2.5 border-b border-border py-3', Q.cx)}>
+        {/* Sul telefono la legenda si ritira scorrendo il foglio; l'interruttore
+            Foglio ore/Presenze resta. Senza interruttore si ritira tutta la fascia. */}
+        <div data-ritira={vedeOre ? undefined : ''} style={{ ['--ritira-gap' as string]: '0px' }} className={cn('flex flex-none flex-wrap items-center gap-x-3.5 gap-y-2.5 border-b border-border py-3', Q.cx)}>
           {vedeOre && (
             <div className={cn('relative grid grid-cols-2 rounded-[9px] bg-[var(--r-seg)] p-[3px]', tel ? 'flex-[1_1_100%]' : 'flex-none')}>
               <span className="absolute bottom-[3px] left-[3px] top-[3px] w-[calc(50%-3px)] rounded-[7px] bg-[var(--r-thumb)] shadow-[0_1px_3px_rgba(0,0,0,.1)]"
                 style={{ transform: `translateX(${v === 'pres' ? '100%' : '0%'})`, transition: 'transform 480ms cubic-bezier(0.3,1.18,0.5,1)' }} />
               {([['ore', 'Foglio ore'], ['pres', 'Presenze']] as const).map(([key, l]) => (
                 <button key={key} type="button" onClick={() => setVista(key)}
-                  className={cn('relative z-[1] flex h-[34px] items-center justify-center rounded-[7px] px-4 text-sm font-medium transition-[color,transform] duration-300 active:scale-[0.96]', v === key ? 'text-foreground' : 'text-muted-foreground')}>
+                  className={cn('relative z-[1] flex h-10 items-center justify-center rounded-[7px] px-4 text-sm font-medium transition-[color,transform] duration-300 active:scale-[0.96]', v === key ? 'text-foreground' : 'text-muted-foreground')}>
                   {l}
                 </button>
               ))}
@@ -396,12 +400,14 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
           )}
           {puoModificare && !tel && <span className="text-[13px] text-muted-foreground">tocca una cella per modificare il giorno</span>}
           {!tel && <span className="flex-1" />}
-          {legenda.map(lg => (
-            <span key={lg.k} className="flex items-center gap-1.5 text-xs font-medium text-[var(--r-leg)]">
-              <span className="box-border flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] px-[3px] font-mono text-[10px] font-semibold" style={{ background: lg.bg, color: lg.fg }}>{lg.k}</span>
-              {lg.l}
-            </span>
-          ))}
+          <div data-ritira="" style={{ ['--ritira-gap' as string]: '10px' }} className={cn('flex flex-wrap items-center gap-x-3.5 gap-y-2.5', tel && 'flex-[1_1_100%]')}>
+            {legenda.map(lg => (
+              <span key={lg.k} className="flex items-center gap-1.5 text-xs font-medium text-[var(--r-leg)]">
+                <span className="box-border flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] px-[3px] font-mono text-[10px] font-semibold" style={{ background: lg.bg, color: lg.fg }}>{lg.k}</span>
+                {lg.l}
+              </span>
+            ))}
+          </div>
         </div>
 
         {stato === 'errore' ? (

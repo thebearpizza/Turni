@@ -12,6 +12,7 @@ import {
 import { scopeTurnsQuery, type ScopeProfile } from '@/lib/turniScope'
 import { chiediConferma } from '@/components/shared/Conferma'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { FiltriFoglio } from '@/components/shared/FiltriFoglio'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { impostaSottotitolo } from '@/components/shell/intestazioneDinamica'
@@ -88,15 +89,18 @@ export function TurniManagerClient({
   const giorni = useMemo(() => giorniSettimana(lunedi), [lunedi])
   const domenica = giorni[6]
 
-  // Come nel prototipo si guarda un locale alla volta (il primo); "Tutti i
-  // locali" resta perché le pillole condivise lo mostrano sempre.
+  // Si apre sul primo locale; "Tutti" resta perché le pillole condivise lo
+  // mostrano sempre.
   const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
   // Locali scelti nelle pillole, a selezione multipla (vuoto = tutti): si
   // può lavorare su più locali insieme, come deciso dal gestore.
   const [locs, setLocs] = useState<string[]>(() => isManager && restaurants[0] ? [restaurants[0].id] : [])
   const loc = locs.length === 1 ? locs[0] : null
   const [reps, setReps] = useState<string[]>([])
-  const [vista, setVista] = useState<'week' | 'day'>('week')
+  // Vista scelta a mano; finché non si sceglie, il telefono apre sul Giorno
+  // (su oggi) e il tablet sulla Settimana. Stato derivato: nessun effect.
+  const [vistaScelta, setVistaScelta] = useState<'week' | 'day' | null>(null)
+  const vista = vistaScelta ?? (tel ? 'day' : 'week')
   const [giornoSel, setGiornoSel] = useState(() => Math.max(0, giorniSettimana(lunediDi(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))).indexOf(formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))))
   const { stato: sk, avvia: avviaScheletro, pronto: scheletroPronto } = useScheletro(false)
 
@@ -195,14 +199,15 @@ export function TurniManagerClient({
       .sort(([a], [b]) => pesoReparto(a) - pesoReparto(b) || (a ?? '').localeCompare(b ?? ''))
       .map(([n, membri]) => ({ n: n ?? 'Senza reparto', righe: membri.map(map) }))
   }
+  const assenzaDi = (uid: string, g: string) => { const a = assenze.find(x => x.user_id === uid && x.start_date <= g && x.end_date >= g && x.type !== 'riposo'); return a ? ETICHETTA_ASSENZA_GRIGLIA[a.type] ?? 'Assente' : null }
   const gruppiGriglia: GruppoGriglia[] = perReparto(s => ({
     id: s.id, nome: s.full_name, nomeBreve: nomeBreve(s.full_name),
     sotto: [s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? ''), isManager && !loc ? nomeLocale(s.restaurant_id) : ''].filter(Boolean).join(' · '),
     obiettivo: s.weekly_hours_target ?? 40,
     celle: giorni.map(g => perCella.get(`${s.id}|${g}`) ?? []),
-    assenze: giorni.map(g => { const a = assenze.find(x => x.user_id === s.id && x.start_date <= g && x.end_date >= g && x.type !== 'riposo'); return a ? ETICHETTA_ASSENZA_GRIGLIA[a.type] ?? 'Assente' : null }),
+    assenze: giorni.map(g => assenzaDi(s.id, g)),
   }))
-  const gruppiTimeline: GruppoTimeline[] = perReparto(s => ({ id: s.id, nome: s.full_name, turni: perCella.get(`${s.id}|${giorni[giornoSel]}`) ?? [] }))
+  const gruppiTimeline: GruppoTimeline[] = perReparto(s => ({ id: s.id, nome: s.full_name, turni: perCella.get(`${s.id}|${giorni[giornoSel]}`) ?? [], assenza: assenzaDi(s.id, giorni[giornoSel]) }))
   const dipendentiFoglio = staffLoc
     .slice().sort((a, b) => pesoReparto(a.department) - pesoReparto(b.department) || a.full_name.localeCompare(b.full_name, 'it'))
     .map(s => ({ id: s.id, nome: s.full_name, rep: s.role === 'capo_servizio' ? 'Capo servizio' : (s.department ?? '') }))
@@ -442,78 +447,96 @@ export function TurniManagerClient({
   // ── Barra ────────────────────────────────────────────────────────────
   const settimanaCorrente = lunedi === lunediOggi
   const passata = lunedi < lunediOggi
-  const statoSettimana = settimanaCorrente ? 'in corso · visibile ai dipendenti' : passata ? 'conclusa' : 'visibile ai dipendenti'
+  // Sul telefono la settimana divide la riga con "Nuovo": lo stato si accorcia.
+  const statoSettimana = settimanaCorrente ? (tel ? 'in corso' : 'in corso · visibile ai dipendenti') : passata ? 'conclusa' : 'visibile ai dipendenti'
   const multiLoc = isManager && locali.length > 1
   const tastoCls = 'box-border flex h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-[8px] border border-line-strong bg-card text-sm font-medium active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100'
   const disatt = isPending ? 'Disponibile dopo l\'attivazione' : undefined
-  const vediGiorno = !tel && vista === 'day'
+  const vediGiorno = vista === 'day'
+
+  const segmento = (
+    <Segmento
+      className={tel ? 'min-w-0 flex-1' : 'flex-none'} alto={40} voceCls={tel ? 'font-medium' : 'flex-none px-3.5 font-medium'}
+      voci={[{ k: 'week' as const, l: 'Settimana' }, { k: 'day' as const, l: 'Giorno' }]} valore={vista} onCambia={setVistaScelta}
+    />
+  )
+  const tastoNuovo = (
+    <button data-sk-keep="" type="button" onClick={() => apriNuovo(null, tel && vediGiorno ? [giornoSel] : [])} disabled={isPending} title={disatt} className={cn(tastoCls, 'flex-none', tel ? 'gap-1.5 px-3' : 'gap-2 px-3.5')}>
+      {ICONA_PIU(16)}{tel ? 'Nuovo' : 'Nuovo turno'}
+    </button>
+  )
+  const tastoFissi = (
+    <button data-sk-keep="" type="button" onClick={() => fissi.apri(++contatore.current)} disabled={isPending} title={disatt} className={cn(tastoCls, tel ? 'flex-auto gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
+      {ICONA_FISSI}Turni fissi
+    </button>
+  )
+  const tastoCopia = (
+    <button data-sk-keep="" type="button" onClick={copiaSettimana} disabled={isPending || copia} title={disatt ?? 'Copia i turni della settimana precedente su questa'} aria-label="Copia settimana" className={cn(tastoCls, tel ? 'flex-auto gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
+      {ICONA_COPIA}{copia ? 'Copio…' : tel ? 'Copia' : 'Copia settimana'}
+    </button>
+  )
+  const tastoIa = (
+    <button
+      data-sk-keep="" type="button" onClick={() => setAiAperto(true)} disabled={isPending || !restaurantAi}
+      title={disatt ?? (!restaurantAi ? 'Scegli prima un locale' : undefined)} aria-label="Genera con IA"
+      className={cn('flex h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100', tel ? 'flex-auto gap-1.5 px-2.5' : 'flex-none gap-2 px-4')}
+    >
+      {ICONA_IA}{tel ? 'IA' : 'Genera con IA'}
+    </button>
+  )
 
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className={cn('relative box-border flex h-full flex-col', tel ? 'gap-2.5 px-4' : 'gap-3 px-8')}>
-      <div className="flex flex-none flex-wrap items-center gap-2.5">
-        <div data-sk-keep="" className={cn('flex min-w-0 items-center gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', tel ? '-mx-4 flex-[1_1_100%] px-4' : 'flex-[0_1_auto]')}>
-          {multiLoc && (
-            <>
-              <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={locs} onCambia={cambiaLocali} className="mx-0 flex-none overflow-visible px-0" />
-              <span className="h-7 w-px flex-none bg-[oklch(0.88_0.01_250)] dark:bg-border" style={{ margin: '0 4px' }} />
-            </>
-          )}
-          {reparti.length > 1 && (
-            <div className={cn('flex gap-1.5', !isManager && tel && 'flex-auto')}>
-              {reparti.map(rp => {
-                const on = reps.includes(rp)
-                return (
-                  <button
-                    key={rp} type="button"
-                    onClick={() => setReps(p => { const r = on ? p.filter(x => x !== rp) : [...p, rp]; return r.length === reparti.length ? [] : r })}
-                    className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
-                      !isManager && tel && 'flex-1', on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}
-                  >
-                    {rp}
-                  </button>
-                )
-              })}
-            </div>
-          )}
+      {tel ? (
+        // Telefono, stesso ordine delle altre sezioni: 1) locali, 2) settimana
+        // e azione principale (più sotto), 3) vista e filtri, 4) strumenti.
+        multiLoc && <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={locs} onCambia={cambiaLocali} className="flex-none" />
+      ) : (
+        <div className="flex flex-none flex-wrap items-center gap-2.5">
+          <div data-sk-keep="" className="flex min-w-0 flex-[0_1_auto] items-center gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {multiLoc && (
+              <>
+                <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={locs} onCambia={cambiaLocali} className="mx-0 flex-none overflow-visible px-0" />
+                <span className="h-7 w-px flex-none bg-[oklch(0.88_0.01_250)] dark:bg-border" style={{ margin: '0 4px' }} />
+              </>
+            )}
+            {reparti.length > 1 && (
+              <div className="flex gap-1.5">
+                {reparti.map(rp => {
+                  const on = reps.includes(rp)
+                  return (
+                    <button
+                      key={rp} type="button"
+                      onClick={() => setReps(p => { const r = on ? p.filter(x => x !== rp) : [...p, rp]; return r.length === reparti.length ? [] : r })}
+                      className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
+                        on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}
+                    >
+                      {rp}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          <span className="flex-1" />
+          {segmento}{tastoNuovo}{tastoFissi}{tastoCopia}{tastoIa}
         </div>
-        {!tel && <span className="flex-1" />}
-        {!tel && (
-          <Segmento
-            className="flex-none" alto={34} voceCls="flex-none px-3.5 font-medium"
-            voci={[{ k: 'week' as const, l: 'Settimana' }, { k: 'day' as const, l: 'Giorno' }]} valore={vista} onCambia={setVista}
-          />
-        )}
-        <button data-sk-keep="" type="button" onClick={() => apriNuovo(null, [])} disabled={isPending} title={disatt} className={cn(tastoCls, tel ? 'flex-[1_1_0] gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
-          {ICONA_PIU(16)}{tel ? 'Nuovo' : 'Nuovo turno'}
-        </button>
-        <button data-sk-keep="" type="button" onClick={() => fissi.apri(++contatore.current)} disabled={isPending} title={disatt} className={cn(tastoCls, tel ? 'flex-[1_1_0] gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
-          {ICONA_FISSI}Turni fissi
-        </button>
-        <button data-sk-keep="" type="button" onClick={copiaSettimana} disabled={isPending || copia} title={disatt ?? 'Copia i turni della settimana precedente su questa'} aria-label="Copia settimana" className={cn(tastoCls, tel ? 'flex-none px-0' : 'flex-none gap-2 px-3.5')}>
-          {ICONA_COPIA}{!tel && (copia ? 'Copio…' : 'Copia settimana')}
-        </button>
-        <button
-          data-sk-keep="" type="button" onClick={() => setAiAperto(true)} disabled={isPending || !restaurantAi}
-          title={disatt ?? (!restaurantAi ? 'Scegli prima un locale' : undefined)} aria-label="Genera con IA"
-          className={cn('flex h-10 min-w-10 flex-none items-center justify-center gap-2 rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100', tel ? 'px-0' : 'px-4')}
-        >
-          {ICONA_IA}{!tel && 'Genera con IA'}
-        </button>
-      </div>
+      )}
 
       <div className="flex flex-none flex-wrap items-center gap-2">
         <button data-sk-keep="" type="button" onClick={() => vaiASettimana(piuGiorni(lunedi, -7))} aria-label="Settimana precedente" className="flex h-10 w-10 flex-none items-center justify-center rounded-[20px] border border-[oklch(0.88_0.01_250)] bg-card active:scale-[0.96] dark:border-line-strong">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
         </button>
-        <div className={cn('flex flex-col items-center', tel ? 'min-w-0 flex-auto' : 'min-w-[180px] flex-none')}>
-          <span data-sk-keep="" className="text-[15px] font-semibold">{etichettaSettimana(lunedi)}</span>
-          <span className={cn('text-xs', passata ? 'text-muted-foreground' : 'text-ok')}>{statoSettimana}</span>
+        <div className={cn('flex flex-col items-center', tel ? 'min-w-0 flex-[1_1_0]' : 'min-w-[180px] flex-none')}>
+          <span data-sk-keep="" className="max-w-full truncate whitespace-nowrap text-[15px] font-semibold">{etichettaSettimana(lunedi)}</span>
+          <span className={cn('max-w-full truncate whitespace-nowrap text-xs', passata ? 'text-muted-foreground' : 'text-ok')}>{statoSettimana}</span>
         </div>
         <button data-sk-keep="" type="button" onClick={() => vaiASettimana(piuGiorni(lunedi, 7))} aria-label="Settimana successiva" className="flex h-10 w-10 flex-none items-center justify-center rounded-[20px] border border-[oklch(0.88_0.01_250)] bg-card active:scale-[0.96] dark:border-line-strong">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
         </button>
+        {tel && tastoNuovo}
         {!settimanaCorrente && (
-          <button data-sk-keep="" type="button" onClick={() => vaiASettimana(lunediOggi)} className={cn('flex h-8 items-center rounded-full bg-[oklch(0.94_0.04_180)] px-3 text-[13px] font-medium text-[oklch(0.4_0.08_180)] active:scale-[0.97] dark:bg-[oklch(0.3_0.04_180)] dark:text-[oklch(0.85_0.07_180)]', tel && 'order-9')}>
+          <button data-sk-keep="" type="button" onClick={() => vaiASettimana(lunediOggi)} className={cn('flex h-10 items-center justify-center rounded-full bg-[oklch(0.94_0.04_180)] px-3 text-[13px] font-medium text-[oklch(0.4_0.08_180)] active:scale-[0.97] dark:bg-[oklch(0.3_0.04_180)] dark:text-[oklch(0.85_0.07_180)]', tel && 'order-9 flex-[1_1_100%]')}>
             Torna a questa settimana
           </button>
         )}
@@ -526,17 +549,38 @@ export function TurniManagerClient({
         )}
       </div>
 
+      {tel && (
+        <div className="flex flex-none items-center gap-2">
+          {segmento}
+          {/* I reparti sul telefono stanno nel foglio dei filtri (uno alla
+              volta); sul tablet restano pillole a scelta multipla. */}
+          {reparti.length > 1 && (
+            <FiltriFoglio gruppi={[{
+              titolo: 'Reparto', opzioni: reparti.map(rp => ({ k: rp, l: rp })),
+              valore: reps.length === 1 ? reps[0] : null, onCambia: k => setReps(k ? [k] : []),
+            }]} />
+          )}
+        </div>
+      )}
+      {/* Strumenti secondari: sul telefono si ritirano scorrendo l'elenco. */}
+      {tel && (
+        <div data-ritira="" style={{ ['--ritira-gap' as string]: '10px' }} className="flex flex-none items-center gap-2">
+          {tastoFissi}{tastoCopia}{tastoIa}
+        </div>
+      )}
+
       {vediGiorno ? (
         <TimelineGiorno
-          giorni={giorni} sel={giornoSel} onSel={setGiornoSel} oggi={oggi} adesso={minutoOra} gruppi={gruppiTimeline}
+          tel={tel} giorni={giorni} sel={giornoSel} onSel={setGiornoSel} oggi={oggi} adesso={minutoOra} gruppi={gruppiTimeline}
           onSposta={sposta} onCrea={creaDaTimeline} onTocca={t => modifica.apri(t)}
+          onVuota={uid => apriNuovo(uid, [giornoSel])}
         />
       ) : (
         <GrigliaSettimana
           tel={tel} giorni={giorni} oggi={oggi} gruppi={gruppiGriglia}
           onTurno={t => modifica.apri(t)}
           onVuota={(uid, data) => apriNuovo(uid, [giorni.indexOf(data)])}
-          onGiorno={i => { setGiornoSel(i); setVista('day') }}
+          onGiorno={i => { setGiornoSel(i); setVistaScelta('day') }}
         />
       )}
 

@@ -117,7 +117,9 @@ export function TurniReparto({ reparto, lunedi, giorni, oggi, staff, turni, asse
       <div className="flex flex-none flex-col gap-3 px-1 pt-3">
         <div className="relative flex items-baseline justify-between">
           <span className="text-[28px] font-semibold tracking-[-0.8px]">Turni {reparto.toLowerCase()}</span>
-          <button type="button" onClick={() => setMenu(m => !m)} className="text-[13px] font-medium underline decoration-line-strong underline-offset-4">{etichettaSettimanaBreve(lunedi)}</button>
+          {/* L'etichetta resta piccola, l'area toccabile no: 40 px di lato,
+              con margini negativi perché l'intestazione non cambi altezza. */}
+          <button type="button" onClick={() => setMenu(m => !m)} aria-haspopup="menu" aria-expanded={menu} className="-mx-2.5 -my-2.5 flex min-h-10 min-w-10 items-center justify-end px-2.5 text-[13px] font-medium underline decoration-line-strong underline-offset-4 active:opacity-60">{etichettaSettimanaBreve(lunedi)}</button>
           {menu && (
             <div className="anim-swapin absolute right-0 top-[calc(100%+6px)] z-30 flex w-[220px] flex-col overflow-hidden rounded-[12px] border border-border bg-card p-1 shadow-[0_10px_30px_rgba(20,30,50,.15)]">
               {([[-1, 'Settimana precedente'], [null, 'Questa settimana'], [1, 'Settimana successiva']] as const).map(([d, l]) => (
@@ -155,7 +157,7 @@ export function TurniReparto({ reparto, lunedi, giorni, oggi, staff, turni, asse
           {righe.map((r, i) => (
             <div key={r.s.id} className="grid min-h-11 grid-cols-[84px_1fr] items-center gap-2.5" style={{ animation: 'inrise 600ms cubic-bezier(0.16,1,0.3,1) both', animationDelay: i * 70 + 'ms' }}>
               <span className="truncate text-sm font-medium">{nomeBreve(r.s.full_name)}</span>
-              <div className="relative h-8 rounded-[4px] bg-[oklch(0.94_0.01_250)] dark:bg-[oklch(0.25_0.01_250)]">
+              <div className="relative h-10 rounded-[4px] bg-[oklch(0.94_0.01_250)] dark:bg-[oklch(0.25_0.01_250)]">
                 {r.ass ? (
                   // Assente: la barra rossa occupa l'orario del turno (o tutto il giorno).
                   (r.tt.length ? r.tt : [null]).map((t, j) => {
@@ -178,8 +180,8 @@ export function TurniReparto({ reparto, lunedi, giorni, oggi, staff, turni, asse
                       style={pos(a, b)}
                     >
                       {fm(a)}–{fm(b)}
-                      <span className="absolute bottom-2.5 left-[3px] top-2.5 w-0.5 rounded-[1px] bg-current opacity-40" />
-                      <span className="absolute bottom-2.5 right-[3px] top-2.5 w-0.5 rounded-[1px] bg-current opacity-40" />
+                      <span className="absolute bottom-3 left-[3px] top-3 w-0.5 rounded-[1px] bg-current opacity-40" />
+                      <span className="absolute bottom-3 right-[3px] top-3 w-0.5 rounded-[1px] bg-current opacity-40" />
                     </div>
                   )
                 })}

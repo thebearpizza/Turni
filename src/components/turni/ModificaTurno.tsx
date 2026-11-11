@@ -85,7 +85,7 @@ export function ModificaTurno({
           {voci.map(v => (
             <button
               key={v.k} type="button" onClick={() => setTipo(v.k)}
-              className={cn('flex h-9 flex-1 items-center justify-center rounded-[5px] text-sm transition-[background-color] duration-200',
+              className={cn('flex h-10 flex-1 items-center justify-center rounded-[5px] text-sm transition-[background-color] duration-200',
                 tipo === v.k ? 'bg-card font-semibold shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'font-medium text-muted-foreground')}
             >
               {v.l}

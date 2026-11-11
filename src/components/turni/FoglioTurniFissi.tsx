@@ -91,7 +91,7 @@ export function FoglioTurniFissi({ esce, onChiudi, sotto, dipendenti, standard, 
                       {([['work', 'Lavoro'], ['rip', 'Riposo'], ['off', 'Nessuno']] as const).map(([k, l]) => (
                         <button
                           key={k} type="button" onClick={() => { rot.chiudi(); upd(d, { on: k }) }}
-                          className={cn('flex h-8 items-center rounded-[6px] px-2.5 text-[12.5px] font-medium', x.on === k ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-muted-foreground')}
+                          className={cn('flex h-10 items-center rounded-[6px] px-2.5 text-[12.5px] font-medium', x.on === k ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-muted-foreground')}
                         >
                           {l}
                         </button>

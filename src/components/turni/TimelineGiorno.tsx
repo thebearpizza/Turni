@@ -3,15 +3,25 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { MANIGLIA_TURNO, TINTA_TURNO, tipoTurno } from '@/lib/turnColors'
 import type { Turn } from '@/types'
-import { WD, durata, giornoLungo, hm, numeroGiorno, toM } from './comuni'
+import { WD, durata, giornoLungo, hm, nomeBreve, numeroGiorno, toM } from './comuni'
 
 // Vista Giorno del tablet (MTTurni, isDay): scelta del giorno, ore 09→02 in
 // 17 colonne, una riga per dipendente raggruppata per reparto. Un turno si
 // trascina per spostarlo, dai bordi si allunga o accorcia; trascinando su
 // uno spazio vuoto se ne disegna uno nuovo (1 h di partenza). Scatti di 15
 // minuti. Un tocco senza trascinare apre la modifica.
+//
+// Sul telefono è la vista con cui si apre Turni: nomi brevi in 84 px, ore
+// segnate una sì e una no, orario compatto nelle barre. Le righe non si
+// disegnano col dito (la traccia deve lasciar scorrere l'elenco in
+// verticale): un tocco sullo spazio vuoto apre "Nuovo turno" per quella
+// persona, e il riposo del giorno è una fascia che si tocca per modificarlo.
 
-export interface RigaTimeline { id: string; nome: string; turni: Turn[] }
+export interface RigaTimeline {
+  id: string; nome: string; turni: Turn[]
+  /** Assenza approvata del giorno (etichetta: Ferie, Malattia...), o null. */
+  assenza?: string | null
+}
 export interface GruppoTimeline { n: string; righe: RigaTimeline[] }
 
 const SNAP = 15
@@ -24,13 +34,18 @@ function asse(t: Turn) {
   if (a < 300) a += 1440
   return { a, b: a + durata(t.start_time, t.end_time) }
 }
+// "18–23:30": minuti solo se servono, per le barre strette del telefono.
+const fm = (m: number) => { const s = hm(m); return s.endsWith(':00') ? s.slice(0, 2) : s }
 
-export function TimelineGiorno({ giorni, sel, onSel, oggi, adesso, gruppi, onSposta, onCrea, onTocca }: {
+export function TimelineGiorno({ tel = false, giorni, sel, onSel, oggi, adesso, gruppi, onSposta, onCrea, onTocca, onVuota }: {
+  tel?: boolean
   giorni: string[]; sel: number; onSel: (i: number) => void; oggi: string; adesso: number
   gruppi: GruppoTimeline[]
   onSposta: (t: Turn, a: number, b: number) => Promise<unknown>
   onCrea: (userId: string, a: number, b: number) => Promise<unknown>
   onTocca: (t: Turn) => void
+  /** Telefono: tocco sullo spazio vuoto della riga di un dipendente. */
+  onVuota?: (userId: string) => void
 }) {
   const [trascina, setTrascina] = useState<{ id: string; a: number; b: number } | null>(null)
   const [nuovo, setNuovo] = useState<{ uid: string; a: number; b: number } | null>(null)
@@ -95,22 +110,23 @@ export function TimelineGiorno({ giorni, sel, onSel, oggi, adesso, gruppi, onSpo
     }, () => { onCrea(uid, cur.a, cur.b).finally(() => setNuovo(null)) })
   }
 
-  const cols = '190px minmax(0,1fr)'
+  const cols = tel ? '84px minmax(0,1fr)' : '190px minmax(0,1fr)'
   const griglia = `repeating-linear-gradient(90deg,var(--linea-ora) 0 1px,transparent 1px calc(100% / ${NORE}))`
 
   return (
     <div className="anim-swapin flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-border bg-card [--linea-ora:oklch(0.93_0.01_250)] dark:[--linea-ora:oklch(0.27_0.01_250)]">
-      <div className="flex flex-none gap-1.5 border-b border-border px-3 py-2.5">
+      <div className={cn('flex flex-none border-b border-border py-2.5', tel ? 'gap-1 px-2' : 'gap-1.5 px-3')}>
         {giorni.map((g, i) => {
           const on = i === sel
           return (
             <button
               key={g} type="button" onClick={() => onSel(i)}
-              className={cn('flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[8px] border transition-[background-color,color] duration-200 active:scale-[0.97]',
-                on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}
+              className={cn('relative flex h-12 min-w-0 flex-1 items-center justify-center rounded-[8px] border transition-[background-color,color] duration-200 active:scale-[0.97]',
+                tel ? 'flex-col' : 'gap-1.5', on ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}
             >
               <span className="text-xs font-medium opacity-80">{WD[i]}</span>
-              <span className="font-mono text-base font-semibold">{numeroGiorno(g)}</span>
+              <span className={cn('font-mono text-base font-semibold', tel && 'leading-5')}>{numeroGiorno(g)}</span>
+              {tel && g === oggi && <span className={cn('absolute bottom-[3px] h-1 w-1 rounded-full', on ? 'bg-primary-foreground' : 'bg-[oklch(0.58_0.12_180)]')} />}
             </button>
           )
         })}
@@ -118,36 +134,52 @@ export function TimelineGiorno({ giorni, sel, onSel, oggi, adesso, gruppi, onSpo
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="grid flex-none border-b border-border bg-[oklch(0.97_0.01_250)] dark:bg-[oklch(0.23_0.01_250)]" style={{ gridTemplateColumns: cols }}>
-          <span className="truncate whitespace-nowrap px-4 py-[9px] text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">{giornoLungo(giorno)}</span>
+          <span className={cn('truncate whitespace-nowrap py-[9px] text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground', tel ? 'px-2.5' : 'px-4')}>{tel ? `${WD[sel]} ${numeroGiorno(giorno)}` : giornoLungo(giorno)}</span>
           <div className="grid" style={{ gridTemplateColumns: `repeat(${NORE},minmax(0,1fr))` }}>
-            {ore.map((h, i) => <span key={i} className="border-l border-[oklch(0.92_0.01_250)] py-[9px] pl-1 font-mono text-[11px] font-medium text-[oklch(0.5_0.01_250)] dark:border-[oklch(0.28_0.01_250)] dark:text-muted-foreground">{h}</span>)}
+            {ore.map((h, i) => <span key={i} className={cn('whitespace-nowrap border-l border-[oklch(0.92_0.01_250)] py-[9px] font-mono text-[11px] font-medium text-[oklch(0.5_0.01_250)] dark:border-[oklch(0.28_0.01_250)] dark:text-muted-foreground', tel ? 'pl-0.5' : 'pl-1')}>{tel && i % 2 ? '' : h}</span>)}
           </div>
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {gruppi.map(g => (
             <Fragment key={g.n}>
-              <div className={cn('flex items-center border-b bg-[oklch(0.96_0.01_250)] px-4 py-[7px] text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-[oklch(0.22_0.01_250)]', BORDO_FINE)}>{g.n}</div>
+              <div className={cn('flex items-center border-b bg-[oklch(0.96_0.01_250)] py-[7px] text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-[oklch(0.22_0.01_250)]', tel ? 'px-2.5' : 'px-4', BORDO_FINE)}>{g.n}</div>
               {g.righe.map(r => {
                 const barre = r.turni.filter(t => !t.is_rest_day).map(t => {
                   const tr = trascina?.id === t.id ? trascina : null
                   return { t, ...(tr ?? asse(t)), attivo: !!tr }
                 })
                 const bozza = nuovo?.uid === r.id ? nuovo : null
+                const riposo = tel ? r.turni.find(t => t.is_rest_day) : undefined
                 return (
                   <div key={r.id} className={cn('grid h-14 border-b', BORDO_FINE)} style={{ gridTemplateColumns: cols }}>
-                    <span className="flex items-center truncate whitespace-nowrap px-4 text-sm font-medium">{r.nome}</span>
-                    <div data-track="1" onPointerDown={e => premiTraccia(e, r.id)} className="relative touch-none" style={{ backgroundImage: griglia }}>
+                    <span className={cn('flex min-w-0 items-center font-medium', tel ? 'pl-2.5 pr-1.5 text-[13px]' : 'px-4 text-sm')}><span className="truncate whitespace-nowrap">{tel ? nomeBreve(r.nome) : r.nome}</span></span>
+                    <div
+                      data-track="1"
+                      onPointerDown={tel ? undefined : e => premiTraccia(e, r.id)}
+                      // Il tocco su una barra arriva qui come click: conta solo lo spazio
+                      // vuoto, e non nei giorni di ferie o malattia (come nella settimana).
+                      onClick={tel && onVuota ? e => { if (e.target === e.currentTarget && !r.assenza) onVuota(r.id) } : undefined}
+                      className={cn('relative', !tel && 'touch-none')} style={{ backgroundImage: griglia }}
+                    >
+                      {/* Ferie e malattie approvate in rosso, come nella griglia della settimana. */}
+                      {r.assenza && (
+                        <div className="pointer-events-none absolute inset-x-0 bottom-2 top-2 flex items-center overflow-hidden whitespace-nowrap rounded-[7px] bg-neg-tint px-2.5 text-xs font-medium text-neg">{r.assenza}</div>
+                      )}
+                      {riposo && (
+                        <button type="button" onClick={() => onTocca(riposo)} className={cn('absolute inset-x-0 bottom-2 top-2 flex items-center overflow-hidden whitespace-nowrap rounded-[7px] border px-2.5 text-xs font-medium active:scale-[0.99]', TINTA_TURNO.riposo)}>Riposo</button>
+                      )}
                       {barre.map(({ t, a, b, attivo }) => {
                         const tipo = tipoTurno(t)
                         return (
                           <div
                             key={t.id} onPointerDown={e => premiBarra(e, t, 'move')}
-                            className={cn('absolute bottom-2 top-2 box-border flex cursor-grab touch-none select-none items-center justify-between rounded-[7px] border px-3.5 font-mono text-xs font-medium', TINTA_TURNO[tipo], attivo && 'shadow-[0_6px_18px_rgba(20,30,50,.18)]')}
+                            className={cn('absolute bottom-2 top-2 box-border flex cursor-grab touch-none select-none items-center overflow-hidden whitespace-nowrap rounded-[7px] border font-mono font-medium',
+                              tel ? 'justify-center px-2 text-[11px]' : 'justify-between px-3.5 text-xs', TINTA_TURNO[tipo], attivo && 'shadow-[0_6px_18px_rgba(20,30,50,.18)]')}
                             style={{ left: pct(a) + '%', width: pct(b) - pct(a) + '%' }}
                           >
                             <div onPointerDown={e => premiBarra(e, t, 'l')} className="absolute -left-px bottom-0 top-0 flex w-4 cursor-ew-resize items-center justify-center"><span className={cn('h-[18px] w-[3px] rounded-[2px]', MANIGLIA_TURNO[tipo])} /></div>
-                            <span>{hm(a)}</span><span>{hm(b)}</span>
+                            {tel ? <span>{fm(a)}–{fm(b)}</span> : <><span>{hm(a)}</span><span>{hm(b)}</span></>}
                             <div onPointerDown={e => premiBarra(e, t, 'r')} className="absolute -right-px bottom-0 top-0 flex w-4 cursor-ew-resize items-center justify-center"><span className={cn('h-[18px] w-[3px] rounded-[2px]', MANIGLIA_TURNO[tipo])} /></div>
                           </div>
                         )
@@ -169,8 +201,10 @@ export function TimelineGiorno({ giorni, sel, onSel, oggi, adesso, gruppi, onSpo
           ))}
         </div>
       </div>
-      <div className="flex-none text-pretty border-t border-border px-4 py-2.5 text-[12.5px] text-muted-foreground">
-        Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo, uno spazio vuoto per crearne uno nuovo. Scatti di 15 minuti.
+      <div className={cn('flex-none text-pretty border-t border-border text-muted-foreground', tel ? 'px-2.5 py-2 text-xs' : 'px-4 py-2.5 text-[12.5px]')}>
+        {tel
+          ? 'Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo. Tocca una riga vuota per aggiungerne uno.'
+          : 'Trascina un turno per spostarlo, i bordi per allungarlo o accorciarlo, uno spazio vuoto per crearne uno nuovo. Scatti di 15 minuti.'}
       </div>
     </div>
   )

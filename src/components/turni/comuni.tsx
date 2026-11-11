@@ -217,7 +217,7 @@ export function Pillola({ attiva, onClick, children, className }: { attiva: bool
   return (
     <button
       type="button" onClick={onClick}
-      className={cn('flex h-[38px] flex-none items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium active:scale-[0.97]',
+      className={cn('flex h-10 flex-none items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium active:scale-[0.97]',
         attiva ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card text-foreground dark:border-line-strong', className)}
     >
       {children}

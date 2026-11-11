@@ -348,7 +348,7 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
                     <span className="block truncate text-[13px] font-medium">In risposta a “{replyToMsg.title}”</span>
                     <span className="block truncate text-xs text-muted-foreground">{replyToMsg.body}</span>
                   </div>
-                  <button type="button" onClick={() => setReplyToMsg(null)} aria-label="Annulla risposta" className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
+                  <button type="button" onClick={() => setReplyToMsg(null)} aria-label="Annulla risposta" className="-my-1.5 -mr-1.5 flex h-10 w-10 flex-none items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
                 </div>
               )}
               <label className="flex flex-col gap-1.5">
@@ -366,7 +366,7 @@ export function ConsultantInbox({ userId, initialManagerId = null }: Props) {
                     <span className="text-muted-foreground"><Clip /></span>
                     <span className="min-w-0 flex-1 truncate">{f.name}</span>
                     <span className="font-mono text-xs text-muted-foreground">{Math.max(1, Math.round(f.size / 1024))} KB</span>
-                    <button type="button" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label={`Togli ${f.name}`} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
+                    <button type="button" onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))} aria-label={`Togli ${f.name}`} className="-mr-2 flex h-10 w-10 flex-none items-center justify-center rounded-full text-muted-foreground"><IconaX s={14} /></button>
                   </div>
                 ))}
                 <input ref={fileRef} type="file" multiple onChange={handleFileChange} className="hidden" />

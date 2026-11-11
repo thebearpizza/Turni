@@ -182,7 +182,7 @@ export function SceltaDipendente({ dipendenti, scelto, onScegli }: {
         return (
           <button
             key={e.id} type="button" onClick={() => onScegli(e.id)}
-            className={cn('flex h-[38px] items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium active:scale-[0.97]', on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card text-foreground dark:border-line-strong')}
+            className={cn('flex h-10 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium active:scale-[0.97]', on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card text-foreground dark:border-line-strong')}
           >
             {e.nome}<span className="text-[11px] font-normal opacity-70">{e.locale}</span>
           </button>

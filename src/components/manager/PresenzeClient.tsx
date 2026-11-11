@@ -326,18 +326,19 @@ export function PresenzeClient({ initialPresenze, initialAbsences, initialMonth,
   const nomeLoc = loc ? infoLoc.get(loc)?.nome ?? '' : 'Tutti i locali'
   const pill = (
     <PilloleLocali
-      locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc} etichettaTutti="Tutti"
-      className={tel ? 'order-5 flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'}
+      locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc}
+      className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'}
     />
   )
 
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
-      {/* Barra: mese, locali, Live, Aggiungi */}
+      {/* Barra, nell'ordine comune a tutte le sezioni: locali, poi mese e
+          azione principale (sul telefono su due righe). */}
       <div data-sk-keep="" className="flex flex-none flex-wrap items-center gap-2.5">
-        <BarraMese mese={mese} onPrec={() => cambiaMese(-1)} onSucc={() => cambiaMese(1)} succDisabilitato={mese >= meseCorrente} />
-        {multiLoc && !tel && <span className="mx-1 block h-7 w-px bg-[oklch(0.88_0.01_250)] dark:bg-line-strong" />}
         {pill}
+        {multiLoc && !tel && <span className="mx-1 block h-7 w-px bg-[oklch(0.88_0.01_250)] dark:bg-line-strong" />}
+        <BarraMese mese={mese} onPrec={() => cambiaMese(-1)} onSucc={() => cambiaMese(1)} succDisabilitato={mese >= meseCorrente} />
         {!tel && <span className="flex-1" />}
         {!tel && live && (
           <span className="flex items-center gap-1.5 text-[13px] font-medium text-[oklch(0.4_0.08_150)] dark:text-ok">
@@ -400,21 +401,25 @@ export function PresenzeClient({ initialPresenze, initialAbsences, initialMonth,
 
         {/* Dettaglio del giorno */}
         <div key={`${sel}|${loc}`} className="anim-swapin flex min-h-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
-          <div className={cn('flex flex-none flex-wrap items-center border-b border-border', tel ? 'gap-x-3 gap-y-2.5 px-3.5 py-3' : 'gap-[18px] px-[18px] py-3.5')}>
-            <div className={cn('flex flex-col gap-0.5', tel ? 'flex-[1_1_100%]' : 'flex-1')}>
+          <div className={cn('flex flex-none border-b border-border', tel ? 'flex-col gap-2.5 px-3.5 py-3' : 'flex-wrap items-center gap-[18px] px-[18px] py-3.5')}>
+            <div className={cn('flex flex-col gap-0.5', !tel && 'flex-1')}>
               <span className="text-lg font-semibold">{dataLunga(sel)}</span>
               <span className="text-[13px] text-muted-foreground">{nomeLoc}{isOggi ? ' · in aggiornamento continuo' : ''}</span>
             </div>
-            {[
-              { l: 'Presenti', v: String(presenti), c: '' },
-              { l: isOggi ? 'In corso' : 'Assenti', v: String(isOggi ? inCorso : assenti), c: isOggi ? 'text-[oklch(0.4_0.08_150)] dark:text-ok' : '' },
-              { l: 'Ore totali', v: hh(oreTot), c: '' },
-            ].map(s => (
-              <div key={s.l} className={cn('flex flex-col gap-px', tel ? 'flex-[1_1_0] items-start' : 'flex-none items-end')}>
-                <span className="text-xs font-medium text-muted-foreground">{s.l}</span>
-                <span className={cn('font-mono text-lg font-semibold', s.c)}>{s.v}</span>
-              </div>
-            ))}
+            {/* I numeri del giorno sul telefono si ritirano scorrendo le
+                timbrature; resta la data. */}
+            <div data-ritira="" style={{ ['--ritira-gap' as string]: '10px' }} className={cn('flex', tel ? 'gap-3' : 'flex-none items-center gap-[18px]')}>
+              {[
+                { l: 'Presenti', v: String(presenti), c: '' },
+                { l: isOggi ? 'In corso' : 'Assenti', v: String(isOggi ? inCorso : assenti), c: isOggi ? 'text-[oklch(0.4_0.08_150)] dark:text-ok' : '' },
+                { l: 'Ore totali', v: hh(oreTot), c: '' },
+              ].map(s => (
+                <div key={s.l} className={cn('flex flex-col gap-px', tel ? 'flex-[1_1_0] items-start' : 'flex-none items-end')}>
+                  <span className="text-xs font-medium text-muted-foreground">{s.l}</span>
+                  <span className={cn('font-mono text-lg font-semibold', s.c)}>{s.v}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -482,7 +487,7 @@ export function PresenzeClient({ initialPresenze, initialAbsences, initialMonth,
                     const notte = !!b.check_out && giornoDi(b.check_out) > giornoDi(b.check_in)
                     return (
                       <button key={b.id} type="button" onClick={() => apriForm(b)}
-                        className={cn('flex h-9 items-center gap-2 rounded-[8px] border px-3 font-mono text-[13px] font-medium text-foreground hover:brightness-[0.98] active:scale-[0.97]',
+                        className={cn('flex h-10 items-center gap-2 rounded-[8px] border px-3 font-mono text-[13px] font-medium text-foreground hover:brightness-[0.98] active:scale-[0.97]',
                           lv ? 'border-[oklch(0.85_0.06_150)] bg-[oklch(0.97_0.025_150)] dark:border-ok/40 dark:bg-ok-tint/50' : 'border-[oklch(0.9_0.01_250)] bg-[oklch(0.975_0.01_250)] dark:border-border dark:bg-secondary')}>
                         {oraDi(b.check_in)} → {b.check_out ? oraDi(b.check_out) : ''}{notte ? ' (+1)' : ''}
                         {lv && (

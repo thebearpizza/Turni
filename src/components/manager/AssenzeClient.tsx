@@ -279,12 +279,13 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
       <div data-sk-keep="" className="flex flex-none flex-wrap items-center gap-2.5">
-        <BarraMese mese={mese} onPrec={() => vaiAlMese(spostaMese(mese, -1))} onSucc={() => vaiAlMese(spostaMese(mese, 1))} />
-        {!single && locali.length > 1 && !tel && <span className="mx-1 block h-7 w-px bg-[oklch(0.88_0.01_250)] dark:bg-line-strong" />}
+        {/* Ordine comune a tutte le sezioni: prima i locali, poi mese e azione. */}
         {!single && (
-          <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc} etichettaTutti="Tutti"
-            className={tel ? 'order-5 flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
+          <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc}
+            className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
         )}
+        {!single && locali.length > 1 && !tel && <span className="mx-1 block h-7 w-px bg-[oklch(0.88_0.01_250)] dark:bg-line-strong" />}
+        <BarraMese mese={mese} onPrec={() => vaiAlMese(spostaMese(mese, -1))} onSucc={() => vaiAlMese(spostaMese(mese, 1))} />
         {!tel && <span className="flex-1" />}
         <PulsanteNero onClick={() => apriForm(null)}>{tel ? 'Nuova' : 'Nuova assenza'}</PulsanteNero>
       </div>
@@ -385,7 +386,7 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
                         const i0 = giorniTra(m0, da) - 1, len = giorniTra(da, al), T = TIPI[a.type]
                         return (
                           <button key={a.id} type="button" onClick={() => apriForm(a)}
-                            className={cn('absolute bottom-[9px] top-[9px] mx-[2px] box-border flex items-center justify-center overflow-hidden whitespace-nowrap rounded-[6px] border px-1.5 text-[12px] font-semibold active:scale-[0.97]', T.cls, nuove.includes(a.id) && 'anim-swapin')}
+                            className={cn('absolute bottom-2 top-2 mx-[2px] box-border flex items-center justify-center overflow-hidden whitespace-nowrap rounded-[6px] border px-1.5 text-[12px] font-semibold active:scale-[0.97]', T.cls, nuove.includes(a.id) && 'anim-swapin')}
                             style={{ left: `${(i0 / nd) * 100}%`, width: `calc(${(len / nd) * 100}% - 4px)`, background: T.bg, borderColor: T.bd, color: T.fg }}>
                             {len >= 2 ? T.l : T.l[0]}
                           </button>
