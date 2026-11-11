@@ -20,11 +20,15 @@ import { FatturaCapture, type FatturaRisolta, type AvvioCattura } from './Fattur
 import { FatturaFotoViewer } from './FatturaFotoViewer'
 import { MenuNuovaFattura, ScansionaFattura } from './NuovaFattura'
 import { ImportaXml } from './ImportaXml'
+import { GrigliaLocali } from './Smistamento'
+import { BUCKET_XML, importaXml, lordoXml, riepilogoXml, tabellaMancante, type InAttesa } from './xmlImport'
 
 // Fatture (MTAcquisti, sezione "fatture"): elenco del mese con schede
 // Tutte / Da verificare, dettaglio con righe rettificabili dal riquadro
 // teal (quantità, prezzo, categoria, aliquota), conferma ed eliminazione;
 // "Nuova fattura" apre scanner, caricamento di file o importazione XML.
+// Il manager ha anche la scheda "Da assegnare": le fatture XML di cui lo
+// smistamento non ha capito il locale, da assegnare e importare a mano.
 
 interface Props {
   ruolo: 'manager' | 'direttore'
@@ -61,6 +65,7 @@ interface Fattura {
   lordo: number
   vuoti: number | null
   foto_paths: string[]
+  xml_path: string | null
   verifiche: VerificaSospetta[]
   rettificata: boolean
   righe: RigaArticolo[]
@@ -78,15 +83,18 @@ const SEL_RIGHE = (conAliquota: boolean) => `fatture_articoli(id, testo_estratto
 // Colonne aggiunte dalla migrazione proposta (aliquota per riga, data di
 // rettifica): finché non c'è, la query ripiega su quella di sempre.
 let conColonneNuove = true
+// fatture.xml_path (migrazione xml-smistamento): stesso ripiego.
+let conXml = true
 
 async function caricaFatture(ids: string[], a: string, b: string): Promise<{ righe: Fattura[]; errore: string | null }> {
   const sb = createClient()
-  const q = (nuove: boolean) => sb.from('fatture')
-    .select(`${SEL_BASE}${nuove ? ', rettificata_at' : ''}, ${SEL_RIGHE(nuove)}`)
+  const q = (nuove: boolean, xml: boolean) => sb.from('fatture')
+    .select(`${SEL_BASE}${nuove ? ', rettificata_at' : ''}${xml ? ', xml_path' : ''}, ${SEL_RIGHE(nuove)}`)
     .in('restaurant_id', ids).gte('data', a).lte('data', b)
     .order('data', { ascending: false }).order('created_at', { ascending: false })
-  let res = await q(conColonneNuove)
-  if (res.error && conColonneNuove) { conColonneNuove = false; res = await q(false) }
+  let res = await q(conColonneNuove, conXml)
+  if (res.error && conXml) { conXml = false; res = await q(conColonneNuove, false) }
+  if (res.error && conColonneNuove) { conColonneNuove = false; res = await q(false, false) }
   if (res.error) return { righe: [], errore: friendlySaveError(res.error) }
   type R = Record<string, unknown> & {
     fornitore: { nome: string } | null; categoria_diretta: { nome: string } | null
@@ -108,6 +116,7 @@ async function caricaFatture(ids: string[], a: string, b: string): Promise<{ rig
       netto: Number(r.totale_netto), iva: Number(r.totale_iva), lordo: Number(r.totale_lordo),
       vuoti: (r.vuoti_ritirati as number | null) ?? null,
       foto_paths: (r.foto_paths as string[]) ?? [],
+      xml_path: (r.xml_path as string | null | undefined) ?? null,
       verifiche: (r.verifiche_sospette as VerificaSospetta[]) ?? [],
       rettificata: !!r.rettificata_at,
       righe: (r.fatture_articoli ?? []).map(x => ({ ...x, quantita: Number(x.quantita), prezzo_unitario: Number(x.prezzo_unitario), prezzo_riga: Number(x.prezzo_riga), aliquota_iva: x.aliquota_iva ?? null }))
@@ -128,7 +137,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
   const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
   const [mese, setMese] = useState(meseIniziale ?? meseOggi)
   const [loc, setLoc] = useState<string | null>(null)
-  const [tab, setTab] = useState<'all' | 'dv'>('all')
+  const [tab, setTab] = useState<'all' | 'dv' | 'da'>('all')
   const [righe, setRighe] = useState<Fattura[]>([])
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
@@ -165,13 +174,25 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     return () => { if (t) clearTimeout(t); sb.removeChannel(ch) }
   }, [carica])
 
-  const resetDettaglio = () => { setEr(null); setRd({}); setKp(null); setDel(false) }
+  // ── Coda "Da assegnare" (solo manager; null = tabella non ancora creata) ──
+  const [coda, setCoda] = useState<InAttesa[] | null>(null)
+  const [locCoda, setLocCoda] = useState<string | null>(null)
+  const caricaCoda = useCallback(async () => {
+    if (ruolo !== 'manager') return
+    const { data, error } = await createClient().from('fatture_xml_in_attesa')
+      .select('id, restaurant_ids, fornitore, numero_documento, data, totale, motivo, file_nome, xml_path, dati').order('data', { ascending: false })
+    if (error) { setCoda(c => (tabellaMancante(error) ? null : c)); return }
+    setCoda(((data ?? []) as unknown as InAttesa[]).map(x => ({ ...x, totale: x.totale == null ? null : Number(x.totale) })))
+  }, [ruolo])
+  useEffect(() => { caricaCoda() }, [caricaCoda])
+
+  const resetDettaglio = () => { setEr(null); setRd({}); setKp(null); setDel(false); setLocCoda(null) }
   const cambiaLoc = (x: string | null) => { avvia(); setLoc(x); setSel(null); resetDettaglio() }
   const cambiaMese = (n: number) => { const m = spostaMese(mese, n); if (m > meseOggi) return; avvia(); setMese(m); setSel(null); resetDettaglio() }
 
   const daVer = (f: Fattura) => f.verifiche.length > 0
   const nDv = righe.filter(daVer).length
-  const lista = tab === 'dv' ? righe.filter(daVer) : righe
+  const lista = tab === 'dv' ? righe.filter(daVer) : tab === 'da' ? [] : righe
   const nomeLoc = (id: string) => locali.find(l => l.id === id)
   const MESE = MESI_LUNGHI[Number(mese.slice(5)) - 1]
 
@@ -180,6 +201,13 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     b: eu(f.lordo), c: dataBreve(f.data), t: daVer(f) ? 'Da verificare' : 'Verificata', tTono: daVer(f) ? 'warn' : 'ok',
     ord: [f.fornitore.toLowerCase(), f.lordo, f.data, daVer(f) ? 0 : 1],
   }))
+  if (tab === 'da') {
+    vista.push(...(coda ?? []).map((x): RigaVista => ({
+      id: x.id, a: x.fornitore, as: `n. ${x.numero_documento}${x.motivo ? ` · ${x.motivo}` : ''}`, lc: 'transparent',
+      b: x.totale == null ? '—' : eu(x.totale), c: dataBreve(x.data), t: 'Da assegnare', tTono: 'warn',
+      ord: [x.fornitore.toLowerCase(), x.totale ?? 0, x.data, 0],
+    })))
+  }
 
   // ── Tastierino del riquadro teal ──────────────────────────────────
   const f = righe.find(x => x.id === sel) ?? null
@@ -244,6 +272,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     setLavoro(false)
     if (error) { toast({ title: `Eliminazione non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
     if (f.foto_paths.length) sb.storage.from('fatture_foto').remove(f.foto_paths).catch(() => {})
+    if (f.xml_path) sb.storage.from(BUCKET_XML).remove([f.xml_path]).catch(() => {})
     resetDettaglio(); setSel(null)
     setRighe(r => r.filter(x => x.id !== f.id))
     toast({ title: `Fattura n. ${f.numero_documento} eliminata` })
@@ -276,6 +305,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     sezioni.push({ h: 'IVA per aliquota', righe: [...ivaPer.map(([al, v]) => ({ l: `IVA ${nf(al)}%`, v: eu(v) })), { l: 'Totale lordo', v: eu(f.lordo), forte: true }] })
     const documento = [
       ...(f.vuoti ? [{ l: 'Vuoti ritirati', v: '−' + eu(f.vuoti) }, { l: 'Da pagare', v: eu(f.lordo - f.vuoti), forte: true }] : []),
+      ...(f.xml_path ? [{ l: 'File XML', v: 'Apri', on: () => apriFileXml(f.xml_path!), matita: false }] : []),
       ...(f.foto_paths.length ? [{ l: 'Foto della fattura', v: `${f.foto_paths.length} ${f.foto_paths.length === 1 ? 'pagina' : 'pagine'}`, on: () => setViewer(f), matita: false }] : []),
       { l: 'Fornitore, numero, data e vuoti', v: '', on: () => apriModifica(f), matita: true },
     ]
@@ -284,10 +314,12 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     const azioni: AzioneDettaglio[] = del
       ? [{ l: 'Annulla', tipo: 'secondario', on: () => setDel(false) }, { l: 'Elimina fattura', tipo: 'pericoloPieno', on: eliminaFattura, disabled: lavoro }]
       : [
-          ...(ruolo === 'manager' ? [{ l: 'Elimina', tipo: 'pericolo' as const, on: () => { setKp(null); setEr(null); setDel(true) } }] : []),
+          // Manager e direttore (solo le fatture del suo locale: lo
+          // controlla l'RPC).
+          { l: 'Elimina', tipo: 'pericolo' as const, on: () => { setKp(null); setEr(null); setDel(true) } },
           ...(D0 ? [{ l: 'Conferma fattura', tipo: 'primario' as const, on: confermaFattura, disabled: lavoro }] : []),
         ]
-    const colAz = del ? '1fr 1.4fr' : ruolo === 'manager' && D0 ? '1fr 2fr' : '1fr'
+    const colAz = del ? '1fr 1.4fr' : D0 ? '1fr 2fr' : '1fr'
 
     dettaglio = (
       <Pannello
@@ -321,6 +353,98 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
           onKey: (k: TastoTastierino) => setKp(p => (p ? { ...p, v: digita(p.v, k, p.campo === 'q' ? 3 : 2) } : p)),
           onDone: () => { if (kp) conferma(kp); chiudiKp() },
         } : null}
+      />
+    )
+  }
+
+  // ── File XML conservato: si apre con un URL firmato di 5 minuti ────
+  async function apriFileXml(path: string) {
+    // La finestra si apre subito, nel gesto dell'utente: dopo l'await i
+    // browser la bloccherebbero come pop-up.
+    const w = window.open('', '_blank')
+    const { data, error } = await createClient().storage.from(BUCKET_XML).createSignedUrl(path, 300)
+    if (error || !data?.signedUrl) { w?.close(); toast({ title: `File XML non disponibile: ${error?.message ?? 'errore'}`, variant: 'destructive' }); return }
+    if (w) w.location.href = data.signedUrl
+    else window.location.href = data.signedUrl
+  }
+
+  // ── Coda "Da assegnare": scegli il locale e importa, oppure scarta ──
+  const qx = tab === 'da' ? coda?.find(x => x.id === sel) ?? null : null
+  async function assegnaDaCoda() {
+    if (!qx || !locCoda) return
+    const sb = createClient(), nomeL = nomeLoc(locCoda)?.nome ?? ''
+    setLavoro(true)
+    // Il file passa dalla cartella della coda a quella del locale; se la
+    // copia non riesce resta dov'è (la fattura lo vede comunque).
+    let xmlPath = qx.xml_path, origine: string | null = null
+    if (xmlPath?.startsWith('coda/')) {
+      const dest = `${locCoda}/${xmlPath.slice(5)}`
+      const { error } = await sb.storage.from(BUCKET_XML).copy(xmlPath, dest)
+      if (!error) { origine = xmlPath; xmlPath = dest }
+    }
+    const tipologie = new Map(Object.entries(qx.dati.tipologie ?? {}).map(([k, v]) => [Number(k), v]))
+    let esito: Awaited<ReturnType<typeof importaXml>> | null = null, errore: string | null = null
+    try { esito = await importaXml([{ f: qx.dati, restaurantId: locCoda, modificata: !!qx.dati.modificata, xmlPath, tipologie }]) }
+    catch (e) { errore = e instanceof Error ? e.message : 'errore' }
+    if (!esito?.ok.length) {
+      setLavoro(false)
+      if (origine && xmlPath) sb.storage.from(BUCKET_XML).remove([xmlPath]).catch(() => {})
+      toast({ title: `Importazione non riuscita: ${errore ?? esito?.errori[0] ?? 'errore'}`, variant: 'destructive' })
+      return
+    }
+    const { error: delErr } = await sb.from('fatture_xml_in_attesa').delete().eq('id', qx.id)
+    if (origine && !delErr) sb.storage.from(BUCKET_XML).remove([origine]).catch(() => {})
+    setLavoro(false)
+    setCoda(c => c?.filter(x => x.id !== qx.id) ?? c)
+    resetDettaglio(); setSel(null)
+    toast({ title: `Fattura di ${qx.fornitore} importata in ${nomeL}${esito.dv ? ': controlla i dati e conferma' : ''}` })
+    caricaCoda(); carica()
+  }
+  async function scartaDaCoda() {
+    if (!qx) return
+    const sb = createClient()
+    setLavoro(true)
+    const { error } = await sb.from('fatture_xml_in_attesa').delete().eq('id', qx.id)
+    setLavoro(false)
+    if (error) { toast({ title: `Scarto non riuscito: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    if (qx.xml_path) sb.storage.from(BUCKET_XML).remove([qx.xml_path]).catch(() => {})
+    setCoda(c => c?.filter(x => x.id !== qx.id) ?? c)
+    resetDettaglio(); setSel(null)
+    toast({ title: `Fattura n. ${qx.numero_documento} scartata` })
+  }
+  if (qx) {
+    const fx = qx.dati, mod = !!fx.modificata, rie = riepilogoXml(fx, mod)
+    const lordo = lordoXml(fx, mod), netto = rie.reduce((t, r) => t + r.imponibile, 0)
+    const scelto = locCoda ? nomeLoc(locCoda) : null
+    dettaglio = (
+      <Pannello
+        tel={tel}
+        titolo={qx.fornitore}
+        sotto={`Fattura n. ${qx.numero_documento} del ${dataLunga(qx.data)}${qx.file_nome ? ` · ${qx.file_nome}` : ''}`}
+        badge={{ t: 'Da assegnare', tono: 'warn' }}
+        messaggio={del
+          ? { testo: `Scartare la fattura n. ${qx.numero_documento}? Non verrà importata e il file XML sarà eliminato.`, tono: 'neg' }
+          : { testo: `${qx.motivo ?? 'Locale non riconosciuto'}. Scegli il locale e importala.`, tono: 'warn' }}
+        stats={[{ l: 'Totale netto', v: eu(netto) }, { l: 'Totale lordo', v: eu(lordo) }]}
+        blocco={
+          <div className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-muted-foreground">Locale</span>
+            <GrigliaLocali tel={tel} locali={locali} scelto={locCoda} onScegli={id => { setDel(false); setLocCoda(id) }} />
+          </div>
+        }
+        sezioni={[
+          { h: 'Righe', righe: fx.righe.map(r => ({ l: `${r.descrizione} · ${nf(r.quantita)} ${r.unita?.toLowerCase() || 'pz'} × ${eu(r.prezzoUnitario)}`, v: eu(r.prezzoTotale) })) },
+          { h: 'IVA per aliquota', righe: [...rie.map(r => ({ l: `IVA ${nf(r.aliquota)}% su ${eu(r.imponibile)}`, v: eu(r.imposta) })), { l: 'Totale lordo', v: eu(lordo), forte: true }] },
+          { h: 'Documento', righe: [
+            { l: 'Partita IVA', v: fx.piva ?? '—' },
+            ...(fx.destinatario ? [{ l: 'Codice destinatario', v: fx.destinatario }] : []),
+            ...(qx.xml_path ? [{ l: 'File XML', v: 'Apri', on: () => apriFileXml(qx.xml_path!), matita: false }] : []),
+          ] },
+        ]}
+        azioni={del
+          ? [{ l: 'Annulla', tipo: 'secondario', on: () => setDel(false) }, { l: 'Scarta fattura', tipo: 'pericoloPieno', on: scartaDaCoda, disabled: lavoro }]
+          : [{ l: 'Scarta', tipo: 'pericolo', on: () => setDel(true) }, { l: scelto ? `Importa in ${scelto.nome}` : 'Scegli il locale', tipo: 'primario', on: assegnaDaCoda, disabled: lavoro || !scelto }]}
+        colonneAzioni={del ? '1fr 1.4fr' : '1fr 2fr'}
       />
     )
   }
@@ -424,9 +548,9 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
         skeleton={sk}
         locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={x => cambiaLoc(x[0] ?? null)} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
         mese={{ etichetta: etichettaMese(mese), prec: () => cambiaMese(-1), succ: () => cambiaMese(1), precOk: true, succOk: mese < meseOggi }}
-        schede={[{ k: 'all', l: 'Tutte', n: righe.length }, { k: 'dv', l: 'Da verificare', n: nDv }]}
+        schede={[{ k: 'all', l: 'Tutte', n: righe.length }, { k: 'dv', l: 'Da verificare', n: nDv }, ...(coda && (coda.length || tab === 'da') ? [{ k: 'da', l: 'Da assegnare', n: coda.length }] : [])]}
         scheda={tab}
-        onScheda={k => { setTab(k as 'all' | 'dv'); setSel(null); resetDettaglio() }}
+        onScheda={k => { setTab(k as 'all' | 'dv' | 'da'); setSel(null); resetDettaglio(); if (k === 'da') caricaCoda() }}
         kpis={[
           { l: `${MESE}, netto`, v: eu(righe.reduce((s, x) => s + x.netto, 0), 0) },
           { l: 'Fatture', v: String(righe.length) },
@@ -437,7 +561,9 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
         righe={vista}
         caricamento={caricamento}
         errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
-        vuoto={tab === 'dv'
+        vuoto={tab === 'da'
+          ? { t: 'Nessuna fattura da assegnare', s: 'Le fatture XML di cui non si capisce il locale compaiono qui, di qualsiasi mese.' }
+          : tab === 'dv'
           ? { t: 'Nessuna fattura da verificare', s: 'Le fatture caricate con dati incerti compaiono qui.' }
           : { t: 'Nessuna fattura nel mese', s: 'Le fatture caricate per questo mese compaiono qui.' }}
         sel={sel}
@@ -462,9 +588,14 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
           onPagine={(rid, pagine, avvio) => scan.chiudi(() => setCattura({ restaurantId: rid, pagine, avvio }))} />
       )}
       {xml.dati && (
-        <ImportaXml tel={tel} esce={xml.esce} locali={single ? [] : locali} localeIniziale={localeDefault}
+        <ImportaXml tel={tel} esce={xml.esce} locali={locali}
           onChiudi={() => xml.chiudi()}
-          onImportate={(n, dv) => { xml.chiudi(); toast({ title: `${n} ${n === 1 ? 'fattura importata' : 'fatture importate'}${dv ? ` · ${dv} da verificare` : ''}` }); carica() }} />
+          onImportate={(n, dv, attesa, chiudi) => {
+            if (chiudi) xml.chiudi()
+            const parti = [n ? `${n} ${n === 1 ? 'fattura importata' : 'fatture importate'}` : '', dv ? `${dv} da verificare` : '', attesa ? `${attesa} da assegnare` : ''].filter(Boolean)
+            toast({ title: parti.join(' · ') })
+            carica(); if (attesa) caricaCoda()
+          }} />
       )}
       {cattura && (
         <FatturaCapture

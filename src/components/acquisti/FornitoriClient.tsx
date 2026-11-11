@@ -10,13 +10,13 @@ import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
 import { Vista, Pannello, type RigaVista } from './Vista'
-import { Bottone, Modale, TIPOLOGIE, TZ, dataBreve, eu, localiDa, useUscita } from './comuni'
+import { Bottone, MESI_LUNGHI, Modale, TIPOLOGIE, TZ, dataBreve, etichettaMese, eu, fineMese, localiDa, spostaMese, useUscita } from './comuni'
 
-// Fornitori (MTAcquisti, sezione "fornitori"): chi ha fatturato negli
-// ultimi 90 giorni, ordinati per spesa netta, con tipologia prevalente;
-// il dettaglio mostra spesa per locale, catalogo e ultime fatture.
-
-const GIORNI = 90
+// Fornitori (MTAcquisti, sezione "fornitori"): chi ha fatturato nel mese
+// scelto con la barra mese (come Fatture; di default il mese corrente),
+// ordinati per spesa netta, con tipologia prevalente; il dettaglio mostra
+// spesa per locale, catalogo e ultime fatture del mese. Gli andamenti su
+// più mesi stanno in Analisi.
 
 interface Props { restaurants: { id: string; name: string }[]; canEdit: boolean; single: boolean }
 interface FatturaF { id: string; restaurant_id: string; fornitore_id: string; numero: string; data: string; netto: number; lordo: number; categoria: string | null }
@@ -36,14 +36,17 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
   const [catalogo, setCatalogo] = useState<{ id: string; righe: ArticoloCat[] } | null>(null)
   const { stato: sk, avvia, pronto } = useScheletro()
 
-  const da = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - GIORNI + 1); return formatInTimeZone(d, TZ, 'yyyy-MM-dd') }, [])
+  const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
+  const [mese, setMese] = useState(meseOggi)
+  const MESE = MESI_LUNGHI[Number(mese.slice(5)) - 1]
+  const cambiaMese = (n: number) => { const m = spostaMese(mese, n); if (m > meseOggi) return; avvia(); setMese(m); setSel(null) }
   const req = useRef(0)
   const carica = useCallback(async () => {
     const mio = ++req.current
     const sb = createClient()
     const ids = restaurants.map(r => r.id)
     const [f, c, a] = await Promise.all([
-      sb.from('fatture').select('id, restaurant_id, fornitore_id, numero_documento, data, totale_netto, totale_lordo, categoria_diretta:categorie_fatture_dirette(nome)').in('restaurant_id', ids).gte('data', da).order('data', { ascending: false }),
+      sb.from('fatture').select('id, restaurant_id, fornitore_id, numero_documento, data, totale_netto, totale_lordo, categoria_diretta:categorie_fatture_dirette(nome)').in('restaurant_id', ids).gte('data', `${mese}-01`).lte('data', fineMese(mese)).order('data', { ascending: false }),
       sb.from('catalogo_articoli').select('fornitore_id, tipologia'),
       sb.from('fornitori').select('id, nome, partita_iva'),
     ])
@@ -60,7 +63,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     setTipi(new Map([...conti].map(([k, m]) => [k, [...m].sort((p, q) => q[1] - p[1])[0][0]])))
     setAnag(new Map(((a.data ?? []) as { id: string; nome: string; partita_iva: string | null }[]).map(x => [x.id, { id: x.id, nome: x.nome, piva: x.partita_iva }])))
     setCaricamento(false); pronto()
-  }, [restaurants, da, pronto])
+  }, [restaurants, mese, pronto])
   useEffect(() => { carica() }, [carica])
 
   const F = loc ? fatture.filter(f => f.restaurant_id === loc) : fatture
@@ -122,13 +125,13 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     dettaglio = (
       <Pannello tel={tel}
         titolo={x.fo?.nome ?? '—'}
-        sotto={`${x.fo?.piva ? `P.IVA ${x.fo.piva}` : 'P.IVA non censita'} · ${t.l}`}
+        sotto={`${x.fo?.piva ? `P.IVA ${x.fo.piva}` : 'P.IVA non censita'} · ${t.l} · ${etichettaMese(mese)}`}
         badge={{ t: t.l, tono: 'neu' }}
-        stats={[{ l: 'Spesa netta', v: eu(x.net) }, { l: 'Quota sugli acquisti', v: (tot ? (x.net / tot) * 100 : 0).toFixed(1).replace('.', ',') + '%' }]}
+        stats={[{ l: `Spesa netta ${MESE.toLowerCase()}`, v: eu(x.net) }, { l: 'Quota sugli acquisti', v: (tot ? (x.net / tot) * 100 : 0).toFixed(1).replace('.', ',') + '%' }]}
         sezioni={[
           ...(!single && perLoc.length ? [{ h: 'Per locale', righe: perLoc.map(o => ({ l: o.l.nome, v: eu(o.v) })) }] : []),
           { h: 'Articoli a catalogo', righe: cat === null ? [{ l: 'Caricamento…', v: '' }] : cat.length ? cat.map(a => ({ l: a.nome_articolo, v: a.prezzo_corrente != null ? `${eu(a.prezzo_corrente)} / ${a.unita_misura || 'pz'}` : '—' })) : [{ l: 'Nessun articolo a catalogo', v: '' }] },
-          { h: 'Ultime fatture', righe: x.fs.slice(0, 6).map(f => ({ l: `n. ${f.numero} · ${dataBreve(f.data)}${single ? '' : ` · ${locali.find(l => l.id === f.restaurant_id)?.nome ?? ''}`}`, v: eu(f.lordo) })) },
+          { h: 'Ultime fatture del mese', righe: x.fs.slice(0, 6).map(f => ({ l: `n. ${f.numero} · ${dataBreve(f.data)}${single ? '' : ` · ${locali.find(l => l.id === f.restaurant_id)?.nome ?? ''}`}`, v: eu(f.lordo) })) },
         ]}
         azioni={canEdit ? [
           { l: 'Unisci', tipo: 'secondario', on: () => uni.apri({ id: x.id, nome: x.fo?.nome ?? '', verso: null }) },
@@ -146,11 +149,12 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     <>
       <Vista tel={tel} skeleton={sk}
         locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
-        kpis={[{ l: 'Fornitori attivi', v: String(agg.length) }, { l: `Spesa netta ${GIORNI} gg`, v: eu(tot, 0) }]}
+        mese={{ etichetta: etichettaMese(mese), prec: () => cambiaMese(-1), succ: () => cambiaMese(1), precOk: true, succOk: mese < meseOggi }}
+        kpis={[{ l: 'Fornitori attivi', v: String(agg.length) }, { l: `Spesa netta ${MESE.toLowerCase()}`, v: eu(tot, 0) }]}
         colonne={[{ l: 'Fornitore' }, { l: 'Spesa netta', destra: true }, { l: 'Fatture', destra: true }, { l: 'Tipologia', destra: true }]}
         righe={righe} caricamento={caricamento}
         errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
-        vuoto={{ t: 'Nessun fornitore attivo', s: `I fornitori con fatture negli ultimi ${GIORNI} giorni compaiono qui.` }}
+        vuoto={{ t: 'Nessun fornitore attivo', s: `I fornitori con fatture in ${MESE.toLowerCase()} compaiono qui.` }}
         sel={sel} onSel={setSel} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
       />
       {mod.dati && (

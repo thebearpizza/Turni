@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const {
     restaurant_id, fornitore, numero_documento, data, ha_articoli,
     categoria_spesa_diretta_id, foto_paths, verifiche_sospette, iva_dettaglio, articoli,
-    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati,
+    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati, xml_path,
   } = body ?? {}
 
   if (!restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio)) {
@@ -36,9 +36,14 @@ export async function POST(request: Request) {
   const { data: restaurant } = await supabase.from('restaurants').select('owner_id').eq('id', restaurant_id).single()
   if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
 
-  const { data: fattura, error: fatturaErr } = await supabase
+  // File XML conservato (import da fattura elettronica): solo un percorso
+  // del bucket fatture_xml nella cartella del locale o della coda.
+  const xmlPath = typeof xml_path === 'string' && (xml_path.startsWith(`${restaurant_id}/`) || xml_path.startsWith('coda/')) && !xml_path.includes('..') ? xml_path : null
+
+  const inserisci = (conXml: boolean) => supabase
     .from('fatture')
     .insert({
+      ...(conXml ? { xml_path: xmlPath } : {}),
       restaurant_id,
       fornitore_id: fornitore.id,
       numero_documento: numero_documento.trim(),
@@ -54,6 +59,10 @@ export async function POST(request: Request) {
     })
     .select('id')
     .single()
+  // xml_path esiste solo dopo la migrazione xml-smistamento: senza la
+  // colonna la fattura si salva comunque, senza il collegamento al file.
+  let { data: fattura, error: fatturaErr } = await inserisci(!!xmlPath)
+  if (xmlPath && fatturaErr && (fatturaErr.code === '42703' || fatturaErr.code === 'PGRST204')) ({ data: fattura, error: fatturaErr } = await inserisci(false))
 
   if (fatturaErr || !fattura) {
     // Stesso fornitore+numero_documento già a sistema: la UNIQUE della
@@ -94,7 +103,7 @@ export async function POST(request: Request) {
       quantita: number
       prezzo_riga: number
       catalogo_articolo_id?: string
-      nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
+      nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string; da_controllare?: boolean }
       pagina_indice: number
       riquadro: RiquadroArticolo | null
       aliquota_iva?: number | null
@@ -110,17 +119,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Articolo "${a.testo_estratto}" senza dati sufficienti per essere salvato` }, { status: 400 })
       }
 
-      const { data: nuovoArt, error: insErr } = await supabase
+      // Tipologia proposta dall'IA (import XML): l'articolo nasce "da
+      // controllare". Senza la colonna (migrazione non ancora applicata)
+      // si crea come sempre.
+      const daControllare = a.nuovo_articolo.da_controllare === true
+      const creaArt = (conFlag: boolean) => supabase
         .from('catalogo_articoli')
         .insert({
           owner_id: restaurant.owner_id,
           fornitore_id: fornitore.id,
           nome_articolo: nome,
-          tipologia: a.nuovo_articolo.tipologia,
-          unita_misura: a.nuovo_articolo.unita_misura || null,
+          tipologia: a.nuovo_articolo!.tipologia,
+          unita_misura: a.nuovo_articolo!.unita_misura || null,
+          ...(conFlag ? { tipologia_da_controllare: true } : {}),
         })
         .select('id')
         .single()
+      let { data: nuovoArt, error: insErr } = await creaArt(daControllare)
+      if (daControllare && insErr && (insErr.code === '42703' || insErr.code === 'PGRST204')) ({ data: nuovoArt, error: insErr } = await creaArt(false))
 
       let catalogoArticoloId = nuovoArt?.id as string | undefined
       if (insErr) {

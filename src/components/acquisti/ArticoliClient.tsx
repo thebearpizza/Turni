@@ -10,7 +10,7 @@ import { useScheletro } from '@/components/shared/useScheletro'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
-import { Vista, Pannello, type RigaVista } from './Vista'
+import { Vista, Pannello, Scelte, type RigaVista } from './Vista'
 import { IcoPiu, PiedeModale, MESI_BREVI, Modale, ORDINE_TIPOLOGIE, TIPOLOGIE, TZ, dataBreve, eu, localiDa, useUscita, type Tono } from './comuni'
 
 // Articoli (MTAcquisti, sezione "articoli"): catalogo con ultimo prezzo e
@@ -19,7 +19,12 @@ import { IcoPiu, PiedeModale, MESI_BREVI, Modale, ORDINE_TIPOLOGIE, TIPOLOGIE, T
 
 interface Props { restaurants: { id: string; name: string }[]; fornitori: { id: string; nome: string }[]; canEdit: boolean; single: boolean }
 interface Acquisto { data: string; prezzo: number; restaurant_id: string; fattura_id: string; numero: string }
-interface Articolo { id: string; nome: string; tipologia: ArticoloTipologia; unita: string | null; fornitore_id: string; fornitore: string; traccia: boolean; acquisti: Acquisto[] }
+interface Articolo { id: string; nome: string; tipologia: ArticoloTipologia; unita: string | null; fornitore_id: string; fornitore: string; traccia: boolean; daControllare: boolean; acquisti: Acquisto[] }
+
+// Colonna della migrazione xml-smistamento (tipologia proposta dall'IA da
+// controllare): finché non c'è, la query ripiega su quella di sempre.
+let conDaControllare = true
+const SEL_ART = 'id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)'
 
 export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Props) {
   const tel = useTelefono()
@@ -38,11 +43,13 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
   const carica = useCallback(async () => {
     const mio = ++req.current
     const sb = createClient()
-    const { data: cat, error } = await sb.from('catalogo_articoli')
-      .select('id, nome_articolo, tipologia, unita_misura, fattore_conversione, fornitore_id, traccia_in_inventario, fornitore:fornitori(nome)').order('nome_articolo')
+    const q = (flag: boolean) => sb.from('catalogo_articoli').select(flag ? `${SEL_ART}, tipologia_da_controllare` : SEL_ART).order('nome_articolo')
+    let res = await q(conDaControllare)
+    if (res.error && conDaControllare) { conDaControllare = false; res = await q(false) }
+    const { data: cat, error } = res
     if (mio !== req.current) return
     if (error) { setErrore(friendlySaveError(error)); setCaricamento(false); pronto(); return }
-    const rows = (cat ?? []) as unknown as { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; fattore_conversione: number; fornitore_id: string; traccia_in_inventario: boolean; fornitore: { nome: string } | null }[]
+    const rows = (cat ?? []) as unknown as { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; fattore_conversione: number; fornitore_id: string; traccia_in_inventario: boolean; tipologia_da_controllare?: boolean; fornitore: { nome: string } | null }[]
     const acq = new Map<string, Acquisto[]>()
     // A blocchi: un catalogo grande supererebbe la lunghezza dell'URL.
     for (let i = 0; i < rows.length; i += 150) {
@@ -60,7 +67,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     setArticoli(rows.map(r => {
       const k = r.fattore_conversione || 1
       return {
-        id: r.id, nome: r.nome_articolo, tipologia: r.tipologia, unita: r.unita_misura, fornitore_id: r.fornitore_id, fornitore: r.fornitore?.nome ?? '—', traccia: r.traccia_in_inventario,
+        id: r.id, nome: r.nome_articolo, tipologia: r.tipologia, unita: r.unita_misura, fornitore_id: r.fornitore_id, fornitore: r.fornitore?.nome ?? '—', traccia: r.traccia_in_inventario, daControllare: !!r.tipologia_da_controllare,
         // Prezzo normalizzato col fattore di conversione dell'articolo.
         acquisti: (acq.get(r.id) ?? []).map(a => ({ ...a, prezzo: a.prezzo / k })).sort((p, q) => p.data.localeCompare(q.data)),
       }
@@ -90,7 +97,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     return {
       id: a.id, a: a.nome, as: `${a.fornitore} · ${a.unita || 'pz'}`, lc: TIPOLOGIE[a.tipologia].c,
       b: ultimo ? eu(ultimo.prezzo) : '—', c: v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1).replace('.', ',')}%`, cTono: tono,
-      t: TIPOLOGIE[a.tipologia].l, tTono: 'neu', ord: [a.nome.toLowerCase(), ultimo?.prezzo ?? -1, v ?? -999, TIPOLOGIE[a.tipologia].l],
+      t: a.daControllare ? 'Da controllare' : TIPOLOGIE[a.tipologia].l, tTono: a.daControllare ? 'warn' : 'neu', ord: [a.nome.toLowerCase(), ultimo?.prezzo ?? -1, v ?? -999, TIPOLOGIE[a.tipologia].l],
     }
   })
   const rincari = lista.filter(a => (variazione(a) ?? 0) > 2).length
@@ -100,6 +107,15 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     const { error } = await createClient().from('catalogo_articoli').update({ traccia_in_inventario: !a.traccia }).eq('id', a.id)
     if (error) { setArticoli(x => x.map(y => (y.id === a.id ? { ...y, traccia: a.traccia } : y))); toast({ title: `Modifica non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
     toast({ title: !a.traccia ? `${a.nome} ora è in Inventario` : `${a.nome} tolto da Inventario` })
+  }
+
+  // Tipologia proposta dall'IA (import XML): confermarla o cambiarla
+  // toglie il segno "da controllare".
+  async function scegliTipologia(a: Articolo, t: ArticoloTipologia) {
+    setArticoli(x => x.map(y => (y.id === a.id ? { ...y, tipologia: t, daControllare: false } : y)))
+    const { error } = await createClient().from('catalogo_articoli').update({ tipologia: t, ...(conDaControllare ? { tipologia_da_controllare: false } : {}) }).eq('id', a.id)
+    if (error) { setArticoli(x => x.map(y => (y.id === a.id ? a : y))); toast({ title: `Modifica non riuscita: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
+    toast({ title: t === a.tipologia ? `${a.nome}: ${TIPOLOGIE[t].l} confermato` : `${a.nome} ora è ${TIPOLOGIE[t].l}` })
   }
 
   const unita = useUscita<{ a: Articolo; v: string }>()
@@ -146,7 +162,11 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     const ult10 = s.slice(-10), prezzi = s.map(x => x.prezzo)
     const etichette = ult10.length > 1 ? Array.from({ length: 6 }, (_, k) => ult10[Math.round(k * (ult10.length - 1) / 5)].data.slice(5, 7)).map((m, k, arr) => (k > 0 && arr[k - 1] === m ? '' : MESI_BREVI[Number(m) - 1])) : []
     dettaglio = (
-      <Pannello tel={tel} titolo={a.nome} sotto={`${a.fornitore} · unità ${u}`} badge={{ t: TIPOLOGIE[a.tipologia].l, tono: 'neu' }}
+      <Pannello tel={tel} titolo={a.nome} sotto={`${a.fornitore} · unità ${u}`} badge={a.daControllare ? { t: 'Da controllare', tono: 'warn' } : { t: TIPOLOGIE[a.tipologia].l, tono: 'neu' }}
+        messaggio={a.daControllare ? { testo: `Tipologia proposta dall'IA: ${TIPOLOGIE[a.tipologia].l}. ${canEdit ? 'Confermala o scegline un\'altra.' : 'Il manager la deve confermare.'}`, tono: 'warn' } : null}
+        blocco={a.daControllare && canEdit ? (
+          <Scelte titolo="Tipologia" colonne={tel ? 2 : 4} opzioni={ORDINE_TIPOLOGIE.map(t => ({ l: TIPOLOGIE[t].l, on: a.tipologia === t, tocca: () => scegliTipologia(a, t) }))} />
+        ) : null}
         stats={[{ l: 'Ultimo prezzo', v: ultimo ? `${eu(ultimo.prezzo)} / ${u}` : '—' }, { l: 'Minimo · massimo', v: prezzi.length ? `${eu(Math.min(...prezzi))} · ${eu(Math.max(...prezzi))}` : '—' }]}
         spark={ult10.length > 1 ? { h: `Andamento prezzo · ultime ${ult10.length} fatture`, valori: ult10.map(x => x.prezzo), etichette } : null}
         sezioni={[

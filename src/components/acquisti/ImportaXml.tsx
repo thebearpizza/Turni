@@ -3,57 +3,54 @@ import { useCallback, useRef, useState } from 'react'
 import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
-import type { VerificaSospetta } from '@/types'
-import { ALIQUOTE, Badge, IcoGiu, MESI_LUNGHI, Modale, dataBreve, digita, eu, n2, nf, numeroDa, useToccoFuori, type Locale, type Tono } from './comuni'
+import type { ArticoloTipologia } from '@/types'
+import { ALIQUOTE, Badge, IcoGiu, MESI_LUNGHI, Modale, TIPOLOGIE, dataBreve, digita, eu, n2, nf, numeroDa, useToccoFuori, type Locale, type Tono } from './comuni'
 import { interpreta, leggiFile, type FatturaXml } from './fatturaXml'
+import { anteprimaXml, importaXml, lordoXml, mettiInAttesa, riepilogoXml, smistaXml, type EsitoXml, type Smistamento } from './xmlImport'
+import { BadgeIa, GrigliaLocali, SceltaTipologia } from './Smistamento'
 
 // Importa XML (MTAcquisti, Acquisti cattura 11f–11g): si scelgono i file
 // del mese (anche uno ZIP), si legge il tracciato, si controlla il
 // riepilogo con doppioni e anomalie già segnalati, si può correggere una
 // riga e poi si importa tutto insieme.
+//
+// Il locale non si sceglie prima: ogni fattura viene smistata da sola
+// (codice destinatario, riferimenti nei testi, IA solo se sicura; vedi
+// /api/acquisti/xml/smista) e nel riepilogo si può cambiare. Quelle di
+// cui non si capisce il locale vanno nella coda "Da assegnare" di
+// Fatture. Il file XML di ogni fattura si conserva nello storage.
 
-interface Esito {
-  chiave: string
-  fornitore: { id: string | null; nome: string; nuovo: boolean }
-  duplicato: boolean
-  righe: { catalogo_articolo_id: string | null; sospetto: VerificaSospetta | null }[]
-  verifiche: VerificaSospetta[]
-}
-type Stato = 'nuova' | 'presente' | 'verifica' | 'esclusa'
+type Stato = 'nuova' | 'presente' | 'verifica' | 'esclusa' | 'assegnare'
 const STATO: Record<Stato, { l: string; tono: Tono }> = {
-  nuova: { l: 'Nuova', tono: 'ok' }, presente: { l: 'Già presente', tono: 'neu' }, verifica: { l: 'Verifica', tono: 'warn' }, esclusa: { l: 'Esclusa', tono: 'neu' },
+  nuova: { l: 'Nuova', tono: 'ok' }, presente: { l: 'Già presente', tono: 'neu' }, verifica: { l: 'Verifica', tono: 'warn' }, esclusa: { l: 'Esclusa', tono: 'neu' }, assegnare: { l: 'Da assegnare', tono: 'warn' },
 }
 const COME = [
   'Scarica dal cassetto fiscale o dal tuo intermediario i file XML del mese.',
   'Caricali tutti insieme: fornitore, articoli e IVA si leggono senza OCR.',
-  'Controlli il riepilogo: doppioni e anomalie sono già segnalati.',
+  'Controlli il riepilogo: locale, doppioni e anomalie sono già segnalati.',
 ]
 
-export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImportate }: {
-  tel: boolean; esce: boolean; locali: Locale[]; localeIniziale: string
-  onChiudi: () => void; onImportate: (n: number, daVerificare: number) => void
+export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
+  tel: boolean; esce: boolean; locali: Locale[]
+  onChiudi: () => void
+  /** chiudi = false se restano fatture nel riepilogo (es. coda non disponibile). */
+  onImportate: (n: number, daVerificare: number, inAttesa: number, chiudi: boolean) => void
 }) {
   const [fase, setFase] = useState<'pick' | 'read' | 'sum' | 'import'>('pick')
-  const [li, setLi] = useState(localeIniziale)
   const [nFile, setNFile] = useState(0)
   const [fatture, setFatture] = useState<FatturaXml[]>([])
-  const [esiti, setEsiti] = useState<Map<string, Esito>>(new Map())
+  const [testi, setTesti] = useState<Map<string, string>>(new Map())
+  const [esiti, setEsiti] = useState<Map<string, EsitoXml>>(new Map())
+  const [smist, setSmist] = useState<Map<string, Smistamento>>(new Map())
+  const [tipScelte, setTipScelte] = useState<Map<string, ArticoloTipologia>>(new Map())
   const [aperta, setAperta] = useState<string | null>(null)
   const [edit, setEdit] = useState<[string, number] | null>(null)
   const [kp, setKp] = useState<{ c: [string, number, 'q' | 'p']; v: string; esce: boolean } | null>(null)
   const [modificate, setModificate] = useState<Set<string>>(new Set())
   const [progresso, setProgresso] = useState(0)
   const input = useRef<HTMLInputElement>(null)
-
-  async function anteprima(fs: FatturaXml[], crea: boolean) {
-    const res = await fetch('/api/acquisti/xml', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ restaurant_id: li, crea_fornitori: crea, fatture: fs.map(f => ({ chiave: f.chiave, piva: f.piva, fornitore: f.fornitore, numero: f.numero, righe: f.righe.map(r => ({ descrizione: r.descrizione, prezzo_unitario: r.prezzoUnitario })) })) }),
-    })
-    const d = await res.json().catch(() => null)
-    if (!res.ok || !d?.fatture) throw new Error(d?.error ?? `Errore ${res.status}`)
-    return new Map((d.fatture as Esito[]).map(e => [e.chiave, e]))
-  }
+  const single = locali.length <= 1
+  const tutti = locali.map(l => l.id)
 
   async function scelti(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -64,9 +61,19 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
       const lette = (await Promise.all(files.map(leggiFile))).flat()
       const fs = lette.flatMap(x => interpreta(x.xml, x.nome))
       if (!fs.length) throw new Error('Nessuna fattura elettronica trovata nei file scelti')
+      // Con un solo locale non c'è niente da smistare.
+      const smistamento = single
+        ? Promise.resolve(new Map(fs.map(f => [f.chiave, { restaurant_id: locali[0]?.id ?? null, via: 'unico' as const, motivo: 'Unico locale', candidati: tutti }])))
+        : smistaXml(fs).catch(err => {
+          toast({ title: `Smistamento automatico non riuscito: ${err instanceof Error ? err.message : 'errore'}. Scegli il locale nel riepilogo.`, variant: 'destructive' })
+          return new Map(fs.map(f => [f.chiave, { restaurant_id: null, via: null, motivo: 'Smistamento automatico non riuscito', candidati: tutti } as Smistamento]))
+        })
+      const [sm, es] = await Promise.all([smistamento, anteprimaXml(fs.map(f => ({ f, restaurantId: single ? locali[0]?.id ?? null : null })), false, true)])
       setNFile(lette.length)
       setFatture(fs)
-      setEsiti(await anteprima(fs, false))
+      setTesti(new Map(lette.map(x => [x.nome, x.xml])))
+      setSmist(sm)
+      setEsiti(es)
       setFase('sum')
     } catch (err) {
       toast({ title: `Lettura non riuscita: ${err instanceof Error ? err.message : 'errore'}`, variant: 'destructive' })
@@ -74,22 +81,25 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
     }
   }
 
+  const localeDi = (f: FatturaXml) => smist.get(f.chiave)?.restaurant_id ?? null
   const stato = (f: FatturaXml): Stato => {
     if (f.tipo === 'TD04' || !f.righe.some(r => r.prezzoTotale > 0) || !f.numero || !f.data) return 'esclusa'
     const e = esiti.get(f.chiave)
     if (e?.duplicato) return 'presente'
+    if (!localeDi(f)) return 'assegnare'
     return e?.verifiche.length ? 'verifica' : 'nuova'
   }
-  const lordoDi = (f: FatturaXml) => {
-    if (!modificate.has(f.chiave) && f.totaleDocumento != null) return f.totaleDocumento
-    return riepilogo(f).reduce((t, r) => t + r.imponibile + r.imposta, 0)
-  }
-  const riepilogo = (f: FatturaXml) => {
-    if (!modificate.has(f.chiave) && f.riepilogo.length) return f.riepilogo
-    const m = new Map<number, number>()
-    f.righe.forEach(r => m.set(r.aliquota, (m.get(r.aliquota) ?? 0) + r.prezzoTotale))
-    return [...m].sort((a, b) => a[0] - b[0]).map(([aliquota, imponibile]) => ({ aliquota, imponibile, imposta: Math.round(imponibile * aliquota) / 100 }))
-  }
+  const lordoDi = (f: FatturaXml) => lordoXml(f, modificate.has(f.chiave))
+  const riepilogo = (f: FatturaXml) => riepilogoXml(f, modificate.has(f.chiave))
+  const scegliLocale = (f: FatturaXml, id: string | null) => setSmist(m => {
+    const n = new Map(m), v = m.get(f.chiave)
+    n.set(f.chiave, { restaurant_id: id, via: id ? 'mano' : null, motivo: id ? 'Scelto a mano' : 'Da assegnare: lo sceglierai in Fatture', candidati: v?.candidati.length ? v.candidati : tutti })
+    return n
+  })
+  // Righe senza articolo a catalogo: tipologia proposta dall'IA (o scelta qui).
+  const nuovoArticolo = (f: FatturaXml, i: number) => { const e = esiti.get(f.chiave); return !!e && !e.duplicato && (f.righe[i]?.prezzoTotale ?? 0) > 0 && !e.righe[i]?.catalogo_articolo_id }
+  const tipologiaDi = (f: FatturaXml, i: number): ArticoloTipologia => tipScelte.get(`${f.chiave}|${i}`) ?? esiti.get(f.chiave)?.righe[i]?.tipologia_proposta ?? 'food'
+  const tipologieDi = (f: FatturaXml) => new Map(f.righe.flatMap((_, i) => (nuovoArticolo(f, i) ? [[i, tipologiaDi(f, i)] as [number, ArticoloTipologia]] : [])))
   const nota = (f: FatturaXml): string | null => {
     if (f.tipo === 'TD04') return 'nota di credito: non importata'
     const e = esiti.get(f.chiave)
@@ -100,8 +110,10 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
   }
 
   const importabili = fatture.filter(f => stato(f) === 'nuova' || stato(f) === 'verifica')
+  const daAssegnare = fatture.filter(f => stato(f) === 'assegnare')
   const nPres = fatture.filter(f => stato(f) === 'presente').length
   const nVer = fatture.filter(f => stato(f) === 'verifica').length
+  const nTot = importabili.length + daAssegnare.length
 
   // ── Tastierino delle righe ───────────────────────────────────────────
   const chiudiKp = useCallback(() => {
@@ -123,48 +135,37 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
   }
 
   async function importa() {
-    if (!importabili.length) return
+    if (!nTot) return
     setFase('import'); setProgresso(0)
-    let ok = 0, dv = 0
+    const fatte = new Set<string>()
+    let ok = 0, dv = 0, attesa = 0, giaInCoda = 0, codaMancante = false
+    const errori: string[] = []
     try {
-      const risolti = await anteprima(importabili, true)
-      for (const f of importabili) {
-        const e = risolti.get(f.chiave)
-        if (!e?.fornitore.id || e.duplicato) continue
-        const rie = riepilogo(f)
-        const imp = rie.reduce((t, r) => t + r.imponibile, 0), iva = rie.reduce((t, r) => t + r.imposta, 0)
-        const righe = f.righe.map((r, i) => ({ r, i })).filter(x => x.r.prezzoTotale > 0)
-        const somma = righe.reduce((t, x) => t + x.r.prezzoTotale, 0)
-        // Sconti e righe a zero non diventano articoli di catalogo: il
-        // totale giusto resta quello del documento.
-        const scavalco = Math.abs(somma - imp) > 0.02
-        const res = await fetch('/api/cassa/fatture/salva', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            restaurant_id: li, foto_paths: [],
-            fornitore: { id: e.fornitore.id, nome: e.fornitore.nome, partita_iva: f.piva },
-            numero_documento: f.numero, data: f.data, ha_articoli: true, categoria_spesa_diretta_id: null,
-            iva_dettaglio: rie.map(r => ({ aliquota: r.aliquota, imponibile: r.imponibile, iva: r.imposta })),
-            totale_netto_manuale: scavalco ? Math.round(imp * 100) / 100 : null,
-            totale_lordo_manuale: scavalco ? Math.round((f.totaleDocumento ?? imp + iva) * 100) / 100 : null,
-            vuoti_ritirati: null,
-            articoli: righe.map(({ r, i }) => {
-              const base = { testo_estratto: r.descrizione, quantita: r.quantita, prezzo_riga: r.prezzoTotale, pagina_indice: 0, riquadro: null, aliquota_iva: r.aliquota }
-              const id = e.righe[i]?.catalogo_articolo_id
-              return id ? { ...base, catalogo_articolo_id: id } : { ...base, nuovo_articolo: { nome_articolo: r.descrizione, tipologia: 'food', unita_misura: r.unita?.toLowerCase() || undefined } }
-            }),
-            verifiche_sospette: e.verifiche,
-          }),
-        })
-        if (res.ok) { ok++; if (e.verifiche.length) dv++ }
+      if (importabili.length) {
+        const r = await importaXml(importabili.map(f => ({ f, restaurantId: localeDi(f)!, modificata: modificate.has(f.chiave), xml: testi.get(f.file) ?? null, tipologie: tipologieDi(f) })), () => setProgresso(p => p + 1))
+        r.ok.forEach(k => fatte.add(k)); ok = r.ok.length; dv = r.dv; errori.push(...r.errori)
+        if (r.fileNonConservati) toast({ title: `${r.fileNonConservati} ${r.fileNonConservati === 1 ? 'file XML non conservato' : 'file XML non conservati'}: le fatture sono comunque importate`, variant: 'destructive' })
+      }
+      for (const f of daAssegnare) {
+        if (codaMancante) break
+        const s = smist.get(f.chiave)
+        const r = await mettiInAttesa({ f, xml: testi.get(f.file) ?? null, modificata: modificate.has(f.chiave), candidati: s?.candidati.length ? s.candidati : tutti, motivo: s?.motivo ?? 'Da assegnare', tipologie: tipologieDi(f) })
+        if (r.ok) { attesa++; fatte.add(f.chiave) }
+        else if (r.giaInAttesa) { giaInCoda++; fatte.add(f.chiave) }
+        else if (r.mancante) codaMancante = true
+        else errori.push(`${f.fornitore} n. ${f.numero}: ${r.errore ?? 'non messa in attesa'}`)
         setProgresso(p => p + 1)
       }
     } catch (err) {
       toast({ title: `Importazione interrotta: ${err instanceof Error ? err.message : 'errore'}`, variant: 'destructive' })
     }
-    if (ok < importabili.length) toast({ title: `${importabili.length - ok} ${importabili.length - ok === 1 ? 'fattura non importata' : 'fatture non importate'}: riprova`, variant: 'destructive' })
-    if (ok) onImportate(ok, dv)
-    else setFase('sum')
+    if (codaMancante) toast({ title: 'La coda "Da assegnare" non è ancora attiva: scegli il locale delle fatture rimaste e importale', variant: 'destructive' })
+    if (errori.length) toast({ title: `${errori.length} ${errori.length === 1 ? 'fattura non importata' : 'fatture non importate'}: riprova`, description: errori.slice(0, 3).join(' · '), variant: 'destructive' })
+    if (giaInCoda) toast({ title: `${giaInCoda} ${giaInCoda === 1 ? 'fattura era già' : 'fatture erano già'} in Da assegnare` })
+    const restano = fatture.filter(f => !fatte.has(f.chiave) && (stato(f) === 'nuova' || stato(f) === 'verifica' || stato(f) === 'assegnare'))
+    if (ok || attesa) onImportate(ok, dv, attesa, !restano.length)
+    if (restano.length) { setFatture(fs => fs.filter(f => !fatte.has(f.chiave))); setAperta(null); setFase('sum') }
+    else if (!ok && !attesa) setFase('sum')
   }
 
   // Mese prevalente per il sottotitolo del riepilogo.
@@ -178,17 +179,6 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
     <Modale tel={tel} esce={esce} onChiudi={onChiudi} titolo="Importa XML" sotto={sotto}>
       {(fase === 'pick' || fase === 'read') && (
         <div className={cn('flex flex-col gap-3.5 py-4', px)}>
-          {locali.length > 1 && (
-            <div className="flex flex-col gap-2"><span className="text-[13px] font-medium">Locale</span>
-              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${tel ? 2 : 4},1fr)` }}>
-                {locali.map(l => (
-                  <button key={l.id} type="button" onClick={() => setLi(l.id)} className={cn('flex h-11 items-center justify-center gap-2 rounded-[8px] border text-sm font-medium transition-colors active:scale-[0.97]', l.id === li ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}>
-                    <span className="h-2 w-2 rounded-full" style={{ background: l.id === li ? '#fff' : l.colore }} /><span className="truncate">{l.nome}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           <div className="flex h-[150px] flex-none flex-col items-center justify-center gap-1.5 rounded-[8px] border-[1.5px] border-dashed border-[oklch(0.8_0.01_250)] dark:border-line-strong">
             <span className="text-base font-semibold">{fase === 'read' ? 'Lettura dei file…' : 'Seleziona i file XML'}</span>
             <span className="text-[13px] text-muted-foreground">anche uno ZIP con tutto il mese</span>
@@ -206,8 +196,8 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
       )}
       {(fase === 'sum' || fase === 'import') && (
         <div className={cn('flex flex-col gap-3 py-4', px)}>
-          <div className="grid grid-cols-3 gap-2">
-            {[{ v: fatture.length, l: 'Trovate', c: '' }, { v: nPres, l: 'Già presenti', c: 'text-muted-foreground' }, { v: nVer, l: 'Da verificare', c: 'text-warn' }].map(k => (
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${single ? 3 : tel ? 2 : 4},1fr)` }}>
+            {[{ v: fatture.length, l: 'Trovate', c: '' }, { v: nPres, l: 'Già presenti', c: 'text-muted-foreground' }, { v: nVer, l: 'Da verificare', c: 'text-warn' }, ...(single ? [] : [{ v: daAssegnare.length, l: 'Da assegnare', c: 'text-warn' }])].map(k => (
               <div key={k.l} className="flex flex-col gap-0.5 rounded-[8px] border border-border px-3 py-2.5"><span className={cn('font-mono text-[22px] font-semibold', k.c)}>{k.v}</span><span className="text-xs text-muted-foreground">{k.l}</span></div>
             ))}
           </div>
@@ -215,19 +205,38 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
             <div className="flex justify-between border-b border-border px-3.5 py-2.5"><span className="text-[15px] font-semibold">Fatture trovate</span><span className="font-mono text-[13px] font-medium text-muted-foreground">{eu(fatture.reduce((t, f) => t + lordoDi(f), 0), 0)}</span></div>
             {fatture.map(f => {
               const st = stato(f), open = aperta === f.chiave, n = nota(f), rie = riepilogo(f)
-              const e = esiti.get(f.chiave)
+              const e = esiti.get(f.chiave), sm = smist.get(f.chiave), lo = locali.find(l => l.id === sm?.restaurant_id)
+              const conLocale = !single && st !== 'presente' && st !== 'esclusa'
+              const nNuovi = f.righe.filter((_, i) => nuovoArticolo(f, i)).length
               return (
-                <div key={f.chiave} className={cn('border-b border-[oklch(0.93_0.01_250)] last:border-b-0 dark:border-border', st === 'verifica' && 'bg-[oklch(0.985_0.01_75)] dark:bg-warn-tint/30')}>
+                <div key={f.chiave} className={cn('border-b border-[oklch(0.93_0.01_250)] last:border-b-0 dark:border-border', (st === 'verifica' || st === 'assegnare') && 'bg-[oklch(0.985_0.01_75)] dark:bg-warn-tint/30')}>
                   <button type="button" onClick={() => { chiudiKp(); setEdit(null); setAperta(open ? null : f.chiave) }}
                     className={cn('grid w-full grid-cols-[minmax(0,1fr)_auto_18px] items-center gap-x-2.5 gap-y-0.5 px-3.5 py-2.5 text-left active:scale-[0.99]', (st === 'presente' || st === 'esclusa') && 'opacity-55')}>
                     <span className="truncate text-sm font-medium">{e?.fornitore.nome ?? f.fornitore}</span>
                     <span className="text-right font-mono text-sm font-medium">{eu(lordoDi(f))}</span>
                     <span className="col-start-3 row-span-2 row-start-1 flex items-center justify-center text-muted-foreground"><IcoGiu className="transition-transform duration-300" style={{ transform: `rotate(${open ? 180 : 0}deg)` }} /></span>
-                    <span className="truncate text-xs text-muted-foreground">N. {f.numero} · {f.data ? dataBreve(f.data) : '—'}{n ? ` · ${n}` : ''}</span>
-                    <span className="justify-self-end"><Badge tono={STATO[st].tono} className="px-2 py-0.5">{STATO[st].l}</Badge></span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {conLocale && (lo ? <><span className="mr-1 inline-block h-2 w-2 rounded-full align-[0px]" style={{ background: lo.colore }} />{lo.nome} · </> : null)}
+                      N. {f.numero} · {f.data ? dataBreve(f.data) : '—'}{n ? ` · ${n}` : ''}
+                    </span>
+                    <span className="flex items-center gap-1 justify-self-end">
+                      {conLocale && sm?.via === 'ia' && <BadgeIa />}
+                      <Badge tono={STATO[st].tono} className="px-2 py-0.5">{STATO[st].l}</Badge>
+                    </span>
                   </button>
                   {open && (
                     <div className="anim-swapin flex flex-col gap-2 px-3.5 pb-3">
+                      {conLocale && (
+                        <div className="flex flex-col gap-1.5 pb-1">
+                          <div className="flex min-w-0 items-baseline gap-1.5 text-xs">
+                            <span className="flex-none font-semibold">Locale</span>
+                            <span className={cn('min-w-0 text-pretty', sm?.via === 'ia' || !lo ? 'font-medium text-warn' : 'text-muted-foreground')}>
+                              {sm?.via === 'ia' ? `${sm.motivo} · controlla` : lo ? sm?.motivo ?? '' : `${sm?.motivo ?? 'Nessun indizio'}: scegli il locale o lasciala in Da assegnare`}
+                            </span>
+                          </div>
+                          <GrigliaLocali tel={tel} locali={locali} scelto={sm?.restaurant_id ?? null} onScegli={id => scegliLocale(f, id)} azzerabile />
+                        </div>
+                      )}
                       <div className="grid grid-cols-3 gap-1.5 text-[11px] text-muted-foreground">
                         <span>P.IVA {f.piva ?? '—'}</span><span>{f.scadenza ? `Scad. ${dataBreve(f.scadenza)}` : ''}</span><span className="text-right">{f.pagamento ?? ''}</span>
                       </div>
@@ -252,7 +261,7 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
                           return (
                             <div key={i} className={cn('border-t border-[oklch(0.93_0.01_250)] dark:border-border', ed && 'bg-background')}>
                               <button type="button" onClick={() => { chiudiKp(); setEdit(ed ? null : [f.chiave, i]) }} className="grid w-full grid-cols-[minmax(0,1fr)_44px_64px_40px_70px] items-baseline gap-1.5 px-2.5 py-[9px] text-left font-mono text-xs">
-                                <span className="truncate font-sans">{r.descrizione}</span><span className="text-right">{nf(r.quantita)}</span>
+                                <span className="flex min-w-0 items-baseline gap-1.5 font-sans"><span className="truncate">{r.descrizione}</span>{nuovoArticolo(f, i) && <span className="flex-none text-[10px] font-semibold uppercase tracking-[.04em] text-warn">{TIPOLOGIE[tipologiaDi(f, i)].l}</span>}</span><span className="text-right">{nf(r.quantita)}</span>
                                 <span className={cn('text-right', rincaro && 'text-neg')}>{n2(r.prezzoUnitario)}</span><span className="text-right text-muted-foreground">{nf(r.aliquota)}%</span>
                                 <span className="text-right font-medium">{n2(r.prezzoTotale)}</span>
                               </button>
@@ -260,6 +269,11 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
                                 <div data-xkf="1" className="anim-swapin flex flex-col gap-2.5 px-2.5 pb-3 pt-0.5">
                                   <span className="break-words text-sm font-semibold text-pretty">{r.descrizione}</span>
                                   <div className="grid grid-cols-2 gap-2">{campo('q', 'Quantità', nf(r.quantita))}{campo('p', 'Prezzo unitario', n2(r.prezzoUnitario))}</div>
+                                  {nuovoArticolo(f, i) && (
+                                    <div className="flex flex-col gap-[5px]"><span className="text-xs font-medium text-muted-foreground">Tipologia dell&apos;articolo nuovo · proposta dall&apos;IA, da controllare</span>
+                                      <SceltaTipologia valore={tipologiaDi(f, i)} onScegli={t => setTipScelte(m => new Map(m).set(`${f.chiave}|${i}`, t))} />
+                                    </div>
+                                  )}
                                   <div className="flex flex-col gap-[5px]"><span className="text-xs font-medium text-muted-foreground">Aliquota IVA</span>
                                     <div className="grid grid-cols-5 gap-1.5">
                                       {ALIQUOTE.map(v => (
@@ -284,6 +298,7 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
                         <div className="mt-0.5 flex justify-between border-t border-border pt-1 font-semibold text-foreground"><span>Totale lordo</span><span>{eu(lordoDi(f))}</span></div>
                       </div>
                       {n && st !== 'presente' && <span className="text-xs font-medium text-warn">⚠ {n}</span>}
+                      {nNuovi > 0 && <span className="text-xs text-muted-foreground">{nNuovi === 1 ? '1 articolo nuovo' : `${nNuovi} articoli nuovi`}: tipologia proposta dall&apos;IA, da controllare in Articoli. Tocca una riga per cambiarla.</span>}
                     </div>
                   )}
                 </div>
@@ -292,14 +307,17 @@ export function ImportaXml({ tel, esce, locali, localeIniziale, onChiudi, onImpo
           </div>
           <div className="grid grid-cols-[1fr_1.6fr] gap-2.5">
             <button type="button" onClick={onChiudi} disabled={fase === 'import'} className="flex h-[52px] items-center justify-center rounded-[8px] border border-line-strong text-[15px] font-medium active:scale-[0.98] disabled:opacity-50">Annulla</button>
-            <button type="button" onClick={importa} disabled={!importabili.length || fase === 'import'} className="flex h-[52px] items-center justify-center rounded-[8px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-50">
-              {fase === 'import' ? `Importazione ${Math.min(progresso + 1, importabili.length)} di ${importabili.length}…` : `Importa ${importabili.length} ${importabili.length === 1 ? 'fattura' : 'fatture'}`}
+            <button type="button" onClick={importa} disabled={!nTot || fase === 'import'} className="flex h-[52px] items-center justify-center rounded-[8px] bg-primary px-2 text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-50">
+              {fase === 'import' ? `Importazione ${Math.min(progresso + 1, nTot)} di ${nTot}…`
+                : importabili.length ? `Importa ${importabili.length} ${importabili.length === 1 ? 'fattura' : 'fatture'}${daAssegnare.length ? ` · ${daAssegnare.length} in attesa` : ''}`
+                : `Metti in attesa ${daAssegnare.length} ${daAssegnare.length === 1 ? 'fattura' : 'fatture'}`}
             </button>
           </div>
-          {(nPres > 0 || nVer > 0) && (
+          {(nPres > 0 || nVer > 0 || daAssegnare.length > 0) && (
             <span className="text-center text-xs text-muted-foreground">
               {nPres > 0 && `${nPres === 1 ? 'Quella già presente viene saltata' : `Le ${nPres} già presenti vengono saltate`}. `}
-              {nVer > 0 && `${nVer === 1 ? 'Quella da verificare entra' : `Le ${nVer} da verificare entrano`} con il badge "Da verificare".`}
+              {nVer > 0 && `${nVer === 1 ? 'Quella da verificare entra' : `Le ${nVer} da verificare entrano`} con il badge "Da verificare". `}
+              {daAssegnare.length > 0 && `${daAssegnare.length === 1 ? 'Quella da assegnare aspetta' : `Le ${daAssegnare.length} da assegnare aspettano`} in Fatture › Da assegnare finché non scegli il locale.`}
             </span>
           )}
           {tel && kp && (

@@ -16,6 +16,18 @@ export interface FatturaXml {
   riepilogo: { aliquota: number; imponibile: number; imposta: number }[]
   scadenza: string | null
   pagamento: string | null
+  /** CodiceDestinatario SDI (maiuscolo; null se assente o "0000000"). */
+  destinatario: string | null
+  pec: string | null
+  /** Testi dove può comparire il locale: servono allo smistamento. */
+  indizi: Indizio[]
+}
+
+/** Dove si è trovato un testo utile a capire il locale della fattura. */
+export type FonteIndizio = 'destinazione' | 'sede' | 'causale' | 'riferimenti' | 'righe'
+export interface Indizio { fonte: FonteIndizio; testo: string }
+export const FONTE_INDIZIO: Record<FonteIndizio, string> = {
+  destinazione: 'nella destinazione', sede: 'nella sede del cliente', causale: 'nella causale', riferimenti: 'nei riferimenti', righe: 'nelle righe',
 }
 
 const MODALITA: Record<string, string> = {
@@ -106,6 +118,16 @@ function giu(el: Element | null | undefined, ...percorso: string[]): Element | n
 const testo = (el: Element | null | undefined, ...p: string[]) => giu(el, ...p)?.textContent?.trim() ?? null
 const numero = (s: string | null) => { const v = s == null ? NaN : parseFloat(s); return Number.isFinite(v) ? v : null }
 
+/** Indirizzo in una riga (Indirizzo, civico, CAP, comune, provincia). */
+const indirizzo = (el: Element | null) => (el ? ['Indirizzo', 'NumeroCivico', 'CAP', 'Comune', 'Provincia'].map(k => testo(el, k)).filter(Boolean).join(' ') : '')
+
+/** Toglie vuoti e doppioni (stessa fonte e stesso testo). */
+function unici(xs: Indizio[]): Indizio[] {
+  const visti = new Set<string>()
+  return xs.map(x => ({ fonte: x.fonte, testo: x.testo.replace(/\s+/g, ' ').trim() }))
+    .filter(x => x.testo && !visti.has(x.fonte + '|' + x.testo.toLowerCase()) && visti.add(x.fonte + '|' + x.testo.toLowerCase()))
+}
+
 export function interpreta(xml: string, file: string): FatturaXml[] {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
   if (doc.getElementsByTagName('parsererror').length) return []
@@ -115,6 +137,17 @@ export function interpreta(xml: string, file: string): FatturaXml[] {
   const piva = testo(ced, 'IdFiscaleIVA', 'IdCodice')
   const anag = giu(ced, 'Anagrafica')
   const fornitore = testo(anag, 'Denominazione') ?? [testo(anag, 'Nome'), testo(anag, 'Cognome')].filter(Boolean).join(' ')
+  // Destinatario e testi dell'intestazione comuni a tutti i corpi del file.
+  const intest = giu(radice, 'FatturaElettronicaHeader')
+  const trasm = giu(intest, 'DatiTrasmissione')
+  const cod = testo(trasm, 'CodiceDestinatario')?.toUpperCase() ?? null
+  const destinatario = cod && !/^0+$/.test(cod) ? cod : null
+  const pec = testo(trasm, 'PECDestinatario')?.toLowerCase() ?? null
+  const cess = giu(intest, 'CessionarioCommittente')
+  const indiziTestata: Indizio[] = [
+    ...[giu(cess, 'Sede'), giu(cess, 'StabileOrganizzazione')].map(x => ({ fonte: 'sede' as const, testo: indirizzo(x) })),
+    { fonte: 'riferimenti', testo: testo(intest, 'CedentePrestatore', 'RiferimentoAmministrazione') ?? '' },
+  ]
   return figli(radice, 'FatturaElettronicaBody').map((b, k) => {
     const g = giu(b, 'DatiGenerali', 'DatiGeneraliDocumento')
     const beni = giu(b, 'DatiBeniServizi')
@@ -123,6 +156,18 @@ export function interpreta(xml: string, file: string): FatturaXml[] {
       const tot = numero(testo(l, 'PrezzoTotale')) ?? 0
       return { descrizione: (testo(l, 'Descrizione') ?? '').replace(/\s+/g, ' ').trim(), quantita: q, unita: testo(l, 'UnitaMisura'), prezzoUnitario: numero(testo(l, 'PrezzoUnitario')) ?? (q ? tot / q : tot), prezzoTotale: tot, aliquota: numero(testo(l, 'AliquotaIVA')) ?? 0 }
     })
+    const dg = giu(b, 'DatiGenerali')
+    const linee = figli(beni, 'DettaglioLinee')
+    const indizi: Indizio[] = [
+      ...figli(dg, 'DatiTrasporto').map(t => ({ fonte: 'destinazione' as const, testo: indirizzo(giu(t, 'IndirizzoResa')) })),
+      ...indiziTestata,
+      ...figli(g, 'Causale').map(c => ({ fonte: 'causale' as const, testo: c.textContent ?? '' })),
+      ...['DatiOrdineAcquisto', 'DatiContratto', 'DatiConvenzione', 'DatiRicezione'].flatMap(k => figli(dg, k)).flatMap(d => [testo(d, 'IdDocumento'), testo(d, 'CodiceCommessaConvenzione')])
+        .map(t => ({ fonte: 'riferimenti' as const, testo: t ?? '' })),
+      ...linee.map(l => ({ fonte: 'riferimenti' as const, testo: testo(l, 'RiferimentoAmministrazione') ?? '' })),
+      ...linee.flatMap(l => [testo(l, 'Descrizione'), ...figli(l, 'AltriDatiGestionali').map(a => testo(a, 'RiferimentoTesto'))])
+        .map(t => ({ fonte: 'righe' as const, testo: t ?? '' })),
+    ]
     const pag = giu(b, 'DatiPagamento', 'DettaglioPagamento')
     const mp = testo(pag, 'ModalitaPagamento')
     return {
@@ -136,6 +181,8 @@ export function interpreta(xml: string, file: string): FatturaXml[] {
       riepilogo: figli(beni, 'DatiRiepilogo').map(r => ({ aliquota: numero(testo(r, 'AliquotaIVA')) ?? 0, imponibile: numero(testo(r, 'ImponibileImporto')) ?? 0, imposta: numero(testo(r, 'Imposta')) ?? 0 })),
       scadenza: testo(pag, 'DataScadenzaPagamento'),
       pagamento: mp ? MODALITA[mp] ?? mp : null,
+      destinatario, pec,
+      indizi: unici(indizi),
     }
   })
 }
