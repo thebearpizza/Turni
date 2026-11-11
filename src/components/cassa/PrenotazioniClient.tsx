@@ -94,6 +94,15 @@ function etichettaGiorno(data: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
+// La pastiglia dello stato misura 36 px: il pulsante che la contiene ne
+// offre 44 al tocco, e il margine negativo lascia il disegno dov'era.
+const TOCCO_ICONA = '-m-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full'
+
+// Barra grigia con frecce da 40 px: lo stesso linguaggio del selettore del
+// mese (SelettoreMese), qui per giorno e servizio.
+const BARRA = 'flex h-11 min-w-0 items-center gap-0.5 rounded-[10px] bg-[oklch(0.93_0.01_250)] px-0.5 dark:bg-secondary'
+const FRECCIA = 'flex h-10 w-10 flex-none items-center justify-center rounded-[8px] transition-transform active:scale-[0.94]'
+
 // ── Intestazione di sezione (Confermate / Sedute / No show) ──────────
 function Sezione({
   titolo, prenotazioni, aperta, onToggle, children,
@@ -105,7 +114,7 @@ function Sezione({
   children:     React.ReactNode
 }) {
   return (
-    <section>
+    <section className="min-w-0">
       <button
         type="button"
         onClick={onToggle}
@@ -146,14 +155,14 @@ function RigaPrenotazione({
   // già.
   if (p.passante) {
     return (
-      <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+      <div className="overflow-hidden rounded-[12px] border border-border bg-card">
         <div className="flex items-center gap-3 p-3">
           <button
             type="button"
             onClick={p.stato === 'eliminata' ? undefined : onEliminaPassante}
             disabled={p.stato === 'eliminata'}
             aria-label={p.stato === 'eliminata' ? 'Passante cancellato' : 'Elimina passante'}
-            className="disabled:cursor-default"
+            className={cn(TOCCO_ICONA, 'disabled:cursor-default')}
           >
             <StatoIcona stato={p.stato} origine={p.origine} scontoPercentuale={null} />
           </button>
@@ -177,13 +186,15 @@ function RigaPrenotazione({
                                { label: 'Seduta',      icona: <Armchair className="h-4 w-4" /> }
 
   return (
-    <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+    <div className="overflow-hidden rounded-[12px] border border-border bg-card">
       <div className="flex items-start gap-3 p-3">
-        <button type="button" onClick={onStato} aria-label={`Cambia stato di ${nomeCompleto(p)}`}>
+        <button type="button" onClick={onStato} aria-label={`Cambia stato di ${nomeCompleto(p)}`} className={TOCCO_ICONA}>
           <StatoIcona stato={p.stato} origine={p.origine} scontoPercentuale={p.sconto_percentuale} />
         </button>
 
-        <button type="button" onClick={onEspandi} className="min-w-0 flex-1 text-left">
+        {/* Il bersaglio prende tutta l'altezza della riga (margine negativo
+            pari al padding del riquadro), non solo le due righe di testo. */}
+        <button type="button" onClick={onEspandi} aria-expanded={espansa} className="-my-3 min-w-0 flex-1 self-stretch py-3 text-left">
           <div className="break-words font-medium leading-tight">{nomeCompleto(p)}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span className="font-mono tabular-nums">{normalizzaOrario(p.orario)}</span>
@@ -242,7 +253,7 @@ function RigaPrenotazione({
             <button
               type="button"
               onClick={onAzioneRapida}
-              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+              className="flex min-h-11 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
             >
               {azione.icona} {azione.label}
             </button>
@@ -250,13 +261,13 @@ function RigaPrenotazione({
             {p.telefono ? (
               <a
                 href={`tel:${p.telefono.replace(/\s/g, '')}`}
-                className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+                className="flex min-h-11 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
               >
                 <Phone className="h-4 w-4" /> Contattare
               </a>
             ) : (
               <span
-                className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium opacity-50"
+                className="flex min-h-11 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium opacity-50"
                 title="Nessun recapito nella prenotazione"
               >
                 <Phone className="h-4 w-4" /> Contattare
@@ -266,7 +277,7 @@ function RigaPrenotazione({
             <button
               type="button"
               onClick={onDettagli}
-              className="flex items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
+              className="flex min-h-11 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium hover:bg-primary/90"
             >
               <Eye className="h-4 w-4" /> Dettagli
             </button>
@@ -288,6 +299,10 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
 
   const [aperte, setAperte] = useState({ confermate: true, sedute: true, cancellate: false, noShow: false })
   const [espansa, setEspansa] = useState<string | null>(null)
+  // Griglia degli orari aperta ("Aggiungi a un altro orario"): si ricorda
+  // per quale locale/giorno/servizio è stata aperta, così cambiando uno
+  // dei tre torna chiusa da sola senza un effetto che la azzeri.
+  const [orariApertiPer, setOrariApertiPer] = useState<string | null>(null)
 
   const [statoTarget, setStatoTarget] = useState<Prenotazione | null>(null)
   const [formAperto, setFormAperto] = useState(false)
@@ -501,6 +516,14 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     return { benthos, crunch, restoo }
   }, [prenotazioni])
   const fasce      = useMemo(() => costruisciFasce(servizio, confermate), [servizio, confermate])
+  // L'agenda elenca solo gli orari che hanno davvero una prenotazione: una
+  // riga ogni 15 minuti anche a servizio vuoto era una lunga lista di
+  // "0 / 0". Gli slot standard restano tutti raggiungibili dalla griglia
+  // "Aggiungi a un altro orario" (due tocchi: apri, scegli l'orario).
+  const fasceOccupate = useMemo(() => fasce.filter(f => f.prenotazioni.length > 0), [fasce])
+  const orariStandard = useMemo(() => fasce.filter(f => !f.fuoriFascia).map(f => f.orario), [fasce])
+  const chiaveAgenda = `${restaurantId}|${data}|${servizio}`
+  const orariAperti = orariApertiPer === chiaveAgenda
 
   async function cambiaStato(p: Prenotazione, stato: PrenotazioneStato) {
     const supabase = createClient()
@@ -662,7 +685,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
 
   if (restaurants.length === 0) {
     return (
-      <div className="mx-auto max-w-3xl p-4 lg:p-8">
+      <div className="px-4 pb-4 sm:px-8">
         <h1 className="titolo-pagina">Prenotazioni</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           Nessun locale ha ancora un libro visite collegato.
@@ -671,118 +694,147 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
     )
   }
 
-  return (
-    <div data-scorre-con-pagina="" className="mx-auto max-w-3xl space-y-4 p-4 lg:p-8">
-      <div>
-        {/* Sempre visibile, indipendentemente dal giorno aperto in
-            agenda in questo momento: la coda non è legata a "oggi". */}
-        {codaVoci.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setRiepilogoAperto(true)}
-            className="mb-1 flex items-center gap-1.5 text-sm font-medium text-warn hover:underline"
-          >
-            <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-mono tabular-nums">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
-          </button>
-        )}
-        {/* Titolo e sottotitolo stanno nell'intestazione del guscio. */}
-      </div>
+  const righe = (lista: Prenotazione[], rapida: PrenotazioneStato, conPassanti = false) => lista.map(p => (
+    <RigaPrenotazione
+      key={p.id}
+      p={p}
+      etichettaInsegna={etichettaInsegna(p.insegna)}
+      espansa={espansa === p.id}
+      onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
+      onStato={() => setStatoTarget(p)}
+      onAzioneRapida={() => cambiaStato(p, rapida)}
+      onDettagli={() => apriDettagli(p)}
+      onEliminaPassante={conPassanti ? () => eliminaPassante(p) : undefined}
+    />
+  ))
 
+  return (
+    // Larga quanto le altre pagine (niente colonna stretta al centro) e
+    // stesso ordine in testa: locali, giorno/servizio + azioni, avvisi,
+    // numeri. data-scorre-con-pagina serve al layout: la pagina scorre
+    // tutta insieme e deve restare sopra la dock.
+    <div data-scorre-con-pagina="" className="flex flex-col gap-3 px-4 pb-4 sm:px-8">
       {/* Locale a pillole come nelle altre schermate di Cassa (MTCassa). */}
-      <PilloleLocali
+      <PilloleLocali senzaTutti
         locali={restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) }))}
         selezionati={restaurantId ? [restaurantId] : []}
         onCambia={x => { if (x[0]) setRestaurantId(x[0]) }}
       />
 
-      {/* Barra giorno + servizio: frecce per scorrere i giorni, il tasto
-          centrale apre il calendario di sistema, quello a destra alterna
-          pranzo e cena. */}
-      <div className="flex items-center gap-1 rounded-[14px] border border-border bg-card p-1 shadow-[0_4px_20px_rgba(20,30,50,.08)]">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Giorno precedente"
-          onClick={() => setData(format(addDays(parseISO(data), -1), 'yyyy-MM-dd'))}
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-
-        <div className="relative min-w-0 flex-1">
-          <div className="flex h-10 items-center justify-center rounded-[10px] bg-primary px-2 text-[13px] font-medium text-primary-foreground">
-            {etichettaGiorno(data)}
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Giorno: frecce per scorrere, l'etichetta al centro apre il
+            calendario di sistema. */}
+        <div className={cn(BARRA, 'flex-[1_1_170px] sm:w-[232px] sm:flex-none')}>
+          <button
+            type="button"
+            aria-label="Giorno precedente"
+            onClick={() => setData(format(addDays(parseISO(data), -1), 'yyyy-MM-dd'))}
+            className={FRECCIA}
+          >
+            <ChevronLeft className="h-[18px] w-[18px]" />
+          </button>
+          <div className="relative flex h-10 min-w-0 flex-1 items-center justify-center">
+            <span className="truncate whitespace-nowrap text-sm font-medium">{etichettaGiorno(data)}</span>
+            {/* Input nativo sovrapposto e trasparente: è il modo che apre il
+                calendario su tutti i browser, showPicker() incluso iOS. */}
+            <input
+              type="date"
+              aria-label="Scegli il giorno"
+              value={data}
+              onChange={e => { if (e.target.value) setData(e.target.value) }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
           </div>
-          {/* Input nativo sovrapposto e trasparente: è il modo che apre il
-              calendario su tutti i browser, showPicker() incluso iOS. */}
-          <input
-            type="date"
-            aria-label="Scegli il giorno"
-            value={data}
-            onChange={e => { if (e.target.value) setData(e.target.value) }}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          />
+          <button
+            type="button"
+            aria-label="Giorno successivo"
+            onClick={() => setData(format(addDays(parseISO(data), 1), 'yyyy-MM-dd'))}
+            className={FRECCIA}
+          >
+            <ChevronRight className="h-[18px] w-[18px]" />
+          </button>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          className="shrink-0"
-          onClick={() => setServizio(s => (s === 'cena' ? 'pranzo' : 'cena'))}
-          title={`${FASCE[servizio].inizio}–${FASCE[servizio].fine} · tocca per cambiare servizio`}
-        >
-          {servizio === 'cena' ? 'Cena' : 'Pranzo'}
-        </Button>
+        {/* Servizio: i due nomi affiancati dicono subito quale si sta
+            guardando e che l'altro esiste (prima era un tasto solo che
+            alternava). */}
+        <div role="group" aria-label="Servizio" className={cn(BARRA, 'flex-none')}>
+          {(['pranzo', 'cena'] as const).map(s => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={servizio === s}
+              onClick={() => setServizio(s)}
+              title={`${FASCE[s].inizio}–${FASCE[s].fine}`}
+              className={cn(
+                'flex h-10 items-center rounded-[8px] px-3 text-sm font-medium transition-colors',
+                servizio === s ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
+              )}
+            >
+              {s === 'cena' ? 'Cena' : 'Pranzo'}
+            </button>
+          ))}
+        </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Giorno successivo"
-          onClick={() => setData(format(addDays(parseISO(data), 1), 'yyyy-MM-dd'))}
-        >
-          <ChevronRight className="h-5 w-5" />
-        </Button>
-
-        {/* Aggiorna: rilegge la casella dei libri visite e ricarica
-            l'agenda. Sta qui, dopo la freccia del giorno successivo,
-            perché è il gesto che si fa durante il servizio — non fra le
-            azioni di gestione più in basso. */}
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="shrink-0"
-          aria-label="Aggiorna prenotazioni"
-          title="Aggiorna le prenotazioni"
-          onClick={sincronizza}
-          disabled={sincronizzando}
-        >
-          <RefreshCw className={cn('h-4 w-4', sincronizzando && 'animate-spin')} />
-        </Button>
+        <div className="flex min-w-0 flex-[1_1_100%] items-center gap-2.5 sm:ml-auto sm:flex-none">
+          <Button type="button" className="min-w-0 flex-1 sm:flex-none" onClick={() => apriNuova(FASCE[servizio].inizio)}>
+            <Plus className="h-4 w-4" /> Prenotazione
+          </Button>
+          {data !== oggiRoma() && (
+            <Button type="button" variant="outline" className="shrink-0 px-3" onClick={() => setData(oggiRoma())}>
+              Oggi
+            </Button>
+          )}
+          {/* La route di import richiede il ruolo manager: la hostess che
+              la aprisse otterrebbe solo "Non autorizzato" dopo aver già
+              scelto e letto il file. Sul telefono resta la sola icona,
+              altrimenti la riga non sta in larghezza quando c'è "Oggi". */}
+          {currentUser.role === 'manager' && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-11 shrink-0 px-0 sm:w-auto sm:px-4"
+              aria-label="Importa prenotazioni"
+              title="Importa prenotazioni da file"
+              onClick={() => setImportAperto(true)}
+            >
+              <Upload className="h-4 w-4" /> <span className="hidden sm:inline">Importa</span>
+            </Button>
+          )}
+          {/* Aggiorna: rilegge la casella dei libri visite e ricarica
+              l'agenda. È il gesto che si fa durante il servizio, quindi
+              resta sempre in testa accanto alle azioni. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Aggiorna prenotazioni"
+            title="Aggiorna le prenotazioni"
+            onClick={sincronizza}
+            disabled={sincronizzando}
+          >
+            <RefreshCw className={cn('h-4 w-4', sincronizzando && 'animate-spin')} />
+          </Button>
+        </div>
       </div>
 
-      {/* Stesso peso visivo della barra del calendario sopra: due tasti
-          pari invece di una fila di pulsanti di larghezza diversa. */}
-      <div className="flex items-center gap-2">
-        <Button type="button" className="flex-1" onClick={() => apriNuova(FASCE[servizio].inizio)}>
-          <Plus className="h-4 w-4" /> Prenotazione
-        </Button>
-        {/* La route di import richiede il ruolo manager: la hostess che
-            la aprisse otterrebbe solo "Non autorizzato" dopo aver già
-            scelto e letto il file. */}
-        {currentUser.role === 'manager' && (
-          <Button type="button" variant="outline" className="flex-1" onClick={() => setImportAperto(true)}>
-            <Upload className="h-4 w-4" /> Importa
-          </Button>
-        )}
-        {data !== oggiRoma() && (
-          <Button type="button" variant="outline" className="flex-1" onClick={() => setData(oggiRoma())}>
-            Oggi
-          </Button>
-        )}
-      </div>
+      {/* Sempre visibile, indipendentemente dal giorno aperto in agenda in
+          questo momento: la coda non è legata a "oggi". Compare solo
+          quando c'è qualcosa in coda, senza riservare spazio da vuota. */}
+      {codaVoci.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setRiepilogoAperto(true)}
+          className="flex min-h-11 w-full items-center gap-2 rounded-[10px] bg-warn-tint px-3.5 py-2 text-left text-sm font-medium text-warn active:scale-[0.99]"
+        >
+          <Clock className="h-4 w-4 shrink-0" />
+          <span className="flex-1">
+            <span className="font-mono tabular-nums">{codaVoci.length}</span> prenotazion{codaVoci.length === 1 ? 'e' : 'i'}{' '}da confermare l&apos;orario
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0" />
+        </button>
+      )}
 
       {avviso && <p className="text-sm text-muted-foreground">{avviso}</p>}
       {errore && <p className="text-sm text-neg">Errore nel caricamento: {errore}</p>}
@@ -791,7 +843,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         <button
           type="button"
           onClick={() => setServizio(altroServizio)}
-          className="anim-swapin flex w-full items-center gap-2 rounded-[10px] bg-warn-tint px-3.5 py-3 text-left text-sm font-medium text-warn active:scale-[0.99]"
+          className="anim-swapin flex min-h-11 w-full items-center gap-2 rounded-[10px] bg-warn-tint px-3.5 py-3 text-left text-sm font-medium text-warn active:scale-[0.99]"
         >
           <Info className="h-4 w-4 shrink-0 text-warn" />
           <span className="flex-1">
@@ -804,163 +856,145 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
         </button>
       )}
 
+      {/* Numeri di riepilogo: sul telefono si ritirano scorrendo l'agenda. */}
+      {!caricamento && (confermate.length > 0 || sedute.length > 0) && (
+        <p data-ritira="" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className={cn('h-2 w-2 rounded-full', puntoInsegna('benthos'))} />
+            <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className={cn('h-2 w-2 rounded-full', puntoInsegna('crunch'))} />
+            <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
+          </span>
+          <span>
+            <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.restoo}</span> pax dirette (Restoo)
+          </span>
+        </p>
+      )}
+
       {caricamento ? (
         <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-11 w-full" />)}
         </div>
       ) : (
-        <div className="space-y-4">
-          {(confermate.length > 0 || sedute.length > 0) && (
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className={cn('h-2 w-2 rounded-full', puntoInsegna('benthos'))} />
-                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.benthos}</span> pax {etichettaInsegna('benthos') ?? 'Benthos'}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className={cn('h-2 w-2 rounded-full', puntoInsegna('crunch'))} />
-                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.crunch}</span> pax {etichettaInsegna('crunch') ?? 'Crunch!'}
-              </span>
-              <span>
-                <span className="font-mono tabular-nums font-medium text-foreground">{paxServizio.restoo}</span> pax dirette (Restoo)
-              </span>
-            </p>
-          )}
-
+        // Tablet: agenda (chi deve ancora arrivare) a sinistra, sala
+        // (sedute, passanti, cancellate, no show) a destra, per non dover
+        // scorrere tutta l'agenda prima di vedere chi è già a tavolo.
+        // Telefono: le stesse sezioni in una colonna, nell'ordine di prima.
+        <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           <Sezione
             titolo="Confermate"
             prenotazioni={confermate}
             aperta={aperte.confermate}
             onToggle={() => setAperte(a => ({ ...a, confermate: !a.confermate }))}
           >
-            <div>
-              {fasce.map(f => (
-                <div key={f.orario}>
-                  <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
-                    <span className={cn('font-mono tabular-nums w-14 text-sm', f.prenotazioni.length === 0 && 'text-muted-foreground')}>
-                      {f.orario}
-                    </span>
-                    {f.fuoriFascia && (
-                      <span className="text-[11px] text-muted-foreground">fuori fascia</span>
-                    )}
-                    <span className="flex-1" />
-                    <span className="font-mono tabular-nums text-sm text-muted-foreground">
-                      {f.prenotazioni.length} / {f.coperti}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => apriNuova(f.orario)}
-                      aria-label={`Aggiungi prenotazione alle ${f.orario}`}
-                      className="-m-1 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  {f.prenotazioni.length > 0 && (
-                    <div className="space-y-2 py-2">
-                      {f.prenotazioni.map(p => (
-                        <RigaPrenotazione
-                          key={p.id}
-                          p={p}
-                          etichettaInsegna={etichettaInsegna(p.insegna)}
-                          espansa={espansa === p.id}
-                          onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
-                          onStato={() => setStatoTarget(p)}
-                          onAzioneRapida={() => cambiaStato(p, 'seduta')}
-                          onDettagli={() => apriDettagli(p)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Sezione>
-
-          <Sezione
-            titolo="Sedute"
-            prenotazioni={sedute}
-            aperta={aperte.sedute}
-            onToggle={() => setAperte(a => ({ ...a, sedute: !a.sedute }))}
-          >
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="w-full border-dashed"
-              onClick={() => setPassanteAperto(true)}
-            >
-              <UserPlus className="h-4 w-4" /> Passante
-            </Button>
-            {/* Il passante si registra sempre su adesso, mai sul giorno
-                che si sta guardando: qui lo si sta guardando ma non è
-                oggi, quindi conviene dirlo prima che tocchi il tasto. */}
-            {data !== oggiRoma() && (
-              <p className="px-1 text-xs text-muted-foreground">
-                Verrà registrato su oggi, non sul {etichettaGiorno(data).toLowerCase()} che stai guardando.
-              </p>
+            {fasceOccupate.length === 0 && (
+              <p className="px-1 text-sm text-muted-foreground">Nessuna prenotazione confermata.</p>
             )}
 
-            {sedute.length === 0
-              ? <p className="px-1 text-sm text-muted-foreground">Nessun tavolo seduto.</p>
-              : sedute.map(p => (
-                  <RigaPrenotazione
-                    key={p.id}
-                    p={p}
-                    etichettaInsegna={etichettaInsegna(p.insegna)}
-                    espansa={espansa === p.id}
-                    onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
-                    onStato={() => setStatoTarget(p)}
-                    onAzioneRapida={() => cambiaStato(p, 'confermata')}
-                    onDettagli={() => apriDettagli(p)}
-                    onEliminaPassante={() => eliminaPassante(p)}
-                  />
+            {fasceOccupate.map(f => (
+              <div key={f.orario}>
+                {/* Tutta la riga dell'orario aggiunge una prenotazione a
+                    quell'ora: il solo "+" da 24 px era troppo piccolo. */}
+                <button
+                  type="button"
+                  onClick={() => apriNuova(f.orario)}
+                  aria-label={`Aggiungi prenotazione alle ${f.orario}`}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-[8px] border-b border-border/60 px-1 text-left active:bg-accent"
+                >
+                  <span className="w-14 font-mono text-sm tabular-nums">{f.orario}</span>
+                  {f.fuoriFascia && (
+                    <span className="text-[11px] text-muted-foreground">fuori fascia</span>
+                  )}
+                  <span className="flex-1" />
+                  <span className="font-mono tabular-nums text-sm text-muted-foreground">
+                    {f.prenotazioni.length} / {f.coperti}
+                  </span>
+                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+                <div className="space-y-2 pt-2">{righe(f.prenotazioni, 'seduta')}</div>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              aria-expanded={orariAperti}
+              onClick={() => setOrariApertiPer(orariAperti ? null : chiaveAgenda)}
+              className="flex min-h-11 w-full items-center gap-2 rounded-[10px] border border-dashed border-line-strong px-3.5 text-left text-sm font-medium text-muted-foreground active:scale-[0.99]"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="flex-1">Aggiungi a un altro orario</span>
+              <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', !orariAperti && '-rotate-90')} />
+            </button>
+            {orariAperti && (
+              <div className="anim-swapin grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-5">
+                {orariStandard.map(o => (
+                  <button
+                    key={o}
+                    type="button"
+                    onClick={() => apriNuova(o)}
+                    aria-label={`Aggiungi prenotazione alle ${o}`}
+                    className="flex h-11 items-center justify-center rounded-[10px] border border-border bg-card font-mono text-sm tabular-nums active:scale-[0.97]"
+                  >
+                    {o}
+                  </button>
                 ))}
+              </div>
+            )}
           </Sezione>
 
-          {cancellate.length > 0 && (
+          <div className="flex min-w-0 flex-col gap-4">
             <Sezione
-              titolo="Cancellate"
-              prenotazioni={cancellate}
-              aperta={aperte.cancellate}
-              onToggle={() => setAperte(a => ({ ...a, cancellate: !a.cancellate }))}
+              titolo="Sedute"
+              prenotazioni={sedute}
+              aperta={aperte.sedute}
+              onToggle={() => setAperte(a => ({ ...a, sedute: !a.sedute }))}
             >
-              {cancellate.map(p => (
-                <RigaPrenotazione
-                  key={p.id}
-                  p={p}
-                  etichettaInsegna={etichettaInsegna(p.insegna)}
-                  espansa={espansa === p.id}
-                  onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
-                  onStato={() => setStatoTarget(p)}
-                  onAzioneRapida={() => cambiaStato(p, 'confermata')}
-                  onDettagli={() => apriDettagli(p)}
-                />
-              ))}
-            </Sezione>
-          )}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-dashed"
+                onClick={() => setPassanteAperto(true)}
+              >
+                <UserPlus className="h-4 w-4" /> Passante
+              </Button>
+              {/* Il passante si registra sempre su adesso, mai sul giorno
+                  che si sta guardando: qui lo si sta guardando ma non è
+                  oggi, quindi conviene dirlo prima che tocchi il tasto. */}
+              {data !== oggiRoma() && (
+                <p className="px-1 text-xs text-muted-foreground">
+                  Verrà registrato su oggi, non sul {etichettaGiorno(data).toLowerCase()} che stai guardando.
+                </p>
+              )}
 
-          {noShow.length > 0 && (
-            <Sezione
-              titolo="No show"
-              prenotazioni={noShow}
-              aperta={aperte.noShow}
-              onToggle={() => setAperte(a => ({ ...a, noShow: !a.noShow }))}
-            >
-              {noShow.map(p => (
-                <RigaPrenotazione
-                  key={p.id}
-                  p={p}
-                  etichettaInsegna={etichettaInsegna(p.insegna)}
-                  espansa={espansa === p.id}
-                  onEspandi={() => setEspansa(e => (e === p.id ? null : p.id))}
-                  onStato={() => setStatoTarget(p)}
-                  onAzioneRapida={() => cambiaStato(p, 'seduta')}
-                  onDettagli={() => apriDettagli(p)}
-                />
-              ))}
+              {sedute.length === 0
+                ? <p className="px-1 text-sm text-muted-foreground">Nessun tavolo seduto.</p>
+                : righe(sedute, 'confermata', true)}
             </Sezione>
-          )}
+
+            {cancellate.length > 0 && (
+              <Sezione
+                titolo="Cancellate"
+                prenotazioni={cancellate}
+                aperta={aperte.cancellate}
+                onToggle={() => setAperte(a => ({ ...a, cancellate: !a.cancellate }))}
+              >
+                {righe(cancellate, 'confermata')}
+              </Sezione>
+            )}
+
+            {noShow.length > 0 && (
+              <Sezione
+                titolo="No show"
+                prenotazioni={noShow}
+                aperta={aperte.noShow}
+                onToggle={() => setAperte(a => ({ ...a, noShow: !a.noShow }))}
+              >
+                {righe(noShow, 'seduta')}
+              </Sezione>
+            )}
+          </div>
         </div>
       )}
 

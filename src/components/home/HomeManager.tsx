@@ -46,7 +46,7 @@ function Sparkline({ valori, colore }: { valori: (number | null)[]; colore: stri
   )
 }
 
-interface Kpi { l: string; v: string; d?: string; ds?: string; pos?: boolean; righe?: { l: string; c: string; v: string; manca: boolean }[]; href: string; cls?: string }
+interface Kpi { l: string; v: string; d?: string; ds?: string; pos?: boolean; righe?: { l: string; c: string; v: string }[]; nota?: string; href: string; cls?: string }
 
 function SchedaKpi({ k, i }: { k: Kpi; i: number }) {
   const router = useRouter()
@@ -68,15 +68,16 @@ function SchedaKpi({ k, i }: { k: Kpi; i: number }) {
           <span className="text-xs text-muted-foreground">{k.ds}</span>
         </span>
       )}
-      {k.righe && (
+      {(k.righe?.length || k.nota) && (
         <span className="mt-auto grid w-full grid-cols-1 gap-x-3.5 gap-y-[3px] sm:grid-cols-2">
-          {k.righe.map(r => (
+          {k.righe?.map(r => (
             <span key={r.l} className="flex items-center gap-1.5 text-xs text-[oklch(0.35_0.01_250)] dark:text-muted-foreground">
               <span className="h-[7px] w-[7px] flex-none rounded-[2px]" style={{ background: r.c }} />
               <span className="min-w-0 flex-1 truncate">{r.l}</span>
-              <span className={cn('font-mono text-xs font-medium', r.manca ? 'text-neg' : 'text-foreground')}>{r.v}</span>
+              <span className="font-mono text-xs font-medium text-foreground">{r.v}</span>
             </span>
           ))}
+          {k.nota && <span className="text-xs text-muted-foreground text-pretty sm:col-span-2">{k.nota}</span>}
         </span>
       )}
     </button>
@@ -143,7 +144,7 @@ function FoglioChiusura({ l, colore, d, uscita, onChiudi }: { l: LocaleHome; col
             <Riga l="Fondo cassa iniziale" v={eu2(c.fondoIniziale)} />
             <div className="flex flex-col border-t border-[oklch(0.94_0.01_250)] dark:border-border">
               <button type="button" onClick={() => setSpeseAperte(a => !a)} disabled={!c.voci.length}
-                className="flex min-h-[22px] items-center gap-2 py-2 text-left enabled:active:scale-[0.99]">
+                className="flex min-h-10 items-center gap-2 py-2 text-left enabled:active:scale-[0.99]">
                 <span className="flex-1 text-sm">Spese</span>
                 {c.voci.length > 0 && (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
@@ -215,22 +216,31 @@ export function HomeManager({ d, singolo = false, nome, sopra, report }: {
   const colore = (l: LocaleHome) => coloreLocale(l.indice)
   const inviate = locali.filter(l => l.ieri !== null).length
 
+  // I locali senza chiusura non occupano una riga ciascuno con "manca": una
+  // sola nota li riassume (tutti: "Nessuna chiusura per …"; alcuni: i nomi).
+  const senza = locali.filter(l => l.ieri === null)
+  const notaSenza = !locali.length || !senza.length ? undefined
+    : senza.length === locali.length ? `Nessuna chiusura per ${d.ieriCorto}`
+    : `Senza chiusura: ${senza.map(l => l.nome).join(', ')}`
+  const senzaIeri = locali.length > 0 && senza.length === locali.length
+
   const kpi: Kpi[] = singolo ? [] : [
     {
       l: `Ultima serata · ${d.ieriBreve}`, v: eu0(d.totaleIeri), d: d.deltaIeri === null ? '' : pc(d.deltaIeri), pos: (d.deltaIeri ?? 0) >= 0,
-      ds: `vs ${d.primaBreve}${inviate < locali.length ? ` · ${inviate} su ${locali.length} locali` : ''}`,
-      righe: locali.map(l => ({ l: l.nome, c: colore(l), v: l.ieri === null ? 'manca' : eu0(l.ieri), manca: l.ieri === null })), href: '/cassa/analisi',
+      ds: `vs ${d.primaBreve}${inviate < locali.length && !senzaIeri ? ` · ${inviate} su ${locali.length} locali` : ''}`,
+      righe: locali.filter(l => l.ieri !== null).map(l => ({ l: l.nome, c: colore(l), v: eu0(l.ieri!) })), nota: notaSenza, href: '/cassa/analisi',
     },
     (() => { const p = percento(d.totaleMese, d.totaleMesePrima); return {
       l: `${d.meseNome} fino a ieri`, v: eu0(d.totaleMese), d: p === null ? '' : pc(p), pos: (p ?? 0) >= 0, ds: `vs ${d.meseConfronto}`,
-      righe: locali.map(l => ({ l: l.nome, c: colore(l), v: eu0(l.mese), manca: false })), href: '/cassa/analisi',
+      righe: locali.map(l => ({ l: l.nome, c: colore(l), v: eu0(l.mese) })), href: '/cassa/analisi',
     } })(),
     (() => { const p = percento(d.mediaIeri, d.mediaPrima); return {
       l: `Media scontrino · ${d.ieriCorto}`, v: d.mediaIeri === null ? '—' : eu2(d.mediaIeri), d: p === null ? '' : pc(p), pos: (p ?? 0) >= 0, ds: `vs ${d.primaBreve}`, href: '/cassa/analisi', cls: 'max-sm:hidden',
     } })(),
     {
       l: `Contanti per banca · ${d.ieriCorto}`, v: eu2(d.contantiIeri), href: '/cassa/progressivo-buste', cls: 'max-sm:col-span-2',
-      righe: locali.map(l => ({ l: l.nome, c: colore(l), v: l.contantiBanca === null ? 'manca' : eu2(l.contantiBanca), manca: l.contantiBanca === null })),
+      righe: locali.filter(l => l.contantiBanca !== null).map(l => ({ l: l.nome, c: colore(l), v: eu2(l.contantiBanca!) })),
+      nota: senzaIeri ? notaSenza : locali.some(l => l.contantiBanca === null) ? `Senza chiusura: ${locali.filter(l => l.contantiBanca === null).map(l => l.nome).join(', ')}` : undefined,
     },
   ]
 
@@ -247,6 +257,9 @@ export function HomeManager({ d, singolo = false, nome, sopra, report }: {
     { l: `Coperti · ${d.ieriCorto}`, v: d.copertiIeri === null ? '—' : String(d.copertiIeri), dv: d.copertiIeri !== null && d.copertiPrima !== null ? d.copertiIeri - d.copertiPrima : null, f: (x: number) => sgn(x) + Math.abs(x) },
     { l: `Media scontrino · ${d.ieriCorto}`, v: d.mediaIeri === null ? '—' : eu2(d.mediaIeri), dv: d.mediaIeri !== null && d.mediaPrima !== null ? d.mediaIeri - d.mediaPrima : null, f: (x: number) => sgn(x) + eu2(Math.abs(x)) },
   ] : []
+  // Un locale senza chiusura di ieri: una riga sola al posto dei trattini.
+  const senzaChiusura = singolo && d.copertiIeri === null && d.mediaIeri === null
+  const senzaSettimana = d.settimanaScorsa.every(g => g.coperti === null)
 
   return (
     <div className="flex flex-col gap-3 px-4 pb-2 sm:h-full sm:min-h-[640px] sm:gap-4 sm:px-8 sm:pb-1">
@@ -262,6 +275,12 @@ export function HomeManager({ d, singolo = false, nome, sopra, report }: {
 
       {singolo && (
         <div className="flex flex-none flex-col gap-2.5 rounded-[12px] border border-border bg-card px-3.5 py-3" style={{ animation: SWAPIN }}>
+          {senzaChiusura ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium text-muted-foreground">Coperti e media scontrino · {d.ieriCorto}</span>
+              <span className="text-[15px] font-medium">Nessuna chiusura inviata ieri</span>
+            </div>
+          ) : (
           <div className="grid grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] gap-3.5">
             {combo.map((m, i) => (
               <div key={m.l} className="flex min-w-0 flex-col gap-1" style={{ gridColumn: i === 0 ? '1' : '3' }}>
@@ -275,9 +294,11 @@ export function HomeManager({ d, singolo = false, nome, sopra, report }: {
             ))}
             <span className="col-start-2 row-start-1 bg-[oklch(0.92_0.01_250)] dark:bg-border" />
           </div>
+          )}
           <div className="grid grid-cols-3 items-baseline gap-x-2.5 gap-y-1.5 border-t border-[oklch(0.93_0.01_250)] pt-[9px] dark:border-border">
             <span className="col-span-3 text-xs font-medium text-muted-foreground">Coperti della settimana scorsa</span>
-            {d.settimanaScorsa.map(g => (
+            {senzaSettimana && <span className="col-span-3 text-[13px] text-[oklch(0.35_0.01_250)] dark:text-muted-foreground">Nessuna chiusura in quei giorni</span>}
+            {!senzaSettimana && d.settimanaScorsa.map(g => (
               <div key={g.etichetta} className="flex items-baseline justify-between gap-[5px] whitespace-nowrap rounded-[7px] bg-[oklch(0.97_0.01_250)] px-2 py-1.5 dark:bg-secondary">
                 <span className="text-xs text-[oklch(0.35_0.01_250)] dark:text-muted-foreground">{g.etichetta}</span>
                 <span className="font-mono text-[13px] font-semibold">{g.coperti ?? '—'}</span>
@@ -322,12 +343,13 @@ export function HomeManager({ d, singolo = false, nome, sopra, report }: {
                     </span>
                     <span className="flex flex-col items-start gap-px [grid-area:2/1/3/2] sm:items-end sm:[grid-area:auto]">
                       <span className={cn('font-mono text-[15px] font-semibold', l.ieri === null && 'text-muted-foreground')}>{l.ieri === null ? '—' : eu0(l.ieri)}</span>
-                      <span className={cn('whitespace-nowrap font-mono text-[11.5px] font-medium', l.ieri === null || (p !== null && p < 0) ? 'text-neg' : p !== null ? 'text-ok' : 'text-muted-foreground')}>
-                        {l.ieri === null ? 'chiusura non inviata' : p === null ? '' : `${pc(p)} vs ${d.primaCorto}`}
+                      {/* Senza chiusura parla già l'etichetta "Mancante": niente seconda scritta rossa. */}
+                      <span className={cn('whitespace-nowrap font-mono text-[11.5px] font-medium', p !== null && p < 0 ? 'text-neg' : p !== null ? 'text-ok' : 'text-muted-foreground')}>
+                        {l.ieri === null || p === null ? '' : `${pc(p)} vs ${d.primaCorto}`}
                       </span>
                     </span>
                     <Sparkline valori={l.andamento} colore={colore(l)} />
-                    <span className="flex flex-col items-end gap-px [grid-area:2/2/3/3] sm:[grid-area:auto]">
+                    <span className={cn('flex-col items-end gap-px [grid-area:2/2/3/3] sm:flex sm:[grid-area:auto]', l.contantiBanca === null ? 'hidden' : 'flex')}>
                       <span className="text-[11px] font-medium text-muted-foreground sm:hidden">Contanti banca</span>
                       <span className={cn('font-mono text-sm font-medium', l.contantiBanca === null && 'text-muted-foreground')}>{l.contantiBanca === null ? '—' : eu2(l.contantiBanca)}</span>
                     </span>

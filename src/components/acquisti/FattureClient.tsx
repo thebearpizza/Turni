@@ -209,8 +209,12 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     })))
   }
 
+  // Tablet: all'apertura il dettaglio mostra la prima riga invece del
+  // riquadro vuoto (stato derivato; sul telefono aprirebbe un foglio).
+  const selEff = sel ?? (tel ? null : vista[0]?.id ?? null)
+
   // ── Tastierino del riquadro teal ──────────────────────────────────
-  const f = righe.find(x => x.id === sel) ?? null
+  const f = righe.find(x => x.id === selEff) ?? null
   const xr = f && er !== null ? f.righe[er] ?? null : null
   const RD = xr && f ? { q: rd.q ?? xr.quantita, pr: rd.pr ?? xr.prezzo_unitario, al: rd.al !== undefined ? rd.al : aliquotaRiga(f, xr), cat: rd.cat ?? catDi(xr.art?.tipologia) } : null
 
@@ -369,7 +373,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
   }
 
   // ── Coda "Da assegnare": scegli il locale e importa, oppure scarta ──
-  const qx = tab === 'da' ? coda?.find(x => x.id === sel) ?? null : null
+  const qx = tab === 'da' ? coda?.find(x => x.id === selEff) ?? null : null
   async function assegnaDaCoda() {
     if (!qx || !locCoda) return
     const sb = createClient(), nomeL = nomeLoc(locCoda)?.nome ?? ''
@@ -546,7 +550,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
       <Vista
         tel={tel}
         skeleton={sk}
-        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={x => cambiaLoc(x[0] ?? null)} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={x => cambiaLoc(x[0] ?? null)} className="sm:mx-0 sm:px-0" />}
         mese={{ etichetta: etichettaMese(mese), prec: () => cambiaMese(-1), succ: () => cambiaMese(1), precOk: true, succOk: mese < meseOggi }}
         schede={[{ k: 'all', l: 'Tutte', n: righe.length }, { k: 'dv', l: 'Da verificare', n: nDv }, ...(coda && (coda.length || tab === 'da') ? [{ k: 'da', l: 'Da assegnare', n: coda.length }] : [])]}
         scheda={tab}
@@ -566,11 +570,15 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
           : tab === 'dv'
           ? { t: 'Nessuna fattura da verificare', s: 'Le fatture caricate con dati incerti compaiono qui.' }
           : { t: 'Nessuna fattura nel mese', s: 'Le fatture caricate per questo mese compaiono qui.' }}
-        sel={sel}
+        sel={selEff}
         onSel={id => { resetDettaglio(); setSel(id) }}
+        // Rettifiche ed eliminazione agiscono sulla fattura mostrata: al
+        // primo tocco quella scelta da sola diventa la selezione vera, così
+        // una fattura nuova in cima alla lista non la sostituisce a metà lavoro.
+        onFissa={() => { if (sel === null && selEff) setSel(selEff) }}
         onChiudi={() => { resetDettaglio(); setSel(null) }}
         dettaglio={dettaglio}
-        chiaveDettaglio={sel ?? ''}
+        chiaveDettaglio={selEff ?? ''}
       />
 
       <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="sr-only" onChange={daFile} />

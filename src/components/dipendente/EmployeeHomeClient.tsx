@@ -313,7 +313,8 @@ export function EmployeeHomeClient({ profile, openAttendance, userId, turni, apr
       <div className="mx-4 mt-6 rounded-[14px] border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-3.5 py-3">
           <span className="text-[15px] font-semibold">Prossimi turni</span>
-          <Link href="/home/miei-turni" className="text-[13px] font-medium text-muted-foreground active:scale-[0.97]">Tutti →</Link>
+          {/* Link testuale piccolo per disegno: l'area toccabile è 44px, i margini negativi la tengono dentro la riga. */}
+          <Link href="/home/miei-turni" className="-my-3 -mr-3.5 flex h-11 min-w-11 items-center justify-end px-3.5 text-[13px] font-medium text-muted-foreground active:scale-[0.97]">Tutti →</Link>
         </div>
         {prossime.length === 0 ? (
           <div className="flex min-h-12 items-center border-b border-border px-3.5 text-sm text-muted-foreground">Nessun turno programmato</div>

@@ -103,7 +103,10 @@ export function InventarioClient({ restaurants, single }: Props) {
     return { id: g.nome, a: g.nome, as: g.fornitori.join(' · '), lc: TIPOLOGIE[g.tipologia].c, b: `${nf(g.giacenza)} ${g.unita || 'pz'}`, c: g.scorta != null ? nf(g.scorta) : '—', cTono: 'neu', t: s.t, tTono: s.tono, ord: [g.nome.toLowerCase(), g.giacenza, g.scorta ?? -1, s.tono === 'neg' ? 0 : s.tono === 'warn' ? 1 : 2] }
   })
 
-  const g = gruppi.find(x => x.nome === sel) ?? null
+  // Tablet: all'apertura il dettaglio mostra la prima riga invece del
+  // riquadro vuoto (stato derivato; sul telefono aprirebbe un foglio).
+  const selEff = sel ?? (tel ? null : righe[0]?.id ?? null)
+  const g = gruppi.find(x => x.nome === selEff) ?? null
   // Ultimi movimenti del prodotto scelto.
   useEffect(() => {
     if (!g || !loc) return
@@ -161,7 +164,7 @@ export function InventarioClient({ restaurants, single }: Props) {
   return (
     <Vista tel={tel} skeleton={sk}
       // Inventario è sempre di un locale: "Tutti" non cambia la scelta.
-      locali={single ? undefined : <PilloleLocali locali={locali} selezionati={[loc]} onCambia={v => { if (!v[0] || v[0] === loc) return; avvia(); setLoc(v[0]); setSel(null); setKp(null) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+      locali={single ? undefined : <PilloleLocali locali={locali} selezionati={[loc]} onCambia={v => { if (!v[0] || v[0] === loc) return; avvia(); setLoc(v[0]); setSel(null); setKp(null) }} className="sm:mx-0 sm:px-0" />}
       kpis={[
         { l: 'Valore magazzino', v: eu(gruppi.reduce((t, x) => t + Math.max(0, x.giacenza) * (x.prezzo ?? 0), 0), 0) },
         { l: 'Sotto scorta', v: String(gruppi.filter(x => x.scorta != null && x.giacenza < x.scorta).length), tono: 'warn' },
@@ -170,7 +173,10 @@ export function InventarioClient({ restaurants, single }: Props) {
       righe={righe} caricamento={caricamento}
       errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
       vuoto={{ t: 'Nessun articolo in inventario', s: 'In Articoli attiva "Traccia in inventario" sui prodotti da contare.' }}
-      sel={sel} onSel={id => { setKp(null); setSel(id) }} onChiudi={() => { setKp(null); setSel(null) }} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
+      sel={selEff} onSel={id => { setKp(null); setSel(id) }}
+      // Il conteggio si scrive sulla riga mostrata: al primo tocco la riga scelta da sola diventa la selezione vera.
+      onFissa={() => { if (sel === null && selEff) setSel(selEff) }}
+      onChiudi={() => { setKp(null); setSel(null) }} dettaglio={dettaglio} chiaveDettaglio={selEff ?? ''}
     />
   )
 }

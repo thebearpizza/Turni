@@ -134,7 +134,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
           </Button>
 
           <div className="relative min-w-0 flex-1">
-            <div className="flex h-9 items-center justify-center rounded-md bg-primary px-2 text-sm font-medium text-primary-foreground">
+            <div className="flex h-11 items-center justify-center rounded-md bg-primary px-2 text-sm font-medium text-primary-foreground">
               {etichettaGiorno(giorno)}
             </div>
             <input
@@ -162,7 +162,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
             <button
               type="button"
               onClick={() => setGiorno(dataPiuVicina)}
-              className="flex w-full items-center gap-2 rounded-md border border-transparent bg-warn-tint px-3 py-2.5 text-left text-sm"
+              className="flex min-h-11 w-full items-center gap-2 rounded-md border border-transparent bg-warn-tint px-3 py-2.5 text-left text-sm"
             >
               <Clock className="h-4 w-4 shrink-0 text-warn" />
               <span className="flex-1">Nessuna in coda in questo giorno.</span>
@@ -197,7 +197,7 @@ export function PrenotazioniRiepilogoCodaDialog({ open, onOpenChange, voci, rest
                     onClick={() => { setErroreIgnora(null); setDaIgnorare({ logId, voce }) }}
                     disabled={inCorso === logId}
                     aria-label="Ignora questa prenotazione"
-                    className="rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
                   >
                     {inCorso === logId ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                   </button>

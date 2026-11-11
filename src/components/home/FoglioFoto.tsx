@@ -43,7 +43,7 @@ export function FoglioFoto({ titolo, foto, meta, uscita, inCorso, onChiudi, onRi
         <div className="flex gap-1.5">
           {foto.map((f, i) => (
             <button key={f.path} type="button" onClick={() => setSel(i)}
-              className={cn('h-9 rounded-full border px-3 text-[13px] font-medium transition-colors active:scale-[0.97]', i === sel ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>{f.l}</button>
+              className={cn('h-10 min-w-11 rounded-full border px-3 text-[13px] font-medium transition-colors active:scale-[0.97]', i === sel ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card')}>{f.l}</button>
           ))}
         </div>
       )}

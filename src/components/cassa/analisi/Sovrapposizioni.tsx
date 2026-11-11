@@ -253,7 +253,7 @@ function CorpoFumetto({ f, esce }: { f: Fumetto; esce: boolean }) {
               <div key={i} className={cn('-mx-2 flex flex-col rounded-[8px] transition-colors duration-200', (aperta === i || lato === i) && 'bg-[oklch(0.965_0.01_250)] dark:bg-secondary')}>
                 <button type="button"
                   onClick={() => { if (x.pannello) setLato(lato === i ? null : i); else setAperta(aperta === i ? null : i) }}
-                  className="flex min-h-9 items-center gap-2 rounded-[8px] px-2 text-left active:scale-[0.98]">
+                  className="flex min-h-10 items-center gap-2 rounded-[8px] px-2 text-left active:scale-[0.98]">
                   <span className="h-2 w-2 flex-none rounded-[2px]" style={{ background: x.dot }} />
                   <span className="flex-1 truncate text-[13px] font-medium">{x.l}</span>
                   <span className="whitespace-nowrap font-mono text-[13px] font-medium">{x.v}</span>

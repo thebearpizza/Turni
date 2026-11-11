@@ -368,14 +368,19 @@ export function AnalisiClient({ restaurants, nome }: Props) {
   const riprova = () => { setStato('riprova'); setTimeout(() => carica(), 0) }
   return (
     <div className="flex flex-col">
-      <div className={cn('relative z-[45] flex items-center pb-3.5', tel ? 'flex-wrap gap-2' : 'flex-nowrap gap-3')}>
+      {/* Sul telefono la testa è una colonna (locali, periodo, Confronta ed
+          Esporta). Qui niente ritiro allo scorrimento: la pagina scorre
+          per intero e la testa esce già dallo schermo da sola. */}
+      <div className={cn('relative z-[45] flex pb-3.5', tel ? 'flex-col items-stretch gap-2' : 'flex-nowrap items-center gap-3')}>
         <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={sel} onCambia={setSel}
-          className={tel ? 'flex-[1_1_100%]' : 'mx-0 flex-[0_1_auto] px-0'} />
+          className={tel ? '' : 'mx-0 flex-[0_1_auto] px-0'} />
         {!tel && <span className="flex-1" />}
         <BarraPeriodo periodo={periodo} onPeriodo={setPeriodo} mesi={mesi} oggi={oggi} tel={tel} />
+        <div className={tel ? 'relative flex gap-2' : 'contents'}>
         <MenuConfronto apriRef={apriConfronto} oggi={oggi} tel={tel} modo={cmp} onModo={setCmp} custom={cmpC} onCustom={setCmpC}
           opzioni={{ prev: intervallo(piuGiorni(a, -n), piuGiorni(a, -1)), yoy: intervallo(unAnnoPrima(a), unAnnoPrima(b)), customDefault: { a: piuGiorni(a, -n), b: piuGiorni(a, -1) } }} />
         <PulsanteEsporta tel={tel} disabilitato={!v.rows.length} onScegli={setEsporta} />
+        </div>
       </div>
 
       <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative min-h-[420px] select-none [-webkit-touch-callout:none] [-webkit-user-select:none]">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { useTelefono } from '@/components/presenze/comuni'
+import { FiltriFoglio, type GruppoFiltri } from '@/components/shared/FiltriFoglio'
 
 // Pezzi condivisi delle schede di Altro (MTAltro.dc.html: Bacheca, ODS,
 // Dipendenti, Ristoranti) e delle sezioni analoghe del direttore: barra con
@@ -68,45 +69,87 @@ export function useUscita<T>() {
 export interface Kpi { l: string; v: string; c?: string }
 export interface Scheda { k: string; l: string; on: boolean; onClick: () => void }
 
-export function BarraAltro({ locali, schede, kpis, nuovo }: {
+export function BarraAltro({ locali, schede, kpis, nuovo, ricerca, filtri, accanto }: {
   locali?: ReactNode
   schede?: Scheda[]
   kpis: Kpi[]
-  nuovo?: { l: string; onClick: () => void; disabilitato?: boolean }
+  /** `corta`: etichetta sul telefono quando in riga c'è anche la ricerca. */
+  nuovo?: { l: string; corta?: string; onClick: () => void; disabilitato?: boolean }
+  /** Campo di ricerca (`CampoRicerca`): in riga con filtri e pulsante. */
+  ricerca?: ReactNode
+  /** Telefono: i reparti delle schede stanno in un foglio "Filtri" invece che in una riga di pillole. */
+  filtri?: GruppoFiltri[]
+  /** Telefono: controllo secondario in fondo alla riga dei numeri (es. la scheda Consulenti). */
+  accanto?: ReactNode
 }) {
   const tel = useTelefono()
   // Sul telefono i reparti hanno senso solo se sono almeno due.
   const conSchede = !!schede && (tel ? schede.length >= 2 : schede.length > 0)
-  if (!locali && !conSchede && !nuovo && !kpis.length) return null
+  if (!locali && !conSchede && !nuovo && !kpis.length && !ricerca) return null
+  const pillole = conSchede && (
+    <div data-sk-keep="" className="flex min-w-0 flex-none gap-1.5 overflow-x-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {schede!.map(s => (
+        <button key={s.k} type="button" onClick={s.onClick}
+          className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
+            tel ? 'flex-[1_1_auto]' : 'flex-none',
+            s.on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card text-foreground dark:border-line-strong')}>
+          {s.l}
+        </button>
+      ))}
+    </div>
+  )
+  const pulsante = (classe: string, etichetta: string) => nuovo && (
+    <button data-sk-keep="" type="button" onClick={nuovo.onClick} disabled={nuovo.disabilitato} aria-label={nuovo.l}
+      title={nuovo.disabilitato ? "Disponibile dopo l'attivazione" : undefined}
+      className={cn('flex items-center justify-center gap-2 whitespace-nowrap rounded-[8px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100', classe)}>
+      {ICONA_PIU}{etichetta}
+    </button>
+  )
+
+  // Telefono: righe separate, figlie dirette della colonna della pagina, così
+  // la riga dei numeri (data-ritira) si ritira da sola scorrendo l'elenco e
+  // ricerca, filtri e pulsante "Nuovo" restano sempre a portata di dito.
+  if (tel) {
+    const conFoglio = !!filtri?.length
+    return (
+      <>
+        {locali && <div data-sk-keep="" className="min-w-0 flex-none">{locali}</div>}
+        {!conFoglio && pillole}
+        {(ricerca || conFoglio || nuovo) && (
+          <div className="flex min-w-0 flex-none items-center gap-2">
+            {ricerca && <div className="min-w-0 flex-1">{ricerca}</div>}
+            {conFoglio && <FiltriFoglio gruppi={filtri!} className={ricerca ? 'max-w-[112px]' : 'max-w-[45%]'} />}
+            {pulsante(cn('h-11', ricerca ? 'flex-none px-3.5' : 'min-w-0 flex-1'), ricerca ? nuovo?.corta ?? nuovo?.l ?? '' : nuovo?.l ?? '')}
+          </div>
+        )}
+        {(kpis.length > 0 || accanto) && (
+          <div data-ritira="" className="flex min-w-0 flex-none items-center gap-2.5">
+            {kpis.map(k => (
+              <div key={k.l} className="flex min-w-0 flex-[1_1_0] flex-col items-start px-0.5">
+                <span className="text-xs font-medium text-muted-foreground">{k.l}</span>
+                <span className="font-mono text-[17px] font-semibold" style={k.c ? { color: k.c } : undefined}>{k.v}</span>
+              </div>
+            ))}
+            {accanto}
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <div className="flex flex-none flex-wrap items-center gap-2.5">
-      {locali && <div data-sk-keep="" className={cn('min-w-0', tel ? 'flex-[1_1_100%]' : 'flex-[0_1_auto]')}>{locali}</div>}
-      {conSchede && (
-        <div data-sk-keep="" className={cn('flex min-w-0 gap-1.5 overflow-x-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', tel ? 'flex-[1_1_100%]' : 'flex-none')}>
-          {schede!.map(s => (
-            <button key={s.k} type="button" onClick={s.onClick}
-              className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
-                tel ? 'flex-[1_1_auto]' : 'flex-none',
-                s.on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card text-foreground dark:border-line-strong')}>
-              {s.l}
-            </button>
-          ))}
-        </div>
-      )}
-      {!tel && <span className="block flex-1" />}
+      {locali && <div data-sk-keep="" className="min-w-0 flex-[0_1_auto]">{locali}</div>}
+      {pillole}
+      {ricerca && <div className="min-w-[180px] max-w-[280px] flex-[1_1_180px]">{ricerca}</div>}
+      <span className="block flex-1" />
       {kpis.map(k => (
-        <div key={k.l} className={cn('flex min-w-0 flex-col', tel ? 'flex-[1_1_0] items-start px-0.5' : 'flex-none items-end px-2.5')}>
+        <div key={k.l} className="flex min-w-0 flex-none flex-col items-end px-2.5">
           <span className="text-xs font-medium text-muted-foreground">{k.l}</span>
           <span className="font-mono text-[17px] font-semibold" style={k.c ? { color: k.c } : undefined}>{k.v}</span>
         </div>
       ))}
-      {nuovo && (
-        <button data-sk-keep="" type="button" onClick={nuovo.onClick} disabled={nuovo.disabilitato}
-          title={nuovo.disabilitato ? "Disponibile dopo l'attivazione" : undefined}
-          className="flex h-10 flex-none items-center gap-2 rounded-[8px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100">
-          {ICONA_PIU}{nuovo.l}
-        </button>
-      )}
+      {pulsante('h-10 flex-none', nuovo?.l ?? '')}
     </div>
   )
 }
@@ -285,12 +328,14 @@ function CorpoDettaglio({ d, tel, onChiudi }: { d: DatiDettaglio; tel: boolean; 
 }
 
 /**
- * Pannello del dettaglio. Tablet: card a destra (o "Seleziona una riga").
+ * Pannello del dettaglio. Tablet: card a destra (o "Seleziona una riga"; le
+ * schede che scelgono da sole la prima riga passano `senzaRighe` quando
+ * l'elenco è vuoto, perché lì non c'è niente da selezionare).
  * Telefono: foglio dal basso con scrim; `inLinea` (Ristoranti) lo mostra
  * come card dentro la pagina che scorre.
  */
-export function PannelloDettaglio({ d, chiave, esce, onChiudi, inLinea, sempreFoglio }: {
-  d: DatiDettaglio | null; chiave: string; esce: boolean; onChiudi: () => void; inLinea?: boolean
+export function PannelloDettaglio({ d, chiave, esce, onChiudi, inLinea, sempreFoglio, senzaRighe }: {
+  d: DatiDettaglio | null; chiave: string; esce: boolean; onChiudi: () => void; inLinea?: boolean; senzaRighe?: boolean
   /** Viste pensate per il telefono (capo servizio): foglio dal basso anche su tablet. */
   sempreFoglio?: boolean
 }) {
@@ -311,7 +356,7 @@ export function PannelloDettaglio({ d, chiave, esce, onChiudi, inLinea, sempreFo
   return (
     <div key={chiave} className={cn('relative flex min-h-0 flex-none flex-col overflow-hidden rounded-[12px] border border-border bg-card', esce ? 'anim-swapout' : 'anim-swapin')}>
       {d ? <CorpoDettaglio d={d} tel={tel} /> : (
-        <div className="flex flex-1 items-center justify-center py-12 text-sm font-medium text-muted-foreground">Seleziona una riga per vedere il dettaglio.</div>
+        <div className="flex flex-1 items-center justify-center py-12 text-sm font-medium text-muted-foreground">{senzaRighe ? 'Nessun dettaglio da mostrare.' : 'Seleziona una riga per vedere il dettaglio.'}</div>
       )}
     </div>
   )

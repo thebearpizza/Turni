@@ -4,6 +4,7 @@ import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { CampoRicerca, corrisponde } from '@/components/shared/CampoRicerca'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { coloreLocale } from '@/components/manager/RestaurantFilter'
@@ -77,6 +78,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
   // Manager: la scheda "Consulenti" mostra i consulenti del lavoro al posto dello staff.
   const [consulenti, setConsulenti] = useState(false)
   const [sel, setSel] = useState<string | null>(null)
+  const [cerca, setCerca] = useState('')
   const [esceD, setEsceD] = useState(false)
   const tD = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tCr = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -88,7 +90,9 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
   const fascia = useMemo(() => new Map(fasce.map(f => [f.id, f])), [fasce])
 
   const E = dip.filter(d => loc === null || d.restaurant_id === loc)
-  const L = reps.length ? E.filter(d => d.department && reps.includes(d.department)) : E
+  const perReparto = reps.length ? E.filter(d => d.department && reps.includes(d.department)) : E
+  // Ricerca per nome, reparto o locale (senza maiuscole né accenti).
+  const L = cerca.trim() ? perReparto.filter(d => corrisponde(cerca, d.full_name, d.department, info(d.restaurant_id)?.nome)) : perReparto
   const ore = (d: DipendenteRiga) => (d.weekly_hours_target ? `${d.weekly_hours_target}h` : 'Pieno')
 
   const righe: RigaAltro[] = L.map(d => {
@@ -107,6 +111,15 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
     })),
     ...(!single ? [{ k: 'consulenti', l: 'Consulenti', on: consulenti, onClick: () => { setConsulenti(c => !c); setSel(null) } }] : []),
   ]
+
+  // Tablet: all'apertura (e a ogni cambio di filtro) è scelta la prima riga,
+  // così il dettaglio a destra non resta vuoto. Sul telefono no: aprirebbe il foglio.
+  const selEff = righe.some(r => r.key === sel) ? sel : tel ? null : righe[0]?.key ?? null
+  // Telefono: un reparto alla volta, scelto nel foglio "Filtri".
+  const filtri = [{
+    titolo: 'Reparto', opzioni: DEPARTMENTS.map(r => ({ k: r as string, l: r as string })), valore: reps.length === 1 ? reps[0] : null,
+    onCambia: (k: string | null) => { setReps(k ? [k] : []); setSel(null) },
+  }]
 
   function scegli(k: string) { if (tD.current) clearTimeout(tD.current); setEsceD(false); setSel(k) }
   function chiudiDettaglio() { setEsceD(true); if (tD.current) clearTimeout(tD.current); tD.current = setTimeout(() => { setSel(null); setEsceD(false) }, USCITA) }
@@ -229,7 +242,7 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
   }
 
   // ── Dettaglio ──────────────────────────────────────────────────────────
-  const x = L.find(d => d.id === sel)
+  const x = L.find(d => d.id === selEff)
   let d: DatiDettaglio | null = null
   if (x) {
     const r = ruoloDi(x), sn = (v: boolean) => (v ? 'Sì' : 'No')
@@ -273,16 +286,28 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
       <BarraAltro
-        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => { setLoc(ids[0] ?? null); setSel(null); avvia(); pronto() }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" /> : undefined}
-        schede={schede} kpis={kpis} nuovo={{ l: 'Nuovo dipendente', onClick: apriNuovo, disabilitato: isPending }}
+        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => { setLoc(ids[0] ?? null); setSel(null); avvia(); pronto() }} className="sm:mx-0 sm:px-0" /> : undefined}
+        schede={schede} filtri={filtri} kpis={kpis} nuovo={{ l: 'Nuovo dipendente', corta: 'Nuovo', onClick: apriNuovo, disabilitato: isPending }}
+        ricerca={<CampoRicerca valore={cerca} onCambia={v => { setCerca(v); setSel(null) }} segnaposto={tel ? 'Cerca' : 'Cerca nome, reparto, locale'} />}
+        // I consulenti sono una scheda a parte, non un reparto: sul telefono
+        // restano un pulsante a sé, fuori dal foglio dei filtri.
+        accanto={!single ? (
+          <button type="button" onClick={() => { setConsulenti(true); setSel(null) }}
+            className="flex h-10 flex-none items-center gap-1 whitespace-nowrap rounded-[8px] border border-[oklch(0.88_0.01_250)] bg-card px-3 text-[13px] font-medium active:scale-[0.97] dark:border-line-strong">
+            Consulenti
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+        ) : undefined}
       />
       <GrigliaAltro>
         <ElencoAltro
           testate={[{ l: 'Nome', a: 'left' }, { l: 'Ore / sett.', a: 'right' }, { l: 'Riposi', a: 'right' }, { l: 'Ruolo', a: 'right' }]}
-          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={sel} onScegli={scegli}
-          vuoto={{ t: 'Nessuna persona', s: reps.length || loc ? 'Nessuno in questo locale o reparto.' : 'Aggiungi la prima con Nuovo dipendente.' }}
+          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={selEff} onScegli={scegli}
+          vuoto={cerca.trim()
+            ? { t: `Nessun risultato per «${cerca.trim()}»`, s: 'Controlla come è scritto o togli i filtri.' }
+            : { t: 'Nessuna persona', s: reps.length || loc ? 'Nessuno in questo locale o reparto.' : 'Aggiungi la prima con Nuovo dipendente.' }}
         />
-        <PannelloDettaglio d={d} chiave={`dip|${sel}|${loc}`} esce={esceD} onChiudi={chiudiDettaglio} />
+        <PannelloDettaglio d={d} chiave={`dip|${selEff}|${loc}`} esce={esceD} onChiudi={chiudiDettaglio} senzaRighe={righe.length === 0} />
       </GrigliaAltro>
       {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
 

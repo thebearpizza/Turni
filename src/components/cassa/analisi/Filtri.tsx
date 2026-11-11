@@ -97,7 +97,7 @@ export function BarraPeriodo({ periodo, onPeriodo, mesi, oggi, tel }: {
   const mm = usePannello('[data-mm]')
   const cal = usePannello('[data-pop]')
   const voce = (on: boolean) => cn(
-    'flex h-[34px] cursor-pointer items-center justify-center whitespace-nowrap rounded-[7px] text-[13px] font-medium transition-[background] duration-200',
+    'flex h-10 cursor-pointer items-center justify-center whitespace-nowrap rounded-[7px] text-[13px] font-medium transition-[background] duration-200',
     tel ? 'flex-auto px-2' : 'flex-none px-3',
     on ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'bg-transparent text-muted-foreground'
   )
@@ -105,7 +105,7 @@ export function BarraPeriodo({ periodo, onPeriodo, mesi, oggi, tel }: {
   const etichettaDate = !tel && periodo.k === 'custom' ? (periodo.r.a === periodo.r.b ? fd(periodo.r.a) : `${fd(periodo.r.a)} – ${fd(periodo.r.b)}`) : 'Date'
 
   return (
-    <div className={cn('relative flex gap-0.5 rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] dark:bg-secondary', tel ? 'flex-[1_1_100%]' : 'flex-none')}>
+    <div className={cn('relative flex gap-0.5 rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] dark:bg-secondary', 'flex-none')}>
       {([['oggi', 'Oggi'], ['sett', tel ? 'Sett.' : 'Settimana'], ['mese', 'Mese'], ['anno', 'Anno']] as const).map(([k, l]) => (
         <button key={k} type="button" onClick={() => onPeriodo({ k })} className={voce(periodo.k === k)}>{l}</button>
       ))}
@@ -162,7 +162,10 @@ export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef
   ]
   const attivo = !!modo
   return (
-    <div data-pop className={cn('relative', tel ? 'flex flex-[1_1_0]' : 'flex-none')}>
+    // Sul telefono il pulsante occupa metà riga: il pannello si ancora alla
+    // riga intera (il contenitore "relative" in AnalisiClient), non al
+    // pulsante, altrimenti largo quanto lo schermo uscirebbe a sinistra.
+    <div data-pop className={tel ? 'flex flex-[1_1_0]' : 'relative flex-none'}>
       <button type="button" onClick={() => { setCal(modo === 'custom'); p.alterna() }}
         className={cn('flex h-10 w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background,color] duration-200 active:scale-[0.97]',
           attivo ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.82_0.01_250)] bg-card text-foreground dark:border-line-strong')}>
@@ -170,7 +173,7 @@ export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef
         {attivo ? 'Confronto attivo' : 'Confronta'}
       </button>
       {p.aperto && (
-        <div className={cn(pannello, 'top-[calc(100%+8px)] flex flex-col gap-2.5', tel ? 'right-0 w-[calc(100vw-32px)]' : 'right-0 w-[348px]', p.esce ? 'anim-swapout' : 'anim-swapin')}>
+        <div className={cn(pannello, 'top-[calc(100%+8px)] flex flex-col gap-2.5', tel ? 'inset-x-0' : 'right-0 w-[348px]', p.esce ? 'anim-swapout' : 'anim-swapin')}>
           <div className="flex flex-col gap-0.5">
             {voci.map(([k, l, sub]) => (
               <button key={l} type="button"

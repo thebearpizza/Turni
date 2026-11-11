@@ -309,9 +309,9 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
                 {NR.rif.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {NR.rif.map(x => (
-                      <span key={x} className="anim-swapin inline-flex h-9 max-w-full items-center gap-1 rounded-full border border-[oklch(0.88_0.01_250)] bg-background pl-3.5 pr-1 text-sm font-medium dark:border-line-strong">
+                      <span key={x} className="anim-swapin inline-flex h-10 max-w-full items-center rounded-full border border-[oklch(0.88_0.01_250)] bg-background pl-3.5 text-sm font-medium dark:border-line-strong">
                         <span className="truncate">{x}</span>
-                        <button type="button" aria-label={`Togli ${x}`} onClick={() => setR({ rif: NR.rif.filter(y => y !== x) })} className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground active:scale-[0.94]">
+                        <button type="button" aria-label={`Togli ${x}`} onClick={() => setR({ rif: NR.rif.filter(y => y !== x) })} className="flex h-10 w-10 flex-none items-center justify-center rounded-full text-muted-foreground active:scale-[0.94]">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12" /><path d="M18 6L6 18" /></svg>
                         </button>
                       </span>

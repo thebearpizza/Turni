@@ -8,6 +8,8 @@ import { toast } from '@/hooks/use-toast'
 import { useTelefono } from '@/hooks/useTelefono'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { corrisponde } from '@/components/shared/CampoRicerca'
+import { FiltriFoglio } from '@/components/shared/FiltriFoglio'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
 import { Vista, Pannello, Scelte, type RigaVista } from './Vista'
@@ -36,6 +38,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
   const [sel, setSel] = useState<string | null>(null)
+  const [cerca, setCerca] = useState('')
   const { stato: sk, avvia, pronto } = useScheletro()
   const meno30 = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 30); return formatInTimeZone(d, TZ, 'yyyy-MM-dd') }, [])
 
@@ -90,7 +93,8 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     if (!prima || prima === ultimo || !prima.prezzo) return null
     return (ultimo.prezzo - prima.prezzo) / prima.prezzo * 100
   }
-  const lista = articoli.filter(a => !tips.length || tips.includes(a.tipologia))
+  // Ricerca sulla lista già caricata: nome dell'articolo o del fornitore.
+  const lista = articoli.filter(a => (!tips.length || tips.includes(a.tipologia)) && corrisponde(cerca, a.nome, a.fornitore))
   const righe: RigaVista[] = lista.map(a => {
     const s = acquistiDi(a), v = variazione(a), ultimo = s[s.length - 1]
     const tono: Tono = v == null ? 'neu' : v > 2 ? 'neg' : v < -2 ? 'ok' : 'neu'
@@ -155,7 +159,10 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     nuovo.chiudi(); toast({ title: `${d.nome.trim()} aggiunto al catalogo` }); carica()
   }
 
-  const a = lista.find(x => x.id === sel)
+  // Tablet: all'apertura il dettaglio mostra la prima riga invece del
+  // riquadro vuoto (stato derivato; sul telefono aprirebbe un foglio).
+  const selEff = sel ?? (tel ? null : righe[0]?.id ?? null)
+  const a = lista.find(x => x.id === selEff)
   let dettaglio: React.ReactNode = null
   if (a) {
     const s = acquistiDi(a), u = a.unita || 'pz', ultimo = s[s.length - 1]
@@ -187,18 +194,24 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
   return (
     <>
       <Vista tel={tel} skeleton={sk}
-        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} className="sm:mx-0 sm:px-0" />}
+        ricerca={{ valore: cerca, onCambia: v => { setCerca(v); setSel(null) }, segnaposto: tel ? 'Cerca articolo' : 'Cerca articolo o fornitore' }}
+        // Telefono: le tipologie stanno nel foglio "Filtri", una alla volta
+        // (sul tablet le pillole in riga restano a scelta multipla).
+        filtriTel={<FiltriFoglio className="max-w-[128px]" gruppi={[{ titolo: 'Tipologia', opzioni: ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l })), valore: tips.length === 1 ? tips[0] : null, onCambia: k => { setSel(null); setTips(k ? [k as ArticoloTipologia] : []) } }]} />}
         filtri={ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l, on: tips.includes(k) }))}
         onFiltro={k => { setSel(null); setTips(p => { const r = p.includes(k as ArticoloTipologia) ? p.filter(x => x !== k) : [...p, k as ArticoloTipologia]; return r.length === ORDINE_TIPOLOGIE.length ? [] : r }) }}
         kpis={[{ l: 'Articoli', v: String(lista.length) }, { l: 'Rincari oltre 2%', v: String(rincari), tono: 'neg' }]}
         azione={canEdit ? (
-          <button type="button" onClick={() => nuovo.apri({ nome: '', fornitore: fornitori[0]?.id ?? '', tipologia: 'food', unita: '', traccia: true })} className="flex h-10 items-center gap-2 rounded-[8px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97]"><IcoPiu />{tel ? 'Nuovo' : 'Nuovo articolo'}</button>
+          <button type="button" onClick={() => nuovo.apri({ nome: '', fornitore: fornitori[0]?.id ?? '', tipologia: 'food', unita: '', traccia: true })} aria-label="Nuovo articolo"
+            // Telefono: solo il "+" (44 px), accanto a ricerca e filtri, per lasciare larghezza al campo.
+            className={cn('flex items-center justify-center gap-2 rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97]', tel ? 'h-11 w-11 rounded-[10px]' : 'h-10 px-4')}><IcoPiu s={tel ? 18 : 16} />{!tel && 'Nuovo articolo'}</button>
         ) : undefined}
         colonne={[{ l: 'Articolo' }, { l: 'Ultimo prezzo', destra: true }, { l: '30 gg', destra: true }, { l: 'Tipologia', destra: true }]}
         righe={righe} caricamento={caricamento}
         errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
-        vuoto={{ t: 'Nessun articolo', s: tips.length ? 'Nessun articolo di queste tipologie a catalogo.' : 'Gli articoli letti dalle fatture compaiono qui.' }}
-        sel={sel} onSel={setSel} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
+        vuoto={cerca.trim() ? { t: `Nessun risultato per «${cerca.trim()}»`, s: 'Prova con un altro nome di articolo o di fornitore.' } : { t: 'Nessun articolo', s: tips.length ? 'Nessun articolo di queste tipologie a catalogo.' : 'Gli articoli letti dalle fatture compaiono qui.' }}
+        sel={selEff} onSel={setSel} onFissa={() => { if (sel === null && selEff) setSel(selEff) }} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={selEff ?? ''}
       />
       {unita.dati && (
         <Modale tel={tel} esce={unita.esce} onChiudi={() => unita.chiudi()} titolo="Unità di misura" sotto={unita.dati.a.nome} piede={<PiedeModale tel={tel} onOk={salvaUnita} etichetta="Salva" disabilitato={lavoro} onAnnulla={() => unita.chiudi()} />}>

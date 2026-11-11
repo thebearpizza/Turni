@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast'
 import { useTelefono } from '@/hooks/useTelefono'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
+import { corrisponde } from '@/components/shared/CampoRicerca'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
 import { Vista, Pannello, type RigaVista } from './Vista'
@@ -33,6 +34,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
   const [sel, setSel] = useState<string | null>(null)
+  const [cerca, setCerca] = useState('')
   const [catalogo, setCatalogo] = useState<{ id: string; righe: ArticoloCat[] } | null>(null)
   const { stato: sk, avvia, pronto } = useScheletro()
 
@@ -77,20 +79,26 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     return { l: fs.find(f => f.categoria)?.categoria ?? 'Altro no food', c: TIPOLOGIE.altro_no_food.c }
   }
 
-  const righe: RigaVista[] = agg.map(x => {
+  // La ricerca restringe solo l'elenco: i numeri di riepilogo e la quota
+  // sugli acquisti restano quelli di tutto il mese.
+  const righe: RigaVista[] = agg.filter(x => corrisponde(cerca, x.fo?.nome)).map(x => {
     const t = tipoDi(x.id, x.fs)
     return { id: x.id, a: x.fo?.nome ?? '—', as: x.fo?.piva ? `P.IVA ${x.fo.piva}` : 'P.IVA non censita', lc: t.c, b: eu(x.net, 0), c: String(x.fs.length), cTono: 'neu', t: t.l, tTono: 'neu', ord: [(x.fo?.nome ?? '').toLowerCase(), x.net, x.fs.length, t.l] }
   })
 
+  // Tablet: all'apertura il dettaglio mostra la prima riga invece del
+  // riquadro vuoto (stato derivato; sul telefono aprirebbe un foglio).
+  const selEff = sel ?? (tel ? null : righe[0]?.id ?? null)
+
   // Catalogo del fornitore scelto, con prezzo corrente (RPC esistente).
   useEffect(() => {
-    if (!sel) return
+    if (!selEff) return
     let annullato = false
-    createClient().rpc('fornitore_catalogo_con_prezzo', { p_fornitore_id: sel }).then(({ data }) => {
-      if (!annullato) setCatalogo({ id: sel, righe: (data ?? []) as ArticoloCat[] })
+    createClient().rpc('fornitore_catalogo_con_prezzo', { p_fornitore_id: selEff }).then(({ data }) => {
+      if (!annullato) setCatalogo({ id: selEff, righe: (data ?? []) as ArticoloCat[] })
     })
     return () => { annullato = true }
-  }, [sel])
+  }, [selEff])
 
   const mod = useUscita<{ id: string; nome: string; piva: string }>()
   const uni = useUscita<{ id: string; nome: string; verso: string | null }>()
@@ -116,7 +124,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     toast({ title: `${d.nome} unito in ${anag.get(d.verso)?.nome ?? ''}` }); carica()
   }
 
-  const x = agg.find(y => y.id === sel)
+  const x = agg.find(y => y.id === selEff)
   let dettaglio: React.ReactNode = null
   if (x) {
     const t = tipoDi(x.id, x.fs)
@@ -148,14 +156,15 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
   return (
     <>
       <Vista tel={tel} skeleton={sk}
-        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" />}
+        locali={single ? undefined : <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={v => { avvia(); setLoc(v[0] ?? null); setSel(null); setTimeout(pronto, 0) }} className="sm:mx-0 sm:px-0" />}
+        ricerca={{ valore: cerca, onCambia: v => { setCerca(v); setSel(null) }, segnaposto: 'Cerca fornitore' }}
         mese={{ etichetta: etichettaMese(mese), prec: () => cambiaMese(-1), succ: () => cambiaMese(1), precOk: true, succOk: mese < meseOggi }}
         kpis={[{ l: 'Fornitori attivi', v: String(agg.length) }, { l: `Spesa netta ${MESE.toLowerCase()}`, v: eu(tot, 0) }]}
         colonne={[{ l: 'Fornitore' }, { l: 'Spesa netta', destra: true }, { l: 'Fatture', destra: true }, { l: 'Tipologia', destra: true }]}
         righe={righe} caricamento={caricamento}
         errore={errore ? { testo: errore, riprova: () => { avvia(); carica() } } : null}
-        vuoto={{ t: 'Nessun fornitore attivo', s: `I fornitori con fatture in ${MESE.toLowerCase()} compaiono qui.` }}
-        sel={sel} onSel={setSel} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={sel ?? ''}
+        vuoto={cerca.trim() && agg.length ? { t: `Nessun risultato per «${cerca.trim()}»`, s: `Nessun fornitore con fatture in ${MESE.toLowerCase()} ha questo nome.` } : { t: 'Nessun fornitore attivo', s: `I fornitori con fatture in ${MESE.toLowerCase()} compaiono qui.` }}
+        sel={selEff} onSel={setSel} onFissa={() => { if (sel === null && selEff) setSel(selEff) }} onChiudi={() => setSel(null)} dettaglio={dettaglio} chiaveDettaglio={selEff ?? ''}
       />
       {mod.dati && (
         <Modale tel={tel} esce={mod.esce} onChiudi={() => mod.chiudi()} titolo="Dati del fornitore" sotto={mod.dati.nome}

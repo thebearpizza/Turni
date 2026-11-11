@@ -121,7 +121,7 @@ export function VistaNormale({ c }: { c: Ctx }) {
               {(['pos', 'con', 'bon'] as const).map(k => <div key={k} className="transition-[width] duration-[600ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]" style={{ width: `${tot ? (v.X[k] / tot) * 100 : 0}%`, background: COLORI_PAG[k] }} />)}
             </div>
             {([['POS', 'pos'], ['Contanti', 'con'], ['Bonifico', 'bon']] as const).map(([l, k]) => (
-              <button key={k} type="button" onClick={c.fumPagamento(l, k)} className={cn('-mx-2 -my-1 grid min-h-9 grid-cols-[12px_1fr_auto_48px] items-center gap-2.5 rounded-[8px] px-2 text-left', tocco, sfioro)}>
+              <button key={k} type="button" onClick={c.fumPagamento(l, k)} className={cn('-mx-2 -my-1.5 grid min-h-10 grid-cols-[12px_1fr_auto_48px] items-center gap-2.5 rounded-[8px] px-2 text-left', tocco, sfioro)}>
                 <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORI_PAG[k] }} />
                 <span className="text-sm font-medium">{l}</span>
                 <span className="font-mono text-sm font-medium">{eu(v.X[k], 0)}</span>
@@ -239,7 +239,7 @@ export function VistaNormale({ c }: { c: Ctx }) {
               const ha = v.rows.some(r => giornoSett(r.data) === w)
               return (
                 <button key={w} type="button" disabled={!ha} onClick={ha ? c.fumGiornoSett(null, w) : undefined}
-                  className={cn('flex h-8 items-center justify-center rounded-[6px] text-xs font-medium text-[oklch(0.35_0.01_250)] dark:text-foreground/80', ha ? 'cursor-pointer hover:bg-[oklch(0.95_0.01_250)] active:scale-[0.96] dark:hover:bg-secondary' : 'cursor-default')}>
+                  className={cn('flex h-10 items-center justify-center rounded-[6px] text-xs font-medium text-[oklch(0.35_0.01_250)] dark:text-foreground/80', ha ? 'cursor-pointer hover:bg-[oklch(0.95_0.01_250)] active:scale-[0.96] dark:hover:bg-secondary' : 'cursor-default')}>
                   {WD[w]}
                 </button>
               )
@@ -311,7 +311,7 @@ export function VistaNormale({ c }: { c: Ctx }) {
               </div>
               <div className="flex flex-col gap-2">
                 {cats.map(k => (
-                  <button key={k.c} type="button" onClick={c.fumCategoria(k.c, c.dati.spA, true)} className={cn('-mx-2 grid min-h-9 grid-cols-[12px_1fr_auto_40px] items-center gap-2.5 rounded-[8px] px-2 text-left', tocco, sfioro)}>
+                  <button key={k.c} type="button" onClick={c.fumCategoria(k.c, c.dati.spA, true)} className={cn('-mx-2 -my-0.5 grid min-h-10 grid-cols-[12px_1fr_auto_40px] items-center gap-2.5 rounded-[8px] px-2 text-left', tocco, sfioro)}>
                     <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: k.col }} />
                     <span className="truncate text-sm font-medium">{k.c}</span>
                     <span className="font-mono text-[13px] font-medium">{eu(k.t)}</span>
@@ -327,7 +327,7 @@ export function VistaNormale({ c }: { c: Ctx }) {
           <Titolo t="Vendite per categoria" s="dal report di chiusura" />
           {vendite.length === 0 ? <p className={cn('text-sm', MUTO)}>Nessun report vendite caricato nel periodo.</p> : vendite.map(([cat, val], i) => (
             <button key={cat} type="button" onClick={c.fumCategoria(cat, c.dati.veA, false)}
-              className={cn('-mx-2 grid min-h-9 items-center gap-3 rounded-[8px] px-2 text-left', tocco, sfioro)}
+              className={cn('-mx-2 -my-0.5 grid min-h-10 items-center gap-3 rounded-[8px] px-2 text-left', tocco, sfioro)}
               style={{ gridTemplateColumns: tel ? '76px minmax(0,1fr) 84px 36px' : '96px 1fr 96px 40px' }}>
               <span className="truncate text-sm font-medium">{cat}</span>
               <div className="h-[22px] overflow-hidden rounded-[5px] bg-[oklch(0.95_0.01_250)] dark:bg-secondary">
@@ -375,7 +375,7 @@ function CardFornitori({ c }: { c: Ctx }) {
                   const p = r.per.get(l.id)!
                   return { l: l.nome, dot: l.colore, v: eu(p.t), p: `${p.n} fatt.` }
                 }))}
-                className={cn('-mx-2 grid min-h-9 items-center gap-3 rounded-[8px] px-2 text-left', tocco, sfioro)}
+                className={cn('-mx-2 -my-0.5 grid min-h-10 items-center gap-3 rounded-[8px] px-2 text-left', tocco, sfioro)}
                 style={{ gridTemplateColumns: tel ? 'minmax(0,1fr) 84px 44px' : 'minmax(0,180px) 1fr 104px 52px 64px' }}>
                 <span className="truncate text-sm font-medium">{r.nome}</span>
                 {!tel && (
@@ -390,7 +390,7 @@ function CardFornitori({ c }: { c: Ctx }) {
             )
           })}
           {righe.length > 8 && (
-            <button type="button" onClick={() => setTutti(t => !t)} className="self-start text-[13px] font-medium text-[oklch(0.45_0.1_180)] active:scale-[0.97] dark:text-[oklch(0.75_0.1_180)]">
+            <button type="button" onClick={() => setTutti(t => !t)} className="-my-2.5 flex min-h-10 items-center self-start text-[13px] font-medium text-[oklch(0.45_0.1_180)] active:scale-[0.97] dark:text-[oklch(0.75_0.1_180)]">
               {tutti ? 'Mostra meno' : `Mostra tutti (${righe.length})`}
             </button>
           )}

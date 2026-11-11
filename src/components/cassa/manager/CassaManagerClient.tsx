@@ -165,21 +165,8 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     return () => { sb.removeChannel(ch) }
   }, [sec, carica])
 
-  // Spese della chiusura selezionata (per la voce "Spese" espandibile).
-  const chiusuraSel = useMemo(() => {
-    if (!sel) return null
-    if (sec === 'chiusure') return chiusure.find(c => `${c.restaurant_id}|${c.data}` === sel) ?? null
-    if (sec === 'approvazioni') return modifiche.find(m => m.id === sel)?.ch ?? null
-    return buste.find(b => b.ch.id === sel)?.ch ?? null
-  }, [sel, sec, chiusure, modifiche, buste])
-  useEffect(() => {
-    const id = chiusuraSel?.id
-    if (!id || spese[id]) return
-    createClient().from('cassa_spese').select('*, categoria:cassa_categorie(nome)').eq('chiusura_id', id).order('created_at').then(({ data }) => setSpese(s => ({ ...s, [id]: (data ?? []) as CassaSpesa[] })))
-  }, [chiusuraSel, spese])
-
-  const cambiaLoc = (x: string[]) => { avvia(); setSel(null); setLoc(x) }
-  const cambiaMese = (m: string) => { avvia(); setSel(null); setMese(m) }
+  const cambiaLoc = (x: string[]) => { avvia(); setSel(null); setSpO(false); setLoc(x) }
+  const cambiaMese = (m: string) => { avvia(); setSel(null); setSpO(false); setMese(m) }
   const seleziona = (k: string) => { setSpO(false); setDEsce(false); setSel(k) }
   const chiudiDett = () => { setDEsce(true); setTimeout(() => { setSel(null); setDEsce(false) }, USCITA) }
 
@@ -191,6 +178,14 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   let heads: [string, 'left' | 'right'][] = []
   let cols = ''
   let vuoto: { t: string; s: string } | null = null
+  // Riga effettivamente aperta nel dettaglio. Sul tablet il pannello a
+  // destra non resta vuoto: senza una scelta esplicita (o se la riga scelta
+  // non è più in elenco) vale la prima riga utile. È uno stato derivato, non
+  // un setState in un effect; sul telefono niente automatismo, aprirebbe il
+  // foglio dal basso da solo.
+  let selEff: string | null = null
+  // Chiusura della riga aperta: serve a caricarne le spese (vedi sotto).
+  let chiusuraSel: CassaChiusura | null = null
 
   const sezioniChiusura = (c: CassaChiusura, m?: ModificaLetta | null): Dettaglio['secs'] => {
     const sp = spese[c.id] ?? []
@@ -260,8 +255,13 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     kpis = [{ l: 'Entrate', v: eur0(ent) }, { l: 'Margine', v: (mar < 0 ? '−' : '') + eur0(mar), c: mar < 0 ? 'text-neg' : undefined }, { l: 'Coperti', v: inv.reduce((s, c) => s + Number(c.coperti), 0).toLocaleString('it-IT', { useGrouping: 'always' } as Intl.NumberFormatOptions) }]
     vuoto = righe.length ? null : { t: 'Nessuna chiusura nel mese', s: 'Le chiusure inviate dai cassieri compaiono qui, dalla più recente.' }
 
+    // In automatico la prima riga con una chiusura davvero inviata (un
+    // giorno mancante in cima non ha nulla da mostrare), altrimenti la prima.
     const cur = tutte.find(x => `${x.li}|${x.d}` === sel)
+      ?? (tel ? undefined : tutte.find(x => x.c?.stato === 'confermata') ?? tutte[0])
     if (cur) {
+      selEff = `${cur.li}|${cur.d}`
+      chiusuraSel = cur.c
       const titolo = `${locNome(cur.li)} · ${dataLunga(cur.d)}`
       const c = cur.c
       if (!c || c.stato !== 'confermata') {
@@ -320,8 +320,10 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     righe = vis.map(m => ({ k: m.id, li: m.ch!.restaurant_id, giorno: m.ch!.data, a: `${dataBreve(m.ch!.data)} · ${locNome(m.ch!.restaurant_id)}`, as: `${m.chi} · ${quando(m.created_at)}`, b: prima(m), cl: '', c: '', banV: 0, t: 'Da rivedere', tono: 'warn', esce: uscite.includes(m.id) }))
     kpis = [{ l: 'Da rivedere', v: String(vis.length), c: vis.length ? 'text-warn' : undefined }]
     vuoto = righe.length ? null : { t: 'Nessuna modifica da rivedere', s: 'Quando un cassiere modifica una chiusura già inviata, la trovi qui.' }
-    const m = vis.find(x => x.id === sel)
+    const m = vis.find(x => x.id === sel) ?? (tel ? undefined : vis[0])
     if (m && m.ch) {
+      selEff = m.id
+      chiusuraSel = m.ch
       const decidi = async (ok: boolean) => {
         const res = await fetch('/api/cassa/modifica-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modificaId: m.id, action: ok ? 'approve' : 'reject' }) })
         const r = await res.json().catch(() => null)
@@ -347,9 +349,11 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     const inC = vis.filter(b => !b.vers)
     kpis = [{ l: 'In cassaforte', v: eur(inC.reduce((s, b) => s + Number(b.ch.contanti_per_banca), 0)), c: 'text-warn' }, { l: 'Buste', v: String(inC.length) }]
     vuoto = righe.length ? null : { t: 'Nessuna busta nell’ultimo mese', s: 'Ogni chiusura inviata genera una busta con i contanti per la banca.' }
-    const x = vis.find(b => b.ch.id === sel)
+    const x = vis.find(b => b.ch.id === sel) ?? (tel ? undefined : vis[0])
     if (x) {
       const c = x.ch
+      selEff = c.id
+      chiusuraSel = c
       dett = {
         titolo: `Busta N° ${x.n}`, sotto: `${locNome(c.restaurant_id)} · chiusura di ${dataLunga(c.data)}`, t: x.vers ? 'Versata' : 'In cassaforte', tono: x.vers ? 'ok' : 'warn',
         stats: [{ l: 'Contanti per banca', v: eur(Number(c.contanti_per_banca)) }, { l: 'Banca teorica', v: eur(Number(c.banca_teorica)) }],
@@ -370,6 +374,14 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     }
   }
 
+  // Spese della chiusura aperta (voce "Spese" espandibile): si caricano
+  // alla prima apertura, anche quando la riga è stata scelta in automatico.
+  const idSpese = chiusuraSel?.id ?? null
+  useEffect(() => {
+    if (!idSpese || spese[idSpese]) return
+    createClient().from('cassa_spese').select('*, categoria:cassa_categorie(nome)').eq('chiusura_id', idSpese).order('created_at').then(({ data }) => setSpese(s => ({ ...s, [idSpese]: (data ?? []) as CassaSpesa[] })))
+  }, [idSpese, spese])
+
   // Raggruppamento per giorno con più locali (Chiusure): intestazione
   // fissa con il totale delle buste del giorno.
   type Voce = { h: true; l: string; b: string } | (RigaLista & { h: false; grp: boolean })
@@ -385,24 +397,33 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   const aperto = !!dett
   const rCols = tel ? 'minmax(0,1fr) auto' : cols
 
+  // Numeri di riepilogo. Sul tablet stanno nella riga di testa; sul telefono
+  // sono un blocco a sé, figlio diretto della colonna della pagina (gap 12),
+  // così data-ritira li chiude quando si scorre l'elenco e ne riassorbe lo
+  // spazio (dentro la riga a capo il margine negativo non lo recupererebbe).
+  const numeri = (
+    <div data-ritira="" className={cn('flex min-w-0 rounded-[12px]', tel ? 'flex-none border border-border bg-card py-2.5' : '')}>
+      {kpis.map((k, i) => (
+        <div key={k.l} className={cn('flex min-w-0 flex-col', tel ? 'flex-1 items-start px-3' : 'items-end px-2.5', tel && i > 0 && 'border-l border-border')}>
+          <span className="text-xs font-medium text-muted-foreground">{k.l}</span>
+          <span className={cn('font-mono text-[17px] font-semibold', tel && 'self-center', k.c)}>{k.v}</span>
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <Contenitore>
       <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className={cn('relative flex min-h-0 flex-1 flex-col gap-3', tel ? 'px-4' : 'px-8')}>
         <div className="relative z-[2] flex flex-none flex-wrap items-center gap-2.5">
           <div data-sk-keep="" className={tel ? 'min-w-0 flex-[1_1_100%]' : 'min-w-0 flex-[0_1_auto]'}>
-            <PilloleLocali multipla tuttiComeVuoto etichettaTutti="Tutti" locali={locali} selezionati={loc} onCambia={cambiaLoc} className={tel ? '' : 'mx-0 px-0'} />
+            <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={loc} onCambia={cambiaLoc} className={tel ? '' : 'mx-0 px-0'} />
           </div>
           {sec === 'chiusure' && <NavMese mese={mese} min="2020-01" max={oggi.slice(0, 7)} onCambia={cambiaMese} className={tel ? 'flex-[1_1_100%]' : ''} />}
           {!tel && <span className="flex-1" />}
-          <div className={cn('flex min-w-0 rounded-[12px]', tel ? 'flex-[1_1_100%] border border-border bg-card py-2.5' : '')}>
-            {kpis.map((k, i) => (
-              <div key={k.l} className={cn('flex min-w-0 flex-col', tel ? 'flex-1 items-start px-3' : 'items-end px-2.5', tel && i > 0 && 'border-l border-border')}>
-                <span className="text-xs font-medium text-muted-foreground">{k.l}</span>
-                <span className={cn('font-mono text-[17px] font-semibold', tel && 'self-center', k.c)}>{k.v}</span>
-              </div>
-            ))}
-          </div>
+          {!tel && numeri}
         </div>
+        {tel && numeri}
 
         <div className={cn('grid min-h-0 flex-1 gap-4', tel ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]')}>
           <div className="anim-swapin flex min-h-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
@@ -429,7 +450,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
                   <span className="flex items-baseline gap-2 font-mono text-xs font-medium"><span>Buste</span><span className="min-w-[84px] text-right">{r.b}</span></span>
                 </div>
               ) : (() => {
-                const act = sel === r.k
+                const act = selEff === r.k
                 const titolo = r.grp ? r.as : r.a
                 const sotto = r.grp ? '' : r.as
                 const nascondiT = tel && r.t === 'Inviata'
@@ -463,7 +484,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
           {sopraDock(<>
           {tel && aperto && <div onClick={chiudiDett} className="fixed inset-0 z-[69] transition-[background] duration-300" style={{ background: dEsce ? 'rgba(15,20,30,0)' : 'rgba(15,20,30,.22)' }} />}
           {(!tel || aperto) && (
-            <div key={`${sec}|${sel}`} className={cn('z-[70] flex min-h-0 flex-col overflow-hidden border border-border bg-card', dEsce ? 'anim-swapout' : 'anim-swapin',
+            <div key={`${sec}|${selEff}`} className={cn('z-[70] flex min-h-0 flex-col overflow-hidden border border-border bg-card', dEsce ? 'anim-swapout' : 'anim-swapin',
               tel ? 'fixed inset-x-0 bottom-0 top-[12dvh] rounded-t-[20px] shadow-[0_20px_60px_rgba(20,30,50,.18)]' : 'relative rounded-[12px]')}>
               {!dett ? (
                 <div className="flex flex-1 items-center justify-center text-sm font-medium text-muted-foreground">Seleziona una riga per vedere il dettaglio.</div>

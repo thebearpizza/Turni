@@ -154,7 +154,7 @@ export function OdsClient({ tasks, completedTaskIds, userId, userDepartment }: P
               key={k}
               type="button"
               onClick={() => setVista(k)}
-              className={cn('flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium transition-colors active:scale-[0.97]',
+              className={cn('flex h-10 min-w-11 items-center justify-center rounded-full px-3.5 text-[13px] font-medium transition-colors active:scale-[0.97]',
                 vista === k ? 'bg-primary text-primary-foreground' : 'border border-line-strong')}
             >
               {l}

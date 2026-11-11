@@ -465,11 +465,11 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
       {bozzeAltrove.length > 0 && (
         <div className={cn('flex flex-none flex-wrap gap-2', tel ? 'px-4 pb-3' : 'px-8 pt-3')}>
           {bozzeAltrove.map(b => (
-            <div key={b.id} className="flex h-10 items-center gap-1 rounded-full bg-warn-tint pl-3.5 pr-1 text-[13px] font-medium text-warn">
-              <button type="button" onClick={() => vaiA(b.restaurant_id, b.data)} className="active:scale-[0.98]">
+            <div key={b.id} className="flex h-10 items-center gap-1 rounded-full bg-warn-tint pl-3.5 text-[13px] font-medium text-warn">
+              <button type="button" onClick={() => vaiA(b.restaurant_id, b.data)} className="h-10 active:scale-[0.98]">
                 Bozza non inviata · {role === 'manager' ? `${restaurants.find(r => r.id === b.restaurant_id)?.name ?? ''} · ` : ''}{dataBreve(b.data)} · <span className="font-semibold underline underline-offset-2">Riprendi</span>
               </button>
-              <button type="button" aria-label="Elimina bozza" onClick={() => eliminaBozzaGiorno(b)} className="flex h-8 w-8 items-center justify-center rounded-full active:scale-[0.94]"><IconaX size={14} /></button>
+              <button type="button" aria-label="Elimina bozza" onClick={() => eliminaBozzaGiorno(b)} className="flex h-10 w-10 items-center justify-center rounded-full active:scale-[0.94]"><IconaX size={14} /></button>
             </div>
           ))}
         </div>
@@ -490,7 +490,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="grid flex-none grid-cols-3 gap-1.5 px-5 pb-3.5">
             {fasi.map((l, i) => (
-              <button key={l} type="button" onClick={() => vaiFase(i)} className="flex flex-col gap-1.5 text-left">
+              // Area toccabile di 41 px attorno al disegno (barretta + etichetta,
+              // 25 px): i margini negativi lasciano l'impaginazione com'era.
+              <button key={l} type="button" onClick={() => vaiFase(i)} className="-my-2 flex min-h-10 flex-col gap-1.5 py-2 text-left">
                 <span className={cn('h-[3px] rounded-[2px]', i + 1 <= fase ? 'bg-[oklch(0.58_0.12_180)]' : 'bg-border')} />
                 <span className={cn('text-xs', i + 1 === fase ? 'font-semibold' : 'font-medium text-muted-foreground')}>{i + 1} {l}</span>
               </button>
@@ -633,7 +635,7 @@ function BarraAlta({ tel, role, locali, restaurantId, data, oggi, calendario, on
     <div className={cn('relative z-20 flex flex-none flex-wrap items-center gap-3', tel ? 'px-4 pb-3' : 'min-h-[72px] border-b border-border px-8 py-3')}>
       <div className="relative" data-cal>
         <button type="button" onClick={() => (calendario.aperto ? calendario.chiudi() : calendario.apri())}
-          className="-ml-2 flex min-h-8 items-center gap-1 rounded-[4px] px-2 text-[15px] font-medium underline decoration-[oklch(0.82_0.01_250)] underline-offset-4 active:scale-[0.98]">
+          className="-my-1 -ml-2 flex min-h-10 items-center gap-1 rounded-[4px] px-2 text-[15px] font-medium underline decoration-[oklch(0.82_0.01_250)] underline-offset-4 active:scale-[0.98]">
           {dataLunga(data)}<IconaGiu />
         </button>
         {calendario.aperto && (

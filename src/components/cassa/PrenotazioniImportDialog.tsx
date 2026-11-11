@@ -437,7 +437,7 @@ export function PrenotazioniImportDialog({ open, onOpenChange, restaurantId, onI
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-7 shrink-0 px-2"
+                    className="shrink-0 px-2"
                     disabled={ignorandoId === v.logId || salvando}
                     onClick={() => ignoraCoda(v.logId)}
                   >

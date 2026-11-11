@@ -1,5 +1,6 @@
 'use client'
 import { SelettoreMese } from '@/components/shared/SelettoreMese'
+import { CampoRicerca } from '@/components/shared/CampoRicerca'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
@@ -37,7 +38,11 @@ interface Props {
   schede?: { k: string; l: string; n: number }[]
   scheda?: string
   onScheda?: (k: string) => void
+  /** Campo di ricerca (riga 3): il filtro lo applica la pagina. */
+  ricerca?: { valore: string; onCambia: (v: string) => void; segnaposto: string }
   filtri?: { k: string; l: string; on: boolean }[]
+  /** Solo telefono: il pulsante "Filtri" (FiltriFoglio) che sostituisce le pillole `filtri`. */
+  filtriTel?: ReactNode
   onFiltro?: (k: string) => void
   kpis: Kpi[]
   azione?: ReactNode
@@ -48,6 +53,12 @@ interface Props {
   vuoto: { t: string; s: string }
   sel: string | null
   onSel: (id: string) => void
+  /**
+   * Tablet: primo tocco dentro il dettaglio. Se la riga è quella scelta
+   * da sola all'apertura, la pagina la fissa come selezione vera, così un
+   * aggiornamento della lista non cambia riga sotto le dita.
+   */
+  onFissa?: () => void
   /** Chiude il dettaglio (dopo lo swapout sul telefono). */
   onChiudi: () => void
   dettaglio: ReactNode | null
@@ -80,61 +91,105 @@ export function Vista(p: Props) {
   }, [tel, onChiudi])
 
   const pannello = p.dettaglio
-    ? <PannelloCornice key={p.chiaveDettaglio} tel={tel} esce={esce} onChiudi={chiudi}>{p.dettaglio}</PannelloCornice>
+    ? <PannelloCornice key={p.chiaveDettaglio} tel={tel} esce={esce} onChiudi={chiudi} onFissa={tel ? undefined : p.onFissa}>{p.dettaglio}</PannelloCornice>
     : null
+
+  // Pezzi della testata: sul telefono vanno ciascuno su una riga propria,
+  // figlia diretta della colonna (così `data-ritira` può chiuderli quando
+  // la lista scorre); sul tablet restano in un'unica riga che va a capo.
+  const mese = p.mese && (
+    <SelettoreMese etichetta={p.mese.etichetta} onPrec={p.mese.prec} onSucc={p.mese.succ} precOk={p.mese.precOk} succOk={p.mese.succOk} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
+  )
+  const ricerca = p.ricerca && (
+    <CampoRicerca valore={p.ricerca.valore} onCambia={p.ricerca.onCambia} segnaposto={p.ricerca.segnaposto} className={tel ? 'flex-[1_1_0]' : 'w-[240px] flex-none'} />
+  )
+  const azione = p.azione && <div data-sk-keep="" className={cn('flex-none', !tel && 'ml-2')}>{p.azione}</div>
+  const schede = p.schede && (
+    <div data-ritira={tel ? '' : undefined} className="flex min-w-0 flex-none gap-0.5 overflow-x-auto rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] [scrollbar-width:none] dark:bg-secondary">
+      {p.schede.map(s => {
+        const on = s.k === p.scheda
+        return (
+          <button key={s.k} type="button" onClick={() => p.onScheda?.(s.k)}
+            className={cn('flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] text-[13px] font-medium transition-colors duration-200', tel ? 'flex-[1_1_0] px-2' : 'px-3',
+              on ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-muted-foreground')}>
+            {s.l}<span className="font-mono text-[11px] font-medium opacity-70">{s.n}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+  // Sul telefono, se la pagina passa `filtriTel` (il foglio dei filtri),
+  // le pillole in riga non si mostrano: stanno nel foglio.
+  const filtri = p.filtri && !(tel && p.filtriTel) && (
+    <div data-sk-keep="" data-ritira={tel ? '' : undefined} className="flex min-w-0 flex-none gap-1.5 overflow-x-auto overscroll-contain [scrollbar-width:none]">
+      {p.filtri.map(f => (
+        <button key={f.k} type="button" onClick={() => p.onFiltro?.(f.k)}
+          className={cn('flex h-10 items-center justify-center whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97]', tel && 'flex-[1_1_0]',
+            f.on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}>
+          {f.l}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <div data-sk-root="" data-sk-on={p.skeleton === 'on' ? '1' : undefined} className={cn('relative box-border flex h-full flex-col gap-3', tel ? 'px-4' : 'px-8')}>
-      <div className="flex flex-none flex-wrap items-center gap-2.5">
-        {p.locali && <div data-sk-keep="" className={cn('min-w-0', tel ? 'flex-[1_1_100%]' : 'flex-[0_1_auto]')}>{p.locali}</div>}
-        {p.mese && (
-          <SelettoreMese etichetta={p.mese.etichetta} onPrec={p.mese.prec} onSucc={p.mese.succ} precOk={p.mese.precOk} succOk={p.mese.succOk} className={tel ? 'flex-[1_1_0]' : 'w-[220px] flex-none'} />
-        )}
-        {p.schede && (
-          <div className={cn('flex min-w-0 gap-0.5 overflow-x-auto rounded-[9px] bg-[oklch(0.93_0.01_250)] p-[3px] [scrollbar-width:none] dark:bg-secondary', tel ? 'order-3 flex-[1_1_100%]' : 'flex-none')}>
-            {p.schede.map(s => {
-              const on = s.k === p.scheda
-              return (
-                <button key={s.k} type="button" onClick={() => p.onScheda?.(s.k)}
-                  className={cn('flex h-[34px] items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] text-[13px] font-medium transition-colors duration-200', tel ? 'flex-[1_1_0] px-2' : 'px-3',
-                    on ? 'bg-card text-foreground shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-muted-foreground')}>
-                  {s.l}<span className="font-mono text-[11px] font-medium opacity-70">{s.n}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-        {p.filtri && (
-          <div data-sk-keep="" className={cn('flex min-w-0 gap-1.5 overflow-x-auto overscroll-contain [scrollbar-width:none]', tel ? 'order-3 flex-[1_1_100%]' : 'flex-none')}>
-            {p.filtri.map(f => (
-              <button key={f.k} type="button" onClick={() => p.onFiltro?.(f.k)}
-                className={cn('flex h-10 items-center justify-center whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-colors duration-200 active:scale-[0.97]', tel && 'flex-[1_1_0]',
-                  f.on ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.88_0.01_250)] bg-card dark:border-line-strong')}>
-                {f.l}
-              </button>
-            ))}
-          </div>
-        )}
-        {!tel && <span className="flex-1" />}
-        {p.kpis.map(k => (
-          <div key={k.l} className={cn('flex min-w-0 flex-col', tel ? 'order-4 flex-[1_1_0] items-start px-0.5' : 'flex-none items-end px-2.5')}>
-            <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{k.l}</span>
-            <span className={cn('whitespace-nowrap font-mono text-[17px] font-semibold', k.tono && k.tono !== 'neu' ? TESTO[k.tono] : 'text-foreground')}>{k.v}</span>
-          </div>
-        ))}
-        {p.azione && <div data-sk-keep="" className={cn('flex-none', !tel && 'ml-2')}>{p.azione}</div>}
-      </div>
+      {tel ? (
+        <>
+          {/* Ordine uguale in tutta l'app: locali, mese + azione, ricerca e
+              filtri, numeri di riepilogo. Schede, pillole e numeri si
+              ritirano scorrendo la lista (data-ritira). */}
+          {p.locali && <div data-sk-keep="" className="min-w-0 flex-none">{p.locali}</div>}
+          {p.mese && <div className="flex flex-none items-center gap-2.5">{mese}{azione}</div>}
+          {(p.ricerca || p.filtriTel || (!p.mese && p.azione)) && (
+            // Senza il mese l'azione sta qui: una riga solo per il pulsante
+            // toglierebbe spazio alla lista.
+            <div className="flex flex-none items-center gap-2">{ricerca}{p.filtriTel}{!p.mese && azione}</div>
+          )}
+          {schede}
+          {filtri}
+          {p.kpis.length > 0 && (
+            // Colonne uguali e etichetta che può andare a capo: i numeri
+            // restano dentro lo schermo anche con etichette lunghe
+            // ("Spesa netta novembre").
+            <div data-ritira="" className="grid flex-none gap-x-3" style={{ gridTemplateColumns: `repeat(${p.kpis.length}, minmax(0, 1fr))` }}>
+              {p.kpis.map(k => (
+                <div key={k.l} className="flex min-w-0 flex-col justify-end px-0.5">
+                  <span className="text-pretty text-xs font-medium leading-[1.25] text-muted-foreground">{k.l}</span>
+                  <span className={cn('whitespace-nowrap font-mono text-[17px] font-semibold', k.tono && k.tono !== 'neu' ? TESTO[k.tono] : 'text-foreground')}>{k.v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-none flex-wrap items-center gap-2.5">
+          {p.locali && <div data-sk-keep="" className="min-w-0 flex-[0_1_auto]">{p.locali}</div>}
+          {mese}
+          {ricerca}
+          {schede}
+          {filtri}
+          <span className="flex-1" />
+          {p.kpis.map(k => (
+            <div key={k.l} className="flex min-w-0 flex-none flex-col items-end px-2.5">
+              <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{k.l}</span>
+              <span className={cn('whitespace-nowrap font-mono text-[17px] font-semibold', k.tono && k.tono !== 'neu' ? TESTO[k.tono] : 'text-foreground')}>{k.v}</span>
+            </div>
+          ))}
+          {azione}
+        </div>
+      )}
 
       <div className={cn('grid min-h-0 flex-1 gap-4', tel ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]')}>
         <div className="anim-swapin flex min-h-0 flex-col overflow-hidden rounded-[12px] border border-border bg-card">
           {!tel && (
-            <div className="grid flex-none gap-2.5 border-b border-border bg-[oklch(0.97_0.01_250)] px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-secondary" style={{ gridTemplateColumns: COLONNE_TABLET }}>
+            <div className="grid flex-none gap-2.5 border-b border-border bg-[oklch(0.97_0.01_250)] px-4 py-1 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-secondary" style={{ gridTemplateColumns: COLONNE_TABLET }}>
               {p.colonne.map((c, i) => {
                 const on = ord?.i === i
                 return (
                   <button key={c.l} type="button"
                     onClick={() => setOrd(o => (!o || o.i !== i ? { i, dir: 1 } : o.dir === 1 ? { i, dir: -1 } : null))}
-                    className={cn('flex min-h-7 select-none items-center gap-1 uppercase tracking-[.05em] active:scale-[0.97]', c.destra ? 'justify-end' : 'justify-start', on && 'text-foreground')}>
+                    className={cn('flex min-h-10 select-none items-center gap-1 uppercase tracking-[.05em] active:scale-[0.97]', c.destra ? 'justify-end' : 'justify-start', on && 'text-foreground')}>
                     {c.l}
                     <IcoGiu s={10} className="transition-[transform,opacity] duration-300" style={{ opacity: on ? 1 : 0, transform: `rotate(${on && ord?.dir === -1 ? 180 : 0}deg)` }} />
                   </button>
@@ -199,10 +254,11 @@ export function Vista(p: Props) {
 
 // ── Pannello di dettaglio ────────────────────────────────────────────
 
-function PannelloCornice({ tel, esce, onChiudi, children }: { tel: boolean; esce: boolean; onChiudi: () => void; children: ReactNode }) {
+function PannelloCornice({ tel, esce, onChiudi, onFissa, children }: { tel: boolean; esce: boolean; onChiudi: () => void; onFissa?: () => void; children: ReactNode }) {
   return (
     <div
       data-kpcard="1"
+      onPointerDownCapture={onFissa}
       className={cn('relative flex min-h-0 w-full flex-col border border-border bg-card', tel ? 'rounded-t-[20px] shadow-[0_20px_60px_rgba(20,30,50,.18)]' : 'rounded-[12px]', esce ? 'anim-swapout' : 'anim-swapin')}
     >
       <ChiudiContesto.Provider value={tel ? onChiudi : null}>{children}</ChiudiContesto.Provider>

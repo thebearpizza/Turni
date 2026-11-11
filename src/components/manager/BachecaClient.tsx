@@ -282,7 +282,10 @@ function BachecaAltro({ vista, initialBulletins, initialReads, restaurants, staf
     toast({ title: 'Comunicato rimosso' })
   }
 
-  const b = visibili.find(x => x.id === sel) ?? null
+  // Tablet: il primo comunicato è scelto da solo, così il dettaglio non
+  // resta vuoto. Sul telefono no: aprirebbe il foglio.
+  const selEff = visibili.some(x => x.id === sel) ? sel : tel ? null : visibili[0]?.id ?? null
+  const b = visibili.find(x => x.id === selEff) ?? null
   let d: DatiDettaglio | null = null
   if (b) {
     const s = stat.get(b.id)!, letti = new Set(s.letti.map(r => r.user_id))
@@ -306,17 +309,17 @@ function BachecaAltro({ vista, initialBulletins, initialReads, restaurants, staf
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
       <BarraAltro
-        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" /> : undefined}
+        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={cambiaLoc} className="sm:mx-0 sm:px-0" /> : undefined}
         kpis={kpis}
         nuovo={canPost ? { l: 'Nuovo comunicato', onClick: nuovo.apri } : undefined}
       />
       <GrigliaAltro>
         <ElencoAltro
           testate={[{ l: 'Comunicato', a: 'left' }, { l: 'Lettura', a: 'right' }, { l: 'Data', a: 'right' }, { l: 'Destinatari', a: 'right' }]}
-          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={sel} onScegli={scegli}
+          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={selEff} onScegli={scegli}
           vuoto={{ t: 'Nessun comunicato', s: loc ? 'Nessun comunicato per questo locale.' : 'Pubblica il primo comunicato con Nuovo comunicato.' }}
         />
-        <PannelloDettaglio d={d} chiave={`bacheca|${sel}|${loc}`} esce={esceD} onChiudi={chiudiDettaglio} />
+        <PannelloDettaglio d={d} chiave={`bacheca|${selEff}|${loc}`} esce={esceD} onChiudi={chiudiDettaglio} senzaRighe={righe.length === 0} />
       </GrigliaAltro>
       {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
       {nuovo.foglio}
@@ -371,7 +374,8 @@ function BachecaCapo({ initialBulletins, initialReads, restaurants, staff, curre
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-card">
         <div className="flex flex-none items-center justify-between border-b border-border px-3.5 py-3">
           <span className="text-[15px] font-semibold">Messaggi</span>
-          {canPost && <button type="button" onClick={nuovo.apri} className="text-[13px] font-medium text-muted-foreground active:scale-[0.97]">+ Nuovo</button>}
+          {/* Link testuale piccolo per disegno: l'area toccabile è 44px, i margini negativi la tengono dentro la riga. */}
+          {canPost && <button type="button" onClick={nuovo.apri} className="-my-3 -mr-3.5 flex h-11 min-w-11 items-center justify-end px-3.5 text-[13px] font-medium text-muted-foreground active:scale-[0.97]">+ Nuovo</button>}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {bulletins.length === 0 && (

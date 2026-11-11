@@ -181,6 +181,7 @@ function datiDettaglio(t: OdsTask, staff: PersonaOds[], comp: CompletamentoRiga[
 // ── Manager e direttore ──────────────────────────────────────────────────
 
 function OdsAltro({ vista, staff, restaurants, tasks, perTask, diOggi, elimina, nuovi, apriForm, disabilitato }: Props & Comune) {
+  const tel = useTelefono()
   const single = vista === 'direttore'
   const [loc, setLoc] = useState<string | null>(null)
   const [reps, setReps] = useState<string[]>([])
@@ -210,22 +211,31 @@ function OdsAltro({ vista, staff, restaurants, tasks, perTask, diOggi, elimina, 
     onClick: () => { setReps(x => { const n = x.includes(r) ? x.filter(y => y !== r) : [...x, r]; return n.length === DEPARTMENTS.length ? [] : n }); det.setSel(null) },
   }))
 
-  const t = L.find(x => x.id === det.sel)
+  // Telefono: un reparto alla volta, scelto nel foglio "Filtri".
+  const filtri = [{
+    titolo: 'Reparto', opzioni: DEPARTMENTS.map(r => ({ k: r as string, l: r as string })), valore: reps.length === 1 ? reps[0] : null,
+    onCambia: (k: string | null) => { setReps(k ? [k] : []); det.setSel(null) },
+  }]
+
+  // Tablet: la prima riga è scelta da sola, così il dettaglio non resta
+  // vuoto. Sul telefono no: aprirebbe il foglio.
+  const selEff = L.some(x => x.id === det.sel) ? det.sel : tel ? null : L[0]?.id ?? null
+  const t = L.find(x => x.id === selEff)
   const d = t ? datiDettaglio(t, staff, perTask.get(t.id) ?? [], info(t.restaurant_id)?.nome ?? '', () => elimina(t, () => det.setSel(null))) : null
 
   return (
     <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative box-border flex h-full flex-col gap-3 px-4 sm:px-8">
       <BarraAltro
-        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => { setLoc(ids[0] ?? null); det.setSel(null); avvia(); pronto() }} etichettaTutti="Tutti" className="sm:mx-0 sm:px-0" /> : undefined}
-        schede={schede} kpis={kpis} nuovo={{ l: 'Nuovo ODS', onClick: apriForm, disabilitato }}
+        locali={!single ? <PilloleLocali locali={locali} selezionati={loc ? [loc] : []} onCambia={ids => { setLoc(ids[0] ?? null); det.setSel(null); avvia(); pronto() }} className="sm:mx-0 sm:px-0" /> : undefined}
+        schede={schede} filtri={filtri} kpis={kpis} nuovo={{ l: 'Nuovo ODS', onClick: apriForm, disabilitato }}
       />
       <GrigliaAltro>
         <ElencoAltro
           testate={[{ l: 'Ordine di servizio', a: 'left' }, { l: 'Oggi', a: 'right' }, { l: 'Reparto', a: 'right' }, { l: 'Ricorrenza', a: 'right' }]}
-          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={det.sel} onScegli={det.scegli}
+          colonne="minmax(0,1.4fr) 100px 92px 132px" righe={righe} scelta={selEff} onScegli={det.scegli}
           vuoto={{ t: 'Nessun ordine di servizio', s: reps.length || loc ? 'Nessun ODS per questo filtro.' : 'Crea il primo con Nuovo ODS.' }}
         />
-        <PannelloDettaglio d={d} chiave={`ods|${det.sel}|${loc}`} esce={det.esce} onChiudi={det.chiudi} />
+        <PannelloDettaglio d={d} chiave={`ods|${selEff}|${loc}`} esce={det.esce} onChiudi={det.chiudi} senzaRighe={righe.length === 0} />
       </GrigliaAltro>
       {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
     </div>

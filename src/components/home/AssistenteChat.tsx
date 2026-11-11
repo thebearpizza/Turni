@@ -110,7 +110,7 @@ export function AssistenteChat({ nome, uscita, onChiudi, domandaIniziale, sottot
           <div className="flex flex-wrap gap-1.5">
             {SUGGERIMENTI.filter(s => !fatte.has(s)).map(s => (
               <button key={s} type="button" onClick={() => invia(s)} disabled={attesa}
-                className="rounded-full border border-[oklch(0.88_0.01_250)] px-3 py-[7px] text-[13px] font-medium active:scale-[0.97] disabled:opacity-60 dark:border-border">{s}</button>
+                className="min-h-10 rounded-full border border-[oklch(0.88_0.01_250)] px-3 py-[7px] text-[13px] font-medium active:scale-[0.97] disabled:opacity-60 dark:border-border">{s}</button>
             ))}
           </div>
         )}
