@@ -92,6 +92,10 @@ export function TurniManagerClient({
   // Si apre sul primo locale; "Tutti" resta perché le pillole condivise lo
   // mostrano sempre.
   const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
+  // Manager: "Tutti" vale "i locali ricevuti dal server" (gli attivi, o
+  // quello aperto in archivio), mai "nessun filtro": altrimenti le letture
+  // dal browser riporterebbero dentro i turni dei locali nascosti.
+  const chiaveLocali = restaurants.map(r => r.id).join(',')
   // Locali scelti nelle pillole, a selezione multipla (vuoto = tutti): si
   // può lavorare su più locali insieme, come deciso dal gestore.
   const [locs, setLocs] = useState<string[]>(() => isManager && restaurants[0] ? [restaurants[0].id] : [])
@@ -122,6 +126,8 @@ export function TurniManagerClient({
         const inScope = (row: { department: string | null }) => !isCapo || !currentDepartment || row.department === currentDepartment
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const rec = payload.new as Turn
+          // Manager: i turni di un locale non visibile non entrano.
+          if (isManager && !chiaveLocali.split(',').includes(rec.restaurant_id)) { setTurns(p => p.filter(t => t.id !== rec.id)); return }
           if (!inScope(rec)) { setTurns(p => p.filter(t => t.id !== rec.id)); return }
           const { data } = await supabase.from('turns').select(SELECT_TURNI).eq('id', rec.id).single()
           if (data) setTurns(p => mergeTurns(p, [data as unknown as Turn]))
@@ -132,7 +138,7 @@ export function TurniManagerClient({
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [isManager, isCapo, currentDepartment, currentRestaurantId])
+  }, [isManager, isCapo, currentDepartment, currentRestaurantId, chiaveLocali])
 
   // ── Settimane caricate al volo ───────────────────────────────────────
   // Il server carica la settimana corrente ±1; le altre si chiedono quando
@@ -145,12 +151,14 @@ export function TurniManagerClient({
     const fine = piuGiorni(lun, 6)
     let q = supabase.from('turns').select(SELECT_TURNI).gte('date', lun).lte('date', fine)
     q = scopeTurnsQuery(q, scope, currentUserId)
+    const idsLocali = chiaveLocali ? chiaveLocali.split(',') : ['00000000-0000-0000-0000-000000000000']
+    if (isManager) q = q.in('restaurant_id', idsLocali)
     const [{ data, error }, ass] = await Promise.all([
       q,
       // Assenze approvate della settimana per tutti (griglia e timeline):
-      // il manager le vede su tutti i suoi locali (RLS), gli altri sul proprio.
+      // il manager le vede sui suoi locali visibili, gli altri sul proprio.
       (isManager
-        ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').lte('start_date', fine).gte('end_date', lun)
+        ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').in('restaurant_id', idsLocali).lte('start_date', fine).gte('end_date', lun)
         : currentRestaurantId
           ? supabase.from('absences').select('user_id, type, start_date, end_date').eq('status', 'approved').eq('restaurant_id', currentRestaurantId).lte('start_date', fine).gte('end_date', lun)
           : Promise.resolve({ data: null })),
@@ -160,7 +168,7 @@ export function TurniManagerClient({
     setTurns(p => mergeTurns(p, (data ?? []) as unknown as Turn[]))
     if (ass.data) setAssenze(p => [...p, ...(ass.data as AssenzaReparto[])])
     return true
-  }, [currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, isManager])
+  }, [currentUserRole, currentRestaurantId, currentDepartment, currentIsDirettore, currentUserId, isManager, chiaveLocali])
 
   async function vaiASettimana(lun: string) {
     setLunedi(lun)

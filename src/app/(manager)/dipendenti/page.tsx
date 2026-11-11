@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DipendentiClient, type DipendenteRiga } from '@/components/manager/DipendentiClient'
 import type { ShiftSlot } from '@/types'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 export default async function DipendentiPage() {
   const supabase = await createClient()
@@ -23,9 +24,25 @@ export default async function DipendentiPage() {
   // I consulenti del lavoro hanno la loro sezione: qui solo lo staff dei locali.
   let qDip = supabase.from('profiles').select('*, restaurant:restaurants(id, name)').neq('role', 'consulente_lavoro').order('full_name')
   let qFasce = supabase.from('shift_slots').select('*').order('department').order('start_time')
-  if (locale) { qRist = qRist.eq('id', locale); qDip = qDip.eq('restaurant_id', locale); qFasce = qFasce.eq('restaurant_id', locale) }
+  // Manager: i locali attivi, o quello aperto in archivio. Il direttore
+  // resta sul proprio locale, anche se nascosto.
+  const archivio = isManager ? await archivioAperto() : null
+  if (locale) qRist = qRist.eq('id', locale)
+  else if (isManager) qRist = soloVisibili(qRist, archivio)
+  const { data: restaurants } = await qRist
 
-  const [{ data: restaurants }, { data: dipendenti }, { data: fasce }] = await Promise.all([qRist, qDip, qFasce])
+  if (locale) { qDip = qDip.eq('restaurant_id', locale); qFasce = qFasce.eq('restaurant_id', locale) }
+  else if (isManager) {
+    // Persone e fasce seguono l'elenco dei locali: lo staff dei locali
+    // nascosti non compare con "Tutti". Chi non ha un locale (es. gli altri
+    // manager) resta visibile fra gli attivi, come prima; in archivio no.
+    const ids = (restaurants ?? []).map(r => r.id as string)
+    qFasce = qFasce.in('restaurant_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
+    if (archivio) qDip = qDip.eq('restaurant_id', archivio)
+    else qDip = ids.length ? qDip.or(`restaurant_id.is.null,restaurant_id.in.(${ids.join(',')})`) : qDip.is('restaurant_id', null)
+  }
+
+  const [{ data: dipendenti }, { data: fasce }] = await Promise.all([qDip, qFasce])
 
   return (
     <DipendentiClient

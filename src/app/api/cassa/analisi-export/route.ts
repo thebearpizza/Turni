@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -53,10 +54,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
   }
 
+  // Gli id arrivano dal client: valgono solo quelli dei locali visibili
+  // (attivi, o il locale aperto in archivio), così l'esportazione non può
+  // mescolare un locale nascosto con gli altri nemmeno da una scheda rimasta aperta.
+  const { data: visibili } = await soloVisibili(supabase.from('restaurants').select('id'), await archivioAperto())
+  const ammessi = new Set((visibili ?? []).map(r => r.id as string))
+  const ids = (restaurant_ids as unknown[]).filter((id): id is string => typeof id === 'string' && ammessi.has(id))
+
   const { data } = await supabase
     .from('cassa_chiusure')
     .select('*, restaurant:restaurants(name)')
-    .in('restaurant_id', restaurant_ids)
+    .in('restaurant_id', ids)
     .eq('stato', 'confermata')
     .gte('data', start)
     .lte('data', end)

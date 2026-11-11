@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { RiquadroArticolo } from '@/types'
+import { archivioAperto } from '@/lib/localiVisibili'
 
 // POST /api/cassa/fatture/salva
 // Body: FatturaRisolta (vedi FatturaCapture.tsx) + restaurant_id.
@@ -33,8 +34,16 @@ export async function POST(request: Request) {
   }
 
   // Serve owner_id per creare eventuali nuovi articoli di catalogo (sotto).
-  const { data: restaurant } = await supabase.from('restaurants').select('owner_id').eq('id', restaurant_id).single()
+  const { data: restaurant } = await supabase.from('restaurants').select('owner_id, nascosto').eq('id', restaurant_id).single()
   if (!restaurant) return NextResponse.json({ error: 'Locale non trovato o non autorizzato' }, { status: 403 })
+  // Locale nascosto: il manager vi registra fatture solo con l'archivio
+  // aperto su quel locale (le schermate non lo propongono; qui si ferma
+  // anche una scheda rimasta aperta da prima). Chi è legato al locale
+  // (direttore, cassiere) continua a lavorarci.
+  if (restaurant.nascosto && (await archivioAperto()) !== restaurant_id) {
+    const { data: chi } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (chi?.role === 'manager') return NextResponse.json({ error: 'Locale nascosto: aprilo in archivio da Ristoranti per registrarvi fatture.' }, { status: 403 })
+  }
 
   // File XML conservato (import da fattura elettronica): solo un percorso
   // del bucket fatture_xml nella cartella del locale o della coda.

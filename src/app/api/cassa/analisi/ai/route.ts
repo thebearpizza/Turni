@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { NextResponse } from 'next/server'
 import { generateText, tool, stepCountIs, type ModelMessage } from 'ai'
 import { google } from '@ai-sdk/google'
@@ -394,10 +395,10 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const restaurantIds = body?.restaurant_ids as string[] | undefined
+  const idsRichiesti = body?.restaurant_ids as string[] | undefined
   const clientMessages = body?.messages as Array<{ role: 'user' | 'assistant'; content: string }> | undefined
 
-  if (!restaurantIds?.length) return NextResponse.json({ error: 'Nessun locale selezionato' }, { status: 400 })
+  if (!Array.isArray(idsRichiesti) || !idsRichiesti.length) return NextResponse.json({ error: 'Nessun locale selezionato' }, { status: 400 })
   if (!clientMessages?.length || clientMessages[clientMessages.length - 1]?.role !== 'user') {
     return NextResponse.json({ error: 'Richiesta non valida' }, { status: 400 })
   }
@@ -406,6 +407,15 @@ export async function POST(request: Request) {
   if (clientMessages.length > 40) {
     return NextResponse.json({ error: 'Conversazione troppo lunga: chiudi e riapri per fare una nuova domanda.' }, { status: 400 })
   }
+
+  // Gli id arrivano dal client: valgono solo quelli dei locali visibili
+  // (attivi, o il locale aperto in archivio). Chiusure, spese e fatture
+  // che l'assistente legge partono tutte da qui, quindi un locale
+  // nascosto non entra mai nei suoi conti insieme agli attivi.
+  const { data: visibili } = await soloVisibili(supabase.from('restaurants').select('id'), await archivioAperto())
+  const ammessi = new Set((visibili ?? []).map(r => r.id as string))
+  const restaurantIds = idsRichiesti.filter(id => ammessi.has(id))
+  if (!restaurantIds.length) return NextResponse.json({ error: 'Nessun locale selezionato' }, { status: 400 })
 
   // RLS di cassa_chiusure applica già lo stesso confine per ruolo del
   // fetch che fa il browser in AnalisiClient — nessun controllo extra sui

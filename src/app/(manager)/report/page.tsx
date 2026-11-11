@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { ReportClient } from '@/components/manager/ReportClient'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 export default async function ReportPage() {
   const supabase = await createClient()
@@ -23,7 +24,12 @@ export default async function ReportPage() {
   // pillole (come nel design: MTReport "single").
   let query = supabase.from('restaurants').select('id, name').order('name')
   if (!isManager) query = query.eq('id', profile?.restaurant_id ?? '00000000-0000-0000-0000-000000000000')
-  else if (profile?.managed_restaurant_ids) query = query.in('id', profile.managed_restaurant_ids as string[])
+  else {
+    if (profile?.managed_restaurant_ids) query = query.in('id', profile.managed_restaurant_ids as string[])
+    // Solo i locali attivi, o quello aperto in archivio: il Report legge
+    // persone, presenze e assenze dall'elenco che riceve.
+    query = soloVisibili(query, await archivioAperto())
+  }
   const { data: restaurants } = await query
 
   return (

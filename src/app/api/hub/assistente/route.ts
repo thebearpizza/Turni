@@ -5,6 +5,7 @@ import { runAiAssistant } from '@/lib/telegram/ai'
 import { getHubAiHistory, saveHubAiHistory } from '@/lib/hub/aiHistory'
 import type { Ctx } from '@/lib/telegram/context'
 import type { TelegramProfile } from '@/lib/telegram/auth'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 // POST /api/hub/assistente
 // Body: { testo: string }
@@ -48,6 +49,14 @@ export async function POST(request: Request) {
   }
 
   const profile = profileRow as unknown as TelegramProfile
+  // Manager: l'assistente lavora sugli stessi locali del resto dell'app
+  // (gli attivi, oppure quello aperto in archivio). L'elenco si legge con
+  // il client dell'utente, non con l'admin: il cookie dell'archivio è un
+  // id qualsiasi e solo la RLS garantisce che sia un locale suo.
+  if (profile.role === 'manager') {
+    const { data: visibili } = await soloVisibili(supabase.from('restaurants').select('id'), await archivioAperto())
+    profile.locali_visibili = (visibili ?? []).map(r => r.id as string)
+  }
   const ctx: Ctx = {
     // Non usati da runAiAssistant per il percorso web (la cronologia
     // arriva da historyStore, non da ctx.telegramId/chatId) — restano

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { OdsManagerClient, type CompletamentoRiga, type PersonaOds } from '@/components/manager/OdsManagerClient'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import type { OdsTask } from '@/types'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 const TZ = 'Europe/Rome'
 
@@ -33,13 +34,22 @@ export default async function OdsPage() {
   let qTask = supabase.from('ods_tasks').select('*, assignee:profiles!assigned_to(id, full_name)').order('created_at', { ascending: false })
   let qStaff = supabase.from('profiles').select('id, full_name, department, restaurant_id').in('role', ['dipendente', 'capo_servizio']).order('full_name')
   let qRist = supabase.from('restaurants').select('id, name').order('name')
-  if (locale) { qTask = qTask.eq('restaurant_id', locale); qStaff = qStaff.eq('restaurant_id', locale); qRist = qRist.eq('id', locale) }
+  // Manager: i locali attivi, o quello aperto in archivio; ODS e staff
+  // seguono quell'elenco, così quelli dei locali nascosti restano fuori.
+  if (locale) qRist = qRist.eq('id', locale)
+  else if (isManager) qRist = soloVisibili(qRist, await archivioAperto())
+  const { data: restaurants } = await qRist
+  if (locale) { qTask = qTask.eq('restaurant_id', locale); qStaff = qStaff.eq('restaurant_id', locale) }
+  else if (isManager) {
+    const ids = (restaurants ?? []).map(r => r.id as string)
+    const idsLocali = ids.length ? ids : ['00000000-0000-0000-0000-000000000000']
+    qTask = qTask.in('restaurant_id', idsLocali); qStaff = qStaff.in('restaurant_id', idsLocali)
+  }
 
-  const [{ data: tasks }, { data: completions }, { data: staff }, { data: restaurants }] = await Promise.all([
+  const [{ data: tasks }, { data: completions }, { data: staff }] = await Promise.all([
     qTask,
     supabase.from('ods_completions').select('task_id, user_id, completed_at, profile:profiles!user_id(id, full_name)').gte('completed_at', getOdsCutoff()),
     qStaff,
-    qRist,
   ])
 
   // Solo i completamenti degli ODS visibili: il capo servizio non riceve

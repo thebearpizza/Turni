@@ -18,6 +18,9 @@ export default async function ConsulenteDashboardPage() {
     .from('restaurants')
     .select('id, name')
     .in('id', restaurantIds.length > 0 ? restaurantIds : ['00000000-0000-0000-0000-000000000000'])
+    // I locali nascosti (chiusi o stagionali) non compaiono al consulente:
+    // per lui non c'è archivio.
+    .eq('nascosto', false)
     .order('name')
 
   // Manager di riferimento per il primo messaggio: senza, un consulente la

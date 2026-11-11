@@ -7,7 +7,9 @@ const TZ = 'Europe/Rome'
 // Dati della Home del manager (design MTHome): riepilogo del giorno,
 // indicatori di cassa, tabella dei locali con la chiusura di ieri e la
 // lista "Da fare". Tutto letto con il client dell'utente: RLS limita già
-// ai locali che gestisce.
+// ai locali che gestisce; in più la Home del manager si ferma ai locali
+// visibili (attivi, o il solo locale aperto in archivio), così un locale
+// nascosto non porta chiusure "mancanti", cose da fare o totali.
 
 export interface VoceSpesa { nome: string; categoria: string | null; importo: number }
 
@@ -130,12 +132,24 @@ const uno = <X,>(v: X | X[] | null | undefined): X | null => (Array.isArray(v) ?
  * `restaurantId`: Home a un solo locale (Direttore Smartphone / Tablet v2,
  * MTHome "single"): niente chiusure mancanti né modifiche in "Da fare"
  * (il direttore non ha la Cassa), solo le richieste del suo locale.
+ * `archivio`: id del locale nascosto aperto in archivio (solo manager; lo
+ * passa la pagina, perché questo modulo è importato anche dal client e
+ * non può leggere il cookie).
  */
-export async function datiHomeManager(supabase: SupabaseClient, restaurantId: string | null = null): Promise<DatiHome> {
+export async function datiHomeManager(supabase: SupabaseClient, restaurantId: string | null = null, archivio: string | null = null): Promise<DatiHome> {
   const singolo = restaurantId !== null
   // Filtro sul locale solo nella Home a un locale (tipizzato in modo lasco:
   // il vincolo generico sui builder di Postgrest fa esplodere il compilatore).
-  const solo = <Q,>(q: Q, col = 'restaurant_id'): Q => (singolo ? (q as unknown as { eq: (c: string, v: string) => Q }).eq(col, restaurantId!) : q)
+  // Locali della Home. Il direttore ha il suo (anche se nascosto); il
+  // manager quelli visibili: stessa regola di soloVisibili (lib/localiVisibili).
+  const qLocali = supabase.from('restaurants').select('id, name').order('name')
+  const { data: ristoranti } = await (singolo ? qLocali.eq('id', restaurantId!) : archivio ? qLocali.eq('id', archivio) : qLocali.eq('nascosto', false))
+  const idsLocali = (ristoranti ?? []).map(r => r.id as string)
+  // Ogni lettura segue quell'elenco (con nessun locale visibile `in ()` dà
+  // semplicemente zero righe).
+  const solo = <Q,>(q: Q, col = 'restaurant_id'): Q => (singolo
+    ? (q as unknown as { eq: (c: string, v: string) => Q }).eq(col, restaurantId!)
+    : (q as unknown as { in: (c: string, v: string[]) => Q }).in(col, idsLocali))
   const oggi = giorno(new Date())
   const ieri = piuGiorni(oggi, -1)
   const settePrima = piuGiorni(ieri, -7)
@@ -147,20 +161,24 @@ export async function datiHomeManager(supabase: SupabaseClient, restaurantId: st
   const fineMesePrima = piuGiorni(meseInizio, -1)
   const mesePrimaFine = [piuGiorni(mesePrimaInizio, giornoMese - 1), fineMesePrima].sort()[0]
 
-  const [{ data: ristoranti }, { data: chiusure }, { data: chiusurePrima }, { data: assenze }, { data: foto }, { data: modifiche }, { data: fattureDubbie }] = await Promise.all([
-    solo(supabase.from('restaurants').select('id, name').order('name'), 'id'),
+  const [{ data: chiusure }, { data: chiusurePrima }, { data: assenze }, { data: foto }, { data: modificheTutte }, { data: fattureDubbie }] = await Promise.all([
     supabase.from('cassa_chiusure').select('id, restaurant_id, data, totale_entrate, contanti_per_banca, coperti, incasso_asporto, stato, entrate_contanti, entrate_pos, entrate_bonifico, fondo_cassa_iniziale, fondo_cassa_finale, banca_teorica, differenza, totale_spese_giornaliere')
-      .gte('data', settePrima < meseInizio ? settePrima : meseInizio).lte('data', ieri),
-    supabase.from('cassa_chiusure').select('restaurant_id, totale_entrate').eq('stato', 'confermata').gte('data', mesePrimaInizio).lte('data', mesePrimaFine),
+      .in('restaurant_id', idsLocali).gte('data', settePrima < meseInizio ? settePrima : meseInizio).lte('data', ieri),
+    supabase.from('cassa_chiusure').select('restaurant_id, totale_entrate').in('restaurant_id', idsLocali).eq('stato', 'confermata').gte('data', mesePrimaInizio).lte('data', mesePrimaFine),
     solo(supabase.from('absences').select('id, type, start_date, end_date, restaurant_id, profile:profiles!user_id(full_name)').eq('status', 'pending')).order('start_date').limit(30),
     solo(supabase.from('attendances').select('id, check_in, restaurant_id, profile:profiles!user_id(full_name)').eq('needs_manager_approval', true)).order('check_in', { ascending: false }).limit(20),
-    singolo ? Promise.resolve({ data: [] }) : supabase.from('cassa_chiusure_modifiche').select('id, chiusura_id, payload, chiusura:cassa_chiusure(data, restaurant_id, entrate_contanti)').eq('stato', 'in_attesa').limit(20),
+    singolo ? Promise.resolve({ data: [] }) : supabase.from('cassa_chiusure_modifiche').select('id, chiusura_id, payload, chiusura:cassa_chiusure(data, restaurant_id, entrate_contanti)').eq('stato', 'in_attesa').limit(100),
     // Stessa definizione di "da verificare" di hub_indicatori_acquisti:
     // fatture con almeno un dato letto sospetto.
     solo(supabase.from('fatture').select('id, fornitore:fornitori(nome)').neq('verifiche_sospette', '[]')).limit(100),
   ])
 
   const rs = ristoranti ?? []
+  // Le modifiche non hanno il locale in riga: si tengono quelle la cui
+  // chiusura è di un locale in elenco (le prime 20, come prima).
+  const modifiche = ((modificheTutte ?? []) as { id: string; chiusura_id: string; payload: Record<string, number> | null; chiusura: unknown }[])
+    .filter(m => { const ch = uno(m.chiusura as { restaurant_id: string } | { restaurant_id: string }[] | null); return !!ch && idsLocali.includes(ch.restaurant_id) })
+    .slice(0, 20)
   const nomeDi = (id: string | null) => rs.find(r => r.id === id)?.name ?? '—'
   type C = {
     id: string; restaurant_id: string; data: string; totale_entrate: number; contanti_per_banca: number; coperti: number; incasso_asporto: number; stato: string
@@ -170,7 +188,7 @@ export async function datiHomeManager(supabase: SupabaseClient, restaurantId: st
   // il range parte comunque da settePrima, quindi sono già inclusi.
   const cs = (chiusure ?? []) as C[]
   const conf = cs.filter(c => c.stato === 'confermata')
-  const inRevisione = new Set(((modifiche ?? []) as { chiusura_id: string }[]).map(m => m.chiusura_id))
+  const inRevisione = new Set(modifiche.map(m => m.chiusura_id))
 
   // Voci di spesa delle chiusure di ieri, per il dettaglio "Spese" del foglio.
   const idsIeri = conf.filter(c => c.data === ieri).map(c => c.id)
@@ -235,7 +253,7 @@ export async function datiHomeManager(supabase: SupabaseClient, restaurantId: st
     : nomiF.length === 2 ? `${nomiF[0]} e ${nomiF[1]}`
     : `${nomiF[0]}, ${nomiF[1]} e ${nFatture - 2 === 1 ? 'un\'altra' : `altre ${nFatture - 2}`}`
 
-  const modificheRighe = ((modifiche ?? []) as { id: string; payload: Record<string, number> | null; chiusura: unknown }[]).map(m => {
+  const modificheRighe = modifiche.map(m => {
     const ch = uno(m.chiusura as { data: string; restaurant_id: string; entrate_contanti: number } | { data: string; restaurant_id: string; entrate_contanti: number }[] | null)
     return { m, ch }
   })

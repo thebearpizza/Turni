@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { ChiusuraCassaClient } from '@/components/cassa/ChiusuraCassaClient'
 
 export default async function ChiusuraCassaPage() {
@@ -19,9 +20,9 @@ export default async function ChiusuraCassaPage() {
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
 
   if (profile.role === 'manager') {
-    const { data: restaurants } = await supabase
-      .from('restaurants')
-      .select('id, name')
+    // Il manager sceglie fra i locali attivi, o ha il solo locale aperto
+    // in archivio. Il cassiere (sotto) vede il proprio anche se nascosto.
+    const { data: restaurants } = await soloVisibili(supabase.from('restaurants').select('id, name'), await archivioAperto())
       .order('name')
 
     return (

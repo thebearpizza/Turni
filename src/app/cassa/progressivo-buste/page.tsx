@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { CassaManagerClient, type LocaleCassa } from '@/components/cassa/manager/CassaManagerClient'
 
 // Cassa › Buste (MTCassa): progressivo delle buste di versamento.
@@ -12,6 +13,8 @@ export default async function ProgressivoBustePage() {
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (profile?.role !== 'manager') redirect('/cassa/chiusura')
 
-  const { data: restaurants } = await supabase.from('restaurants').select('id, name, closing_days').order('name')
+  // Solo i locali attivi, oppure il solo locale aperto in archivio: i
+  // dati della pagina seguono questo elenco ("Tutti" = questi id).
+  const { data: restaurants } = await soloVisibili(supabase.from('restaurants').select('id, name, closing_days, nascosto'), await archivioAperto()).order('name')
   return <CassaManagerClient sec="buste" restaurants={(restaurants ?? []) as LocaleCassa[]} />
 }

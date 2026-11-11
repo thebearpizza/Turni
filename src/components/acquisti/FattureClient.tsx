@@ -177,13 +177,20 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
   // ── Coda "Da assegnare" (solo manager; null = tabella non ancora creata) ──
   const [coda, setCoda] = useState<InAttesa[] | null>(null)
   const [locCoda, setLocCoda] = useState<string | null>(null)
+  const idLocali = restaurants.map(r => r.id).join(',')
   const caricaCoda = useCallback(async () => {
     if (ruolo !== 'manager') return
     const { data, error } = await createClient().from('fatture_xml_in_attesa')
       .select('id, restaurant_ids, fornitore, numero_documento, data, totale, motivo, file_nome, xml_path, dati').order('data', { ascending: false })
     if (error) { setCoda(c => (tabellaMancante(error) ? null : c)); return }
-    setCoda(((data ?? []) as unknown as InAttesa[]).map(x => ({ ...x, totale: x.totale == null ? null : Number(x.totale) })))
-  }, [ruolo])
+    // In coda restano visibili solo le fatture con almeno un candidato fra
+    // i locali in elenco (o senza candidati): quelle rimaste in dubbio fra
+    // soli locali nascosti si ritrovano aprendo quel locale in archivio.
+    const visibili = new Set(idLocali ? idLocali.split(',') : [])
+    setCoda(((data ?? []) as unknown as InAttesa[])
+      .filter(x => !x.restaurant_ids?.length || x.restaurant_ids.some(id => visibili.has(id)))
+      .map(x => ({ ...x, totale: x.totale == null ? null : Number(x.totale) })))
+  }, [ruolo, idLocali])
   useEffect(() => { caricaCoda() }, [caricaCoda])
 
   const resetDettaglio = () => { setEr(null); setRd({}); setKp(null); setDel(false); setLocCoda(null) }

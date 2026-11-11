@@ -1,5 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { apriArchivio, impostaNascosto } from '@/app/actions/archivio'
 import { createClient } from '@/lib/supabase/client'
 import { useAccountStatus } from '@/contexts/AccountStatusContext'
 import { toast } from '@/hooks/use-toast'
@@ -56,7 +58,8 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
   const doppio = useDoppioTocco()
   const { stato: sk, avvia, pronto } = useScheletro(false)
 
-  const locali = useMemo(() => rist.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [rist])
+  // Qui i locali nascosti si vedono (è da qui che si riaprono), in coda e marcati.
+  const locali = useMemo(() => rist.map((r, i) => ({ id: r.id, nome: r.nascosto ? `${r.name} · nascosto` : r.name, colore: coloreLocale(i), nascosto: !!r.nascosto })).sort((a, b) => Number(a.nascosto) - Number(b.nascosto)), [rist])
   const R = rist.find(r => r.id === loc) ?? rist[0] ?? null
   const colore = locali.find(l => l.id === R?.id)?.colore ?? 'var(--line-strong)'
   const FA = R ? fasce.filter(s => s.restaurant_id === R.id).sort((x, y) => DEPARTMENTS.indexOf(x.department) - DEPARTMENTS.indexOf(y.department) || x.start_time.localeCompare(y.start_time)) : []
@@ -199,6 +202,25 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
 
   const qr = useUscita<Restaurant>()
 
+  // Locali nascosti: chiusi o stagionali. Fuori dai locali attivi e da
+  // "Tutti" in tutta l'app; l'archivio ne riapre uno alla volta.
+  const router = useRouter()
+  async function nascondi(r: Rist, nascosto: boolean) {
+    if (isPending) return
+    const res = await impostaNascosto(r.id, nascosto)
+    if (res.error) { toast({ title: res.error, variant: 'destructive' }); return }
+    setRist(rs => rs.map(x => (x.id === r.id ? { ...x, nascosto } : x)))
+    toast({ title: nascosto ? `${r.name} nascosto: non compare più fra i locali attivi` : `${r.name} è di nuovo fra i locali attivi` })
+    router.refresh()
+  }
+  async function archivio(r: Rist) {
+    const res = await apriArchivio(r.id)
+    if (res.error) { toast({ title: res.error, variant: 'destructive' }); return }
+    // Si atterra sulle chiusure: è lì che di solito si va a guardare lo storico.
+    router.push('/cassa/lista-chiusure')
+    router.refresh()
+  }
+
   // Locali con lo stesso codice destinatario: lo smistamento li distingue
   // solo con i riferimenti.
   const condivisoCon = (r: Rist) => (r.codice_destinatario ? rist.filter(x => x.id !== r.id && x.codice_destinatario === r.codice_destinatario).map(x => x.name) : [])
@@ -210,7 +232,7 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
     const giorni = s?.days_of_week?.length ? GIORNI.filter(g => s.days_of_week.includes(g)).map(g => WEEK_DAYS_SHORT[g]).join(', ') : 'Tutti'
     const btn = 'flex h-11 items-center justify-center rounded-[8px] border text-sm font-semibold active:scale-[0.98]'
     d = {
-      titolo: R.name, sotto: R.address || 'Indirizzo non impostato', tag: R.is_demo ? 'Demo' : 'Attivo', tono: R.is_demo ? 'warn' : 'ok',
+      titolo: R.name, sotto: R.address || 'Indirizzo non impostato', tag: R.nascosto ? 'Nascosto' : R.is_demo ? 'Demo' : 'Attivo', tono: R.nascosto || R.is_demo ? 'warn' : 'ok',
       stats: [{ l: 'Coordinate GPS', v: coord(R) || '—' }, { l: 'Raggio timbratura', v: RAGGIO_TIMBRATURA }],
       sezioni: [
         ...(s ? [{
@@ -241,6 +263,20 @@ export function RestaurantsClient({ initialRestaurants, initialFasce }: Props) {
               ? R.riferimenti_fatture.map((x, i) => ({ l: `«${x}»`, v: i === 0 ? 'Riferimento' : '' }))
               : [{ l: 'Riferimenti per le fatture', v: 'Nessuno' }]),
           ],
+        },
+        {
+          h: 'Visibilità',
+          righe: [{ l: R.nascosto ? 'Nascosto: fuori dai locali attivi e da «Tutti»' : 'Attivo: compare in tutte le pagine', v: '' }],
+          coda: R.nascosto ? (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button type="button" className={`${btn} border-primary bg-primary text-primary-foreground`} onClick={() => archivio(R)}>Apri archivio</button>
+              <button type="button" className={`${btn} border-line-strong`} onClick={() => nascondi(R, false)}>Mostra di nuovo</button>
+            </div>
+          ) : (
+            <div className="mt-2 grid">
+              <button type="button" className={`${btn} border-line-strong`} onClick={() => nascondi(R, true)}>Nascondi locale</button>
+            </div>
+          ),
         },
         { h: 'Giorni di chiusura · tocca per cambiare', righe: [] },
       ],

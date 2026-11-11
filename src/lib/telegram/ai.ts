@@ -7,7 +7,7 @@ import { it } from 'date-fns/locale'
 import type { Ctx } from './context'
 import {
   isManager, isDirettore, isCapoServizio, canManagePresenze, canViewFinanze,
-  assigneeInScope, scopeTurnsQuery, scopeStaffQuery, toScopeProfile,
+  assigneeInScope, scopeTurnsQuery, scopeStaffQuery, toScopeProfile, soloLocaliManager, localiManager,
 } from './scope'
 import { TZ, isValidTime, normalizeTime, formatDateLabel } from './format'
 import { DEPARTMENTS, ODS_DAYS_IT, ODS_TYPE_LABELS, type OdsTaskType, type Department } from '@/types'
@@ -92,7 +92,7 @@ function buildSystemPrompt(ctx: Ctx): string {
 
   let scopeLabel: string
   if (isManager(profile)) {
-    scopeLabel = 'Manager: accesso globale a tutti i ristoranti e reparti.'
+    scopeLabel = 'Manager: accesso globale a tutti i ristoranti attivi e ai loro reparti (i locali nascosti restano fuori).'
   } else if (isDirettore(profile)) {
     scopeLabel = `Direttore del ristorante "${profile.restaurant?.name ?? ''}": accesso a tutti i reparti di questo ristorante.`
   } else {
@@ -148,6 +148,8 @@ function cercaDipendentiTool(ctx: Ctx) {
       } else if (isCapoServizio(ctx.profile)) {
         query = query.eq('restaurant_id', ctx.profile.restaurant_id).eq('department', ctx.profile.department)
       }
+      // Manager: solo chi lavora nei locali visibili (mai i nascosti).
+      query = soloLocaliManager(query, ctx.profile)
 
       if (nome?.trim()) query = query.ilike('full_name', `%${nome.trim()}%`)
 
@@ -453,7 +455,7 @@ function creaOdsTool(ctx: Ctx) {
         assignedTo = employee.id
       } else if (isManager(ctx.profile)) {
         if (!ristorante) return { error: 'Specifica il nome del ristorante: sei un manager e devi indicare a quale ristorante si riferisce il compito.' }
-        const { data: restaurants } = await ctx.admin.from('restaurants').select('id, name').ilike('name', `%${ristorante.trim()}%`)
+        const { data: restaurants } = await soloLocaliManager(ctx.admin.from('restaurants').select('id, name'), ctx.profile, 'id').ilike('name', `%${ristorante.trim()}%`)
         if (!restaurants?.length) return { error: `Nessun ristorante trovato con nome simile a "${ristorante}".` }
         if (restaurants.length > 1) return { error: `Più ristoranti trovati: ${(restaurants as { name: string }[]).map(r => r.name).join(', ')}. Specifica meglio.` }
         restaurantId = restaurants[0].id
@@ -551,6 +553,7 @@ function listaPresenzeTool(ctx: Ctx) {
         .order('check_in')
         .limit(60)
       if (isDirettore(ctx.profile)) query = query.eq('restaurant_id', ctx.profile.restaurant_id)
+      query = soloLocaliManager(query, ctx.profile)
 
       const { data: rows, error } = await query
       if (error) return { error: error.message }
@@ -623,6 +626,7 @@ function modificaPresenzaTool(ctx: Ctx) {
 
       let query = ctx.admin.from('attendances').select('id, check_in, check_out, restaurant_id').eq('id', presenza_id)
       if (isDirettore(ctx.profile)) query = query.eq('restaurant_id', ctx.profile.restaurant_id)
+      query = soloLocaliManager(query, ctx.profile)
       const { data: att, error: getErr } = await query.maybeSingle()
       if (getErr) return { error: getErr.message }
       if (!att) return { error: 'Presenza non trovata o non nel tuo ambito.' }
@@ -665,7 +669,11 @@ async function restaurantsInScope(ctx: Ctx): Promise<string[]> {
   }
   const { data: prof } = await ctx.admin.from('profiles').select('managed_restaurant_ids').eq('id', ctx.profile.id).single()
   const managed = (prof?.managed_restaurant_ids ?? null) as string[] | null
-  if (managed !== null) return managed
+  // Sempre dentro i locali visibili: incassi e spese di un locale nascosto
+  // non entrano nei totali che l'assistente riassume.
+  const visibili = localiManager(ctx.profile)
+  if (managed !== null) return visibili ? managed.filter(id => visibili.includes(id)) : managed
+  if (visibili) return visibili
   const { data: all } = await ctx.admin.from('restaurants').select('id')
   return (all ?? []).map((r: { id: string }) => r.id)
 }

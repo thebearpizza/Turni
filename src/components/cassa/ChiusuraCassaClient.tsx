@@ -61,7 +61,12 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   const sp = useSearchParams()
   const oggi = useMemo(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'), [])
 
-  const [restaurantId, setRestaurantId] = useState(sp.get('restaurant_id') ?? fixedRestaurantId ?? (restaurants.length === 1 ? restaurants[0].id : restaurants[0]?.id ?? ''))
+  // Il locale nell'indirizzo vale solo se è fra quelli ricevuti: un link
+  // a un locale nascosto (o non più in elenco) non deve aprirne la cassa.
+  const [restaurantId, setRestaurantId] = useState(() => {
+    const daUrl = sp.get('restaurant_id')
+    return (daUrl && restaurants.some(r => r.id === daUrl) ? daUrl : null) ?? fixedRestaurantId ?? restaurants[0]?.id ?? ''
+  })
   const [data, setData] = useState(() => sp.get('data') ?? dataDiDefault())
   const [fase, setFase] = useState<1 | 2 | 3>(1)
   const [faseEsce, setFaseEsce] = useState(false)

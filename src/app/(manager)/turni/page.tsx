@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { TurniManagerClient } from '@/components/manager/TurniManagerClient'
 import { scopeTurnsQuery, scopeStaffQuery, type ScopeProfile } from '@/lib/turniScope'
 import { startOfWeek, addDays, format } from 'date-fns'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 export default async function TurniPage() {
   const supabase = await createClient()
@@ -31,6 +32,17 @@ export default async function TurniPage() {
   const initialRangeStart = format(addDays(todayWeekStart, -7), 'yyyy-MM-dd')
   const initialRangeEnd = format(addDays(todayWeekStart, 13), 'yyyy-MM-dd')
 
+  // Manager: i locali attivi, o quello aperto in archivio. Turni, staff,
+  // turni fissi e assenze seguono quell'elenco, così con "Tutti" non
+  // entrano le persone e i turni dei locali nascosti. Gli altri ruoli
+  // restano sul proprio locale (anche se nascosto), come da scope.
+  const isManager = profile?.role === 'manager'
+  const { data: restaurants } = isManager
+    ? await soloVisibili(supabase.from('restaurants').select('id, name').order('name'), await archivioAperto())
+    : { data: [] as { id: string; name: string }[] }
+  const ids = (restaurants ?? []).map(r => r.id as string)
+  const idsLocali = ids.length ? ids : ['00000000-0000-0000-0000-000000000000']
+
   // ── Query Scoping (RBAC) — vedi src/lib/turniScope.ts ──────────────
   let turnsQuery = supabase
     .from('turns')
@@ -40,6 +52,7 @@ export default async function TurniPage() {
     .order('date', { ascending: true })
     .order('start_time', { ascending: true })
   turnsQuery = scopeTurnsQuery(turnsQuery, scopeProfile, user!.id)
+  if (isManager) turnsQuery = turnsQuery.in('restaurant_id', idsLocali)
 
   // Dipendenti assegnabili al turno — stesso scoping dei turni stessi
   let staffQuery = supabase
@@ -48,6 +61,7 @@ export default async function TurniPage() {
     .in('role', ['dipendente', 'capo_servizio'])
     .order('full_name')
   staffQuery = scopeStaffQuery(staffQuery, scopeProfile)
+  if (isManager) staffQuery = staffQuery.in('restaurant_id', idsLocali)
 
   // Turni standard (Pattern Master) — stesso scoping dei turni reali
   let standardQuery = supabase
@@ -55,15 +69,17 @@ export default async function TurniPage() {
     .select('*, profile:profiles!user_id(id, full_name)')
     .order('day_of_week')
   standardQuery = scopeTurnsQuery(standardQuery, scopeProfile, user!.id)
+  if (isManager) standardQuery = standardQuery.in('restaurant_id', idsLocali)
 
   // Malattie e ferie approvate del periodo: in rosso nella timeline del capo
   // servizio e nella griglia settimanale (Direttore v2). Il manager le legge
-  // su tutti i suoi locali (RLS), gli altri sul proprio.
-  const absencesQuery = profile?.role === 'manager'
+  // sui suoi locali visibili, gli altri sul proprio.
+  const absencesQuery = isManager
     ? supabase
         .from('absences')
         .select('user_id, type, start_date, end_date')
         .eq('status', 'approved')
+        .in('restaurant_id', idsLocali)
         .lte('start_date', initialRangeEnd)
         .gte('end_date', initialRangeStart)
     : profile?.restaurant_id
@@ -76,12 +92,9 @@ export default async function TurniPage() {
         .gte('end_date', initialRangeStart)
     : Promise.resolve({ data: [] })
 
-  const [{ data: turns }, { data: staff }, { data: restaurants }, { data: standardShifts }, { data: absences }] = await Promise.all([
+  const [{ data: turns }, { data: staff }, { data: standardShifts }, { data: absences }] = await Promise.all([
     turnsQuery,
     staffQuery,
-    profile?.role === 'manager'
-      ? supabase.from('restaurants').select('id, name').order('name')
-      : Promise.resolve({ data: [] }),
     standardQuery,
     absencesQuery,
   ])

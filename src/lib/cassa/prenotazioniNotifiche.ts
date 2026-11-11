@@ -20,10 +20,13 @@ export async function notificaNuovaPrenotazione(dettagli: DettagliNotifica): Pro
 
     const { data: restaurant } = await admin
       .from('restaurants')
-      .select('name, is_demo')
+      .select('name, is_demo, nascosto')
       .eq('id', dettagli.restaurant_id)
       .maybeSingle()
     if (!restaurant) return
+    // Locale nascosto (chiuso/stagionale): la prenotazione resta in agenda
+    // e in coda, visibili aprendo l'archivio, ma non parte nessuna notifica.
+    if (restaurant.nascosto) return
 
     const { data: managers } = await admin
       .from('profiles')

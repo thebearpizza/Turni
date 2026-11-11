@@ -64,7 +64,7 @@ export async function cmdTurni(ctx: Ctx) {
 // ── /nuovoturno — wizard creazione turno ──────────────────────────────
 export async function cmdNuovoTurno(ctx: Ctx) {
   if (isManager(ctx.profile)) {
-    const restaurants = await listRestaurants(ctx.admin)
+    const restaurants = await listRestaurants(ctx.admin, ctx.profile)
     if (!restaurants.length) return reply(ctx, 'Nessun ristorante trovato.')
     await setSession(ctx.telegramId, 'nt_restaurant', {})
     return reply(ctx, '🏢 Seleziona il ristorante:', { reply_markup: buildRestaurantKeyboard(restaurants, 'nt_rest') })
@@ -75,7 +75,7 @@ export async function cmdNuovoTurno(ctx: Ctx) {
 // ── /riposo — wizard inserimento riposo ────────────────────────────────
 export async function cmdRiposo(ctx: Ctx) {
   if (isManager(ctx.profile)) {
-    const restaurants = await listRestaurants(ctx.admin)
+    const restaurants = await listRestaurants(ctx.admin, ctx.profile)
     if (!restaurants.length) return reply(ctx, 'Nessun ristorante trovato.')
     await setSession(ctx.telegramId, 'r_restaurant', {})
     return reply(ctx, '🏢 Seleziona il ristorante:', { reply_markup: buildRestaurantKeyboard(restaurants, 'r_rest') })

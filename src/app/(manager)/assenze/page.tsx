@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AssenzeClient, type AssenzaRiga } from '@/components/manager/AssenzeClient'
 import { formatInTimeZone } from 'date-fns-tz'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 const TZ = 'Europe/Rome'
 const SELECT_ASSENZE = 'id, user_id, restaurant_id, type, start_date, end_date, certificate_code, notes, status, created_at, profile:profiles!user_id(id, full_name)'
@@ -33,14 +34,20 @@ export default async function AssenzePage() {
   let qDip = supabase.from('profiles').select('id, full_name, restaurant_id').in('role', ['dipendente', 'capo_servizio']).order('full_name')
   let qApp = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'approved').lte('start_date', ultimo).gte('end_date', `${mese}-01`)
   let qPen = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'pending').order('created_at', { ascending: false })
-  if (locale) {
-    qRist = qRist.eq('id', locale)
-    qDip = qDip.eq('restaurant_id', locale)
-    qApp = qApp.eq('restaurant_id', locale)
-    qPen = qPen.eq('restaurant_id', locale)
-  }
+  // Direttore: il proprio locale, anche se nascosto. Manager: solo i locali
+  // attivi, o quello aperto in archivio.
+  if (locale) qRist = qRist.eq('id', locale)
+  else if (isManager) qRist = soloVisibili(qRist, await archivioAperto())
+  const { data: restaurants } = await qRist
+  // Dipendenti e assenze seguono quell'elenco: senza, "Tutti" porterebbe
+  // dentro anche le persone e le assenze dei locali nascosti.
+  const ids = (restaurants ?? []).map(r => r.id as string)
+  const idsLocali = ids.length ? ids : ['00000000-0000-0000-0000-000000000000']
+  qDip = qDip.in('restaurant_id', idsLocali)
+  qApp = qApp.in('restaurant_id', idsLocali)
+  qPen = qPen.in('restaurant_id', idsLocali)
 
-  const [{ data: restaurants }, { data: dipendenti }, { data: approvate, error: e1 }, { data: richieste, error: e2 }] = await Promise.all([qRist, qDip, qApp, qPen])
+  const [{ data: dipendenti }, { data: approvate, error: e1 }, { data: richieste, error: e2 }] = await Promise.all([qDip, qApp, qPen])
   if (e1 || e2) console.error('[assenze] query error:', (e1 ?? e2)?.message)
 
   return (

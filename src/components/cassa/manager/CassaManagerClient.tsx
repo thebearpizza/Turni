@@ -30,7 +30,9 @@ import type { CassaChiusura, CassaSpesa } from '@/types'
 
 const TZ = 'Europe/Rome'
 export type SezioneCassa = 'chiusure' | 'approvazioni' | 'buste'
-export interface LocaleCassa { id: string; name: string; closing_days: number[] | null }
+// `nascosto`: locale chiuso/stagionale aperto in archivio (l'elenco arriva
+// già filtrato dal server: o solo attivi, o il solo locale in archivio).
+export interface LocaleCassa { id: string; name: string; closing_days: number[] | null; nascosto?: boolean | null }
 
 const ETICHETTE: Record<string, string> = {
   entrate_contanti: 'Contanti', entrate_pos: 'POS', entrate_bonifico: 'Bonifico', incasso_asporto: 'Asporto',
@@ -71,6 +73,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
 
   const [chiusure, setChiusure] = useState<CassaChiusura[]>([])
   const [primo, setPrimo] = useState<Record<string, string | null>>({})
+  const [ultima, setUltima] = useState<Record<string, string | null>>({})
   const [modifiche, setModifiche] = useState<Mod[]>([])
   const [nomi, setNomi] = useState<Record<string, string>>({})
   const [cassieri, setCassieri] = useState<Record<string, string[]>>({})
@@ -98,9 +101,12 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
       if (sec === 'chiusure') {
         const [y, m] = mese.split('-').map(Number)
         const fine = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
-        const [{ data: cs, error }, prim, { data: cas }] = await Promise.all([
+        const [{ data: cs, error }, prim, ult, { data: cas }] = await Promise.all([
           sb.from('cassa_chiusure').select('*').in('restaurant_id', ids).gte('data', `${mese}-01`).lte('data', fine).order('data', { ascending: false }),
           Promise.all(ids.map(id => sb.from('cassa_chiusure').select('data').eq('restaurant_id', id).eq('stato', 'confermata').order('data').limit(1).maybeSingle().then(r => [id, r.data?.data ?? null] as const))),
+          // Di un locale in archivio serve anche l'ultima chiusura: dopo
+          // quella il locale è chiuso, i giorni non sono "mancanti".
+          Promise.all(restaurants.filter(r => r.nascosto && ids.includes(r.id)).map(r => sb.from('cassa_chiusure').select('data').eq('restaurant_id', r.id).eq('stato', 'confermata').order('data', { ascending: false }).limit(1).maybeSingle().then(x => [r.id, x.data?.data ?? null] as const))),
           sb.from('profiles').select('full_name, restaurant_id').eq('role', 'cassiere').in('restaurant_id', ids),
         ])
         if (error) throw error
@@ -112,6 +118,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
         if (req.current !== mio) return
         setChiusure(righe)
         setPrimo(Object.fromEntries(prim))
+        setUltima(Object.fromEntries(ult))
         setModifiche(((md ?? []) as Omit<Mod, 'chi' | 'letta' | 'ch'>[]).map(x => ({ ...x, chi: '', letta: leggiModifica(x.payload), ch: null })))
         setNomi(Object.fromEntries(((pr ?? []) as { id: string; full_name: string }[]).map(p => [p.id, p.full_name])))
         const cm: Record<string, string[]> = {}
@@ -132,21 +139,28 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
         const da = piuGiorni(oggi, -31)
         let senza = false
         let r1 = await sb.from('cassa_chiusure').select('*, busta_numero, busta_versata_at').in('restaurant_id', tutti).eq('stato', 'confermata').gte('data', da).order('data', { ascending: false })
-        if (r1.error && colonnaMancante(r1.error)) { senza = true; r1 = await sb.from('cassa_chiusure').select('*').in('restaurant_id', tutti).eq('stato', 'confermata').gte('data', da).order('data', { ascending: false }) }
+        // Senza la colonna il numero è una posizione: va contata su TUTTI i
+        // locali del manager (anche quelli non in elenco, nascosti o attivi
+        // che siano), altrimenti i numeri cambierebbero a seconda di cosa è
+        // visibile. Il nome del locale (per l'ordine a parità di data)
+        // arriva dalla join, perché qui `info` conosce solo i visibili.
+        if (r1.error && colonnaMancante(r1.error)) { senza = true; r1 = await sb.from('cassa_chiusure').select('*, locale:restaurants(name)').eq('stato', 'confermata').gte('data', da).order('data', { ascending: false }) }
         if (r1.error) throw r1.error
-        const righe = (r1.data ?? []) as (CassaChiusura & { busta_numero?: number | null; busta_versata_at?: string | null })[]
+        const righe = (r1.data ?? []) as (CassaChiusura & { busta_numero?: number | null; busta_versata_at?: string | null; locale?: { name: string } | null })[]
         let base = 0
         if (senza) {
           // Senza la colonna il numero è la posizione della chiusura
           // confermata in ordine di data (provvisorio, vedi migrazione).
-          const { count } = await sb.from('cassa_chiusure').select('id', { count: 'exact', head: true }).in('restaurant_id', tutti).eq('stato', 'confermata').lt('data', da)
+          const { count } = await sb.from('cassa_chiusure').select('id', { count: 'exact', head: true }).eq('stato', 'confermata').lt('data', da)
           base = count ?? 0
         }
-        const asc = [...righe].sort((p, q) => p.data.localeCompare(q.data) || (info[p.restaurant_id]?.nome ?? '').localeCompare(info[q.restaurant_id]?.nome ?? ''))
+        const nomeLoc = (c: (typeof righe)[number]) => c.locale?.name ?? info[c.restaurant_id]?.nome ?? ''
+        const asc = [...righe].sort((p, q) => p.data.localeCompare(q.data) || nomeLoc(p).localeCompare(nomeLoc(q)))
         const num = new Map(asc.map((c, i) => [c.id, c.busta_numero ?? base + i + 1]))
         if (req.current !== mio) return
         setBusteSenzaColonne(senza)
-        setBuste(righe.map(c => ({ ch: c, n: num.get(c.id)!, vers: !!c.busta_versata_at })).sort((p, q) => q.n - p.n))
+        // Numerate tutte, mostrate solo quelle dei locali in elenco.
+        setBuste(righe.filter(c => tutti.includes(c.restaurant_id)).map(c => ({ ch: c, n: num.get(c.id)!, vers: !!c.busta_versata_at })).sort((p, q) => q.n - p.n))
       }
       setErrore(false)
     } catch {
@@ -241,6 +255,8 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
           // Giorno atteso: non di chiusura settimanale e dopo la prima chiusura del locale.
           const r = restaurants.find(x => x.id === l.id)
           if (d === oggi || (r?.closing_days ?? []).includes(giornoSettimana(d)) || !primo[l.id] || d < primo[l.id]!) continue
+          // Locale in archivio: dopo l'ultima chiusura inviata è chiuso, non in ritardo.
+          if (r?.nascosto && (!ultima[l.id] || d > ultima[l.id]!)) continue
         }
         tutte.push({ li: l.id, d, c })
       }
@@ -265,11 +281,14 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
       const titolo = `${locNome(cur.li)} · ${dataLunga(cur.d)}`
       const c = cur.c
       if (!c || c.stato !== 'confermata') {
-        const cs = cassieri[cur.li] ?? []
+        // A un locale in archivio non si mandano solleciti (è chiuso): la
+        // chiusura che manca nello storico si inserisce a mano.
+        const inArchivio = !!restaurants.find(x => x.id === cur.li)?.nascosto
+        const cs = inArchivio ? [] : cassieri[cur.li] ?? []
         const chi = cs.length ? cs.join(', ') : null
         dett = {
           titolo, sotto: c ? 'bozza non ancora inviata' : 'nessuna chiusura inviata', t: c ? 'In bozza' : 'Mancante', tono: 'neg',
-          msg: { tono: 'neg', testo: chi ? `${c ? 'La chiusura è in bozza: il' : 'Il'} cassiere di turno (${chi}) non l'ha ancora inviata. Puoi sollecitarlo con una notifica.` : 'Al locale non è associato nessun cassiere: la chiusura va inserita da Chiusura cassa.' },
+          msg: { tono: 'neg', testo: chi ? `${c ? 'La chiusura è in bozza: il' : 'Il'} cassiere di turno (${chi}) non l'ha ancora inviata. Puoi sollecitarlo con una notifica.` : inArchivio ? 'Il locale è in archivio: la chiusura va inserita da Chiusura cassa.' : 'Al locale non è associato nessun cassiere: la chiusura va inserita da Chiusura cassa.' },
           secs: [], azioni: chi ? [{ l: 'Invia sollecito', stile: 'ink', fai: async () => {
             const r = await sollecitaChiusura(cur.li, cur.d)
             toast(r.ok ? { title: `Sollecito inviato a ${chi}` } : { title: r.errore, variant: 'destructive' })

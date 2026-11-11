@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { eachDayOfInterval, getDay, format, parseISO, addDays } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { notificaTurniDipendenti } from '@/lib/turniNotifiche'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import type { Department, Turn } from '@/types'
 
 // Etichetta breve del turno per titolo/messaggio delle notifiche push.
@@ -77,6 +78,16 @@ async function getCaller() {
   }
 
   return { supabase, user, profile: profile as CallerProfile }
+}
+
+// Locali su cui lavorano le operazioni "di massa" del manager (turni fissi,
+// copia settimana): gli attivi, o quello aperto in archivio. Senza, copiare
+// o popolare la settimana creerebbe turni (e notifiche) anche per lo staff
+// dei locali nascosti. Mai vuoto: un id inesistente dà un risultato vuoto.
+async function localiDelManager(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string[]> {
+  const { data } = await soloVisibili(supabase.from('restaurants').select('id'), await archivioAperto())
+  const ids = (data ?? []).map(r => r.id as string)
+  return ids.length ? ids : ['00000000-0000-0000-0000-000000000000']
 }
 
 // ── Query Scoping (RBAC) ────────────────────────────────────────────
@@ -322,6 +333,8 @@ export async function listStandardShifts() {
     if (!profile.is_direttore) {
       query = query.eq('department', profile.department)
     }
+  } else {
+    query = query.in('restaurant_id', await localiDelManager(supabase))
   }
 
   const { data, error } = await query
@@ -391,12 +404,16 @@ export async function populateFromStandard(startDate: string, endDate: string): 
   const end = new Date(`${endDate}T00:00:00`)
   if (end < start) throw new Error('La data di fine deve essere successiva alla data di inizio')
 
+  // Manager: solo i locali visibili (attivi, o quello in archivio).
+  const localiManager = profile.role === 'manager' ? await localiDelManager(supabase) : null
   let standardQuery = supabase.from('standard_shifts').select('*')
   if (profile.role === 'capo_servizio') {
     standardQuery = standardQuery.eq('restaurant_id', profile.restaurant_id)
     if (!profile.is_direttore) {
       standardQuery = standardQuery.eq('department', profile.department)
     }
+  } else if (localiManager) {
+    standardQuery = standardQuery.in('restaurant_id', localiManager)
   }
   const { data: standardShifts, error: standardError } = await standardQuery
   if (standardError) throw new Error(standardError.message)
@@ -417,6 +434,8 @@ export async function populateFromStandard(startDate: string, endDate: string): 
     if (!profile.is_direttore) {
       existingQuery = existingQuery.eq('department', profile.department)
     }
+  } else if (localiManager) {
+    existingQuery = existingQuery.in('restaurant_id', localiManager)
   }
   const { data: existingTurns, error: existingError } = await existingQuery
   if (existingError) throw new Error(existingError.message)
@@ -511,6 +530,9 @@ export async function copyWeek(sourceWeekStart: string, targetWeekStart: string)
     if (!profile.is_direttore) {
       sourceQuery = sourceQuery.eq('department', profile.department)
     }
+  } else {
+    // Manager: si copia solo la settimana dei locali visibili.
+    sourceQuery = sourceQuery.in('restaurant_id', await localiDelManager(supabase))
   }
   const { data: sourceTurns, error: sourceError } = await sourceQuery
   if (sourceError) throw new Error(sourceError.message)

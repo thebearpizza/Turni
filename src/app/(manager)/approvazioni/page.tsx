@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
 import { ApprovazioniClient, type Richiesta } from '@/components/manager/ApprovazioniClient'
 import { fmtGiorni, TIPI_ASSENZA } from '@/lib/homeManager'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 const TZ = 'Europe/Rome'
 
@@ -26,6 +27,14 @@ export default async function ApprovazioniPage() {
     .select('id, type, start_date, end_date, notes, restaurant:restaurants(name), profile:profiles!user_id(full_name)')
     .eq('status', 'pending').order('start_date')
   if (filtro) { qFoto = qFoto.eq('restaurant_id', filtro); qAss = qAss.eq('restaurant_id', filtro) }
+  else {
+    // Manager: solo le richieste dei locali attivi (o di quello aperto in
+    // archivio), così quelle di un locale nascosto non finiscono nel "da fare".
+    const { data: visibili } = await soloVisibili(supabase.from('restaurants').select('id'), await archivioAperto())
+    const ids = (visibili ?? []).map(r => r.id as string)
+    const idsLocali = ids.length ? ids : ['00000000-0000-0000-0000-000000000000']
+    qFoto = qFoto.in('restaurant_id', idsLocali); qAss = qAss.in('restaurant_id', idsLocali)
+  }
   const [{ data: foto }, { data: assenze }] = await Promise.all([qFoto, qAss])
 
   const uno = <X,>(v: X | X[] | null | undefined): X | null => (Array.isArray(v) ? v[0] ?? null : v ?? null)

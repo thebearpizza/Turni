@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Department, Role } from '@/types'
+import { idLocaliAttivi } from './scope'
 
 export interface TelegramProfile {
   id:            string
@@ -9,6 +10,11 @@ export interface TelegramProfile {
   department:    Department | null
   is_direttore:  boolean
   restaurant?:   { id: string; name: string } | null
+  /**
+   * Solo manager: i locali su cui opera (gli attivi; dall'assistente in
+   * pagina, quello aperto in archivio). Vedi scope.ts.
+   */
+  locali_visibili?: string[] | null
 }
 
 // Ruoli che NON possono mai collegare Telegram (vincolo di sicurezza).
@@ -37,7 +43,13 @@ export async function getTelegramUser(telegramId: number): Promise<TelegramProfi
   // tratta l'utente come non collegato.
   if (FORBIDDEN_ROLES.includes(profile.role as Role)) return null
 
-  return profile as unknown as TelegramProfile
+  return conLocaliVisibili(admin, profile as unknown as TelegramProfile)
+}
+
+// Il bot non ha cookie: per il manager valgono sempre e solo i locali attivi.
+async function conLocaliVisibili(admin: ReturnType<typeof createAdminClient>, profile: TelegramProfile): Promise<TelegramProfile> {
+  if (profile.role !== 'manager') return profile
+  return { ...profile, locali_visibili: await idLocaliAttivi(admin) }
 }
 
 export async function linkAccountByPin(
@@ -84,5 +96,5 @@ export async function linkAccountByPin(
 
   await admin.from('telegram_link_pins').delete().eq('pin', pin)
 
-  return profile as unknown as TelegramProfile
+  return conLocaliVisibili(admin, profile as unknown as TelegramProfile)
 }

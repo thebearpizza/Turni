@@ -11,11 +11,15 @@ import type { Ruolo } from './navigazione'
 // mostra tutte insieme. Nel design: Assenze, Approvazioni, Fatture e ODS
 // (nuovi completamenti per manager e direttore, notifiche non lette per
 // dipendente e capo servizio).
-export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<string, number> {
+// `localiManager`: per il manager, gli id dei locali visibili (gli attivi, o
+// quello aperto in archivio). I numeri contano solo quelli: un locale
+// nascosto non deve accendere badge su pagine che poi risultano vuote.
+export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean, localiManager: string[] | null = null): Record<string, number> {
   const pathname = usePathname()
   const [c, setC] = useState<Record<string, number>>({})
   const set = (k: string, v: number) => setC(prev => (prev[k] === v ? prev : { ...prev, [k]: v }))
 
+  const chiaveLocali = localiManager ? localiManager.join(',') : null
   const vedeAssenze = ruolo === 'manager' || ruolo === 'direttore'
   const vedeModifiche = ruolo === 'manager'
   const vedeFatture = ruolo === 'manager' || ruolo === 'direttore'
@@ -27,10 +31,14 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
     const supabase = createClient()
     const canali: ReturnType<typeof supabase.channel>[] = []
     const uid = Math.random().toString(36).slice(2)
+    // null = nessun filtro (ruoli legati a un locale: ci pensa RLS).
+    const ids = chiaveLocali === null ? null : chiaveLocali ? chiaveLocali.split(',') : ['00000000-0000-0000-0000-000000000000']
 
     if (vedeAssenze) {
       const f = async () => {
-        const { count } = await supabase.from('absences').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        let q = supabase.from('absences').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        if (ids) q = q.in('restaurant_id', ids)
+        const { count } = await q
         set('assenze', count ?? 0)
       }
       f()
@@ -38,7 +46,9 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
     }
     if (vedeModifiche) {
       const f = async () => {
-        const { count } = await supabase.from('cassa_chiusure_modifiche').select('id', { count: 'exact', head: true }).eq('stato', 'in_attesa')
+        const { count } = ids
+          ? await supabase.from('cassa_chiusure_modifiche').select('id, cassa_chiusure!inner(restaurant_id)', { count: 'exact', head: true }).eq('stato', 'in_attesa').in('cassa_chiusure.restaurant_id', ids)
+          : await supabase.from('cassa_chiusure_modifiche').select('id', { count: 'exact', head: true }).eq('stato', 'in_attesa')
         set('modifiche', count ?? 0)
       }
       f()
@@ -50,6 +60,12 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
       const inizio = `${anno}-${String(mese).padStart(2, '0')}-01`
       const fine = `${anno}-${String(mese).padStart(2, '0')}-${String(new Date(anno, mese, 0).getDate()).padStart(2, '0')}`
       const f = async () => {
+        if (ids) {
+          // Stesso conteggio della RPC (fatture con verifiche aperte), sui soli locali visibili.
+          const { count } = await supabase.from('fatture').select('id', { count: 'exact', head: true }).neq('verifiche_sospette', '[]').in('restaurant_id', ids)
+          set('fatture', count ?? 0)
+          return
+        }
         const { data } = await supabase.rpc('hub_indicatori_acquisti', { p_mese_inizio: inizio, p_mese_fine: fine }).single()
         set('fatture', Number((data as { fatture_da_verificare?: number } | null)?.fatture_da_verificare ?? 0))
       }
@@ -72,7 +88,9 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
         let visti = ''
         try { visti = localStorage.getItem('ods_completamenti_visti') ?? '' } catch {}
         if (!visti) { const d = new Date(); d.setHours(0, 0, 0, 0); visti = d.toISOString() }
-        const { count } = await supabase.from('ods_completions').select('task_id', { count: 'exact', head: true }).gt('completed_at', visti)
+        const { count } = ids
+          ? await supabase.from('ods_completions').select('task_id, ods_tasks!inner(restaurant_id)', { count: 'exact', head: true }).gt('completed_at', visti).in('ods_tasks.restaurant_id', ids)
+          : await supabase.from('ods_completions').select('task_id', { count: 'exact', head: true }).gt('completed_at', visti)
         set('ods', count ?? 0)
       }
       f()
@@ -83,7 +101,7 @@ export function useContatori(ruolo: Ruolo, isPlatformOwner: boolean): Record<str
         .then(({ count }) => set('account', count ?? 0))
     }
     return () => { canali.forEach(ch => supabase.removeChannel(ch)) }
-  }, [vedeAssenze, vedeModifiche, vedeFatture, vedeNotificheOds, vedeCompletamentiOds, isPlatformOwner])
+  }, [vedeAssenze, vedeModifiche, vedeFatture, vedeNotificheOds, vedeCompletamentiOds, isPlatformOwner, chiaveLocali])
 
   // Comunicati non letti (capo servizio): watermark in localStorage
   // aggiornato alla visita della Bacheca, come prima.

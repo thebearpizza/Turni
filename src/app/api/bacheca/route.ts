@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { destinatariDi, type BersaglioBacheca, type TargetBacheca } from '@/components/altro/destinatari'
 import { chiamante, puoPubblicare, localiDi, staffDi, notifica } from './notifica'
+import { archivioAperto } from '@/lib/localiVisibili'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,15 @@ export async function POST(request: Request) {
     target_roles: Array.isArray(b.target_roles) ? b.target_roles.filter(r => r === 'dipendente' || r === 'capo_servizio') : [],
     target_user_ids: Array.isArray(b.target_user_ids) ? b.target_user_ids.filter(x => typeof x === 'string') : [],
     target_department: b.target_department ?? null,
+  }
+
+  // Manager con un locale nascosto aperto in archivio: il comunicato resta
+  // su quel locale. Un bersaglio "aperto" senza locale (tutti, per ruolo,
+  // per reparto) varrebbe anche per i locali attivi.
+  const archivio = c.role === 'manager' ? await archivioAperto() : null
+  if (archivio && bersaglio.target !== 'users' && !bersaglio.restaurant_id) {
+    bersaglio.restaurant_id = archivio
+    if (bersaglio.target === 'all') bersaglio.target = 'restaurant'
   }
 
   // Perimetro: chi non vede tutti i locali non può usare bersagli "aperti"

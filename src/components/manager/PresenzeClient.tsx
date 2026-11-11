@@ -103,19 +103,24 @@ export function PresenzeClient({ initialPresenze, initialAbsences, initialMonth,
   useEffect(() => { impostaSottotitolo(etichettaMese(mese)) }, [mese])
   useEffect(() => () => impostaSottotitolo(null), [])
 
+  // "Tutti" vale "i locali ricevuti dal server" (gli attivi, o quello aperto
+  // in archivio), mai "nessun filtro": le riletture dal browser (cambio
+  // mese, realtime) non devono riportare dentro i locali nascosti.
+  const chiaveLocali = restaurants.map(r => r.id).join(',')
   const carica = useCallback(async (m: string) => {
     const { inizio, fine } = limitiMese(m)
     const supabase = createClient()
+    const idsLocali = chiaveLocali ? chiaveLocali.split(',') : ['00000000-0000-0000-0000-000000000000']
     const [{ data: p, error: e1 }, { data: a, error: e2 }] = await Promise.all([
-      supabase.from('attendances').select(SELECT_PRESENZE).gte('check_in', inizio).lte('check_in', fine).order('check_in'),
+      supabase.from('attendances').select(SELECT_PRESENZE).in('restaurant_id', idsLocali).gte('check_in', inizio).lte('check_in', fine).order('check_in'),
       supabase.from('absences').select('id, user_id, restaurant_id, type, start_date, end_date, profile:profiles!user_id(id, full_name)')
-        .eq('status', 'approved').lte('start_date', ultimoDelMese(m)).gte('end_date', `${m}-01`),
+        .eq('status', 'approved').in('restaurant_id', idsLocali).lte('start_date', ultimoDelMese(m)).gte('end_date', `${m}-01`),
     ])
     if (e1 || e2) { toast({ title: 'Caricamento delle presenze non riuscito', description: (e1 ?? e2)?.message, variant: 'destructive' }); return false }
     setPresenze((p ?? []) as unknown as PresenzaRiga[])
     setAssenze((a ?? []) as unknown as AbsenceItem[])
     return true
-  }, [])
+  }, [chiaveLocali])
 
   // Realtime: ogni timbratura (anche da un altro dispositivo) ricarica il
   // mese mostrato, a raffica raggruppata, senza scheletro.

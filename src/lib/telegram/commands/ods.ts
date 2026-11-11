@@ -3,7 +3,7 @@ import { it } from 'date-fns/locale'
 import type { Ctx } from '../context'
 import { reply } from '../context'
 import { setSession, clearSession } from '../session'
-import { scopeStaffQuery, toScopeProfile, isManager, isDirettore, assigneeInScope } from '../scope'
+import { scopeStaffQuery, toScopeProfile, isManager, isDirettore, assigneeInScope, localiManager } from '../scope'
 import { TZ, escapeMd, buildEmployeeKeyboard, buildCancelKeyboard, buildYesNoKeyboard } from '../format'
 import { listRestaurants, buildRestaurantKeyboard, listAssignableStaff } from '../wizard'
 import { DEPARTMENTS, ODS_DAYS_IT, ODS_TYPE_LABELS, type OdsTaskType } from '@/types'
@@ -103,7 +103,7 @@ export async function cmdCompletaOds(ctx: Ctx) {
 // ── /nuovoods — wizard creazione compito ────────────────────────────────
 export async function cmdNuovoOds(ctx: Ctx) {
   if (isManager(ctx.profile)) {
-    const restaurants = await listRestaurants(ctx.admin)
+    const restaurants = await listRestaurants(ctx.admin, ctx.profile)
     if (!restaurants.length) return reply(ctx, 'Nessun ristorante trovato.')
     await setSession(ctx.telegramId, 'no_restaurant', {})
     return reply(ctx, '🏢 Seleziona il ristorante:', { reply_markup: buildRestaurantKeyboard(restaurants, 'no_rest') })
@@ -300,6 +300,13 @@ async function createOdsFromWizard(ctx: Ctx, data: Record<string, unknown>) {
   const restaurantId = (data.restaurant_id as string | undefined) ?? profile.restaurant_id
   if (!restaurantId) {
     await reply(ctx, 'Errore: ristorante non determinato.')
+    return
+  }
+  // Bottone di un vecchio messaggio: il locale scelto può essere stato
+  // nascosto nel frattempo, e lì il manager non crea compiti.
+  const visibili = localiManager(profile)
+  if (visibili && !visibili.includes(restaurantId)) {
+    await reply(ctx, 'Errore: ristorante non disponibile.')
     return
   }
 

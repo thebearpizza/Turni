@@ -83,7 +83,9 @@ export function ConsulenteLavoroManager({ managerId, restaurants, schede, disabi
   const nonLetti = (id: string) => (thread[id] ?? []).filter(m => !m.sent_by_manager && !m.read_at).length
   const nomeLoc = (id: string) => restaurants.find(r => r.id === id)?.name ?? ''
   const righe: RigaAltro[] = (lista ?? []).map(c => {
-    const n = nonLetti(c.id), ids = c.consultant_restaurant_ids ?? []
+    // Si contano solo i locali in elenco: quelli nascosti restano assegnati
+    // ma non compaiono (né qui né nel dettaglio).
+    const n = nonLetti(c.id), ids = (c.consultant_restaurant_ids ?? []).filter(id => restaurants.some(r => r.id === id))
     return {
       key: c.id, a: c.full_name, as: c.username ?? '—', lc: GRIGIO_TUTTI,
       b: n ? `${n} da leggere` : String((thread[c.id] ?? []).length), cc: n ? 'var(--warn)' : undefined, c: dataCorta(c.last_active_at),

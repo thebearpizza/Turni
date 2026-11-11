@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs'
 import { fromZonedTime } from 'date-fns-tz'
 import { calcolaGriglia, giorniDelMese, TZ_REPORT, MINUTI_DOPPIO_TURNO, ORE_ATTESE_GIORNO } from './calcolo'
 import type { AssenzaRep, DipendenteRep, PresenzaRep } from './calcolo'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 // Stili dell'export del design (xlsx.js): intestazione blu notte con testo
 // bianco, codici colorati, ore in decimale "0.0#", bordi sottili grigi.
@@ -70,7 +71,20 @@ export async function POST(request: Request) {
       ? restaurantIds
       : restaurantIds.filter((id: string) => profile.managed_restaurant_ids!.includes(id))
 
-  if (allowedIds.length === 0) {
+  // Locali nascosti: il manager esporta solo gli attivi, o quello aperto in
+  // archivio (mai mescolati); il consulente solo gli attivi. Il capo
+  // servizio/direttore esporta il proprio locale anche se nascosto.
+  let idsVisibili = allowedIds
+  if (profile.role !== 'capo_servizio' && allowedIds.length) {
+    const q = supabase.from('restaurants').select('id').in('id', allowedIds)
+    const { data: visibili } = profile.role === 'manager'
+      ? await soloVisibili(q, await archivioAperto())
+      : await q.eq('nascosto', false)
+    const ok = new Set((visibili ?? []).map(r => r.id as string))
+    idsVisibili = allowedIds.filter(id => ok.has(id))
+  }
+
+  if (idsVisibili.length === 0) {
     return NextResponse.json({ error: 'Nessun ristorante autorizzato per questa richiesta' }, { status: 403 })
   }
 
@@ -91,9 +105,9 @@ export async function POST(request: Request) {
   // non riportano una sessione aperta a zero per chi ha scordato l'uscita.
   await autoCloseStaleShifts(admin)
 
-  const { data: ristoranti } = await admin.from('restaurants').select('id, name').in('id', allowedIds).order('name')
+  const { data: ristoranti } = await admin.from('restaurants').select('id, name').in('id', idsVisibili).order('name')
   // L'ordine dei fogli segue quello chiesto dal client (l'ordine delle pillole).
-  const ordinati = allowedIds.map(id => (ristoranti ?? []).find(r => r.id === id)).filter(Boolean) as { id: string; name: string }[]
+  const ordinati = idsVisibili.map(id => (ristoranti ?? []).find(r => r.id === id)).filter(Boolean) as { id: string; name: string }[]
 
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'inTurno'

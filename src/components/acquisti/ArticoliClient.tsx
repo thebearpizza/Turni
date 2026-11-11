@@ -42,6 +42,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
   const { stato: sk, avvia, pronto } = useScheletro()
   const meno30 = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 30); return formatInTimeZone(d, TZ, 'yyyy-MM-dd') }, [])
 
+  const idLocali = restaurants.map(r => r.id).join(',')
   const req = useRef(0)
   const carica = useCallback(async () => {
     const mio = ++req.current
@@ -54,13 +55,16 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
     if (error) { setErrore(friendlySaveError(error)); setCaricamento(false); pronto(); return }
     const rows = (cat ?? []) as unknown as { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; fattore_conversione: number; fornitore_id: string; traccia_in_inventario: boolean; tipologia_da_controllare?: boolean; fornitore: { nome: string } | null }[]
     const acq = new Map<string, Acquisto[]>()
+    // Solo gli acquisti dei locali ricevuti dal server: "Tutti" vuol dire
+    // questi, non tutto ciò che la RLS lascia leggere (locali nascosti).
+    const visibili = new Set(idLocali ? idLocali.split(',') : [])
     // A blocchi: un catalogo grande supererebbe la lunghezza dell'URL.
     for (let i = 0; i < rows.length; i += 150) {
       const { data } = await sb.from('fatture_articoli')
         .select('catalogo_articolo_id, prezzo_unitario, fattura:fatture!inner(id, data, restaurant_id, numero_documento)')
         .in('catalogo_articolo_id', rows.slice(i, i + 150).map(r => r.id))
       for (const s of (data ?? []) as unknown as { catalogo_articolo_id: string; prezzo_unitario: number; fattura: { id: string; data: string; restaurant_id: string; numero_documento: string } | null }[]) {
-        if (!s.fattura) continue
+        if (!s.fattura || !visibili.has(s.fattura.restaurant_id)) continue
         const a = acq.get(s.catalogo_articolo_id) ?? []
         a.push({ data: s.fattura.data, prezzo: Number(s.prezzo_unitario), restaurant_id: s.fattura.restaurant_id, fattura_id: s.fattura.id, numero: s.fattura.numero_documento })
         acq.set(s.catalogo_articolo_id, a)
@@ -76,7 +80,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
       }
     }))
     setErrore(null); setCaricamento(false); pronto()
-  }, [pronto])
+  }, [pronto, idLocali])
   useEffect(() => { carica() }, [carica])
   useEffect(() => {
     const sb = createClient()

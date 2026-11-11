@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { chiediAllIa, smistaDeterministico, type EsitoSmistamento, type FatturaDaSmistare, type LocaleSmistamento } from '@/lib/cassa/fattureSmistamento'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 // POST /api/acquisti/xml/smista
 // Body: { fatture: [{ chiave, destinatario, pec, fornitore, indizi: [{ fonte, testo }] }] }
@@ -29,12 +30,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
 
-  // Locali gestibili: il manager quelli che vede (RLS, come Acquisti), il
+  // Locali gestibili: il manager quelli visibili (RLS, come Acquisti), il
   // direttore solo il suo. Senza la migrazione mancano codice e
   // riferimenti: restano nome del locale e IA.
+  // I locali nascosti restano fuori dai candidati (deterministici e IA):
+  // una fattura non si smista su un locale chiuso, a meno che il manager
+  // non lo abbia aperto in archivio (e allora è l'unico candidato).
+  const archivio = manager ? await archivioAperto() : null
   const leggi = (colonne: string) => {
     const q = supabase.from('restaurants').select(colonne)
-    return manager ? q : q.eq('id', profilo.restaurant_id ?? '')
+    return manager ? soloVisibili(q, archivio) : q.eq('id', profilo.restaurant_id ?? '')
   }
   let res = await leggi('id, name, address, codice_destinatario, riferimenti_fatture')
   if (res.error) res = await leggi('id, name, address')

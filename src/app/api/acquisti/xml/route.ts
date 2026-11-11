@@ -4,6 +4,7 @@ import { verificaPrezzoArticolo } from '@/lib/cassa/fattureVerifica'
 import { ultimoPrezzoNoto } from '@/lib/cassa/fatturePrezzi'
 import { proponiTipologie } from '@/lib/cassa/fattureSmistamento'
 import type { VerificaSospetta } from '@/types'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 export const maxDuration = 60
 
@@ -54,8 +55,12 @@ export async function POST(request: Request) {
   if (!profilo || !(profilo.role === 'manager' || (profilo.role === 'capo_servizio' && profilo.is_direttore))) {
     return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
   }
-  // Locali visibili (RLS) e loro gestore.
-  const { data: visibili } = await supabase.from('restaurants').select('id, owner_id')
+  // Locali visibili (RLS) e loro gestore. Per il manager solo gli attivi,
+  // o quello aperto in archivio: una fattura non si importa in un locale
+  // nascosto (il controllo qui sotto la rifiuta). Il direttore resta sul
+  // suo locale, anche se nascosto.
+  const qLocali = supabase.from('restaurants').select('id, owner_id')
+  const { data: visibili } = await (profilo.role === 'manager' ? soloVisibili(qLocali, await archivioAperto()) : qLocali)
   const ownerDi = new Map((visibili ?? []).map(r => [r.id as string, r.owner_id as string | null]))
   const owners = [...new Set((visibili ?? []).map(r => r.owner_id as string | null))]
   const ownerUnico = owners.length === 1 ? owners[0] : null

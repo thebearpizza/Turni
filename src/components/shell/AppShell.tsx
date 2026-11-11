@@ -6,6 +6,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { it } from 'date-fns/locale'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { chiudiArchivio } from '@/app/actions/archivio'
 import { useTelefono } from '@/hooks/useTelefono'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
@@ -13,7 +14,7 @@ import { useIntestazioneDinamica, registraCentroIntestazione } from './intestazi
 import { NAVIGAZIONE, sezioniVisibili, trovaPosizione, type Area, type Ruolo, type Sezione } from './navigazione'
 import { useContatori } from './useContatori'
 import { ricordaSezione, useMemoriaSezioni } from './memoriaSezioni'
-import { nomeBreve } from './datiShell'
+import { nomeBreve } from './nomeBreve'
 import { Notifiche } from './Notifiche'
 import { PannelloProfilo, TendinaProfilo, type RistoranteQr } from './Profilo'
 import { Assistente } from './Assistente'
@@ -64,6 +65,8 @@ interface AppShellProps {
   locale?: { nome: string; sotto: string }
   ristoranti?: RistoranteQr[]
   isPlatformOwner?: boolean
+  /** Locale nascosto aperto in archivio (solo manager). */
+  archivio?: { id: string; nome: string }
   /** Striscia sopra il contenuto (es. banner della demo). */
   banner?: React.ReactNode
   children: React.ReactNode
@@ -104,13 +107,14 @@ function useFuori(aperto: boolean, chiudi: () => void, refs: React.RefObject<HTM
   }, [aperto, chiudi, refs])
 }
 
-export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], isPlatformOwner = false, banner, children }: AppShellProps) {
+export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], isPlatformOwner = false, archivio, banner, children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
   const telefono = useTelefono()
   const cfg = NAVIGAZIONE[ruolo]
   const { area, sezione } = trovaPosizione(cfg, pathname)
-  const contatori = useContatori(ruolo, isPlatformOwner)
+  const idLocaliManager = useMemo(() => (ruolo === 'manager' ? ristoranti.map(r => r.id) : null), [ruolo, ristoranti])
+  const contatori = useContatori(ruolo, isPlatformOwner, idLocaliManager)
   const memoria = useMemoriaSezioni()
   const dinamica = useIntestazioneDinamica()
 
@@ -439,6 +443,13 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
           mostra={(ruolo === 'manager' || ruolo === 'direttore') && area?.key === 'home'}
           chiave={ruolo === 'manager' ? 'mgrPush' : 'dirPush'}
         />
+      )}
+      {archivio && (
+        <div className="mx-4 mb-2 flex flex-none items-center gap-2 rounded-[10px] bg-warn-tint px-3.5 py-1.5 text-warn sm:mx-8">
+          <span className="min-w-0 flex-1 text-pretty text-[13px] font-medium">Archivio · stai guardando <b className="font-semibold">{archivio.nome}</b>, locale nascosto</span>
+          <button type="button" onClick={async () => { await chiudiArchivio(); router.refresh() }}
+            className="flex h-10 flex-none items-center rounded-[8px] border border-current px-3 text-[13px] font-semibold active:scale-[0.97]">Torna ai locali attivi</button>
+        </div>
       )}
       {banner}
       <StrisciaOffline />

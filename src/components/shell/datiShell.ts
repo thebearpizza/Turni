@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Ruolo } from './navigazione'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 const ETICHETTE: Record<Ruolo, string> = {
   manager: 'Manager',
@@ -25,12 +26,7 @@ export function ruoloDa(p: { role: string; is_direttore?: boolean | null }): Ruo
   return p.role as Ruolo
 }
 
-/** "Laura Bianchi" → "Laura B." (pulsante "Esci · Laura B." del cassiere su tablet). */
-export function nomeBreve(nome: string): string {
-  const parti = nome.trim().split(/\s+/)
-  if (parti.length < 2) return parti[0] ?? ''
-  return `${parti[0]} ${parti[parti.length - 1].charAt(0).toUpperCase()}.`
-}
+export { nomeBreve } from './nomeBreve'
 
 // Dati che l'intestazione del guscio (AppShell) mostra: nome, riga del
 // profilo, locale e i QR dei locali visibili. Letti lato server nei layout.
@@ -39,10 +35,12 @@ export async function datiShell(supabase: SupabaseClient, profile: ProfiloMinimo
   const rest = Array.isArray(profile.restaurant) ? profile.restaurant[0] : profile.restaurant
   const conQr = ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'
 
+  const archivio = ruolo === 'manager' ? await archivioAperto() : null
   let ristoranti: { id: string; name: string; qr_secret: string | null }[] = []
   if (conQr) {
     const q = supabase.from('restaurants').select('id, name, qr_secret').order('name')
-    const { data } = ruolo === 'manager' ? await q : await q.eq('id', rest?.id ?? '')
+    // Manager: solo i locali attivi, o quello aperto in archivio.
+    const { data } = ruolo === 'manager' ? await soloVisibili(q, archivio) : await q.eq('id', rest?.id ?? '')
     ristoranti = data ?? []
   }
 
@@ -61,6 +59,8 @@ export async function datiShell(supabase: SupabaseClient, profile: ProfiloMinimo
     descrizione,
     locale: rest?.name ? { nome: rest.name, sotto: `${etichetta}${reparto}` } : undefined,
     ristoranti,
+    // Locale nascosto aperto in archivio: il guscio mostra la fascia per uscirne.
+    archivio: archivio && ristoranti[0]?.id === archivio ? { id: archivio, nome: ristoranti[0].name } : undefined,
     isPlatformOwner: profile.role === 'manager' && profile.managed_restaurant_ids === null,
   }
 }

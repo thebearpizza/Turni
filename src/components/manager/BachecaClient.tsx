@@ -59,6 +59,8 @@ interface Props {
   currentUserId: string
   /** Locale fisso di direttore e capo servizio. */
   currentRestaurantId: string | null
+  /** Manager con un locale nascosto aperto in archivio: si lavora solo su quello. */
+  archivio?: string | null
   canPost: boolean
   qr: LocaleQr | null
 }
@@ -72,8 +74,13 @@ function dataCorta(iso: string, oggi: string): string {
   return `${d} ${MESI3[m - 1]}`
 }
 
-/** Realtime dei comunicati: inserimenti e rimozioni fatti da altri compaiono subito. */
-function useComunicatiInDiretta(iniziali: ComunicatoRiga[]) {
+/**
+ * Realtime dei comunicati: inserimenti e rimozioni fatti da altri compaiono subito.
+ * `locali` (id separati da virgola) limita ciò che entra ai locali in elenco
+ * del manager, così non arrivano in diretta i comunicati dei locali nascosti;
+ * quelli senza locale ("Tutti i locali") entrano solo se `conGlobali`.
+ */
+function useComunicatiInDiretta(iniziali: ComunicatoRiga[], locali: string | null = null, conGlobali = true) {
   const [lista, setLista] = useState(iniziali)
   useEffect(() => {
     const supabase = createClient()
@@ -88,11 +95,12 @@ function useComunicatiInDiretta(iniziali: ComunicatoRiga[]) {
         const { data } = await supabase.from('bulletins').select(SELECT).eq('id', (payload.new as { id: string }).id).single()
         if (!data) return
         const r = data as unknown as ComunicatoRiga
+        if (locali !== null && (r.restaurant_id ? !locali.split(',').includes(r.restaurant_id) : !conGlobali)) return
         setLista(bs => bs.some(b => b.id === r.id) ? bs.map(b => (b.id === r.id ? r : b)) : [r, ...bs])
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [])
+  }, [locali, conGlobali])
   return [lista, setLista] as const
 }
 
@@ -185,11 +193,11 @@ function useNuovoComunicato({ single, staff, restaurants, currentRestaurantId, c
 
 // ── Manager e direttore: scheda di Altro ─────────────────────────────────
 
-function BachecaAltro({ vista, initialBulletins, initialReads, restaurants, staff, currentUserId, currentRestaurantId, canPost }: Props) {
+function BachecaAltro({ vista, initialBulletins, initialReads, restaurants, staff, currentUserId, currentRestaurantId, archivio, canPost }: Props) {
   const tel = useTelefono()
   const single = vista === 'direttore'
   const [oggi] = useState(() => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'))
-  const [bulletins, setBulletins] = useComunicatiInDiretta(initialBulletins)
+  const [bulletins, setBulletins] = useComunicatiInDiretta(initialBulletins, vista === 'manager' ? restaurants.map(r => r.id).join(',') : null, !archivio)
   const [reads, setReads] = useState(initialReads)
   const [nuovi, setNuovi] = useState<string[]>([])
   const [loc, setLoc] = useState<string | null>(null)
@@ -253,8 +261,10 @@ function BachecaAltro({ vista, initialBulletins, initialReads, restaurants, staf
   }
   function cambiaLoc(ids: string[]) { setLoc(ids[0] ?? null); setSel(null); avvia(); pronto() }
 
+  // In archivio il comunicato va al solo locale aperto, come per il
+  // direttore: "Tutti i locali" lo manderebbe anche agli attivi.
   const nuovo = useNuovoComunicato({
-    single, staff, restaurants, currentRestaurantId, currentUserId,
+    single: single || !!archivio, staff, restaurants, currentRestaurantId: archivio ?? currentRestaurantId, currentUserId,
     onPubblicato: b => { setBulletins(bs => [b, ...bs.filter(x => x.id !== b.id)]); setNuovi(n => [...n, b.id]) },
   })
 

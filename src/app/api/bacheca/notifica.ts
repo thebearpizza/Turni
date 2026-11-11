@@ -2,6 +2,7 @@ import webpush from 'web-push'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { RUOLI_BACHECA, type PersonaStaff } from '@/components/altro/destinatari'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
 // Pezzi comuni delle route della bacheca: chi sta chiamando (con il suo
 // perimetro di locali), lo staff che può ricevere i comunicati e l'invio
@@ -52,17 +53,24 @@ export function localiDi(c: Chiamante): string[] | null {
 /** Staff che può ricevere i comunicati del chiamante (mai fuori dai suoi locali). */
 export async function staffDi(c: Chiamante): Promise<PersonaStaff[]> {
   const admin = createAdminClient()
-  const locali = localiDi(c)
-  let q = admin.from('profiles').select('id, full_name, role, is_direttore, restaurant_id, department').in('role', RUOLI_BACHECA)
-  if (locali !== null) {
-    if (!locali.length) return []
-    q = q.in('restaurant_id', locali)
-  } else {
-    // Il proprietario della piattaforma non notifica lo staff dei locali demo.
-    const { data: demo } = await admin.from('restaurants').select('id').eq('is_demo', true)
-    const ids = (demo ?? []).map((r: { id: string }) => r.id)
-    if (ids.length) q = q.not('restaurant_id', 'in', `(${ids.join(',')})`)
+  let locali = localiDi(c)
+  if (c.role === 'manager') {
+    // Manager: solo lo staff dei locali attivi, o di quello aperto in
+    // archivio. Così un comunicato a "Tutti i locali" (o un sollecito) non
+    // notifica chi lavora in un locale nascosto.
+    let qv = soloVisibili(admin.from('restaurants').select('id'), await archivioAperto())
+    if (locali !== null) {
+      if (!locali.length) return []
+      qv = qv.in('id', locali)
+    } else {
+      // Il proprietario della piattaforma non notifica lo staff dei locali demo.
+      qv = qv.eq('is_demo', false)
+    }
+    const { data: visibili } = await qv
+    locali = (visibili ?? []).map((r: { id: string }) => r.id)
   }
+  if (locali === null || !locali.length) return []
+  const q = admin.from('profiles').select('id, full_name, role, is_direttore, restaurant_id, department').in('role', RUOLI_BACHECA).in('restaurant_id', locali)
   const { data } = await q
   return (data ?? []) as PersonaStaff[]
 }

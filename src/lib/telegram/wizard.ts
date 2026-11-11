@@ -1,14 +1,15 @@
 import type { createAdminClient } from '@/lib/supabase/admin'
 import type { TelegramProfile } from './auth'
-import { isManager, isDirettore } from './scope'
+import { isManager, isDirettore, soloLocaliManager } from './scope'
 import type { InlineKeyboardMarkup } from './types'
 
 type Admin = ReturnType<typeof createAdminClient>
 
 // ── Selezione ristorante (solo manager, che opera a livello globale) ──
 
-export async function listRestaurants(admin: Admin) {
-  const { data } = await admin.from('restaurants').select('id, name').order('name')
+// Solo i locali visibili al manager: un locale nascosto non si propone.
+export async function listRestaurants(admin: Admin, profile: TelegramProfile) {
+  const { data } = await soloLocaliManager(admin.from('restaurants').select('id, name'), profile, 'id').order('name')
   return data ?? []
 }
 
@@ -35,6 +36,8 @@ export async function listAssignableStaff(
     .order('full_name')
 
   if (isManager(profile)) {
+    // Anche con un locale scelto (id da un bottone, magari vecchio) si resta nei visibili.
+    query = soloLocaliManager(query, profile)
     if (restaurantId) query = query.eq('restaurant_id', restaurantId)
   } else if (isDirettore(profile)) {
     query = query.eq('restaurant_id', profile.restaurant_id)

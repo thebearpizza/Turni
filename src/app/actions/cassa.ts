@@ -21,7 +21,7 @@ interface ChiusuraNotificaRow {
   entrate_contanti: number
   entrate_pos: number
   entrate_bonifico: number
-  restaurant: { name: string; is_demo: boolean } | null
+  restaurant: { name: string; is_demo: boolean; nascosto: boolean | null } | null
 }
 
 // Notifica push + in-app ai manager del ristorante quando una chiusura cassa
@@ -37,12 +37,16 @@ export async function notificaChiusuraConfermata(chiusuraId: string): Promise<vo
 
     const { data: chiusura } = await admin
       .from('cassa_chiusure')
-      .select('restaurant_id, data, totale_entrate, entrate_contanti, entrate_pos, entrate_bonifico, restaurant:restaurants(name, is_demo)')
+      .select('restaurant_id, data, totale_entrate, entrate_contanti, entrate_pos, entrate_bonifico, restaurant:restaurants(name, is_demo, nascosto)')
       .eq('id', chiusuraId)
       .maybeSingle()
     if (!chiusura) return
     const row = chiusura as unknown as ChiusuraNotificaRow
     if (!row.restaurant) return
+    // Locale nascosto (chiuso/stagionale): le sue chiusure — tipicamente
+    // inserite a posteriori dall'archivio — non devono arrivare come
+    // notifiche in mezzo a quelle dei locali attivi.
+    if (row.restaurant.nascosto) return
 
     const { data: managers } = await admin
       .from('profiles')
@@ -110,8 +114,11 @@ export async function sollecitaChiusura(restaurantId: string, data: string): Pro
     const gestiti = profilo.managed_restaurant_ids as string[] | null
     // La RLS di restaurants mostra al manager solo i locali che gestisce:
     // se non lo vede, non può sollecitarne il personale.
-    const { data: locale } = await supabase.from('restaurants').select('id, name').eq('id', restaurantId).maybeSingle()
+    const { data: locale } = await supabase.from('restaurants').select('id, name, nascosto').eq('id', restaurantId).maybeSingle()
     if (!locale || (gestiti !== null && !gestiti.includes(restaurantId))) return { ok: false, errore: 'Non autorizzato' }
+    // Un locale nascosto è chiuso: nessun sollecito al suo personale,
+    // nemmeno con l'archivio aperto.
+    if (locale.nascosto) return { ok: false, errore: 'Il locale è in archivio: nessun sollecito inviato' }
 
     const admin = createAdminClient()
     const { data: cassieri } = await admin.from('profiles').select('id').eq('role', 'cassiere').eq('restaurant_id', restaurantId)

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { AnalisiClient } from '@/components/cassa/AnalisiClient'
 
 export default async function AnalisiCassaPage() {
@@ -11,9 +12,9 @@ export default async function AnalisiCassaPage() {
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
   if (profile?.role !== 'manager') redirect('/cassa/chiusura')
 
-  const { data: restaurants } = await supabase
-    .from('restaurants')
-    .select('id, name')
+  // Solo i locali attivi, oppure il solo locale aperto in archivio: tutte
+  // le serie di Analisi (anche confronto e AI) partono da questo elenco.
+  const { data: restaurants } = await soloVisibili(supabase.from('restaurants').select('id, name'), await archivioAperto())
     .order('name')
 
   return (

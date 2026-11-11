@@ -72,16 +72,22 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
   const inLoc = useCallback((a: { user_id: string; restaurant_id: string | null }) => loc === null || locDi(a) === loc, [loc, locDi])
   const nomeDi = (a: AssenzaRiga) => a.profile?.full_name ?? dipPerId.get(a.user_id)?.full_name ?? '—'
 
+  // "Tutti" vale "i locali ricevuti dal server" (gli attivi, o quello aperto
+  // in archivio; per il direttore il suo), mai "nessun filtro": le riletture
+  // dal browser non devono riportare dentro le assenze dei locali nascosti.
+  const chiaveLocali = restaurants.map(r => r.id).join(',')
   const carica = useCallback(async (m: string) => {
     const supabase = createClient()
+    const idsLocali = chiaveLocali ? chiaveLocali.split(',') : ['00000000-0000-0000-0000-000000000000']
     let qa = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'approved').lte('start_date', ultimoDelMese(m)).gte('end_date', `${m}-01`)
     let qp = supabase.from('absences').select(SELECT_ASSENZE).eq('status', 'pending').order('created_at', { ascending: false })
     if (restaurantId) { qa = qa.eq('restaurant_id', restaurantId); qp = qp.eq('restaurant_id', restaurantId) }
+    else { qa = qa.in('restaurant_id', idsLocali); qp = qp.in('restaurant_id', idsLocali) }
     const [{ data: a, error: e1 }, { data: p, error: e2 }] = await Promise.all([qa, qp])
     if (e1 || e2) { toast({ title: 'Caricamento delle assenze non riuscito', description: (e1 ?? e2)?.message, variant: 'destructive' }); return }
     setApprovate((a ?? []) as unknown as AssenzaRiga[])
     setRichieste((p ?? []) as unknown as AssenzaRiga[])
-  }, [restaurantId])
+  }, [restaurantId, chiaveLocali])
 
   // Realtime: una richiesta inviata da un dipendente (o una modifica di un
   // altro responsabile) compare subito, senza scheletro.

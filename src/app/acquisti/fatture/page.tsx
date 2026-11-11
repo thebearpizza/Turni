@@ -9,7 +9,9 @@ export default async function FatturePage({ searchParams }: { searchParams: Prom
     supabase.from('categorie_fatture_dirette').select('id, nome').order('nome'),
     supabase.from('fornitori').select('id, nome').order('nome'),
     // ?f=<id> (da Articoli › Ultimo acquisto): si apre il mese di quella fattura.
-    f ? supabase.from('fatture').select('id, data').eq('id', f).maybeSingle() : Promise.resolve({ data: null }),
+    // Solo fra i locali in elenco: una fattura di un locale nascosto non
+    // sposta il mese né si seleziona.
+    f && restaurants.length ? supabase.from('fatture').select('id, data').eq('id', f).in('restaurant_id', restaurants.map(r => r.id)).maybeSingle() : Promise.resolve({ data: null }),
   ])
   const sel = fattura.data as { id: string; data: string } | null
   return (

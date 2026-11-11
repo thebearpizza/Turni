@@ -2,7 +2,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import type { Ctx } from '../context'
 import { reply } from '../context'
 import { setSession, clearSession } from '../session'
-import { isManager, isDirettore, assigneeInScope } from '../scope'
+import { isManager, isDirettore, assigneeInScope, soloLocaliManager } from '../scope'
 import { TZ, todayStr, escapeMd, isValidTime, buildDateKeyboard, buildEmployeeKeyboard, buildCancelKeyboard, buildYesNoKeyboard, formatDateLabel } from '../format'
 import { listAssignableStaff } from '../wizard'
 
@@ -26,6 +26,7 @@ export async function cmdPresenze(ctx: Ctx) {
     .limit(30)
 
   if (isDirettore(profile)) query = query.eq('restaurant_id', profile.restaurant_id)
+  query = soloLocaliManager(query, profile)
 
   const { data, error } = await query
   if (error) return reply(ctx, `Errore: ${error.message}`)
@@ -58,6 +59,7 @@ export async function cmdModificaPresenza(ctx: Ctx) {
     .limit(30)
 
   if (isDirettore(profile)) query = query.eq('restaurant_id', profile.restaurant_id)
+  query = soloLocaliManager(query, profile)
 
   const { data } = await query
   type Row = { id: string; check_in: string; check_out: string | null; profile: { full_name: string } | null }
@@ -90,6 +92,7 @@ export async function handlePresenzeCallback(ctx: Ctx, state: string, data: Reco
     const id = cb.split(':')[1]
     let query = admin.from('attendances').select('id, check_in, check_out').eq('id', id)
     if (isDirettore(profile)) query = query.eq('restaurant_id', profile.restaurant_id)
+  query = soloLocaliManager(query, profile)
     const { data: row } = await query.maybeSingle()
     if (!row) {
       await clearSession(ctx.telegramId)
@@ -215,6 +218,7 @@ async function finalizeModificaPresenza(ctx: Ctx, data: Record<string, unknown>,
 
   let query = admin.from('attendances').update({ check_in: checkInIso, check_out: checkOutIso }).eq('id', data.attendance_id as string)
   if (isDirettore(profile)) query = query.eq('restaurant_id', profile.restaurant_id)
+  query = soloLocaliManager(query, profile)
   const { error } = await query
 
   if (error) await reply(ctx, `Errore: ${error.message}`)

@@ -16,6 +16,8 @@ export interface Restaurant {
   is_demo: boolean
   owner_id: string | null
   created_at: string
+  /** Locale chiuso o stagionale: fuori dai locali attivi, si riapre dall'archivio. */
+  nascosto?: boolean
 }
 
 export type Department = 'Sala' | 'Pizzeria' | 'Bar' | 'Cucina'
