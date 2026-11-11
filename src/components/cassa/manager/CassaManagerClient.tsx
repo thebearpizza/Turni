@@ -238,7 +238,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   }
 
   if (sec === 'chiusure') {
-    cols = 'minmax(0,1.3fr) 110px 100px 128px'
+    cols = 'minmax(0,1.3fr) 110px 110px 128px'
     heads = [['Giorno', 'left'], ['Entrate', 'right'], ['Busta', 'right'], ['Stato', 'right']]
     const [y, m] = mese.split('-').map(Number)
     const fineMese = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
@@ -486,7 +486,9 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
                     </span>
                     <span className="text-right font-mono text-sm font-medium" style={{ gridArea: tel ? '1 / 2 / 2 / 3' : 'auto' }}>{r.b}</span>
                     <span className={cn('flex items-baseline justify-end gap-2 font-mono font-medium', tel ? 'text-[12.5px]' : 'text-sm', act ? 'text-primary-foreground' : 'text-muted-foreground')} style={{ gridArea: tel ? '2 / 2 / 3 / 3' : 'auto' }}>
-                      {r.cl && <span>{r.cl}</span>}{(r.c || !tel) && <span className={cn(r.c ? 'min-w-[84px] text-right' : '')}>{r.c}</span>}
+                      {/* Sul tablet "Busta" è già l'intestazione della colonna: ripeterla in
+                          ogni riga spingeva l'importo fuori dalla colonna, sopra il testo. */}
+                      {r.cl && tel && <span>{r.cl}</span>}{(r.c || !tel) && <span className={cn(r.c && tel ? 'min-w-[84px] text-right' : 'text-right')}>{r.c}</span>}
                     </span>
                     {!nascondiT && (
                       <span className={cn('whitespace-nowrap rounded-full px-[9px] py-[3px] text-[10px] font-semibold uppercase tracking-[.05em]', TONO[r.tono], tel ? 'justify-self-start' : 'justify-self-end')} style={{ gridArea: tel ? '2 / 1 / 3 / 2' : 'auto' }}>{r.t}</span>

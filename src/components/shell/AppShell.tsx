@@ -8,7 +8,6 @@ import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { chiudiArchivio } from '@/app/actions/archivio'
 import { useTelefono } from '@/hooks/useTelefono'
-import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { useIntestazioneDinamica, registraCentroIntestazione } from './intestazioneDinamica'
 import { NAVIGAZIONE, sezioniVisibili, trovaPosizione, type Area, type Ruolo, type Sezione } from './navigazione'
@@ -144,23 +143,18 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const refsFuori = useMemo(() => [refHeader, refPannello], [])
   useFuori(ov !== null && !uscita, chiudi, refsFuori)
 
-  // Cambio pagina: si chiudono i pannelli, si ricorda la sezione
-  // dell'area e il contenuto entra sotto lo scheletro (700 ms + 320 ms di
-  // dissolvenza, come nei prototipi). Stato derivato durante il render
-  // invece di un setState in un effect.
+  // Cambio pagina: si chiudono i pannelli. Niente scheletro del guscio:
+  // copriva la dock e ingoiava i tocchi per un secondo a ogni cambio di
+  // scheda, sommandosi al caricamento della rotta e a quello della pagina.
+  // Stato derivato durante il render invece di un setState in un effect.
   const [ultimoPath, setUltimoPath] = useState(pathname)
-  const [sk, setSk] = useState<'no' | 'on' | 'out'>('no')
+  const [segPremuto, setSegPremuto] = useState<string | null>(null)
   if (ultimoPath !== pathname) {
     setUltimoPath(pathname)
+    setSegPremuto(null)
     setOv(null)
     setUscita(false)
-    setSk('on')
   }
-  useEffect(() => {
-    if (sk === 'no') return
-    const t = setTimeout(() => setSk(sk === 'on' ? 'out' : 'no'), sk === 'on' ? 700 : 320)
-    return () => clearTimeout(t)
-  }, [sk, pathname])
   useEffect(() => {
     if (area && sezione && !area.sempreDallaPrima && !sezione.nascosta) ricordaSezione(area.key, sezione.href)
   }, [area, sezione])
@@ -226,8 +220,6 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const conCampanella = ruolo !== 'consulente_lavoro' && !cassaTablet
   const pannello = cfg.profilo === 'pannello'
   const conTelegram = ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'
-  // Tocco su un'altra area: lo scheletro parte subito, senza aspettare la
-  // risposta del server, così il tocco ha sempre un riscontro immediato.
   // Schede in alto sul telefono: la scheda attiva viene portata in vista e
   // si tiene traccia di quando resta altro da scorrere a destra.
   const [altroASegmenti, setAltroASegmenti] = useState(false)
@@ -266,7 +258,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
     return () => m.removeEventListener('scroll', scorre, { capture: true })
   }, [])
 
-  const voceDock = (a: { key: string }) => { if (ov) chiudi(); if (a.key !== area?.key) setSk('on') }
+  const voceDock = () => { if (ov) chiudi() }
   const conDock = cfg.aree.length > 1
   const dockFlottante = conDock && (cfg.stile === 'pillola')
   const vaiXml = () => { chiudi(); setTimeout(() => router.push('/acquisti/fatture?importa=xml'), 200) }
@@ -291,11 +283,16 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
       )}
     >
       {segmenti.map(s => {
-        const att = s.key === sezione?.key
+        // La scheda toccata si accende subito, senza aspettare il server.
+        const att = segPremuto ? s.key === segPremuto : s.key === sezione?.key
         return (
           <Link
             key={s.key}
             href={s.href}
+            // Le schede della stessa sezione si precaricano per intero
+            // (dati compresi): il passaggio fra loro non aspetta il server.
+            prefetch={true}
+            onClick={() => setSegPremuto(s.key)}
             aria-current={att ? 'page' : undefined}
             className={cn(
               'relative flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
@@ -454,7 +451,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
       {banner}
       <StrisciaOffline />
 
-      <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <main
           ref={registraMain}
           key={pathname}
@@ -465,13 +462,12 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
           // serve: prima restava una fascia vuota di 104 px sull'iPad.
           style={dockFlottante ? undefined : { ['--spazio-dock' as string]: '0px' }}
           className={cn(
-            'anim-swapin relative min-h-0 flex-1 overflow-y-auto overscroll-contain',
+            'anim-entra relative min-h-0 flex-1 overflow-y-auto overscroll-contain',
             dockFlottante ? 'pb-[calc(max(26px,env(safe-area-inset-bottom))+92px)] sm:pb-[calc(max(22px,env(safe-area-inset-bottom))+106px)]' : 'pb-4'
           )}
         >
           {children}
         </main>
-        {sk !== 'no' && <ScheletroForma esce={sk === 'out'} className="absolute inset-0 z-[70] overflow-hidden" />}
       </div>
 
       {conDock && (

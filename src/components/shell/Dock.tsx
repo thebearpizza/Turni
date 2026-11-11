@@ -69,11 +69,11 @@ export function DockPillola({ aree, attiva: vera, hrefArea, badgeArea, onVoce, s
           : 'absolute inset-x-0 bottom-0 pb-[max(26px,env(safe-area-inset-bottom))] pt-3 sm:pb-[max(22px,env(safe-area-inset-bottom))] sm:pt-[18px]'
       )}
       // Niente sfumatura a tutta larghezza dietro la dock (troppo
-      // invadente): il contenuto scorre sotto e si intravede attraverso la
-      // pillola smerigliata.
+      // invadente) e niente vetro smerigliato: sfocare lo sfondo a ogni
+      // fotogramma di scorrimento rallenta telefoni e tablet.
       style={{ ['--ritardo' as string]: '180ms' }}
     >
-      <nav className="pointer-events-auto relative flex gap-1 rounded-[16px] border border-border bg-card/80 p-1.5 shadow-[0_8px_30px_rgba(20,30,50,.14)] backdrop-blur-xl backdrop-saturate-150">
+      <nav className="pointer-events-auto relative flex gap-1 rounded-[16px] border border-border bg-card p-1.5 shadow-[0_8px_30px_rgba(20,30,50,.14)]">
         {aree.map(a => {
           const att = a.key === attiva
           const b = att ? 0 : badgeArea(a)

@@ -297,28 +297,34 @@ html[data-splash="no"] #splash-apertura { display: none; }
 }
 
 /* ── Movimento del design Acciaio ───────────────────────────────────────
-   swapin: ingresso di form, menu, tastierino e modali (680ms, blur 12px →
-   0, leggera salita e scala); swapout: uscita (320ms). inrise: ingressi a
+   swapin: ingresso di form, menu, tastierino e modali (680ms, leggera
+   salita e scala); swapout: uscita (320ms). Senza sfocatura: animare un
+   blur su superfici grandi fa scattare e lampeggiare telefoni e tablet. inrise: ingressi a
    cascata delle liste. Con "Riduci movimento" niente animazioni. */
 @keyframes swapin {
-  0% { opacity: 0; filter: blur(12px); transform: translateY(16px) scale(.98); }
-  70% { opacity: 1; filter: blur(0); transform: translateY(-2px) scale(1.003); }
-  100% { opacity: 1; filter: blur(0); transform: none; }
+  0% { opacity: 0; transform: translateY(16px) scale(.98); }
+  70% { opacity: 1; transform: translateY(-2px) scale(1.003); }
+  100% { opacity: 1; transform: none; }
 }
 @keyframes swapout {
-  0% { opacity: 1; filter: blur(0); transform: none; }
-  100% { opacity: 0; filter: blur(12px); transform: translateY(-8px) scale(.98); }
+  0% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-8px) scale(.98); }
+}
+/* Ingresso della pagina al cambio di scheda: solo una dissolvenza breve. */
+@keyframes entra { from { opacity: 0; } to { opacity: 1; } }
+@utility anim-entra {
+  animation: entra 160ms ease-out both;
 }
 @keyframes inrise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 /* Varianti per i dialoghi centrati, che hanno già translate(-50%,-50%). */
 @keyframes swapin-centro {
-  0% { opacity: 0; filter: blur(12px); transform: translate(-50%, calc(-50% + 16px)) scale(.98); }
-  70% { opacity: 1; filter: blur(0); transform: translate(-50%, calc(-50% - 2px)) scale(1.003); }
-  100% { opacity: 1; filter: blur(0); transform: translate(-50%, -50%); }
+  0% { opacity: 0; transform: translate(-50%, calc(-50% + 16px)) scale(.98); }
+  70% { opacity: 1; transform: translate(-50%, calc(-50% - 2px)) scale(1.003); }
+  100% { opacity: 1; transform: translate(-50%, -50%); }
 }
 @keyframes swapout-centro {
-  0% { opacity: 1; filter: blur(0); transform: translate(-50%, -50%); }
-  100% { opacity: 0; filter: blur(12px); transform: translate(-50%, calc(-50% - 8px)) scale(.98); }
+  0% { opacity: 1; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(-50%, calc(-50% - 8px)) scale(.98); }
 }
 /* @utility e non classi semplici: così valgono anche con le varianti di
    Tailwind (es. data-[state=closed]:anim-swapout per l'uscita dei popover
