@@ -472,7 +472,7 @@ export function TurniManagerClient({
   )
   const tastoCopia = (
     <button data-sk-keep="" type="button" onClick={copiaSettimana} disabled={isPending || copia} title={disatt ?? 'Copia i turni della settimana precedente su questa'} aria-label="Copia settimana" className={cn(tastoCls, tel ? 'flex-auto gap-1.5 px-2.5' : 'flex-none gap-2 px-3.5')}>
-      {ICONA_COPIA}{copia ? 'Copio…' : tel ? 'Copia' : 'Copia settimana'}
+      {ICONA_COPIA}{copia ? 'Copio…' : 'Copia settimana'}
     </button>
   )
   const tastoIa = (
@@ -481,7 +481,7 @@ export function TurniManagerClient({
       title={disatt ?? (!restaurantAi ? 'Scegli prima un locale' : undefined)} aria-label="Genera con IA"
       className={cn('flex h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-[8px] bg-primary text-sm font-semibold text-primary-foreground active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100', tel ? 'flex-auto gap-1.5 px-2.5' : 'flex-none gap-2 px-4')}
     >
-      {ICONA_IA}{tel ? 'IA' : 'Genera con IA'}
+      {ICONA_IA}Genera con IA
     </button>
   )
 
@@ -552,19 +552,21 @@ export function TurniManagerClient({
       {tel && (
         <div className="flex flex-none items-center gap-2">
           {segmento}
-          {/* I reparti sul telefono stanno nel foglio dei filtri (uno alla
-              volta); sul tablet restano pillole a scelta multipla. */}
+          {/* I reparti sul telefono stanno nel foglio dei filtri, a scelta
+              multipla come le pillole del tablet. */}
           {reparti.length > 1 && (
             <FiltriFoglio gruppi={[{
               titolo: 'Reparto', opzioni: reparti.map(rp => ({ k: rp, l: rp })),
-              valore: reps.length === 1 ? reps[0] : null, onCambia: k => setReps(k ? [k] : []),
+              valori: reps, onCambia: setReps,
             }]} />
           )}
         </div>
       )}
       {/* Strumenti secondari: sul telefono si ritirano scorrendo l'elenco. */}
       {tel && (
-        <div data-ritira="" style={{ ['--ritira-gap' as string]: '10px' }} className="flex flex-none items-center gap-2">
+        <div data-ritira="" style={{ ['--ritira-gap' as string]: '10px' }} className="-mx-4 flex flex-none items-center gap-1 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:flex-auto [&>button]:gap-1 [&>button]:px-1.5 [&>button]:text-[13px]">
+          {/* Nomi completi anche sul telefono (scelta dell'utente): se non
+              stanno in larghezza la riga scorre di lato invece di andare a capo. */}
           {tastoFissi}{tastoCopia}{tastoIa}
         </div>
       )}

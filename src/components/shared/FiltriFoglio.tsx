@@ -11,9 +11,9 @@ import { cn } from '@/lib/utils'
 export interface GruppoFiltri {
   titolo: string
   opzioni: { k: string; l: string }[]
-  /** Chiave scelta, o null per "tutti". */
-  valore: string | null
-  onCambia: (k: string | null) => void
+  /** Chiavi scelte (anche più d'una, come le pillole del tablet); vuoto = "tutti". */
+  valori: string[]
+  onCambia: (v: string[]) => void
   /** Etichetta della scelta "tutti" (predefinita: "Tutti"). */
   tutti?: string
 }
@@ -27,8 +27,10 @@ export function FiltriFoglio({ gruppi, className }: { gruppi: GruppoFiltri[]; cl
     window.addEventListener('keydown', esc)
     return () => window.removeEventListener('keydown', esc)
   }, [stato])
-  const attivi = gruppi.filter(g => g.valore !== null)
-  const riassunto = attivi.map(g => g.opzioni.find(o => o.k === g.valore)?.l).filter(Boolean).join(' · ')
+  const attivi = gruppi.filter(g => g.valori.length > 0)
+  // Una scelta: il suo nome. Più scelte: il numero, che non si tronca.
+  const scelte = attivi.flatMap(g => g.opzioni.filter(o => g.valori.includes(o.k)).map(o => o.l))
+  const riassunto = scelte.length > 1 ? `Filtri · ${scelte.length}` : scelte[0]
   const pill = (on: boolean) => cn('flex h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors duration-200 active:scale-[0.97]', on ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card text-foreground')
 
   return (
@@ -44,14 +46,19 @@ export function FiltriFoglio({ gruppi, className }: { gruppi: GruppoFiltri[]; cl
             className={cn('flex max-h-[80dvh] w-full flex-col gap-4 overflow-y-auto overscroll-contain rounded-t-[20px] border border-border bg-card px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-4 shadow-[0_20px_60px_rgba(20,30,50,.18)]', stato === 'esce' ? 'anim-swapout' : 'anim-swapin')}>
             <div className="flex items-center justify-between">
               <span className="text-[17px] font-semibold">Filtri</span>
-              {attivi.length > 0 && <button type="button" onClick={() => gruppi.forEach(g => g.onCambia(null))} className="flex h-11 items-center px-2 text-sm font-medium text-muted-foreground active:scale-[0.97]">Azzera</button>}
+              {attivi.length > 0 && <button type="button" onClick={() => gruppi.forEach(g => g.onCambia([]))} className="flex h-11 items-center px-2 text-sm font-medium text-muted-foreground active:scale-[0.97]">Azzera</button>}
             </div>
             {gruppi.map(g => (
               <div key={g.titolo} className="flex flex-col gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[.06em] text-muted-foreground">{g.titolo}</span>
                 <div className="flex flex-wrap gap-1.5">
-                  <button type="button" onClick={() => g.onCambia(null)} className={pill(g.valore === null)}>{g.tutti ?? 'Tutti'}</button>
-                  {g.opzioni.map(o => <button key={o.k} type="button" onClick={() => g.onCambia(g.valore === o.k ? null : o.k)} className={pill(g.valore === o.k)}>{o.l}</button>)}
+                  <button type="button" onClick={() => g.onCambia([])} className={pill(g.valori.length === 0)}>{g.tutti ?? 'Tutti'}</button>
+                  {g.opzioni.map(o => {
+                    const on = g.valori.includes(o.k)
+                    // Sceglierle tutte equivale a "Tutti".
+                    const prossimi = on ? g.valori.filter(x => x !== o.k) : [...g.valori, o.k]
+                    return <button key={o.k} type="button" aria-pressed={on} onClick={() => g.onCambia(prossimi.length === g.opzioni.length ? [] : prossimi)} className={pill(on)}>{o.l}</button>
+                  })}
                 </div>
               </div>
             ))}

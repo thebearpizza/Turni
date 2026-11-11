@@ -211,10 +211,10 @@ function OdsAltro({ vista, staff, restaurants, tasks, perTask, diOggi, elimina, 
     onClick: () => { setReps(x => { const n = x.includes(r) ? x.filter(y => y !== r) : [...x, r]; return n.length === DEPARTMENTS.length ? [] : n }); det.setSel(null) },
   }))
 
-  // Telefono: un reparto alla volta, scelto nel foglio "Filtri".
+  // Telefono: i reparti si scelgono nel foglio "Filtri", anche più d'uno.
   const filtri = [{
-    titolo: 'Reparto', opzioni: DEPARTMENTS.map(r => ({ k: r as string, l: r as string })), valore: reps.length === 1 ? reps[0] : null,
-    onCambia: (k: string | null) => { setReps(k ? [k] : []); det.setSel(null) },
+    titolo: 'Reparto', opzioni: DEPARTMENTS.map(r => ({ k: r as string, l: r as string })), valori: reps,
+    onCambia: (v: string[]) => { setReps(v); det.setSel(null) },
   }]
 
   // Tablet: la prima riga è scelta da sola, così il dettaglio non resta

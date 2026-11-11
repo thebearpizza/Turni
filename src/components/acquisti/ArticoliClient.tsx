@@ -198,7 +198,7 @@ export function ArticoliClient({ restaurants, fornitori, canEdit, single }: Prop
         ricerca={{ valore: cerca, onCambia: v => { setCerca(v); setSel(null) }, segnaposto: tel ? 'Cerca articolo' : 'Cerca articolo o fornitore' }}
         // Telefono: le tipologie stanno nel foglio "Filtri", una alla volta
         // (sul tablet le pillole in riga restano a scelta multipla).
-        filtriTel={<FiltriFoglio className="max-w-[128px]" gruppi={[{ titolo: 'Tipologia', opzioni: ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l })), valore: tips.length === 1 ? tips[0] : null, onCambia: k => { setSel(null); setTips(k ? [k as ArticoloTipologia] : []) } }]} />}
+        filtriTel={<FiltriFoglio className="max-w-[128px]" gruppi={[{ titolo: 'Tipologia', opzioni: ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l })), valori: tips, onCambia: v => { setSel(null); setTips(v as ArticoloTipologia[]) } }]} />}
         filtri={ORDINE_TIPOLOGIE.map(k => ({ k, l: TIPOLOGIE[k].l, on: tips.includes(k) }))}
         onFiltro={k => { setSel(null); setTips(p => { const r = p.includes(k as ArticoloTipologia) ? p.filter(x => x !== k) : [...p, k as ArticoloTipologia]; return r.length === ORDINE_TIPOLOGIE.length ? [] : r }) }}
         kpis={[{ l: 'Articoli', v: String(lista.length) }, { l: 'Rincari oltre 2%', v: String(rincari), tono: 'neg' }]}
