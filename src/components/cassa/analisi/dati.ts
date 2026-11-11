@@ -78,3 +78,18 @@ export async function caricaAcquisti(sb: Supa, locali: string[], a: string, b: s
     return o
   }).filter(o => o.fo + o.be + o.de + o.an > 0)
 }
+
+/** Spesa netta per fattura e fornitore nel periodo (scheda Fornitori di Analisi). */
+export interface SpesaFornitore { data: string; li: string; fornitore: string; netto: number }
+
+export async function caricaFornitori(sb: Supa, locali: string[], a: string, b: string): Promise<SpesaFornitore[]> {
+  if (!locali.length || b < a) return []
+  const { data } = await sb
+    .from('fatture')
+    .select('data, restaurant_id, totale_netto, fornitore:fornitori(nome)')
+    .in('restaurant_id', locali)
+    .gte('data', a)
+    .lte('data', b)
+  type R = { data: string; restaurant_id: string; totale_netto: number | null; fornitore: { nome: string } | null }
+  return ((data ?? []) as unknown as R[]).map(f => ({ data: f.data, li: f.restaurant_id, fornitore: f.fornitore?.nome ?? '—', netto: Number(f.totale_netto) || 0 }))
+}

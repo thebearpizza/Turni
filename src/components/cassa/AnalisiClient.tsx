@@ -8,7 +8,7 @@ import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { AnalisiAiDialog } from '@/components/cassa/AnalisiAiDialog'
 import { aggrega, buckets, inBucket, etichettaBucket, mediaScontrino, giorni, piuGiorni, unAnnoPrima, giornoSett, eu, dV, fN, pc, fd, fdg, fdl, intervallo, capit, MESI, WDL, SOGLIA_DIFFERENZA, type Chiusura, type Voce, type Acquisto, type Aggregato, type Tono, type Bucket } from '@/lib/analisi'
-import { caricaChiusure, caricaVoci, caricaAcquisti } from '@/components/cassa/analisi/dati'
+import { caricaChiusure, caricaVoci, caricaAcquisti, caricaFornitori } from '@/components/cassa/analisi/dati'
 import { FoglioDettaglio, FumettoAncorato, USCITA_MS, type Scheda, type Riga, type Sotto, type Fumetto, type RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
 import type { Ctx, Nodo, Dati } from '@/components/cassa/analisi/tipi'
 import { VistaConfronto } from '@/components/cassa/analisi/VistaConfronto'
@@ -30,7 +30,7 @@ const TEAL = 'oklch(0.58 0.12 180)'
 
 interface Props { restaurants: { id: string; name: string }[]; nome?: string }
 
-const VUOTO: Dati = { A: [], B: [], spA: [], spB: [], veA: [], veB: [], acA: [], acB: [] }
+const VUOTO: Dati = { A: [], B: [], spA: [], spB: [], veA: [], veB: [], acA: [], acB: [], foA: [], foB: [] }
 
 const sum = <T,>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0)
 const oggiRoma = () => formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
@@ -116,9 +116,10 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     const sb = createClient()
     const ids = chiaveTarget ? chiaveTarget.split(',') : []
     try {
-    const [A, Bc, acA, acB] = await Promise.all([
+    const [A, Bc, acA, acB, foA, foB] = await Promise.all([
       caricaChiusure(sb, ids, a, b), caricaChiusure(sb, ids, B.a, B.b),
       caricaAcquisti(sb, ids, a, b), caricaAcquisti(sb, ids, B.a, B.b),
+      caricaFornitori(sb, ids, a, b), caricaFornitori(sb, ids, B.a, B.b),
     ])
     const [spA, spB, veA, veB] = await Promise.all([
       caricaVoci(sb, A.righe, 'spese'), caricaVoci(sb, Bc.righe, 'spese'),
@@ -127,7 +128,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     if (req.current !== mio) return
     if (A.errore) setStato('errore')
     else {
-      setDati({ A: A.righe, B: Bc.righe, spA: spA.voci, spB: spB.voci, veA: veA.voci, veB: veB.voci, acA, acB })
+      setDati({ A: A.righe, B: Bc.righe, spA: spA.voci, spB: spB.voci, veA: veA.voci, veB: veB.voci, acA, acB, foA, foB })
       setStato('ok')
       chiaveCaricata.current = chiave
     }

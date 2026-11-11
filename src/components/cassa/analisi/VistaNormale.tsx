@@ -1,8 +1,8 @@
 'use client'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
-  giornoSett, mediaScontrino, eu, fN, dV, sgn, pc, k1, fdg, variazione, inBucket, WD,
+  giornoSett, mediaScontrino, eu, fN, dV, sgn, pc, k1, fdg, variazione, delta, inBucket, WD, TONO_PILLOLA,
   SOGLIA_DIFFERENZA, MIN_GIORNI_ALERT,
 } from '@/lib/analisi'
 import { KpiCard, GraficoEntrate } from '@/components/cassa/analisi/Grafici'
@@ -183,6 +183,9 @@ export function VistaNormale({ c }: { c: Ctx }) {
         )}
       </div>
 
+      {/* Fornitori: spesa netta nel periodo scelto in alto (anche più mesi) */}
+      <CardFornitori c={c} />
+
       {/* Confronto per ristorante */}
       <div className={cn(CARD, 'overflow-hidden')} style={ritardo(360)}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-5 pb-3 pt-[18px]">
@@ -336,6 +339,63 @@ export function VistaNormale({ c }: { c: Ctx }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Fornitori del periodo: spesa netta delle fatture, quota sugli acquisti,
+ *  variazione sul periodo di confronto; il tocco apre la spesa per locale. */
+function CardFornitori({ c }: { c: Ctx }) {
+  const { v, tel } = c
+  const [tutti, setTutti] = useState(false)
+  const righe = useMemo(() => {
+    const m = new Map<string, { n: number; t: number; per: Map<string, { t: number; n: number }> }>()
+    for (const f of c.dati.foA) {
+      const o = m.get(f.fornitore) ?? { n: 0, t: 0, per: new Map() }
+      o.n++; o.t += f.netto
+      const p = o.per.get(f.li) ?? { t: 0, n: 0 }; p.t += f.netto; p.n++; o.per.set(f.li, p)
+      m.set(f.fornitore, o)
+    }
+    const prima = new Map<string, number>()
+    for (const f of c.dati.foB) prima.set(f.fornitore, (prima.get(f.fornitore) ?? 0) + f.netto)
+    return [...m.entries()].map(([nome, o]) => ({ nome, ...o, b: prima.get(nome) ?? 0 })).sort((p, q) => q.t - p.t)
+  }, [c.dati.foA, c.dati.foB])
+  const totale = sum(righe, r => r.t)
+  const visibili = tutti ? righe : righe.slice(0, 8)
+  return (
+    <div className={cn(CARD, 'gap-3 px-5 py-[18px]')} style={ritardo(345)}>
+      <Titolo t="Fornitori" s={`spesa netta delle fatture · ${righe.length} ${righe.length === 1 ? 'fornitore' : 'fornitori'}`} />
+      {righe.length === 0 ? <p className={cn('text-sm', MUTO)}>Nessuna fattura nel periodo.</p> : (
+        <>
+          {visibili.map((r, i) => {
+            const d = r.b ? delta(r.t, r.b, 'giu') : null
+            return (
+              <button key={r.nome} type="button"
+                onClick={c.fumetto(r.nome, `spesa netta per locale · ${r.n} ${r.n === 1 ? 'fattura' : 'fatture'}`, v.locSel.filter(l => r.per.has(l.id)).map(l => {
+                  const p = r.per.get(l.id)!
+                  return { l: l.nome, dot: l.colore, v: eu(p.t), p: `${p.n} fatt.` }
+                }))}
+                className={cn('-mx-2 grid min-h-9 items-center gap-3 rounded-[8px] px-2 text-left', tocco, sfioro)}
+                style={{ gridTemplateColumns: tel ? 'minmax(0,1fr) 84px 44px' : 'minmax(0,180px) 1fr 104px 52px 64px' }}>
+                <span className="truncate text-sm font-medium">{r.nome}</span>
+                {!tel && (
+                  <div className="h-[22px] overflow-hidden rounded-[5px] bg-[oklch(0.95_0.01_250)] dark:bg-secondary">
+                    <div className="h-full rounded-[5px] transition-[width] duration-700 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]" style={{ width: `${(r.t / righe[0].t) * 100}%`, background: i ? `oklch(${(0.62 + Math.min(i, 6) * 0.05).toFixed(2)} ${(0.11 - Math.min(i, 6) * 0.012).toFixed(3)} 250)` : 'oklch(0.6 0.11 250)' }} />
+                  </div>
+                )}
+                <span className="text-right font-mono text-[13px] font-medium">{eu(r.t, 0)}</span>
+                <span className={cn('text-right font-mono text-xs font-medium', MUTO)}>{pc(r.t, totale)}</span>
+                {!tel && (d ? <span className={cn('justify-self-end rounded-full px-[7px] py-0.5 font-mono text-[11px] font-semibold', TONO_PILLOLA[d.tono])}>{d.testo}</span> : <span />)}
+              </button>
+            )
+          })}
+          {righe.length > 8 && (
+            <button type="button" onClick={() => setTutti(t => !t)} className="self-start text-[13px] font-medium text-[oklch(0.45_0.1_180)] active:scale-[0.97] dark:text-[oklch(0.75_0.1_180)]">
+              {tutti ? 'Mostra meno' : `Mostra tutti (${righe.length})`}
+            </button>
+          )}
+        </>
+      )}
     </div>
   )
 }

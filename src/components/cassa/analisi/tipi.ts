@@ -1,4 +1,5 @@
 import type { Chiusura, Voce, Acquisto, Aggregato, Bucket } from '@/lib/analisi'
+import type { SpesaFornitore } from '@/components/cassa/analisi/dati'
 import type { RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
 import type { ModoConfronto, Intervallo } from '@/components/cassa/analisi/Filtri'
 
@@ -15,6 +16,7 @@ export interface Dati {
   A: Chiusura[]; B: Chiusura[]
   spA: Voce[]; spB: Voce[]; veA: Voce[]; veB: Voce[]
   acA: Acquisto[]; acB: Acquisto[]
+  foA: SpesaFornitore[]; foB: SpesaFornitore[]
 }
 
 export interface Ctx {
