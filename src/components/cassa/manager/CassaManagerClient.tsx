@@ -173,7 +173,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   useEffect(() => {
     const id = chiusuraSel?.id
     if (!id || spese[id]) return
-    createClient().from('cassa_spese').select('*').eq('chiusura_id', id).order('created_at').then(({ data }) => setSpese(s => ({ ...s, [id]: (data ?? []) as CassaSpesa[] })))
+    createClient().from('cassa_spese').select('*, categoria:cassa_categorie(nome)').eq('chiusura_id', id).order('created_at').then(({ data }) => setSpese(s => ({ ...s, [id]: (data ?? []) as CassaSpesa[] })))
   }, [chiusuraSel, spese])
 
   const cambiaLoc = (x: string[]) => { avvia(); setSel(null); setLoc(x) }
@@ -213,7 +213,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     const voci = [
       ...sp.map(s => ({
         l: s.nome_spesa,
-        m: gone.includes(s.id) ? 'eliminata nella modifica' : modS[s.id] !== undefined ? `era ${eur(Number(s.importo))}` : 'pagata in contanti',
+        m: gone.includes(s.id) ? 'eliminata nella modifica' : modS[s.id] !== undefined ? `era ${eur(Number(s.importo))}` : (s as CassaSpesa & { categoria?: { nome: string } | null }).categoria?.nome ?? 'Senza categoria',
         v: eur(gone.includes(s.id) ? 0 : modS[s.id] ?? Number(s.importo)),
       })),
       ...add.map(s => ({ l: s.nome_spesa, m: 'nuova nella modifica', v: eur(s.importo) })),
@@ -339,7 +339,8 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   } else {
     cols = 'minmax(0,1.3fr) 110px 1px 128px'
     heads = [['Busta', 'left'], ['Importo', 'right'], ['', 'right'], ['Stato', 'right']]
-    const vis = buste.filter(b => target.includes(b.ch.restaurant_id))
+    // Una busta da 0 € non esiste fisicamente: non si mostra.
+    const vis = buste.filter(b => target.includes(b.ch.restaurant_id) && Number(b.ch.contanti_per_banca) > 0.004)
     righe = vis.map(b => ({ k: b.ch.id, li: b.ch.restaurant_id, giorno: b.ch.data, a: `N° ${b.n}`, as: `${locNome(b.ch.restaurant_id)} · ${dataBreve(b.ch.data)}`, b: eur(Number(b.ch.contanti_per_banca)), cl: '', c: '', banV: 0, t: b.vers ? 'Versata' : 'In cassaforte', tono: b.vers ? 'ok' : 'warn' }))
     const inC = vis.filter(b => !b.vers)
     kpis = [{ l: 'In cassaforte', v: eur(inC.reduce((s, b) => s + Number(b.ch.contanti_per_banca), 0)), c: 'text-warn' }, { l: 'Buste', v: String(inC.length) }]

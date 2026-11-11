@@ -37,6 +37,19 @@ function useScrub(n: number, posizione: (e: React.PointerEvent<HTMLElement>, r: 
   return { i, esce, handlers }
 }
 
+/**
+ * Tiene il fumetto dello scrub dentro lo schermo: parte centrato sul
+ * punto e si sposta di quanto sborderebbe (8 px di margine). Scrive solo
+ * lo stile del nodo, dopo il disegno: nessuno stato in più.
+ */
+export function dentroSchermo(el: HTMLElement | null) {
+  if (!el) return
+  el.style.translate = '-50% 0'
+  const r = el.getBoundingClientRect(), vw = document.documentElement.clientWidth
+  const dx = r.left < 8 ? 8 - r.left : r.right > vw - 8 ? vw - 8 - r.right : 0
+  if (dx) el.style.translate = `calc(-50% + ${dx}px) 0`
+}
+
 export function BadgeVariazione({ v }: { v: { testo: string; su: boolean; tono: Tono } }) {
   return (
     <span className={cn('flex items-center gap-[3px] rounded-full px-[7px] py-0.5 font-mono text-[11px] font-semibold', TONO_PILLOLA[v.tono])}>
@@ -84,7 +97,7 @@ export function KpiCard(p: KpiProps) {
   return (
     <div
       role="button" tabIndex={0} onClick={p.onApri} onKeyDown={e => { if (e.key === 'Enter') p.onApri() }}
-      className="anim-swapin flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-[12px] border border-border bg-card px-4 pb-2.5 pt-3.5 active:scale-[0.98]"
+      className={cn('anim-swapin relative flex min-w-0 cursor-pointer select-none flex-col gap-1.5 rounded-[12px] border border-border bg-card px-4 pb-2.5 pt-3.5 [-webkit-touch-callout:none] [-webkit-user-select:none] active:scale-[0.98]', attivo && 'z-20')}
       style={{ animationDelay: `${p.ritardo}ms` }}
     >
       <span className="truncate text-[13px] font-medium text-muted-foreground">{p.l}</span>
@@ -107,8 +120,9 @@ export function KpiCard(p: KpiProps) {
             <div className="pointer-events-none absolute inset-y-0 w-px bg-[oklch(0.82_0.01_250)] dark:bg-line-strong" style={{ left: `${fx * 100}%` }} />
             <div className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-card" style={{ left: `${fx * 100}%`, top: `${(pts[i!][1] / 30) * 100}%`, borderColor: p.colore }} />
             <div
+              ref={el => dentroSchermo(el)}
               className={cn('pointer-events-none absolute bottom-[calc(100%+6px)] z-30 flex flex-col gap-0.5 whitespace-nowrap rounded-[8px] bg-[oklch(0.2_0.01_250)] px-2.5 py-1.5 text-white shadow-[0_6px_20px_oklch(0.2_0.01_250/.18)] dark:bg-[oklch(0.32_0.01_250)]', esce ? 'anim-swapout' : 'anim-swapin')}
-              style={{ left: `${fx * 100}%`, transform: `translateX(${fx < 0.25 ? '-12%' : fx > 0.75 ? '-88%' : '-50%'})`, animationDuration: esce ? '170ms' : '360ms' }}
+              style={{ left: `${fx * 100}%`, animationDuration: esce ? '170ms' : '360ms' }}
             >
               <span className="text-[11px] font-medium text-[oklch(0.8_0.01_250)]">{p.etichette[i!]}</span>
               <span className="font-mono text-[13px] font-semibold">{p.fmt(p.serie[i!])}</span>

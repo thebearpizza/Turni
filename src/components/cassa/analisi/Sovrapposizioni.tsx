@@ -175,44 +175,75 @@ export interface RigaFumetto { l: string; v: string; p?: string; dot?: string; t
 export interface Fumetto { id: number; titolo: string; sotto: string; righe: RigaFumetto[]; ancora: DOMRect }
 
 export function FumettoAncorato({ f, esce, onChiudi }: { f: Fumetto | null; esce: boolean; onChiudi: () => void }) {
+  // Nessun velo a tutto schermo: la pagina resta scorrevole. Lo scroll
+  // della pagina chiude il fumetto (con l'animazione di uscita del
+  // genitore), lo scroll DENTRO il fumetto no. Un tocco fuori lo chiude
+  // e quel tocco non attiva altro, come faceva il velo del prototipo.
   useEffect(() => {
     if (!f || esce) return
+    const dentro = (t: EventTarget | null) => t instanceof Node && !!(t instanceof Element ? t : t.parentElement)?.closest('[data-fumetto]')
+    let inghiotti = false
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onChiudi() }
     const chiudi = () => onChiudi()
+    const scorre = (e: Event) => { if (!dentro(e.target)) onChiudi() }
+    const giu = (e: PointerEvent) => { if (!dentro(e.target)) { inghiotti = true; setTimeout(() => { inghiotti = false }, 600) } }
+    const su = (e: PointerEvent) => { if (inghiotti && !dentro(e.target)) onChiudi() }
+    const clic = (e: MouseEvent) => { if (inghiotti && !dentro(e.target)) { e.preventDefault(); e.stopPropagation(); inghiotti = false } }
     window.addEventListener('keydown', esc)
     window.addEventListener('resize', chiudi)
-    document.addEventListener('scroll', chiudi, true)
-    return () => { window.removeEventListener('keydown', esc); window.removeEventListener('resize', chiudi); document.removeEventListener('scroll', chiudi, true) }
+    document.addEventListener('scroll', scorre, true)
+    document.addEventListener('pointerdown', giu, true)
+    document.addEventListener('pointerup', su, true)
+    document.addEventListener('click', clic, true)
+    return () => {
+      window.removeEventListener('keydown', esc); window.removeEventListener('resize', chiudi)
+      document.removeEventListener('scroll', scorre, true); document.removeEventListener('pointerdown', giu, true)
+      document.removeEventListener('pointerup', su, true); document.removeEventListener('click', clic, true)
+    }
   }, [f, esce, onChiudi])
   if (!f) return null
-  return createPortal(<CorpoFumetto key={f.id} f={f} esce={esce} onChiudi={onChiudi} />, document.body)
+  return createPortal(<CorpoFumetto key={f.id} f={f} esce={esce} />, document.body)
 }
 
+// Margini dai bordi dello schermo: in alto lo spazio di sicurezza, in
+// basso anche la dock (circa 100 px) che altrimenti coprirebbe le righe.
+const MARGINE_ALTO = 12
+const MARGINE_BASSO = 104
+
 // Posizione come nel prototipo: centrato sull'elemento (entro i bordi),
-// sotto se l'elemento sta nei primi 300 px dello schermo, sopra altrimenti.
+// sotto se l'elemento sta nei primi 300 px dello schermo, sopra altrimenti
+// (o dal lato con più spazio se quello scelto è troppo stretto). L'altezza
+// massima è quella che resta visibile: il resto scorre dentro il fumetto.
 // Il pannello laterale (voci di una categoria) va a destra se c'è spazio,
 // a sinistra altrimenti; su telefono scivola sotto/sopra il fumetto.
-function CorpoFumetto({ f, esce, onChiudi }: { f: Fumetto; esce: boolean; onChiudi: () => void }) {
+function CorpoFumetto({ f, esce }: { f: Fumetto; esce: boolean }) {
   const [aperta, setAperta] = useState<number | null>(null)
   const [lato, setLato] = useState<number | null>(null)
-  const r = f.ancora, vw = window.innerWidth
+  const r = f.ancora, vw = window.innerWidth, vh = window.innerHeight
   const tel = vw < 640
   const cx = Math.max(Math.min(172, vw / 2), Math.min(vw - Math.min(172, vw / 2), r.left + r.width / 2))
-  const sotto = r.top < 300
+  const spazioSotto = vh - MARGINE_BASSO - (r.bottom + 8), spazioSopra = r.top - 8 - MARGINE_ALTO
+  let sotto = r.top < 300
+  if ((sotto ? spazioSotto : spazioSopra) < 220 && (sotto ? spazioSopra : spazioSotto) > (sotto ? spazioSotto : spazioSopra)) sotto = !sotto
   const y = sotto ? r.bottom + 8 : r.top - 8
   const w = Math.min(320, vw - 24)
-  const box: React.CSSProperties = { left: cx, top: y, width: w, transform: sotto ? 'translateX(-50%)' : 'translate(-50%,-100%)' }
+  const maxH = Math.max(120, Math.min(460, sotto ? spazioSotto : spazioSopra))
+  const verticale = (yy: number, alto: number): React.CSSProperties => (sotto
+    ? { top: yy, maxHeight: Math.max(120, Math.min(alto, vh - MARGINE_BASSO - yy)) }
+    : { bottom: vh - yy, maxHeight: Math.max(120, Math.min(alto, yy - MARGINE_ALTO)) })
+  const box: React.CSSProperties = { left: cx - w / 2, width: w, ...verticale(y, 460) }
   const pan = lato !== null ? f.righe[lato]?.pannello : undefined
   const aDestra = cx + 160 + 10 + 300 <= vw - 16
+  const wp = Math.min(300, vw - 24)
   const boxPan: React.CSSProperties = tel
-    ? { left: Math.max(12, cx - 150), top: y + (sotto ? 56 : -56), width: Math.min(300, vw - 24), transform: sotto ? 'none' : 'translateY(-100%)' }
-    : { left: aDestra ? cx + 170 : cx - 170 - 300, top: y, width: 300, transform: sotto ? 'none' : 'translateY(-100%)' }
+    ? { left: Math.max(12, Math.min(vw - 12 - wp, cx - wp / 2)), width: wp, ...verticale(y + (sotto ? 56 : -56), 420) }
+    : { left: aDestra ? cx + 170 : cx - 170 - 300, width: 300, ...verticale(y, 420) }
   const anim = esce ? 'anim-swapout' : 'anim-swapin'
 
   return (
-    <div className="fixed inset-0 z-[82]" onClick={onChiudi}>
-      <div className="fixed" style={box} onClick={e => e.stopPropagation()} role="dialog" aria-label={f.titolo}>
-        <div className={cn('max-h-[460px] overflow-y-auto overscroll-contain rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
+    <>
+      <div data-fumetto="" className="fixed z-[82] flex flex-col" style={box} role="dialog" aria-label={f.titolo}>
+        <div style={{ maxHeight: maxH }} className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
           <div className="flex flex-col gap-2 px-4 py-3.5">
             <div className="flex flex-col gap-px">
               <span className="text-[15px] font-semibold">{f.titolo}</span>
@@ -254,8 +285,8 @@ function CorpoFumetto({ f, esce, onChiudi }: { f: Fumetto; esce: boolean; onChiu
         </div>
       </div>
       {pan && (
-        <div key={lato} className="fixed" style={boxPan} onClick={e => e.stopPropagation()}>
-          <div className={cn('flex max-h-[420px] flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
+        <div key={lato} data-fumetto="" className="fixed z-[83] flex flex-col" style={boxPan}>
+          <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_14px_40px_rgba(20,30,50,.16)]', anim)}>
             <div className="flex flex-none flex-col gap-px px-4 pb-2 pt-3.5">
               <span className="text-[15px] font-semibold">{pan.titolo}</span>
               <span className="text-xs text-muted-foreground">{pan.sotto}</span>
@@ -271,6 +302,6 @@ function CorpoFumetto({ f, esce, onChiudi }: { f: Fumetto; esce: boolean; onChiu
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

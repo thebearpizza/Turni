@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { Area } from './navigazione'
 import { PERCORSI_SCHEDE } from './icone'
@@ -32,10 +33,23 @@ interface DockProps {
   hrefArea: (a: Area) => string
   badgeArea: (a: Area) => number
   /** Click su una voce (per chiudere i pannelli aperti). */
-  onVoce: () => void
+  onVoce: (a: Area) => void
 }
 
-export function DockPillola({ aree, attiva, hrefArea, badgeArea, onVoce, spente }: DockProps & { spente?: boolean }) {
+/**
+ * Voce attiva "ottimistica": la voce toccata si accende subito, senza
+ * aspettare che la pagina nuova arrivi dal server; quando la navigazione
+ * cambia davvero l'area attiva si torna a quella vera.
+ */
+function useAttivaSubito(attiva: string | null) {
+  const [premuta, setPremuta] = useState<string | null>(null)
+  const [ultima, setUltima] = useState(attiva)
+  if (ultima !== attiva) { setUltima(attiva); setPremuta(null) }
+  return [premuta ?? attiva, setPremuta] as const
+}
+
+export function DockPillola({ aree, attiva: vera, hrefArea, badgeArea, onVoce, spente }: DockProps & { spente?: boolean }) {
+  const [attiva, premi] = useAttivaSubito(vera)
   const molte = aree.length > 3
   return (
     <div
@@ -46,9 +60,12 @@ export function DockPillola({ aree, attiva, hrefArea, badgeArea, onVoce, spente 
           ? 'relative flex-none pb-[max(26px,env(safe-area-inset-bottom))] pt-2.5'
           : 'absolute inset-x-0 bottom-0 pb-[max(26px,env(safe-area-inset-bottom))] pt-3 sm:pb-[max(22px,env(safe-area-inset-bottom))] sm:pt-[18px]'
       )}
-      style={{ ['--ritardo' as string]: '180ms', ...(spente ? {} : { background: 'linear-gradient(to top, var(--background) 45%, color-mix(in oklch, var(--background) 0%, transparent))' }) }}
+      // Niente sfumatura a tutta larghezza dietro la dock (troppo
+      // invadente): il contenuto scorre sotto e si intravede attraverso la
+      // pillola smerigliata.
+      style={{ ['--ritardo' as string]: '180ms' }}
     >
-      <nav className="pointer-events-auto relative flex gap-1 rounded-[16px] border border-border bg-card p-1.5 shadow-[0_4px_20px_rgba(20,30,50,.08)]">
+      <nav className="pointer-events-auto relative flex gap-1 rounded-[16px] border border-border bg-card/80 p-1.5 shadow-[0_8px_30px_rgba(20,30,50,.14)] backdrop-blur-xl backdrop-saturate-150">
         {aree.map(a => {
           const att = a.key === attiva
           const b = att ? 0 : badgeArea(a)
@@ -56,7 +73,7 @@ export function DockPillola({ aree, attiva, hrefArea, badgeArea, onVoce, spente 
             <Link
               key={a.key}
               href={hrefArea(a)}
-              onClick={onVoce}
+              onClick={() => { premi(a.key); onVoce(a) }}
               aria-current={att ? 'page' : undefined}
               className={cn(
                 'relative flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[11px] text-[13px] font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
@@ -74,7 +91,8 @@ export function DockPillola({ aree, attiva, hrefArea, badgeArea, onVoce, spente 
   )
 }
 
-export function BarraSchede({ aree, attiva, hrefArea, badgeArea, onVoce, conPallino }: DockProps & { conPallino: (a: Area) => boolean }) {
+export function BarraSchede({ aree, attiva: vera, hrefArea, badgeArea, onVoce, conPallino }: DockProps & { conPallino: (a: Area) => boolean }) {
+  const [attiva, premi] = useAttivaSubito(vera)
   return (
     <nav
       data-guscio-entra=""
@@ -89,7 +107,7 @@ export function BarraSchede({ aree, attiva, hrefArea, badgeArea, onVoce, conPall
           <Link
             key={a.key}
             href={hrefArea(a)}
-            onClick={onVoce}
+            onClick={() => { premi(a.key); onVoce(a) }}
             aria-current={att ? 'page' : undefined}
             className={cn('relative flex h-[52px] flex-col items-center justify-center gap-1 text-[11px] transition-colors active:scale-[0.97]',
               att ? 'font-semibold text-turni' : 'font-medium text-muted-foreground')}
@@ -104,7 +122,8 @@ export function BarraSchede({ aree, attiva, hrefArea, badgeArea, onVoce, conPall
   )
 }
 
-export function BarraCassaTablet({ aree, attiva, hrefArea, onVoce }: DockProps) {
+export function BarraCassaTablet({ aree, attiva: vera, hrefArea, onVoce }: DockProps) {
+  const [attiva, premi] = useAttivaSubito(vera)
   return (
     <nav data-guscio-entra="" style={{ ['--ritardo' as string]: '180ms' }} className="relative z-[35] grid flex-none grid-cols-2 border-t border-border bg-card pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5">
       {aree.map(a => {
@@ -113,7 +132,7 @@ export function BarraCassaTablet({ aree, attiva, hrefArea, onVoce }: DockProps) 
           <Link
             key={a.key}
             href={hrefArea(a)}
-            onClick={onVoce}
+            onClick={() => { premi(a.key); onVoce(a) }}
             aria-current={att ? 'page' : undefined}
             className={cn('flex h-14 flex-col items-center justify-center gap-1 text-[13px] active:scale-[0.98]', att ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground')}
           >

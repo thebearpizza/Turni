@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 
 // Pillole dei locali del design (Manager Analisi, MTTurni, MTPresenze,
@@ -61,10 +61,45 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
   const chiaveNomi = lista.map(l => l.nome).join('\u0000')
   useEffect(() => { nomi.current = chiaveNomi.split('\u0000') }, [chiaveNomi])
 
+  // FLIP: dopo ogni scambio le pillole spostate partono dalla posizione di
+  // prima e scivolano nella nuova (la trascinata segue il dito a parte).
+  const primaDi = useRef<Map<string, number> | null>(null)
+  useLayoutEffect(() => {
+    const vecchie = primaDi.current
+    primaDi.current = null
+    if (!vecchie || !contenitore.current) return
+    for (const el of contenitore.current.querySelectorAll<HTMLElement>('[data-li]')) {
+      const n = el.dataset.li!, da = vecchie.get(n)
+      if (da === undefined || n === sollevata) continue
+      const d = da - el.offsetLeft
+      if (!d) continue
+      el.style.transition = 'none'
+      el.style.transform = `translateX(${d}px)`
+      void el.offsetWidth
+      el.style.transition = 'transform 260ms cubic-bezier(0.22,1,0.36,1)'
+      el.style.transform = ''
+    }
+  }, [provvisorio, sollevata])
+
   function premi(e: React.PointerEvent, nome: string) {
     if (e.button !== 0) return
     const x0 = e.clientX, y0 = e.clientY
-    let attivo = false
+    const box = contenitore.current
+    const el0 = e.currentTarget as HTMLElement
+    // Distanza fra il dito e il bordo sinistro della pillola: resta fissa.
+    const presa = x0 - el0.getBoundingClientRect().left
+    let attivo = false, ultimoX = x0
+    const pillola = () => box?.querySelector<HTMLElement>(`[data-li="${CSS.escape(nome)}"]`) ?? null
+    // Posizione voluta (coordinate del contenuto, scroll compreso) meno quella
+    // di layout: la pillola resta sotto il dito anche dopo gli scambi.
+    const segui = () => {
+      const el = pillola()
+      if (!el || !box) return
+      const voluta = ultimoX - box.getBoundingClientRect().left + box.scrollLeft - presa
+      el.style.transition = 'box-shadow 200ms, scale 200ms'
+      el.style.transform = `translateX(${voluta - el.offsetLeft}px)`
+      return voluta + el.offsetWidth / 2
+    }
     const tm = setTimeout(() => {
       attivo = true
       trascinato.current = true
@@ -78,22 +113,31 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
         if (Math.abs(ev.clientX - x0) > 8 || Math.abs(ev.clientY - y0) > 8) fine()
         return
       }
-      // Scambio solo quando il dito supera il centro della pillola accanto:
-      // dopo lo scambio la vicina si sposta oltre il dito, quindi non torna
-      // indietro anche se le due pillole hanno larghezze diverse.
-      const els = [...(contenitore.current?.querySelectorAll<HTMLElement>('[data-li]') ?? [])]
+      ultimoX = ev.clientX
+      // Vicino ai bordi la fila scorre, per portare la pillola oltre.
+      if (box) {
+        const r = box.getBoundingClientRect()
+        if (ev.clientX < r.left + 24) box.scrollLeft -= 8
+        else if (ev.clientX > r.right - 24) box.scrollLeft += 8
+      }
+      const centro = segui()
+      if (centro === undefined || !box) return
+      // Scambio quando il centro della pillola supera il centro della vicina
+      // (posizioni di layout, non quelle a metà animazione).
+      const els = [...box.querySelectorAll<HTMLElement>('[data-li]')]
       const o = nomi.current.slice(), i = o.indexOf(nome)
       if (i < 0) return
-      const centro = (n: string) => { const el = els.find(x => x.dataset.li === n); if (!el) return null; const r = el.getBoundingClientRect(); return r.left + r.width / 2 }
-      const dopo = o[i + 1] !== undefined ? centro(o[i + 1]) : null
-      const prima = o[i - 1] !== undefined ? centro(o[i - 1]) : null
+      const mezzo = (n: string | undefined) => { const el = n === undefined ? null : els.find(x => x.dataset.li === n); return el ? el.offsetLeft + el.offsetWidth / 2 : null }
+      const dopo = mezzo(o[i + 1]), prima = mezzo(o[i - 1])
       let j = i
-      if (dopo !== null && ev.clientX > dopo) j = i + 1
-      else if (prima !== null && ev.clientX < prima) j = i - 1
+      if (dopo !== null && centro > dopo) j = i + 1
+      else if (prima !== null && centro < prima) j = i - 1
       if (j === i) return
+      primaDi.current = new Map(els.map(x => [x.dataset.li!, x.offsetLeft]))
       o.splice(i, 1); o.splice(j, 0, nome)
       nomi.current = o
       setProvvisorio(o)
+      requestAnimationFrame(segui)
     }
     const fine = () => {
       clearTimeout(tm)
@@ -102,6 +146,9 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
       window.removeEventListener('pointercancel', fine)
       window.removeEventListener('touchmove', blocca)
       if (attivo) {
+        // Rientro morbido nella posizione finale, poi si salva l'ordine.
+        const el = pillola()
+        if (el) { el.style.transition = 'transform 220ms cubic-bezier(0.22,1,0.36,1)'; el.style.transform = '' }
         salva(nomi.current)
         setProvvisorio(null)
         setSollevata(null)
@@ -115,14 +162,17 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
   }
 
   if (nascondiSeUno && locali.length <= 1) return null
-  const base = 'relative flex h-10 flex-none cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-full border px-[14px] text-sm font-medium transition-[background-color,color] duration-200 [-webkit-touch-callout:none] [-webkit-user-select:none]'
+  // La fila ha 12 px di margine sopra e sotto (compensati) perché la
+  // pillola sollevata e la sua ombra non vengano tagliate dallo scroll
+  // orizzontale; quel margine non intercetta i tocchi.
+  const base = 'relative flex h-10 flex-none cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-full border px-[14px] text-sm font-medium transition-[background-color,color,scale,box-shadow] duration-200 [-webkit-touch-callout:none] [-webkit-user-select:none]'
   const stato = (on: boolean) => (on ? 'border-primary bg-primary text-primary-foreground' : 'border-line-strong bg-card text-foreground')
 
   return (
     <div
       ref={contenitore}
       onContextMenu={e => e.preventDefault()}
-      className={cn('-mx-4 flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
+      className={cn('pointer-events-none relative -mx-4 -my-3 flex min-w-0 gap-1.5 overflow-x-auto overscroll-x-contain px-4 py-3 [&>*]:pointer-events-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
     >
       {!senzaTutti && (
         <button type="button" onClick={() => onCambia([])} className={cn(base, 'z-[1] active:scale-[0.97]', stato(selezionati.length === 0))}>
@@ -142,7 +192,7 @@ export function PilloleLocali({ locali, selezionati, onCambia, multipla = false,
               onCambia(tuttiComeVuoto && n.length === locali.length ? [] : n)
             }}
             className={cn(base, stato(on), su ? 'z-[2]' : 'z-[1] active:scale-[0.97]')}
-            style={su ? { transform: 'scale(1.08)', boxShadow: '0 8px 20px rgba(20,30,50,.22)', touchAction: 'none' } : undefined}
+            style={su ? { scale: '1.08', boxShadow: '0 8px 20px rgba(20,30,50,.22)', touchAction: 'none' } : undefined}
           >
             <span className="h-2 w-2 rounded-full" style={{ background: on ? 'currentColor' : l.colore }} />
             {l.nome}

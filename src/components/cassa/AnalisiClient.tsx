@@ -215,7 +215,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
         figli: xs.map(x => ({ l: x.nome, s: fd(x.data) + (multiLoc ? ` · ${nomeLoc[x.li]?.nome ?? ''}` : ''), v: eu(x.importo) })),
       }))
     } else {
-      sotto = voci.map(x => ({ l: x.nome, s: `${x.categoria} · pagato in contanti`, v: eu(x.importo), dot: v.colCat[x.categoria] }))
+      sotto = voci.map(x => ({ l: x.nome, s: x.categoria, v: eu(x.importo), dot: v.colCat[x.categoria] }))
     }
     return { tipo: 'espandi', l: 'Spese', v: eu(sum(rs, r => r.sp)), sotto }
   }
@@ -318,7 +318,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
       l: s.l.nome, dot: s.l.colore, v: eu(tv), p: `${xs.length} ${xs.length === 1 ? 'voce' : 'voci'}`,
       pannello: {
         titolo: `${s.l.nome} · ${c}`, sotto: `${xs.length} ${xs.length === 1 ? 'voce' : 'voci'} · ${eu(tv)}`,
-        figli: xs.map(x => ({ l: x.nome, s: `${fd(x.data)} · pagato in contanti`, v: eu(x.importo) })),
+        figli: xs.map(x => ({ l: x.nome, s: fd(x.data), v: eu(x.importo) })),
       },
     }
   }))
@@ -378,7 +378,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
         <PulsanteEsporta tel={tel} disabilitato={!v.rows.length} onScegli={setEsporta} />
       </div>
 
-      <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative min-h-[420px]">
+      <div data-sk-root="" data-sk-on={sk === 'on' ? '1' : undefined} className="relative min-h-[420px] select-none [-webkit-touch-callout:none] [-webkit-user-select:none]">
         {stato === 'errore' ? (
           <div className="anim-swapin flex flex-col items-center gap-1 px-[18px] py-12 text-center text-pretty">
             <span className="text-[15px] font-semibold text-[oklch(0.45_0.1_25)] dark:text-neg">Caricamento non riuscito</span>

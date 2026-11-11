@@ -220,6 +220,9 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const conCampanella = ruolo !== 'consulente_lavoro' && !cassaTablet
   const pannello = cfg.profilo === 'pannello'
   const conTelegram = ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'
+  // Tocco su un'altra area: lo scheletro parte subito, senza aspettare la
+  // risposta del server, così il tocco ha sempre un riscontro immediato.
+  const voceDock = (a: { key: string }) => { if (ov) chiudi(); if (a.key !== area?.key) setSk('on') }
   const conDock = cfg.aree.length > 1
   const dockFlottante = conDock && (cfg.stile === 'pillola')
   const vaiXml = () => { chiudi(); setTimeout(() => router.push('/acquisti/fatture?importa=xml'), 200) }
@@ -408,17 +411,17 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
 
       {conDock && (
         <>
-          {cfg.stile === 'pillola' && <DockPillola aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={() => ov && chiudi()} />}
+          {cfg.stile === 'pillola' && <DockPillola aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={voceDock} />}
           {cfg.stile === 'schede' && (
             <BarraSchede
-              aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={() => ov && chiudi()}
+              aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={voceDock}
               // Dipendente v2: pallino sull'ODS (notifiche non lette).
               conPallino={a => ruolo === 'dipendente' && a.key === 'ods'}
             />
           )}
           {cfg.stile === 'cassa' && (cassaTablet
-            ? <BarraCassaTablet aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={() => ov && chiudi()} />
-            : <DockPillola spente aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={() => ov && chiudi()} />)}
+            ? <BarraCassaTablet aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={voceDock} />
+            : <DockPillola spente aree={cfg.aree} attiva={area?.key ?? null} hrefArea={hrefArea} badgeArea={badgeArea} onVoce={voceDock} />)}
         </>
       )}
 

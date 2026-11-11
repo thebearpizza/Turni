@@ -150,7 +150,18 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
     const rid = locDi(as[0])
     return { uid, nome: nomeDi(as[0]), loc: rid ? infoLoc.get(rid) : undefined, o: rid ? ordineLoc.get(rid) ?? 99 : 99, as }
   }).sort((p, q) => p.o - q.o || p.nome.localeCompare(q.nome, 'it'))
-  const colonne = tel ? '96px minmax(0,1fr)' : '170px minmax(0,1fr)'
+  // Colonne dei giorni larghe almeno 34 px (36 su tablet): con meno spazio
+  // le assenze di un giorno diventano strisce illeggibili. La tabella
+  // scorre in orizzontale e parte da oggi.
+  const colonne = tel ? '124px minmax(0,1fr)' : '180px minmax(0,1fr)'
+  // All'apertura (e a ogni cambio di mese) la tabella si porta su oggi,
+  // lasciando visibili due giorni prima. Solo DOM: nessuno stato.
+  const scorriAOggi = useCallback((el: HTMLDivElement | null) => {
+    const o = el?.querySelector<HTMLElement>('[data-oggi]')
+    if (!el || !o) return
+    el.scrollLeft = Math.max(0, o.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft - (tel ? 124 : 180) - 2 * o.offsetWidth)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mese, tel])
   const cellaGiorno = (g: typeof giorni[number]) => g.oggi
     ? 'bg-[oklch(0.58_0.12_180)] text-white font-bold'
     : g.weekend ? 'bg-[oklch(0.94_0.01_250)] text-[oklch(0.35_0.01_250)] dark:bg-[oklch(0.26_0.01_250)] dark:text-[oklch(0.8_0.01_250)]' : 'text-[oklch(0.55_0.01_250)]'
@@ -339,20 +350,24 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
               </span>
             ))}
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overscroll-contain">
-            <div className="flex min-h-0 flex-1 flex-col" style={{ minWidth: tel ? 680 : 0 }}>
-              <div className="grid flex-none border-b border-border bg-[oklch(0.97_0.01_250)] dark:bg-secondary" style={{ gridTemplateColumns: colonne }}>
+          {/* Un solo contenitore che scorre in entrambe le direzioni: così la
+              colonna dei nomi (sticky a sinistra) e i giorni (sticky in alto)
+              restano fermi. Con due contenitori annidati lo sticky a sinistra
+              delle righe non funzionava. */}
+          <div ref={scorriAOggi} className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
+            <div className="flex min-h-0 flex-1 flex-col" style={{ minWidth: (tel ? 124 : 180) + nd * (tel ? 34 : 36) }}>
+              <div className="sticky top-0 z-[3] grid flex-none border-b border-border bg-[oklch(0.97_0.01_250)] dark:bg-secondary" style={{ gridTemplateColumns: colonne }}>
                 <span className={cn('sticky left-0 z-[2] bg-[oklch(0.97_0.01_250)] py-2 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-secondary', tel ? 'px-2.5' : 'px-4')}>Dipendente</span>
                 <div className="grid" style={{ gridTemplateColumns: `repeat(${nd},minmax(0,1fr))` }}>
                   {giorni.map(g => (
-                    <span key={g.n} className={cn('border-l border-[oklch(0.93_0.01_250)] py-2 text-center font-mono text-[10.5px] font-medium dark:border-border', cellaGiorno(g))}>{g.n}</span>
+                    <span key={g.n} data-oggi={g.oggi ? '' : undefined} className={cn('border-l border-[oklch(0.93_0.01_250)] py-2 text-center font-mono text-[11.5px] font-medium dark:border-border', cellaGiorno(g))}>{g.n}</span>
                   ))}
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <div className="flex-1">
                 {righe.length === 0 && <Vuoto titolo="Nessuna assenza nel mese" testo="Vale per i locali selezionati. Cambia mese o locale per vedere le altre." />}
                 {righe.map(r => (
-                  <div key={r.uid} className="grid h-[52px] border-b border-[oklch(0.94_0.01_250)] dark:border-border" style={{ gridTemplateColumns: colonne }}>
+                  <div key={r.uid} className="grid h-[56px] border-b border-[oklch(0.94_0.01_250)] dark:border-border" style={{ gridTemplateColumns: colonne }}>
                     <div className={cn('sticky left-0 z-[2] flex min-w-0 flex-col justify-center bg-card', tel ? 'px-2.5' : 'px-4')}>
                       <span className="truncate text-sm font-medium">{r.nome}</span>
                       <span className="flex items-center gap-[5px] text-[11.5px] text-muted-foreground">
@@ -370,8 +385,8 @@ export function AssenzeClient({ initialApproved, initialPending, initialMonth, r
                         const i0 = giorniTra(m0, da) - 1, len = giorniTra(da, al), T = TIPI[a.type]
                         return (
                           <button key={a.id} type="button" onClick={() => apriForm(a)}
-                            className={cn('absolute bottom-[9px] top-[9px] box-border flex items-center overflow-hidden whitespace-nowrap rounded-[6px] border px-2 text-[11px] font-semibold active:scale-[0.97]', T.cls, nuove.includes(a.id) && 'anim-swapin')}
-                            style={{ left: `${(i0 / nd) * 100}%`, width: `${(len / nd) * 100}%`, background: T.bg, borderColor: T.bd, color: T.fg }}>
+                            className={cn('absolute bottom-[9px] top-[9px] mx-[2px] box-border flex items-center justify-center overflow-hidden whitespace-nowrap rounded-[6px] border px-1.5 text-[12px] font-semibold active:scale-[0.97]', T.cls, nuove.includes(a.id) && 'anim-swapin')}
+                            style={{ left: `${(i0 / nd) * 100}%`, width: `calc(${(len / nd) * 100}% - 4px)`, background: T.bg, borderColor: T.bd, color: T.fg }}>
                             {len >= 2 ? T.l : T.l[0]}
                           </button>
                         )
