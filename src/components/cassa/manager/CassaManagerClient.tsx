@@ -10,7 +10,6 @@ import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import { impostaSottotitolo } from '@/components/shell/intestazioneDinamica'
-import { CassaFileViewer } from '@/components/cassa/CassaFileViewer'
 import { colonnaMancante } from '@/components/cassa/FormSpesa'
 import { sollecitaChiusura } from '@/app/actions/cassa'
 import { leggiModifica, type ModificaLetta } from '@/app/api/cassa/modificaPayload'
@@ -81,7 +80,6 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
   const [buste, setBuste] = useState<{ ch: CassaChiusura; n: number; vers: boolean }[]>([])
   const [busteSenzaColonne, setBusteSenzaColonne] = useState(false)
   const [uscite, setUscite] = useState<string[]>([])
-  const [pdf, setPdf] = useState<CassaChiusura | null>(null)
 
   const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i) })), [restaurants])
   const info = useMemo(() => Object.fromEntries(locali.map(l => [l.id, l])), [locali])
@@ -309,7 +307,8 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
           msg: md ? { tono: 'warn', testo: "C'è una modifica in attesa della tua revisione." } : undefined,
           stats: [{ l: 'Totale entrate', v: eur(Number(c.totale_entrate)) }, { l: 'Coperti', v: String(c.coperti) }, { l: 'Media scontrino', v: eur(media) }, { l: 'Contanti per banca', v: eur(Number(c.contanti_per_banca)) }],
           secs: sezioniChiusura(c),
-          // Oltre al design: correggere, scaricare il PDF ed eliminare (funzioni già in uso).
+          // Oltre al design: correggere ed eliminare. Il PDF della chiusura è stato
+          // tolto: aprirlo bloccava l'app e non serviva.
           azioni: md
             ? [{ l: 'Rivedi la modifica', stile: 'ink', fai: () => router.push(`/cassa/approvazioni?sel=${md.id}`) }]
             : [
@@ -319,10 +318,9 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
                 if (error) { toast({ title: friendlySaveError(error), variant: 'destructive' }); return }
                 toast({ title: 'Chiusura eliminata' }); setSel(null); carica()
               } },
-              { l: 'PDF', stile: 'line', fai: () => setPdf(c) },
               { l: 'Modifica', stile: 'ink', fai: () => router.push(`/cassa/chiusura?restaurant_id=${c.restaurant_id}&data=${c.data}`) },
             ],
-          colsAzioni: md ? '1fr' : '1fr 1fr 1.6fr',
+          colsAzioni: md ? '1fr' : '1fr 1.6fr',
         }
       }
     }
@@ -585,13 +583,6 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
         {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
       </div>
 
-      <CassaFileViewer
-        open={!!pdf} onOpenChange={o => { if (!o) setPdf(null) }}
-        request={pdf ? { url: '/api/cassa/chiusura-export', body: { chiusura_id: pdf.id } } : null}
-        format={pdf ? 'pdf' : null}
-        title={pdf ? `${locNome(pdf.restaurant_id)} · ${dataLunga(pdf.data)}` : ''}
-        fileNameBase={pdf ? `chiusura-${locNome(pdf.restaurant_id).replace(/[^a-zA-Z0-9]+/g, '-')}-${pdf.data}` : 'chiusura'}
-      />
     </Contenitore>
   )
 }
