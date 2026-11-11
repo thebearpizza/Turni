@@ -672,7 +672,7 @@ export function PrenotazioniClient({ restaurants, insegne, bozzaIniziale, curren
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 lg:p-8">
+    <div data-scorre-con-pagina="" className="mx-auto max-w-3xl space-y-4 p-4 lg:p-8">
       <div>
         {/* Sempre visibile, indipendentemente dal giorno aperto in
             agenda in questo momento: la coda non è legata a "oggi". */}

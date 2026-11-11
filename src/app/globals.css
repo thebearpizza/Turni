@@ -385,3 +385,11 @@ html[data-splash="volo"] [data-guscio-entra] { animation: swapin 680ms cubic-bez
   .splash-marchio { animation: none; }
 }
 
+
+/* Le sezioni Cassa e Acquisti hanno un contenitore alto quanto la pagina
+   (h-full), che serve alle schermate con liste a scorrimento interno. Una
+   pagina che invece scorre tutta insieme (es. Prenotazioni) uscirebbe dal
+   contenitore e lo spazio riservato alla dock in fondo a <main> resterebbe
+   a metà: l'ultimo contenuto finirebbe sotto la dock. Per quelle pagine il
+   contenitore cresce col contenuto. */
+.cassa:has(> [data-scorre-con-pagina]) { height: auto; min-height: 100%; }
