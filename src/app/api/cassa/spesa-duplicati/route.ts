@@ -19,6 +19,8 @@ const ResultSchema = z.object({
   ),
 })
 
+export const maxDuration = 15
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -45,9 +47,14 @@ export async function POST(request: Request) {
 
   const started = Date.now()
   try {
+    // Il controllo è solo un aiuto e il cassiere sta aspettando di salvare:
+    // al massimo 4 secondi e nessun nuovo tentativo. Senza limite, con
+    // l'IA lenta o sovraccarica, il salvataggio restava in attesa minuti.
     const { object } = await generateObject({
       model: google(GEMINI_MODEL),
       schema: ResultSchema,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(4_000),
       prompt: `Sei un assistente che individua voci di spesa duplicate nel registro di cassa di un ristorante italiano.
 
 Nuovo testo inserito dall'utente: "${testo.trim()}"

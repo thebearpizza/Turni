@@ -71,7 +71,9 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
     if (esatta) nomeFinale = esatta.nome_spesa
     else {
       try {
-        const res = await fetch('/api/cassa/spesa-duplicati', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: restaurantId, testo }) })
+        // Anche lato browser un tetto di 6 secondi: se il controllo non
+        // risponde in tempo la spesa si salva com'è.
+        const res = await fetch('/api/cassa/spesa-duplicati', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_id: restaurantId, testo }), signal: AbortSignal.timeout(6_000) })
         const r = await res.json().catch(() => null)
         if (r?.match && await chiediConferma({ titolo: 'Voce simile trovata', testo: `Intendevi «${r.match}»? Sembra la stessa voce già usata in passato.`, conferma: `Usa «${r.match}»`, annulla: 'Tieni la mia', distruttiva: false })) {
           nomeFinale = r.match
