@@ -451,6 +451,11 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   return (
     <Contenitore>
+      {/* Telefono: scorre tutta la chiusura (giorno, locali, avvisi, passi e
+          campi) e restano fissi in fondo solo Indietro/Avanti. Con lo scroll
+          solo sui campi, alle spese restavano pochi centimetri di schermo.
+          Tablet: 'contents', l'impaginazione resta quella a tutto schermo. */}
+      <div className={tel ? 'flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain' : 'contents'}>
       <BarraAlta tel={tel} role={role} locali={locali} restaurantId={restaurantId} data={data} oggi={oggi} calendario={calendario}
         onLocale={id => vaiA(id, data)} onData={d => vaiA(restaurantId, d)}
         fasi={tel ? undefined : (
@@ -494,7 +499,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         <div className="flex flex-1 flex-col gap-4 p-8">{[60, 80, 70].map(w => <div key={w} className="h-16 rounded-[12px] bg-[linear-gradient(90deg,var(--sk-a)_25%,var(--sk-b)_50%,var(--sk-a)_75%)] bg-[length:200%_100%] [animation:sk-sh_1.4s_linear_infinite]" style={{ width: `${w}%` }} />)}</div>
       ) : tel ? (
         // ── Telefono (3b): passaggi in sequenza, conferma fissa in fondo ──
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-1 flex-col">
           <div className="grid flex-none grid-cols-3 gap-1.5 px-5 pb-3.5">
             {fasi.map((l, i) => (
               // Area toccabile di 41 px attorno al disegno (barretta + etichetta,
@@ -505,17 +510,20 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               </button>
             ))}
           </div>
-          <div key={fase} className={cn('flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain px-4 pb-4', animFase)}>
+          {/* [&>*]:flex-none: in una colonna che scorre i riquadri non devono
+              restringersi. Prima bozze di spesa ed elenco spese (overflow
+              nascosto) si schiacciavano fino a sparire e non si potevano
+              vedere, modificare o cancellare. */}
+          <div key={fase} className={cn('flex flex-1 flex-col gap-3.5 px-4 pb-4 [&>*]:flex-none', animFase)}>
             {fase === 1 && (<>
               {[
                 { k: 'fondoI' as Chiave, l: 'Fondo cassa iniziale', ro: fondoBloccato, nota: notaFondo },
                 { k: 'contanti' as Chiave, l: 'Contanti' }, { k: 'pos' as Chiave, l: 'POS' }, { k: 'bonifico' as Chiave, l: 'Bonifico' },
                 { k: 'coperti' as Chiave, l: 'Coperti', int: true }, { k: 'asporto' as Chiave, l: 'Incasso asporto' },
-                { k: 'fondoF' as Chiave, l: 'Fondo cassa finale', ev: true },
               ].map((f, i) => (
                 <div key={f.k} className="anim-swapin" style={{ animationDelay: `${i * 70}ms` }}>
                   <CampoCassa etichetta={f.l} nota={f.nota} classeEtichetta="text-[13px]" taglia="s" valore={valori[f.k]} onCambia={imposta(f.k)}
-                    variante={f.ro ? 'ro' : 'edit'} decimali={f.int ? 0 : 2} unita={f.int ? 'n.' : '€'} errore={mancanti.has(f.k)} evidenzia={f.ev && valori.fondoF === null} />
+                    variante={f.ro ? 'ro' : 'edit'} decimali={f.int ? 0 : 2} unita={f.int ? 'n.' : '€'} errore={mancanti.has(f.k)} />
                 </div>
               ))}
               <CampoCassa etichetta="Totale entrate" classeEtichetta="text-[13px]" taglia="s" valore={totEntrate} variante="auto" />
@@ -532,6 +540,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               <FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} />
             </>)}
             {fase === 3 && (<>
+              {/* Fondo cassa finale nella fase 3, come sul tablet (prima il
+                  telefono lo chiedeva negli incassi). */}
+              <CampoCassa etichetta="Fondo cassa finale" classeEtichetta="text-[13px]" taglia="l" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} evidenzia={valori.fondoF === null} />
               <div className="flex flex-col rounded-[14px] border border-border bg-card">
                 {[['Contanti incassati', v0(valori.contanti)], ['+ Fondo iniziale', v0(valori.fondoI)], ['− Fondo finale', v0(valori.fondoF)], ['− Spese del giorno', totSpese]].map(([l, v], i) => (
                   <div key={l as string} className="anim-swapin flex h-11 items-center justify-between border-b border-border px-3.5" style={{ animationDelay: `${i * 70}ms` }}>
@@ -547,7 +558,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               </div>
             </>)}
           </div>
-          <div className="flex flex-none flex-col gap-2.5 border-t border-border bg-card px-4 py-3">
+          <div className="sticky bottom-0 z-10 flex flex-none flex-col gap-2.5 border-t border-border bg-card px-4 py-3">
             {fase === 1 && <div className="flex justify-between text-[13px] font-medium text-muted-foreground"><span>Totale incassi</span><span className="font-mono text-[15px] font-semibold text-foreground">€ {n2(totEntrate)}</span></div>}
             <div className={cn('grid gap-2', fase > 1 ? 'grid-cols-[1fr_2fr]' : 'grid-cols-1')}>
               {fase > 1 && <button type="button" onClick={indietro} className="flex h-12 items-center justify-center rounded-[12px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Indietro</button>}
@@ -626,6 +637,8 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
           </aside>
         </div>
       )}
+
+      </div>
 
       <Foglio aperto={report.aperto} esce={report.esce} onChiudi={report.chiudi} titolo="Report di cassa" sotto="Precompila contanti, POS, bonifico e coperti">
         <ReportChiusuraCapture restaurantId={restaurantId} data={data} onEstratto={handleReport} />
