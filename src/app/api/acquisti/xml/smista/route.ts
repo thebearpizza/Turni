@@ -11,7 +11,8 @@ import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 // fattureSmistamento.ts). Non scrive nulla: l'esito si mostra nel
 // riepilogo dell'import, dove l'utente può ancora cambiarlo.
 
-export const maxDuration = 60
+// Con molte fatture in dubbio le richieste all'IA sono più d'una.
+export const maxDuration = 300
 
 const FONTI = new Set(['destinazione', 'sede', 'causale', 'riferimenti', 'righe'])
 

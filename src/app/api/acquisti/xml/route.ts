@@ -6,7 +6,9 @@ import { proponiTipologie } from '@/lib/cassa/fattureSmistamento'
 import type { VerificaSospetta } from '@/types'
 import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 
-export const maxDuration = 60
+// Margine ampio: uno ZIP di un mese sono decine di fatture. Il lavoro è
+// comunque raggruppato (vedi sotto) e il browser manda blocchi da 40.
+export const maxDuration = 300
 
 // POST /api/acquisti/xml
 // Body: { restaurant_id?, fatture: [{ chiave, restaurant_id?, piva, fornitore, numero, righe: [{ descrizione, prezzo_unitario }] }], crea_fornitori? }
@@ -77,51 +79,81 @@ export async function POST(request: Request) {
     }
     return perOwner.get(owner)!
   }
-  const prezzi = new Map<string, number | null>()
-
-  const risultati = []
+  // ── 1. Fornitori, in ordine: un fornitore nuovo va creato una volta sola
+  // anche se compare in più fatture. Letture e scritture in memoria per
+  // gestore, quindi poche richieste.
+  const risolti: ({ f: FatturaIn; owner: string | null; fo: { id: string; nome: string; partita_iva: string | null } | null; nuovo: boolean })[] = []
   for (const f of fatture) {
     const rid = f.restaurant_id ?? restaurantId
     const owner = rid ? ownerDi.get(rid) ?? null : ownerUnico
-    const restaurant = { owner_id: owner }
     const fornitori = owner ? await fornitoriDi(owner) : []
     const piva = f.piva?.trim() || null
-    let fo = (piva ? fornitori.find(x => x.partita_iva?.trim() === piva) : undefined) ?? fornitori.find(x => norm(x.nome) === norm(f.fornitore))
+    let fo = (piva ? fornitori.find(x => x.partita_iva?.trim() === piva) : undefined) ?? fornitori.find(x => norm(x.nome) === norm(f.fornitore)) ?? null
     let nuovo = false
     if (!fo && crea && owner) {
-      const { data: ins, error } = await supabase.from('fornitori').insert({ owner_id: restaurant.owner_id, nome: f.fornitore.trim(), partita_iva: piva }).select('id, nome, partita_iva').single()
+      const { data: ins, error } = await supabase.from('fornitori').insert({ owner_id: owner, nome: f.fornitore.trim(), partita_iva: piva }).select('id, nome, partita_iva').single()
       if (error || !ins) return NextResponse.json({ error: 'Fornitore non registrato: ' + (error?.message ?? 'errore') }, { status: 500 })
       fornitori.push(ins); fo = ins; nuovo = true
     } else if (fo && !fo.partita_iva && piva && crea) {
       fo.partita_iva = piva
       await supabase.from('fornitori').update({ partita_iva: piva }).eq('id', fo.id)
     }
-    if (!fo) {
-      risultati.push({ chiave: f.chiave, fornitore: { id: null, nome: f.fornitore, nuovo: true }, duplicato: false, righe: f.righe.map(() => ({ catalogo_articolo_id: null, sospetto: null, tipologia_proposta: null as string | null })), verifiche: [] })
-      continue
-    }
+    risolti.push({ f, owner, fo, nuovo })
+  }
 
-    const { data: dop } = await supabase.from('fatture').select('id').eq('fornitore_id', fo.id).eq('numero_documento', f.numero.trim()).limit(1)
-    const [{ data: mappe }, { data: catalogo }] = await Promise.all([
-      supabase.from('articoli_mappature_testo').select('testo_estratto, catalogo_articolo_id').eq('owner_id', restaurant.owner_id).eq('fornitore_id', fo.id).in('testo_estratto', f.righe.map(r => r.descrizione)),
-      supabase.from('catalogo_articoli').select('id, nome_articolo').eq('owner_id', restaurant.owner_id).eq('fornitore_id', fo.id),
+  // ── 2. Doppioni, catalogo e mappature: una lettura per fornitore (non una
+  // per fattura), tutte in parallelo. Prima erano centinaia di letture in
+  // fila e la richiesta superava il limite di tempo.
+  const perFornitore = new Map<string, { owner: string; numeri: Set<string>; testi: Set<string> }>()
+  for (const r of risolti) {
+    if (!r.fo || !r.owner) continue
+    const x = perFornitore.get(r.fo.id) ?? { owner: r.owner, numeri: new Set<string>(), testi: new Set<string>() }
+    x.numeri.add(r.f.numero.trim())
+    r.f.righe.forEach(rg => x.testi.add(rg.descrizione))
+    perFornitore.set(r.fo.id, x)
+  }
+  const doppioni = new Set<string>()
+  const mappe = new Map<string, Map<string, string>>()
+  const catalogo = new Map<string, Map<string, string>>()
+  // Liste lunghe divise in pezzi: finiscono nell'indirizzo della richiesta.
+  const aPezzi = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n))
+  await Promise.all([...perFornitore.entries()].map(async ([foId, x]) => {
+    const [dop, map, cat] = await Promise.all([
+      Promise.all(aPezzi([...x.numeri], 60).map(nn => supabase.from('fatture').select('numero_documento').eq('fornitore_id', foId).in('numero_documento', nn))),
+      Promise.all(aPezzi([...x.testi], 40).map(tt => supabase.from('articoli_mappature_testo').select('testo_estratto, catalogo_articolo_id').eq('owner_id', x.owner).eq('fornitore_id', foId).in('testo_estratto', tt))),
+      supabase.from('catalogo_articoli').select('id, nome_articolo').eq('owner_id', x.owner).eq('fornitore_id', foId),
     ])
-    const perTesto = new Map((mappe ?? []).map(m => [m.testo_estratto, m.catalogo_articolo_id as string]))
-    const perNome = new Map((catalogo ?? []).map(c => [norm(c.nome_articolo), c.id as string]))
+    dop.forEach(({ data }) => (data ?? []).forEach(d => doppioni.add(`${foId}|${d.numero_documento}`)))
+    mappe.set(foId, new Map(map.flatMap(({ data }) => (data ?? []).map(m => [m.testo_estratto as string, m.catalogo_articolo_id as string]))))
+    catalogo.set(foId, new Map((cat.data ?? []).map(c => [norm(c.nome_articolo), c.id as string])))
+  }))
+
+  // ── 3. Ultimo prezzo noto di ogni articolo abbinato (stessa lettura di
+  // sempre, per data fattura), 12 articoli alla volta invece che in fila.
+  const idArticoli = new Set<string>()
+  const abbina = (r: typeof risolti[number], desc: string) => (r.fo ? mappe.get(r.fo.id)?.get(desc) ?? catalogo.get(r.fo.id)?.get(norm(desc)) ?? null : null)
+  for (const r of risolti) for (const rg of r.f.righe) { const id = abbina(r, rg.descrizione); if (id) idArticoli.add(id) }
+  const prezzi = new Map<string, number | null>()
+  for (const ids of aPezzi([...idArticoli], 12)) {
+    const vv = await Promise.all(ids.map(id => ultimoPrezzoNoto(supabase, id)))
+    ids.forEach((id, i) => prezzi.set(id, vv[i]))
+  }
+
+  const risultati = risolti.map(r => {
+    const { f, fo, nuovo } = r
+    if (!fo) return { chiave: f.chiave, fornitore: { id: null, nome: f.fornitore, nuovo: true }, duplicato: false, righe: f.righe.map(() => ({ catalogo_articolo_id: null, sospetto: null, tipologia_proposta: null as string | null })), verifiche: [] as VerificaSospetta[] }
     const verifiche: VerificaSospetta[] = []
-    const righe = []
-    for (const r of f.righe) {
-      const id = perTesto.get(r.descrizione) ?? perNome.get(norm(r.descrizione)) ?? null
+    const righe = f.righe.map(rg => {
+      const id = abbina(r, rg.descrizione)
       let sospetto: VerificaSospetta | null = null
       if (id) {
-        if (!prezzi.has(id)) prezzi.set(id, await ultimoPrezzoNoto(supabase, id))
-        sospetto = verificaPrezzoArticolo(r.descrizione, r.prezzo_unitario, prezzi.get(id) ?? null)
+        sospetto = verificaPrezzoArticolo(rg.descrizione, rg.prezzo_unitario, prezzi.get(id) ?? null)
         if (sospetto) verifiche.push(sospetto)
       }
-      righe.push({ catalogo_articolo_id: id, sospetto, tipologia_proposta: null as string | null })
-    }
-    risultati.push({ chiave: f.chiave, fornitore: { id: fo.id, nome: fo.nome, nuovo }, duplicato: !!dop?.length, righe, verifiche })
-  }
+      return { catalogo_articolo_id: id, sospetto, tipologia_proposta: null as string | null }
+    })
+    return { chiave: f.chiave, fornitore: { id: fo.id, nome: fo.nome, nuovo }, duplicato: doppioni.has(`${fo.id}|${f.numero.trim()}`), righe, verifiche }
+  })
   if (proponi) {
     const senza = risultati.flatMap((r, i) => r.duplicato ? [] : r.righe.flatMap((x, j) => (x.catalogo_articolo_id ? [] : [fatture[i].righe[j]?.descrizione ?? ''])))
     const proposte = await proponiTipologie(senza)

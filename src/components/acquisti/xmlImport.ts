@@ -20,7 +20,12 @@ export interface EsitoXml {
 export type ViaSmistamento = 'unico' | 'codice' | 'riferimento' | 'ia' | 'mano' | null
 export interface Smistamento { restaurant_id: string | null; via: ViaSmistamento; motivo: string; candidati: string[] }
 
-export async function anteprimaXml(fs: { f: FatturaXml; restaurantId: string | null }[], crea: boolean, proponi = false): Promise<Map<string, EsitoXml>> {
+// Blocchi da 40 fatture per richiesta: uno ZIP di un mese in un'unica
+// richiesta superava il limite di tempo del server e falliva. In anteprima
+// i blocchi vanno 3 alla volta; con la creazione dei fornitori uno dopo
+// l'altro, perché lo stesso fornitore nuovo non venga creato due volte.
+const BLOCCO = 40
+async function anteprimaBlocco(fs: { f: FatturaXml; restaurantId: string | null }[], crea: boolean, proponi: boolean): Promise<EsitoXml[]> {
   const res = await fetch('/api/acquisti/xml', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -29,8 +34,19 @@ export async function anteprimaXml(fs: { f: FatturaXml; restaurantId: string | n
     }),
   })
   const d = await res.json().catch(() => null)
-  if (!res.ok || !d?.fatture) throw new Error(d?.error ?? `Errore ${res.status}`)
-  return new Map((d.fatture as EsitoXml[]).map(e => [e.chiave, e]))
+  if (!res.ok || !d?.fatture) throw new Error(d?.error ?? (res.status === 504 ? 'il server ha impiegato troppo, riprova' : `Errore ${res.status}`))
+  return d.fatture as EsitoXml[]
+}
+
+export async function anteprimaXml(fs: { f: FatturaXml; restaurantId: string | null }[], crea: boolean, proponi = false): Promise<Map<string, EsitoXml>> {
+  const blocchi = Array.from({ length: Math.ceil(fs.length / BLOCCO) }, (_, i) => fs.slice(i * BLOCCO, i * BLOCCO + BLOCCO))
+  const out: EsitoXml[] = []
+  if (crea) {
+    for (const b of blocchi) out.push(...await anteprimaBlocco(b, true, false))
+  } else {
+    for (let i = 0; i < blocchi.length; i += 3) out.push(...(await Promise.all(blocchi.slice(i, i + 3).map(b => anteprimaBlocco(b, false, proponi)))).flat())
+  }
+  return new Map(out.map(e => [e.chiave, e]))
 }
 
 export async function smistaXml(fs: FatturaXml[]): Promise<Map<string, Smistamento>> {
@@ -90,10 +106,15 @@ export async function importaXml(items: DaImportare[], avanzamento?: () => void)
   const risolti = await anteprimaXml(items.map(x => ({ f: x.f, restaurantId: x.restaurantId })), true)
   const ok: string[] = [], errori: string[] = []
   let dv = 0, fileNonConservati = 0
-  for (const x of items) {
+  // Fornitori diversi si salvano in parallelo (4 alla volta); le fatture
+  // dello stesso fornitore in fila, perché un articolo nuovo comune a più
+  // fatture va creato una volta sola nel catalogo.
+  const code = new Map<string, DaImportare[]>()
+  for (const x of items) { const k = risolti.get(x.f.chiave)?.fornitore.id ?? `?${x.f.chiave}`; code.set(k, [...(code.get(k) ?? []), x]) }
+  const salvaUna = async (x: DaImportare) => {
     const { f } = x
     const e = risolti.get(f.chiave)
-    if (!e?.fornitore.id || e.duplicato) { errori.push(e?.duplicato ? `${f.fornitore} n. ${f.numero}: già presente` : `${f.fornitore}: fornitore non registrato`); avanzamento?.(); continue }
+    if (!e?.fornitore.id || e.duplicato) { errori.push(e?.duplicato ? `${f.fornitore} n. ${f.numero}: già presente` : `${f.fornitore}: fornitore non registrato`); avanzamento?.(); return }
     let xmlPath = x.xmlPath ?? null, caricato = false
     if (!xmlPath && x.xml) {
       const c = await conservaXml(x.restaurantId, x.xml)
@@ -134,6 +155,11 @@ export async function importaXml(items: DaImportare[], avanzamento?: () => void)
     }
     avanzamento?.()
   }
+  const liste = [...code.values()]
+  let prossima = 0
+  await Promise.all(Array.from({ length: Math.min(4, liste.length) }, async () => {
+    while (prossima < liste.length) { const l = liste[prossima++]; for (const x of l) await salvaUna(x) }
+  }))
   return { ok, dv, errori, fileNonConservati }
 }
 
