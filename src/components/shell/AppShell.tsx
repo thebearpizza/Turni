@@ -261,7 +261,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const voceDock = () => { if (ov) chiudi() }
   const conDock = cfg.aree.length > 1
   const dockFlottante = conDock && (cfg.stile === 'pillola')
-  const vaiXml = () => { chiudi(); setTimeout(() => router.push('/acquisti/fatture?importa=xml'), 200) }
+  const vaiXml = () => { chiudi(); setTimeout(() => router.push('/acquisti/fatture?xml=1'), 200) }
   const apriAssistente = () => {
     if (dinamica.assistente) return dinamica.assistente()
     if (ov) chiudi()

@@ -1,6 +1,5 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { formatInTimeZone } from 'date-fns-tz'
 import { createClient } from '@/lib/supabase/client'
 import { friendlySaveError } from '@/lib/supabase/friendlyError'
@@ -131,7 +130,6 @@ const aliquotaRiga = (f: Fattura, r: RigaArticolo) => r.aliquota_iva ?? (f.ivaDe
 
 export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori, meseIniziale, selIniziale, apriXml }: Props) {
   const tel = useTelefono()
-  const router = useRouter()
   const single = ruolo === 'direttore' || restaurants.length <= 1
   const locali = useMemo(() => localiDa(restaurants), [restaurants])
   const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
@@ -476,8 +474,10 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
   useEffect(() => {
     if (!apriXml || xmlAperto.current) return
     xmlAperto.current = true
-    setTimeout(() => { apriXmlOra(true); router.replace('/acquisti/fatture') }, 0)
-  }, [apriXml, apriXmlOra, router])
+    // Si toglie ?xml=1 dall'indirizzo senza una nuova navigazione (una
+    // router.replace ricaricava la pagina e poteva richiudere il foglio).
+    setTimeout(() => { apriXmlOra(true); window.history.replaceState(null, '', '/acquisti/fatture') }, 0)
+  }, [apriXml, apriXmlOra])
   const ridFile = useRef('')
   const scegliFile = (rid: string) => { ridFile.current = rid; fileRef.current?.click() }
 
