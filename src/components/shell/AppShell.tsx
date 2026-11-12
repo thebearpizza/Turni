@@ -349,17 +349,17 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
         className={cn(
           'relative z-30 flex flex-none items-center',
           cassaTablet
-            ? 'h-[88px] gap-4 border-b border-border px-8'
+            ? 'h-[68px] gap-4 border-b border-border px-8'
             : 'min-h-[52px] gap-2 pb-2 pl-5 pr-2.5 pt-1.5 sm:min-h-14 sm:pb-3.5 sm:pl-8 sm:pr-6 sm:pt-2.5',
           sezione?.senzaIntestazione && 'hidden'
         )}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- logo statico, è il bersaglio del volo dello splash */}
-        <img data-logo-intestazione="" src="/logo.svg" alt="inTurno" className={cn('flex-none', cassaTablet ? 'h-9 w-9' : 'mr-1 h-7 w-7 sm:h-9 sm:w-9')} />
+        <img data-logo-intestazione="" src="/logo.svg" alt="inTurno" className={cn('flex-none', cassaTablet ? 'h-8 w-8' : 'mr-1 h-7 w-7 sm:h-9 sm:w-9')} />
         <div key={titolo + (sezione?.key ?? '')} data-guscio-entra="" style={{ ['--ritardo' as string]: '60ms' }} className="anim-swapin flex min-w-0 flex-col gap-0.5">
           {/* Titoli lunghi (nome del locale) si rimpiccioliscono invece di
               troncarsi; il sottotitolo sul telefono va su due righe. */}
-          <span className={cn('truncate font-semibold leading-tight', cassaTablet ? 'text-[26px] tracking-[-0.6px]' : cn('tracking-[-0.01em] sm:text-[26px]', titolo.length > 20 ? 'text-[17px]' : titolo.length > 15 ? 'text-[19px]' : 'text-[22px]'))}>{titolo}</span>
+          <span className={cn('truncate font-semibold leading-tight', cassaTablet ? 'text-[22px] tracking-[-0.4px]' : cn('tracking-[-0.01em] sm:text-[26px]', titolo.length > 20 ? 'text-[17px]' : titolo.length > 15 ? 'text-[19px]' : 'text-[22px]'))}>{titolo}</span>
           {sottotitolo && <span className="line-clamp-2 text-pretty text-[13px] leading-[1.25] text-muted-foreground sm:line-clamp-1 sm:text-sm">{sottotitolo}</span>}
         </div>
 
@@ -381,7 +381,7 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
           {pannello ? (
             <>{bottoneCampanella}{bottoneProfilo}</>
           ) : cassaTablet ? (
-            <button type="button" onClick={esci} className="flex h-11 items-center rounded-[12px] border border-border px-3.5 text-sm font-medium text-muted-foreground active:scale-[0.97]">
+            <button type="button" onClick={esci} className="flex h-10 items-center rounded-[10px] border border-border px-3.5 text-[13px] font-medium text-muted-foreground active:scale-[0.97]">
               Esci · {nomeBreve(nome)}
             </button>
           ) : (

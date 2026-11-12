@@ -113,20 +113,20 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
   // Riga del dettaglio: tocco → tastierino; "Modificato" se cambiata.
   const riga = (l: React.ReactNode, v: number, onCambia: ((x: number) => void) | null, opt: { mod?: boolean; int?: boolean; rm?: () => void; badge?: string } = {}) => (
     <RigaTastierino valore={v} onCambia={onCambia ?? (() => {})} bloccata={!onCambia || bloccata} decimali={opt.int ? 0 : 2} onRimuovi={opt.rm} etichettaRimuovi="Elimina spesa"
-      className="-mx-[22px] flex h-12 items-center justify-between border-t border-border px-[22px]">
+      className="-mx-[22px] flex h-11 items-center justify-between border-t border-border px-[22px]">
       {({ aperto, testo }) => (<>
-        <span className="flex min-w-0 items-center gap-2 text-[15px]"><span className="truncate">{l}</span>{(opt.mod || opt.badge) && <Pillola tono="warn">{opt.badge ?? 'Modificato'}</Pillola>}</span>
-        <span className={cn('flex-none font-mono text-[17px] font-medium', aperto ? (testo ? 'text-[oklch(0.45_0.1_180)]' : 'text-muted-foreground') : '')}>{testo ?? (opt.int ? String(v) : n2(v))}</span>
+        <span className="flex min-w-0 items-center gap-2 text-sm"><span className="truncate">{l}</span>{(opt.mod || opt.badge) && <Pillola tono="warn">{opt.badge ?? 'Modificato'}</Pillola>}</span>
+        <span className={cn('flex-none font-mono text-[15px] font-medium', aperto ? (testo ? 'text-[oklch(0.45_0.1_180)]' : 'text-muted-foreground') : '')}>{testo ?? (opt.int ? String(v) : n2(v))}</span>
       </>)}
     </RigaTastierino>
   )
   const campo = (l: string, k: Campo, int?: boolean) => riga(l, val(k), x => setMod(m => ({ ...m, [k]: x })), { mod: campiCambiati.includes(k), int })
   const totale = (l: string, v: string) => (
-    <div className="flex h-12 items-center justify-between border-t border-border"><span className="text-[15px] font-semibold">{l}</span><span className="font-mono text-[17px] font-semibold">{v}</span></div>
+    <div className="flex h-11 items-center justify-between border-t border-border"><span className="text-sm font-semibold">{l}</span><span className="font-mono text-[17px] font-semibold">{v}</span></div>
   )
   const card = (titolo: string, children: React.ReactNode) => (
     <div className="flex flex-col self-start rounded-[10px] border border-border bg-card px-[22px] pb-1 pt-[18px]">
-      <span className="mb-2.5 text-[17px] font-semibold">{titolo}</span>
+      <span className="mb-2 text-[15px] font-semibold">{titolo}</span>
       {children}
     </div>
   )
@@ -141,7 +141,7 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       <div className={cn('flex flex-none items-center gap-4', tel ? 'px-4 pb-3' : 'px-8 pt-6')}>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className={cn('font-semibold tracking-[-0.4px]', tel ? 'text-lg' : 'text-[22px]')}>Chiusura di {dataLunga(chiusura.data).toLowerCase()}{role === 'manager' && nomeLocale ? ` · ${nomeLocale}` : ''}</span>
+          <span className={cn('font-semibold tracking-[-0.4px]', tel ? 'text-lg' : 'text-xl')}>Chiusura di {dataLunga(chiusura.data).toLowerCase()}{role === 'manager' && nomeLocale ? ` · ${nomeLocale}` : ''}</span>
           <span className="text-sm font-medium text-muted-foreground">Inviata{inviatoDa ? ` da ${inviatoDa}` : ''} alle {ora}</span>
         </div>
         {statoBadge}
@@ -153,7 +153,7 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
         </div>
       )}
 
-      <div className={cn('grid gap-5', tel ? 'grid-cols-1 px-4 pb-4' : 'grid-cols-3 px-8 py-6')}>
+      <div className={cn('grid gap-5', tel ? 'grid-cols-1 px-4 pb-4' : 'grid-cols-3 px-8 py-5')}>
         {card('Incassi', (<>
           {campo('Contanti', 'entrate_contanti')}
           {campo('POS', 'entrate_pos')}
@@ -215,10 +215,10 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
               <IconaSpunta size={30} />
             </div>
             <div className="-mt-2 flex flex-col items-center gap-1 text-center">
-              <span className="text-2xl font-semibold tracking-[-0.4px]">Chiusura inviata</span>
+              <span className="text-xl font-semibold tracking-[-0.3px]">Chiusura inviata</span>
               <span className="text-[15px] text-muted-foreground">Il fondo finale passa alla prossima chiusura.</span>
             </div>
-            <button type="button" onClick={onNuova} className="-mt-3 flex h-[60px] items-center gap-2.5 rounded-[12px] bg-primary px-9 text-[17px] font-semibold text-primary-foreground active:scale-[0.98]">
+            <button type="button" onClick={onNuova} className="-mt-3 flex h-12 items-center gap-2.5 rounded-[12px] bg-primary px-7 text-[15px] font-semibold text-primary-foreground active:scale-[0.98]">
               <IconaPiu size={18} />Nuova chiusura
             </button>
           </div>
@@ -238,8 +238,8 @@ export function DettaglioChiusura({ chiusura, spese, categorie, role, userId, te
               className="resize-none rounded-[12px] border border-line-strong bg-card px-4 py-3 text-base outline-none caret-[oklch(0.58_0.12_180)] focus:border-foreground" />
           </div>
           <div className="grid grid-cols-[1fr_2fr] gap-2">
-            <button type="button" onClick={foglioInvio.chiudi} className="flex h-14 items-center justify-center rounded-[12px] border border-line-strong text-base font-medium active:scale-[0.98]">Annulla</button>
-            <button type="button" onClick={inviaAlManager} disabled={invio} className="flex h-14 items-center justify-center rounded-[12px] bg-primary text-base font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : 'Invia al manager'}</button>
+            <button type="button" onClick={foglioInvio.chiudi} className="flex h-12 items-center justify-center rounded-[12px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Annulla</button>
+            <button type="button" onClick={inviaAlManager} disabled={invio} className="flex h-12 items-center justify-center rounded-[12px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : 'Invia al manager'}</button>
           </div>
         </div>
       </Foglio>

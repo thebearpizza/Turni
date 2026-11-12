@@ -375,10 +375,10 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
     const cat = categorie.find(c => c.id === x.categoria_id)
     return (
       <RigaTastierino key={x.id} valore={Number(x.importo)} onCambia={n => cambiaImporto(x.id, n)} onRimuovi={() => eliminaSpesa(x)} etichettaRimuovi="Elimina spesa"
-        className={cn('grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border-border', tel ? 'px-3.5 py-3' : 'px-[18px] py-4', bordoTop ? 'border-t' : 'border-b')}>
+        className={cn('grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border-border', tel ? 'px-3.5 py-3' : 'px-4 py-3', bordoTop ? 'border-t' : 'border-b')}>
         {({ testo }) => (<>
-          <span className="text-base font-medium">{x.nome_spesa}</span>
-          <span className={cn('font-mono text-lg font-medium', testo && 'text-[oklch(0.45_0.1_180)]')}>{testo ?? n2(Number(x.importo))}</span>
+          <span className="text-[15px] font-medium">{x.nome_spesa}</span>
+          <span className={cn('font-mono text-base font-medium', testo && 'text-[oklch(0.45_0.1_180)]')}>{testo ?? n2(Number(x.importo))}</span>
           <span className="flex items-center gap-2 text-[13px] text-muted-foreground">{cat && <PillolaCategoria>{cat.nome}</PillolaCategoria>}{(x as CassaSpesa & { foto_path?: string | null }).foto_path ? 'scontrino allegato' : ''}</span>
         </>)}
       </RigaTastierino>
@@ -387,40 +387,40 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
 
   const pannelloBozze = (
     nuova ? (
-      <div className={cn('mt-0 sm:mt-7 sm:min-h-0 sm:overflow-y-auto sm:overscroll-contain', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+      <div className={cn('mt-0 sm:mt-[26px] sm:min-h-0 sm:overflow-y-auto sm:overscroll-contain', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
         <FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova bozza di spesa"
           destra={`${bozze.length} ${bozze.length === 1 ? 'bozza salvata' : 'bozze salvate'}`} cta="Salva bozza"
           onSalva={salvaBozza} onAnnulla={() => swapNuova(false)} gestisciCategorie={gestisci} />
       </div>
     ) : (
-      <div className={cn('flex flex-col overflow-hidden rounded-[8px] border border-line-strong bg-card', tel ? 'mt-1' : 'mt-7 min-h-0', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
-        <div className="flex items-baseline justify-between px-5 pb-3 pt-[18px]">
-          <span className="text-[17px] font-semibold">Bozze di spesa</span>
+      <div className={cn('flex flex-col overflow-hidden rounded-[8px] border border-line-strong bg-card', tel ? 'mt-1' : 'mt-[26px] min-h-0', nuovaEsce ? 'anim-swapout' : 'anim-swapin')}>
+        <div className="flex items-baseline justify-between px-4 pb-2.5 pt-3.5">
+          <span className="text-[15px] font-semibold">Bozze di spesa</span>
           <span className="text-[13px] text-muted-foreground">inserite durante il turno</span>
         </div>
         <div className="-mt-px min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-border">
-          {bozze.length === 0 && <div className="border-t border-border px-5 py-6 text-center text-[13px] text-muted-foreground">Nessuna bozza: le spese annotate durante il turno compaiono qui.</div>}
+          {bozze.length === 0 && <div className="border-t border-border px-4 py-5 text-center text-[13px] text-muted-foreground">Nessuna bozza: le spese annotate durante il turno compaiono qui.</div>}
           {bozze.map(b => {
             const cat = categorie.find(c => c.id === b.categoria_id)
             const ora = formatInTimeZone(new Date(b.created_at), TZ, 'HH:mm')
             const chi = b.created_by ? nomi[b.created_by] : undefined
             return (
-              <div key={b.id} className={cn('flex flex-col gap-3 border-t border-border px-5 py-4', bzEsce === b.id && 'anim-swapout')}>
+              <div key={b.id} className={cn('flex flex-col gap-2.5 border-t border-border px-4 py-3', bzEsce === b.id && 'anim-swapout')}>
                 <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
-                  <span className="text-base font-medium">{b.nome_spesa}</span>
-                  <span className="font-mono text-lg font-medium">{n2(Number(b.importo))}</span>
+                  <span className="text-[15px] font-medium">{b.nome_spesa}</span>
+                  <span className="font-mono text-base font-medium">{n2(Number(b.importo))}</span>
                   <span className="flex items-center gap-2 text-[13px] text-muted-foreground">{cat && <PillolaCategoria>{cat.nome}</PillolaCategoria>}{[chi, ora, (b as CassaSpesaBozza & { foto_path?: string | null }).foto_path ? 'foto' : null].filter(Boolean).join(' · ')}</span>
                 </div>
                 <div className="grid grid-cols-[1fr_2fr] gap-2">
-                  <button type="button" onClick={() => chiudiBozza(b, false)} className="flex h-12 items-center justify-center rounded-[12px] bg-neg-tint text-[15px] font-semibold text-neg transition-transform duration-150 active:scale-[0.97]">Elimina</button>
-                  <button type="button" onClick={() => chiudiBozza(b, true)} className="flex h-12 items-center justify-center rounded-[12px] border border-foreground text-[15px] font-semibold transition-transform duration-150 active:scale-[0.97]">Conferma nelle spese</button>
+                  <button type="button" onClick={() => chiudiBozza(b, false)} className="flex h-10 items-center justify-center rounded-[10px] bg-neg-tint text-sm font-semibold text-neg transition-transform duration-150 active:scale-[0.97]">Elimina</button>
+                  <button type="button" onClick={() => chiudiBozza(b, true)} className="flex h-10 items-center justify-center rounded-[10px] border border-foreground text-sm font-semibold transition-transform duration-150 active:scale-[0.97]">Conferma nelle spese</button>
                 </div>
               </div>
             )
           })}
         </div>
-        <div className="mt-auto border-t border-border px-5 py-4">
-          <button type="button" onClick={() => swapNuova(true)} className="flex h-[52px] w-full items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium active:scale-[0.99]">
+        <div className="mt-auto border-t border-border px-4 py-3">
+          <button type="button" onClick={() => swapNuova(true)} className="flex h-11 w-full items-center justify-center gap-2 rounded-[12px] border border-dashed border-line-strong text-sm font-medium active:scale-[0.99]">
             <IconaPiuPieno />Nuova bozza di spesa
           </button>
         </div>
@@ -429,13 +429,13 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
   )
 
   const speseDelGiorno = (
-    <div className="mt-7 flex max-h-[calc(100%-28px)] min-h-0 flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
-      <div className="flex flex-none items-baseline justify-between px-5 pb-3 pt-[18px]"><span className="text-[17px] font-semibold">Spese del giorno</span><span className="text-[13px] text-muted-foreground">dalla fase 2</span></div>
+    <div className="mt-[26px] flex max-h-[calc(100%-26px)] min-h-0 flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
+      <div className="flex flex-none items-baseline justify-between px-4 pb-2.5 pt-3.5"><span className="text-[15px] font-semibold">Spese del giorno</span><span className="text-[13px] text-muted-foreground">dalla fase 2</span></div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {spese.length === 0 && <div className="border-t border-border px-5 py-4 text-[13px] text-muted-foreground">Nessuna spesa registrata.</div>}
+        {spese.length === 0 && <div className="border-t border-border px-4 py-3.5 text-[13px] text-muted-foreground">Nessuna spesa registrata.</div>}
         {listaSpese(true)}
       </div>
-      <div className="flex h-14 flex-none items-center justify-between border-t border-border bg-[oklch(0.97_0.01_250)] px-5 dark:bg-secondary"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+      <div className="flex h-12 flex-none items-center justify-between border-t border-border bg-[oklch(0.97_0.01_250)] px-4 dark:bg-secondary"><span className="text-sm font-semibold">Totale spese</span><span className="font-mono text-lg font-semibold">€ {n2(totSpese)}</span></div>
     </div>
   )
 
@@ -464,9 +464,9 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               const fatta = i + 1 < fase, on = i + 1 === fase
               return (
                 <button key={l} type="button" onClick={() => vaiFase(i)} disabled={!fatta}
-                  className={cn('flex h-11 items-center gap-2 rounded-full px-[18px] text-sm font-semibold transition-[background-color] duration-200',
+                  className={cn('flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-semibold transition-[background-color] duration-200',
                     on ? 'bg-[oklch(0.94_0.04_180)] dark:bg-[oklch(0.3_0.05_180)]' : '', on || fatta ? 'text-foreground' : 'text-muted-foreground', fatta && 'active:scale-[0.97]')}>
-                  <span className={cn('flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-xs font-semibold', on || fatta ? 'bg-[oklch(0.58_0.12_180)] text-white' : 'bg-border text-muted-foreground')}>{fatta ? '✓' : i + 1}</span>
+                  <span className={cn('flex h-5 w-5 items-center justify-center rounded-full font-mono text-[11px] font-semibold', on || fatta ? 'bg-[oklch(0.58_0.12_180)] text-white' : 'bg-border text-muted-foreground')}>{fatta ? '✓' : i + 1}</span>
                   {l}
                 </button>
               )
@@ -573,40 +573,40 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
         // riquadri interni (campi, bozze, spese) quando non c'è spazio.
         // Prima scorreva l'intera colonna e il pulsante "Avanti" finiva
         // sotto il riquadro delle bozze, bloccando la chiusura.
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_400px]">
-          <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-hidden px-12 py-6">
-            <span key={`t${fase}`} className={cn('flex-none text-[22px] font-semibold tracking-[-0.3px]', animFase)}>{titoli[fase - 1]}</span>
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden px-10 py-5">
+            <span key={`t${fase}`} className={cn('flex-none text-lg font-semibold tracking-[-0.2px]', animFase)}>{titoli[fase - 1]}</span>
             <div key={fase} className={cn('flex min-h-0 flex-1 flex-col', animFase)}>
               {fase === 1 && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
-                  {/* iPad in orizzontale (altezza ridotta): campi su due colonne,
-                      così gli incassi stanno tutti nello schermo senza scorrere. */}
-                  <div className="-mr-2 grid min-h-0 content-start items-end gap-x-4 gap-y-4 overflow-y-auto overscroll-contain pb-1 pr-2 [@media(max-height:1100px)]:grid-cols-2">
+                <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-6">
+                  {/* Incassi in una sola colonna, campi larghi e bassi (48 px):
+                      stanno tutti nello schermo dell'iPad anche in orizzontale. */}
+                  <div className="-mr-2 flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pb-1 pr-2">
                     <CampoCassa etichetta="Fondo cassa iniziale" nota={notaFondo} valore={valori.fondoI} onCambia={imposta('fondoI')} variante={fondoBloccato ? 'ro' : 'edit'} errore={mancanti.has('fondoI')} />
                     {([['contanti', 'Contanti'], ['pos', 'POS'], ['bonifico', 'Bonifico'], ['asporto', 'Incasso asporto']] as [Chiave, string][]).map(([k, l]) => (
                       <CampoCassa key={k} etichetta={l} valore={valori[k]} onCambia={imposta(k)} errore={mancanti.has(k)} />
                     ))}
                     <CampoCassa etichetta="Coperti" valore={valori.coperti} onCambia={imposta('coperti')} decimali={0} unita="n." errore={mancanti.has('coperti')} />
-                    <button type="button" onClick={report.apri} className="col-span-full flex h-[52px] flex-none items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
+                    <button type="button" onClick={report.apri} className="flex h-11 flex-none items-center justify-center rounded-[12px] border border-dashed border-line-strong text-sm font-medium text-muted-foreground active:scale-[0.99]">Leggi gli incassi dal report di cassa</button>
                   </div>
                   {pannelloBozze}
                 </div>
               )}
               {fase === 2 && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
+                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-6">
                   <div className="flex max-h-full min-h-0 flex-col self-start overflow-hidden rounded-[14px] border border-border bg-card">
                     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                      {spese.length === 0 && <div className="border-b border-border px-[18px] py-6 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
+                      {spese.length === 0 && <div className="border-b border-border px-4 py-5 text-center text-[13px] text-muted-foreground">Nessuna spesa pagata in contanti.</div>}
                       {listaSpese(false)}
                     </div>
-                    <div className="flex h-14 flex-none items-center justify-between border-t border-border px-[18px]"><span className="text-[15px] font-semibold">Totale spese</span><span className="font-mono text-xl font-semibold">€ {n2(totSpese)}</span></div>
+                    <div className="flex h-12 flex-none items-center justify-between border-t border-border px-4"><span className="text-sm font-semibold">Totale spese</span><span className="font-mono text-lg font-semibold">€ {n2(totSpese)}</span></div>
                   </div>
                   <div className="max-h-full min-h-0 self-start overflow-y-auto overscroll-contain"><FormSpesa restaurantId={restaurantId} categorie={categorie} titolo="Nuova spesa" cta="Aggiungi spesa" onSalva={aggiungiSpesa} gestisciCategorie={gestisci} /></div>
                 </div>
               )}
               {fase === 3 && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-8">
-                  <div className="-mr-2 flex min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain pb-1 pr-2">
+                <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-[minmax(0,1fr)] gap-6">
+                  <div className="-mr-2 flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pb-1 pr-2">
                     <CampoCassa etichetta="Fondo cassa finale" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} />
                     <CampoCassa etichetta="Banca teorica" valore={bancaTeorica} variante="auto" />
                     <CampoCassa etichetta="Contanti per banca" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
@@ -616,23 +616,23 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
               )}
             </div>
             <div className="flex flex-none justify-end gap-3">
-              {fase > 1 && <button type="button" onClick={indietro} className="flex h-[60px] items-center rounded-[12px] border border-line-strong px-7 text-base font-medium active:scale-[0.98]">Indietro</button>}
-              <button type="button" onClick={avanti} disabled={invio} className="flex h-[60px] items-center rounded-[12px] bg-primary px-9 text-[17px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : cta}</button>
+              {fase > 1 && <button type="button" onClick={indietro} className="flex h-12 items-center rounded-[12px] border border-line-strong px-6 text-[15px] font-medium active:scale-[0.98]">Indietro</button>}
+              <button type="button" onClick={avanti} disabled={invio} className="flex h-12 items-center rounded-[12px] bg-primary px-7 text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Invio…' : cta}</button>
             </div>
           </div>
-          <aside className="flex min-h-0 flex-col gap-1 border-l border-border bg-card px-7 py-8">
-            <span className="mb-3 text-base font-semibold">Riepilogo</span>
+          <aside className="flex min-h-0 flex-col gap-0.5 border-l border-border bg-card px-6 py-5">
+            <span className="mb-2 text-[15px] font-semibold">Riepilogo</span>
             {riepilogo.map((r, i) => (
               <button key={r.l} type="button" onClick={() => vaiFase(i < 2 ? 0 : i === 2 ? 1 : 2)}
-                className="flex h-11 items-center justify-between border-b border-border text-left">
-                <span className={cn('text-[15px]', r.v === null && 'text-muted-foreground')}>{r.l}</span>
-                <span className={cn('font-mono text-base font-medium', r.v === null && 'text-muted-foreground')}>{r.v ?? '—'}</span>
+                className="flex h-10 items-center justify-between border-b border-border text-left">
+                <span className={cn('text-sm', r.v === null && 'text-muted-foreground')}>{r.l}</span>
+                <span className={cn('font-mono text-[15px] font-medium', r.v === null && 'text-muted-foreground')}>{r.v ?? '—'}</span>
               </button>
             ))}
-            <div className={cn('mt-auto flex flex-col gap-1.5 rounded-[8px] p-5 transition-[background-color] duration-300',
+            <div className={cn('mt-auto flex flex-col gap-1 rounded-[8px] p-4 transition-[background-color] duration-300',
               !diffMostra ? 'bg-[oklch(0.94_0.01_250)] text-muted-foreground dark:bg-secondary' : quadra ? 'bg-ok-tint text-[oklch(0.38_0.08_150)] dark:text-ok' : 'bg-neg-tint text-neg')}>
               <span className="text-sm font-semibold">{diffMostra && quadra ? 'Differenza · quadra' : 'Differenza'}</span>
-              <span className="font-mono text-[40px] font-semibold tracking-[-1px]">{diffMostra ? diffTesto(diff) : '—'}</span>
+              <span className="font-mono text-[28px] font-semibold tracking-[-0.6px]">{diffMostra ? diffTesto(diff) : '—'}</span>
             </div>
           </aside>
         </div>
@@ -661,7 +661,7 @@ function BarraAlta({ tel, role, locali, restaurantId, data, oggi, calendario, on
     return () => { clearTimeout(id); window.removeEventListener('pointerdown', h, true) }
   }, [aperto, esce, chiudi])
   return (
-    <div className={cn('relative z-20 flex flex-none flex-wrap items-center gap-3', tel ? 'px-4 pb-3' : 'min-h-[72px] border-b border-border px-8 py-3')}>
+    <div className={cn('relative z-20 flex flex-none flex-wrap items-center gap-3', tel ? 'px-4 pb-3' : 'min-h-[60px] border-b border-border px-8 py-2')}>
       <div className="relative" data-cal>
         <button type="button" onClick={() => (calendario.aperto ? calendario.chiudi() : calendario.apri())}
           className="-my-1 -ml-2 flex min-h-10 items-center gap-1 rounded-[4px] px-2 text-[15px] font-medium underline decoration-[oklch(0.82_0.01_250)] underline-offset-4 active:scale-[0.98]">

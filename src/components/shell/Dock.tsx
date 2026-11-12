@@ -135,7 +135,7 @@ export function BarraSchede({ aree, attiva: vera, hrefArea, badgeArea, onVoce, c
 export function BarraCassaTablet({ aree, attiva: vera, hrefArea, onVoce }: DockProps) {
   const [attiva, premi] = useAttivaSubito(vera)
   return (
-    <nav data-guscio-entra="" style={{ ['--ritardo' as string]: '180ms' }} className="relative z-[35] grid flex-none grid-cols-2 border-t border-border bg-card pb-[max(20px,env(safe-area-inset-bottom))] pt-1.5">
+    <nav data-guscio-entra="" style={{ ['--ritardo' as string]: '180ms' }} className="relative z-[35] grid flex-none grid-cols-2 border-t border-border bg-card pb-[max(12px,env(safe-area-inset-bottom))] pt-1">
       {aree.map(a => {
         const att = a.key === attiva
         return (
@@ -144,7 +144,7 @@ export function BarraCassaTablet({ aree, attiva: vera, hrefArea, onVoce }: DockP
             href={hrefArea(a)}
             onClick={() => { premi(a.key); onVoce(a) }}
             aria-current={att ? 'page' : undefined}
-            className={cn('flex h-14 flex-col items-center justify-center gap-1 text-[13px] active:scale-[0.98]', att ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground')}
+            className={cn('flex h-12 flex-col items-center justify-center gap-1 text-[13px] active:scale-[0.98]', att ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground')}
           >
             <span className={cn('h-[3px] rounded-[2px]', att ? 'w-7 bg-cassa' : 'w-7 bg-transparent')} />
             {a.label}

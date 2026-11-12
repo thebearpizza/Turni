@@ -122,10 +122,11 @@ export function useBuffer(decimali: number, onNumero: (n: number) => void) {
 const mostraBuffer = (b: string) => { const [i, d] = b.split(','); const f = (i === '' ? '0' : Number(i).toLocaleString('it-IT')); return d !== undefined ? `${f},${d}` : f }
 
 export const TAGLIA = {
-  xl: 'h-16 px-[18px] text-2xl',     // Chiusura Tablet v2: campi da 64 px, Geist Mono 24
-  l: 'h-14 px-4 text-[22px]',        // importo della nuova spesa, contanti per banca su telefono
-  m: 'h-[52px] px-3.5 text-[19px]',
-  s: 'h-12 px-3.5 text-[17px]',      // telefono (3b)
+  // Misure ridotte su richiesta ("troppo grandi"): prima 64/56/52/48 px.
+  xl: 'h-12 px-4 text-xl',          // chiusura su tablet: campi da 48 px, Geist Mono 20
+  l: 'h-12 px-4 text-lg',            // importo della nuova spesa, contanti per banca su telefono
+  m: 'h-11 px-3.5 text-[17px]',
+  s: 'h-11 px-3.5 text-base',       // telefono (3b)
 }
 
 export interface CampoCassaProps {
@@ -194,7 +195,7 @@ export function CampoCassa({ etichetta, nota, valore, onCambia, decimali = 2, un
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content side="bottom" align="start" sideOffset={8} collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()}
           className="z-[70] outline-none data-[state=closed]:anim-swapout data-[state=open]:anim-swapin">
-          <Tastierino onKey={premi} onDone={() => setAperto(false)} senzaVirgola={decimali === 0}
+          <Tastierino compatto onKey={premi} onDone={() => setAperto(false)} senzaVirgola={decimali === 0}
             onRemove={onRimuovi ? () => { setAperto(false); onRimuovi() } : undefined} removeLabel={etichettaRimuovi} />
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
@@ -203,8 +204,8 @@ export function CampoCassa({ etichetta, nota, valore, onCambia, decimali = 2, un
 
   if (!etichetta) return contenuto
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <span className={cn('flex justify-between text-[15px] font-medium leading-5', classeEtichetta)}>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className={cn('flex justify-between text-sm font-medium leading-5', classeEtichetta)}>
         {etichetta}
         {(nota || variante === 'auto') && <span className="font-mono text-[11px] font-medium uppercase tracking-[.05em] text-muted-foreground">{nota ?? 'AUTO'}</span>}
       </span>
@@ -245,7 +246,7 @@ export function RigaTastierino({ children, valore, onCambia, decimali = 2, onRim
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content side="bottom" align="end" alignOffset={12} sideOffset={6} collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()}
           className="z-[70] outline-none data-[state=closed]:anim-swapout data-[state=open]:anim-swapin">
-          <Tastierino onKey={premi} onDone={() => setAperto(false)} senzaVirgola={decimali === 0}
+          <Tastierino compatto onKey={premi} onDone={() => setAperto(false)} senzaVirgola={decimali === 0}
             onRemove={onRimuovi ? () => { setAperto(false); onRimuovi() } : undefined} removeLabel={etichettaRimuovi} />
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
@@ -262,7 +263,7 @@ export function MenuScelta<T extends string>({ valore, opzioni, onScegli, vuoto 
   return (
     <PopoverPrimitive.Root open={aperto} onOpenChange={setAperto}>
       <PopoverPrimitive.Trigger asChild>
-        <button type="button" className="flex h-14 w-full items-center justify-between rounded-[12px] bg-[oklch(0.94_0.01_250)] px-4 text-base font-medium active:scale-[0.99] dark:bg-secondary">
+        <button type="button" className="flex h-12 w-full items-center justify-between rounded-[12px] bg-[oklch(0.94_0.01_250)] px-4 text-[15px] font-medium active:scale-[0.99] dark:bg-secondary">
           <span className={cn('truncate', !sel && 'text-muted-foreground')}>{sel?.l ?? vuoto}</span>
           <span className="text-muted-foreground">▾</span>
         </button>

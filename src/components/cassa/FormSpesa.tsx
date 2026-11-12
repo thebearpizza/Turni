@@ -86,14 +86,14 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
 
   const aperti = mostra && sugg.length > 0
   return (
-    <div className={cn('flex flex-col gap-4', !senzaCornice && 'rounded-[8px] border border-line-strong bg-card p-5')}>
+    <div className={cn('flex flex-col gap-3', !senzaCornice && 'rounded-[8px] border border-line-strong bg-card p-4')}>
       {(titolo || destra) && (
         <div className="flex items-center justify-between">
-          {titolo && <span className="text-[17px] font-semibold">{titolo}</span>}
-          {destra && <span className="text-sm font-medium text-muted-foreground">{destra}</span>}
+          {titolo && <span className="text-[15px] font-semibold">{titolo}</span>}
+          {destra && <span className="text-[13px] font-medium text-muted-foreground">{destra}</span>}
         </div>
       )}
-      <div className="relative flex flex-col gap-2">
+      <div className="relative flex flex-col gap-1.5">
         <span className="text-sm font-medium">Descrizione</span>
         <input
           value={nome}
@@ -107,26 +107,26 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
             else if (e.key === 'Enter') { e.preventDefault(); scegli(sugg[evid]) }
           }}
           placeholder="Es. Ghiaccio"
-          className="h-14 rounded-[12px] border-[1.5px] border-line-strong bg-card px-4 text-lg outline-none caret-[oklch(0.58_0.12_180)] placeholder:text-muted-foreground focus:border-foreground"
+          className="h-12 rounded-[12px] border-[1.5px] border-line-strong bg-card px-4 text-base outline-none caret-[oklch(0.58_0.12_180)] placeholder:text-muted-foreground focus:border-foreground"
         />
         {aperti && (
           <div className="anim-swapin overflow-hidden rounded-[6px] border border-border bg-card shadow-[0_2px_8px_rgba(20,30,50,.05)]">
             {sugg.map((g, i) => (
               <button key={g.nome_spesa} type="button" onMouseDown={e => { e.preventDefault(); scegli(g) }}
-                className={cn('flex min-h-[52px] w-full items-center justify-between border-b border-border px-4 text-left last:border-b-0', i === evid && 'bg-[oklch(0.94_0.04_180)] dark:bg-[oklch(0.3_0.05_180)]')}>
-                <span className="text-base font-medium">{g.nome_spesa}</span>
+                className={cn('flex min-h-11 w-full items-center justify-between border-b border-border px-4 text-left last:border-b-0', i === evid && 'bg-[oklch(0.94_0.04_180)] dark:bg-[oklch(0.3_0.05_180)]')}>
+                <span className="text-[15px] font-medium">{g.nome_spesa}</span>
                 {g.categoria_nome && <span className="rounded-full bg-[oklch(0.94_0.01_250)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[.05em] text-muted-foreground dark:bg-secondary">{g.categoria_nome}</span>}
               </button>
             ))}
           </div>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
           <span className="flex items-baseline justify-between text-sm font-medium">Categoria{gestisciCategorie}</span>
           <MenuScelta valore={categoriaId} opzioni={categorie.map(c => ({ k: c.id, l: c.nome }))} onScegli={setCategoriaId} />
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Importo</span>
           <CampoCassa valore={importo} onCambia={setImporto} taglia="l" />
         </div>
@@ -135,13 +135,13 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
         <>
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={e => { setFoto(e.target.files?.[0] ?? null); e.target.value = '' }} />
           {foto ? (
-            <div className="flex h-[52px] items-center gap-2 rounded-[12px] border border-line-strong px-4 text-[15px] font-medium">
+            <div className="flex h-11 items-center gap-2 rounded-[12px] border border-line-strong px-4 text-sm font-medium">
               <span className="min-w-0 flex-1 truncate">Foto scontrino allegata</span>
               <button type="button" aria-label="Togli la foto" onClick={() => setFoto(null)} className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground active:scale-[0.96]"><IconaX size={18} /></button>
             </div>
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
-              className="flex h-[52px] items-center justify-center rounded-[12px] border border-dashed border-line-strong text-[15px] font-medium text-muted-foreground active:scale-[0.99]">
+              className="flex h-11 items-center justify-center rounded-[12px] border border-dashed border-line-strong text-sm font-medium text-muted-foreground active:scale-[0.99]">
               Allega foto scontrino
             </button>
           )}
@@ -150,11 +150,11 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
       {errore && <span className="text-sm text-neg">{errore}</span>}
       {onAnnulla ? (
         <div className="mt-auto grid grid-cols-[1fr_2fr] gap-2">
-          <button type="button" onClick={onAnnulla} className="flex h-14 items-center justify-center rounded-[12px] border border-line-strong text-base font-medium active:scale-[0.98]">Annulla</button>
-          <button type="button" onClick={salva} disabled={invio} className="flex h-14 items-center justify-center rounded-[12px] bg-primary text-base font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Salvataggio…' : cta}</button>
+          <button type="button" onClick={onAnnulla} className="flex h-12 items-center justify-center rounded-[12px] border border-line-strong text-[15px] font-medium active:scale-[0.98]">Annulla</button>
+          <button type="button" onClick={salva} disabled={invio} className="flex h-12 items-center justify-center rounded-[12px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Salvataggio…' : cta}</button>
         </div>
       ) : (
-        <button type="button" onClick={salva} disabled={invio} className="flex h-14 items-center justify-center rounded-[12px] bg-primary text-base font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Salvataggio…' : cta}</button>
+        <button type="button" onClick={salva} disabled={invio} className="flex h-12 items-center justify-center rounded-[12px] bg-primary text-[15px] font-semibold text-primary-foreground active:scale-[0.98] disabled:opacity-60">{invio ? 'Salvataggio…' : cta}</button>
       )}
     </div>
   )
