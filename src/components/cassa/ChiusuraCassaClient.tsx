@@ -542,7 +542,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
             {fase === 3 && (<>
               {/* Fondo cassa finale nella fase 3, come sul tablet (prima il
                   telefono lo chiedeva negli incassi). */}
-              <CampoCassa etichetta="Fondo cassa finale" classeEtichetta="text-[13px]" taglia="l" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} evidenzia={valori.fondoF === null} />
+              <CampoCassa etichetta="Fondo cassa finale" classeEtichetta="text-[13px]" taglia="s" valore={valori.fondoF} onCambia={imposta('fondoF')} errore={mancanti.has('fondoF')} evidenzia={valori.fondoF === null} />
               <div className="flex flex-col rounded-[14px] border border-border bg-card">
                 {[['Contanti incassati', v0(valori.contanti)], ['+ Fondo iniziale', v0(valori.fondoI)], ['− Fondo finale', v0(valori.fondoF)], ['− Spese del giorno', totSpese]].map(([l, v], i) => (
                   <div key={l as string} className="anim-swapin flex h-11 items-center justify-between border-b border-border px-3.5" style={{ animationDelay: `${i * 70}ms` }}>
@@ -551,7 +551,7 @@ export function ChiusuraCassaClient({ role, restaurants, fixedRestaurantId, user
                 ))}
                 <div className="flex h-[52px] items-center justify-between px-3.5"><span className="font-mono text-[11px] font-medium uppercase tracking-[1px]">Banca teorica</span><span className="font-mono text-lg font-semibold">€ {n2(bancaTeorica)}</span></div>
               </div>
-              <CampoCassa etichetta="Contanti per banca" classeEtichetta="text-[13px]" taglia="l" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
+              <CampoCassa etichetta="Contanti per banca" classeEtichetta="text-[13px]" taglia="evidenza" valore={valori.cpb} onCambia={imposta('cpb')} errore={mancanti.has('cpb')} evidenzia={valori.cpb === null} />
               <div className={cn('flex flex-col gap-1 rounded-[8px] p-3.5', !diffMostra ? 'bg-[oklch(0.94_0.01_250)] text-muted-foreground dark:bg-secondary' : quadra ? 'bg-ok-tint text-ok' : 'bg-neg-tint text-neg')}>
                 <div className="flex items-baseline justify-between"><span className="text-sm font-semibold">{diffMostra && quadra ? 'Differenza · quadra' : 'Differenza'}</span><span className="font-mono text-[26px] font-semibold">{diffMostra ? diffTesto(diff) : '—'}</span></div>
                 {diffMostra && !quadra && <span className="text-[13px]">Ricontrolla i contanti o le spese prima di confermare.</span>}

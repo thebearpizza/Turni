@@ -40,7 +40,8 @@ interface TastierinoProps {
   /** Variante agganciata al fondo dello schermo (prop `dock` del prototipo):
    *  tutta larghezza, solo bordo sopra, angoli alti arrotondati. */
   dock?: boolean
-  /** Tasti più bassi (48 px) e testo più piccolo: cassa del cassiere. */
+  /** Da tablet in su tasti più bassi (48 px) e testo più piccolo (cassa);
+   *  sul telefono restano le misure del design (60 px). */
   compatto?: boolean
   className?: string
 }
@@ -52,7 +53,7 @@ export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel 
       'flex flex-col gap-2 border-line-strong bg-card',
       dock
         ? 'w-full rounded-t-[16px] border-t px-3 pb-5 pt-3 shadow-[0_-8px_28px_rgba(20,30,50,.10)]'
-        : cn(compatto ? 'w-[264px]' : 'w-[312px]', 'max-w-[calc(100vw-24px)] rounded-[10px] border p-3 shadow-[0_6px_24px_rgba(20,30,50,.10)]'),
+        : cn(compatto ? 'w-[312px] sm:w-[264px]' : 'w-[312px]', 'max-w-[calc(100vw-24px)] rounded-[10px] border p-3 shadow-[0_6px_24px_rgba(20,30,50,.10)]'),
       className
     )}>
       <div className="grid grid-cols-3 gap-2">
@@ -66,7 +67,7 @@ export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel 
               onPointerDown={e => e.preventDefault()}
               onClick={e => { e.stopPropagation(); onKey(k) }}
               aria-label={k === 'del' ? 'Cancella' : k === ',' ? 'Virgola' : k}
-              className={cn('flex select-none items-center justify-center rounded-[6px] bg-[oklch(0.95_0.01_250)] font-mono font-medium', compatto ? 'h-12 text-xl' : 'h-[60px] text-2xl', ' text-foreground transition-transform active:scale-[0.97] active:bg-[oklch(0.9_0.01_250)] dark:bg-[oklch(0.24_0.01_250)] dark:active:bg-[oklch(0.3_0.01_250)]')}
+              className={cn('flex select-none items-center justify-center rounded-[6px] bg-[oklch(0.95_0.01_250)] font-mono font-medium', compatto ? 'h-[60px] text-2xl sm:h-12 sm:text-xl' : 'h-[60px] text-2xl', ' text-foreground transition-transform active:scale-[0.97] active:bg-[oklch(0.9_0.01_250)] dark:bg-[oklch(0.24_0.01_250)] dark:active:bg-[oklch(0.3_0.01_250)]')}
             >
               {k === 'del' ? ICONA_CANCELLA : k === ',' ? separatore : k}
             </button>
@@ -78,7 +79,7 @@ export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel 
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onRemove() }}
-            className={cn('flex items-center justify-center gap-2 rounded-[6px] bg-neg-tint font-semibold text-neg transition-transform active:scale-[0.98]', compatto ? 'h-11 text-sm' : 'h-[52px] text-[15px]')}
+            className={cn('flex items-center justify-center gap-2 rounded-[6px] bg-neg-tint font-semibold text-neg transition-transform active:scale-[0.98]', compatto ? 'h-[52px] text-[15px] sm:h-11 sm:text-sm' : 'h-[52px] text-[15px]')}
           >
             {ICONA_CESTINO}
             {removeLabel}
@@ -87,7 +88,7 @@ export function Tastierino({ onKey, onDone, senzaVirgola, onRemove, removeLabel 
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onDone() }}
-          className={cn('flex items-center justify-center rounded-[6px] bg-primary font-semibold text-primary-foreground transition-transform active:scale-[0.98]', compatto ? 'h-11 text-[15px]' : 'h-[52px] text-base')}
+          className={cn('flex items-center justify-center rounded-[6px] bg-primary font-semibold text-primary-foreground transition-transform active:scale-[0.98]', compatto ? 'h-[52px] text-base sm:h-11 sm:text-[15px]' : 'h-[52px] text-base')}
         >
           Fatto
         </button>

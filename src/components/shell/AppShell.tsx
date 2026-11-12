@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { chiudiArchivio } from '@/app/actions/archivio'
 import { useTelefono } from '@/hooks/useTelefono'
+import { useTheme } from 'next-themes'
 import { PushNotificationPrompt } from '@/components/shared/PushNotificationPrompt'
 import { useIntestazioneDinamica, registraCentroIntestazione } from './intestazioneDinamica'
 import { NAVIGAZIONE, sezioniVisibili, trovaPosizione, type Area, type Ruolo, type Sezione } from './navigazione'
@@ -217,6 +218,11 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
   const segmenti = sezioniVisibili(area, isPlatformOwner)
   const conSegmenti = segmenti.length > 1
   const cassaTablet = cfg.stile === 'cassa' && !telefono
+  // La cassa sul tablet è sempre a tema chiaro (scelta del gestore): il
+  // tablet di cassa è un dispositivo dedicato, quindi la scelta resta
+  // salvata lì. Telefono e altri ruoli seguono il tema scelto.
+  const { theme, setTheme } = useTheme()
+  useEffect(() => { if (cassaTablet && theme && theme !== 'light') setTheme('light') }, [cassaTablet, theme, setTheme])
   const conCampanella = ruolo !== 'consulente_lavoro' && !cassaTablet
   const pannello = cfg.profilo === 'pannello'
   const conTelegram = ruolo === 'manager' || ruolo === 'direttore' || ruolo === 'capo_servizio'

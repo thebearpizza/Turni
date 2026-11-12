@@ -126,7 +126,9 @@ export const TAGLIA = {
   xl: 'h-12 px-4 text-xl',          // chiusura su tablet: campi da 48 px, Geist Mono 20
   l: 'h-12 px-4 text-lg',            // importo della nuova spesa, contanti per banca su telefono
   m: 'h-11 px-3.5 text-[17px]',
-  s: 'h-11 px-3.5 text-base',       // telefono (3b)
+  s: 'h-12 px-3.5 text-[17px]',      // telefono (Cassiere e Dipendente 3b): 48 px, Geist Mono 17
+  // Telefono, "Contanti per banca" in evidenza (3b): 56 px, Geist Mono 22.
+  evidenza: 'h-14 px-3.5 text-[22px]',
 }
 
 export interface CampoCassaProps {
