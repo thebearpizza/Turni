@@ -46,5 +46,7 @@ export interface Ctx {
   gv: (x: { fo: number; be: number; de: number; an: number }, k: 'tot' | 'fo' | 'be' | 'nf' | 'fb') => number
   etichettaB: (k: Bucket | undefined) => string
   nomeLoc: Record<string, { id: string; nome: string; colore: string }>
+  /** Confronto tra locali: nomi dei locali A e B (stesso periodo). */
+  coppia: { a: string; b: string } | null
 }
 

@@ -12,7 +12,7 @@ import { caricaChiusure, caricaVoci, caricaAcquisti, caricaFornitori } from '@/c
 import { FoglioDettaglio, FumettoAncorato, USCITA_MS, type Scheda, type Riga, type Sotto, type Fumetto, type RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
 import type { Ctx, Nodo, Dati } from '@/components/cassa/analisi/tipi'
 import { VistaConfronto } from '@/components/cassa/analisi/VistaConfronto'
-import { BarraPeriodo, MenuConfronto, PulsanteEsporta, type Periodo, type ModoConfronto, type Intervallo } from '@/components/cassa/analisi/Filtri'
+import { BarraPeriodo, MenuConfronto, PulsanteEsporta, type Periodo, type ModoConfronto, type Intervallo, type CoppiaLocali } from '@/components/cassa/analisi/Filtri'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
@@ -49,11 +49,14 @@ function intervalloPeriodo(p: Periodo, oggi: string): Intervallo {
 }
 
 /** Chiave dei dati da caricare per una combinazione di filtri. */
-function chiaveDati(p: Periodo, cmp: ModoConfronto, cmpC: Intervallo | null, sel: string[], restaurants: { id: string }[], oggi: string): string {
+function chiaveDati(p: Periodo, cmp: ModoConfronto, cmpC: Intervallo | null, sel: string[], restaurants: { id: string }[], oggi: string, cmpL: CoppiaLocali | null): string {
   const { a, b } = intervalloPeriodo(p, oggi)
   const n = giorni(a, b)
+  // Confronto tra locali: stesso periodo, A e B sono due locali.
+  if (cmp === 'locali' && cmpL) return [a, b, a, b, cmpL.a, cmpL.b].join('|')
   const B = cmp === 'yoy' ? { a: unAnnoPrima(a), b: unAnnoPrima(b) } : cmp === 'custom' && cmpC ? cmpC : { a: piuGiorni(a, -n), b: piuGiorni(a, -1) }
-  return [a, b, B.a, B.b, (sel.length ? sel : restaurants.map(r => r.id)).join(',')].join('|')
+  const ids = (sel.length ? sel : restaurants.map(r => r.id)).join(',')
+  return [a, b, B.a, B.b, ids, ids].join('|')
 }
 
 // Telefono o tablet: alcune etichette si accorciano come nel design.
@@ -70,6 +73,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
   const [periodo, setPeriodoStato] = useState<Periodo>({ k: 'mese' })
   const [cmp, setCmpStato] = useState<ModoConfronto>(null)
   const [cmpC, setCmpC] = useState<Intervallo | null>(null)
+  const [cmpL, setCmpL] = useState<CoppiaLocali | null>(null)
 
   // Scheletro del design: a ogni cambio di locali, periodo o confronto il
   // contenuto diventa la sua sagoma con l'onda, poi si dissolve.
@@ -87,22 +91,25 @@ export function AnalisiClient({ restaurants, nome }: Props) {
   const [oggi] = useState(oggiRoma)
   const { a, b } = intervalloPeriodo(periodo, oggi)
   const n = giorni(a, b)
-  const B: Intervallo = cmp === 'yoy' ? { a: unAnnoPrima(a), b: unAnnoPrima(b) }
+  const traLocali = cmp === 'locali' && !!cmpL
+  const B: Intervallo = traLocali ? { a, b }
+    : cmp === 'yoy' ? { a: unAnnoPrima(a), b: unAnnoPrima(b) }
     : cmp === 'custom' && cmpC ? cmpC
     : { a: piuGiorni(a, -n), b: piuGiorni(a, -1) }
 
   const locali = useMemo(() => restaurants.map((r, i) => ({ id: r.id, nome: r.name, colore: coloreLocale(i), tenue: coloreTenue(coloreLocale(i)) })), [restaurants])
   const nomeLoc = useMemo(() => Object.fromEntries(locali.map(l => [l.id, l])), [locali])
-  const target = useMemo(() => (sel.length ? sel : locali.map(l => l.id)), [sel, locali])
+  const target = useMemo(() => (traLocali ? [cmpL!.a] : sel.length ? sel : locali.map(l => l.id)), [sel, locali, traLocali, cmpL])
   const chiaveTarget = target.join(',')
+  const chiaveTargetB = traLocali ? cmpL!.b : chiaveTarget
   // Se il cambio non tocca i dati da caricare (es. confronto col periodo
   // precedente, già caricato per le variazioni) non parte nessuna richiesta:
   // lo scheletro va avvisato subito che i dati sono pronti.
   const chiaveCaricata = useRef('')
   const cambia = (prossima: string) => { avviaScheletro(); if (prossima === chiaveCaricata.current) scheletroPronto() }
-  const setSel = (x: string[]) => { cambia(chiaveDati(periodo, cmp, cmpC, x, restaurants, oggi)); setSelStato(x) }
-  const setPeriodo = (x: Periodo) => { cambia(chiaveDati(x, cmp, cmpC, sel, restaurants, oggi)); setPeriodoStato(x) }
-  const setCmp = (x: ModoConfronto) => { cambia(chiaveDati(periodo, x, cmpC, sel, restaurants, oggi)); setCmpStato(x) }
+  const setSel = (x: string[]) => { cambia(chiaveDati(periodo, cmp, cmpC, x, restaurants, oggi, cmpL)); setSelStato(x) }
+  const setPeriodo = (x: Periodo) => { cambia(chiaveDati(x, cmp, cmpC, sel, restaurants, oggi, cmpL)); setPeriodoStato(x) }
+  const setCmp = (x: ModoConfronto, coppia: CoppiaLocali | null = cmpL) => { cambia(chiaveDati(periodo, x, cmpC, sel, restaurants, oggi, coppia)); setCmpL(coppia); setCmpStato(x) }
 
   const mesi = useMemo(() => {
     const [y, m] = oggi.split('-').map(Number)
@@ -113,14 +120,16 @@ export function AnalisiClient({ restaurants, nome }: Props) {
   const req = useRef(0)
   const carica = useCallback(async () => {
     const mio = ++req.current
-    const chiave = [a, b, B.a, B.b, chiaveTarget].join('|')
+    const chiave = [a, b, B.a, B.b, chiaveTarget, chiaveTargetB].join('|')
     const sb = createClient()
     const ids = chiaveTarget ? chiaveTarget.split(',') : []
+    // Nel confronto tra locali B è un altro locale nello stesso periodo.
+    const idsB = chiaveTargetB ? chiaveTargetB.split(',') : []
     try {
     const [A, Bc, acA, acB, foA, foB] = await Promise.all([
-      caricaChiusure(sb, ids, a, b), caricaChiusure(sb, ids, B.a, B.b),
-      caricaAcquisti(sb, ids, a, b), caricaAcquisti(sb, ids, B.a, B.b),
-      caricaFornitori(sb, ids, a, b), caricaFornitori(sb, ids, B.a, B.b),
+      caricaChiusure(sb, ids, a, b), caricaChiusure(sb, idsB, B.a, B.b),
+      caricaAcquisti(sb, ids, a, b), caricaAcquisti(sb, idsB, B.a, B.b),
+      caricaFornitori(sb, ids, a, b), caricaFornitori(sb, idsB, B.a, B.b),
     ])
     const [spA, spB, veA, veB] = await Promise.all([
       caricaVoci(sb, A.righe, 'spese'), caricaVoci(sb, Bc.righe, 'spese'),
@@ -138,7 +147,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
       setStato('errore')
     }
     scheletroPronto()
-  }, [a, b, B.a, B.b, chiaveTarget, scheletroPronto])
+  }, [a, b, B.a, B.b, chiaveTarget, chiaveTargetB, scheletroPronto])
 
   useEffect(() => { carica() }, [carica])
   useEffect(() => {
@@ -160,7 +169,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     const ser = bk.map(k => presenti.map(l => sum(rows.filter(r => r.li === l.id && inBucket(r.data, k)), r => r.ent)))
     const serB = bk.map((_, j) => (cbk[j] ? sum(prev.filter(r => inBucket(r.data, cbk[j])), r => r.ent) : 0))
     const bySer = (rs: Chiusura[], ks: Bucket[], f: (x: Chiusura[]) => number) => ks.map(k => f(rs.filter(r => inBucket(r.data, k))))
-    const sedi = presenti.map(l => { const rs = rows.filter(r => r.li === l.id); return { l, rs, x: aggrega(rs), y: aggrega(prev.filter(r => r.li === l.id)) } })
+    const sedi = presenti.map(l => { const rs = rows.filter(r => r.li === l.id); return { l, rs, x: aggrega(rs), y: aggrega(traLocali ? prev : prev.filter(r => r.li === l.id)) } })
     // Categorie di spesa in ordine di importo, ciascuna col suo colore.
     const catTot = new Map<string, number>()
     for (const x of dati.spA) catTot.set(x.categoria, (catTot.get(x.categoria) ?? 0) + x.importo)
@@ -168,7 +177,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     const categorie = [...catTot.entries()].sort((p, q) => q[1] - p[1]).map(([c], i) => ({ c, col: cassaChartColor(i) }))
     const colCat = Object.fromEntries(categorie.map(x => [x.c, x.col]))
     return { rows, prev, X, P, bk, cbk, mensile, locSel, presenti, ser, serB, bySer, sedi, categorie, colCat }
-  }, [dati, a, b, B.a, B.b, locali, target])
+  }, [dati, a, b, B.a, B.b, locali, target, traLocali])
 
   const cmpAttivo = !!cmp
   const etichettaB = (k: Bucket | undefined) => {
@@ -176,7 +185,8 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     if (v.mensile) { const d = new Date(`${k.a}T12:00:00Z`); return `${MESI[d.getUTCMonth()].slice(0, 3)} ${d.getUTCFullYear()}` }
     return fdg(k.a) + (cmp === 'yoy' ? ` ${k.a.slice(0, 4)}` : '')
   }
-  const sottotitolo = `${intervallo(a, b)} · ${sel.length ? `${sel.length} ${sel.length === 1 ? 'locale' : 'locali'}` : 'tutti i locali'}`
+  const sottotitolo = traLocali ? `${intervallo(a, b)} · ${nomeLoc[cmpL!.a]?.nome ?? ''} contro ${nomeLoc[cmpL!.b]?.nome ?? ''}`
+    : `${intervallo(a, b)} · ${sel.length ? `${sel.length} ${sel.length === 1 ? 'locale' : 'locali'}` : 'tutti i locali'}`
 
   // ── Metriche ───────────────────────────────────────────────────────
   const MET: { l: string; f: (rs: Chiusura[]) => number; fmt: (x: number) => string; buono: 'su' | 'giu'; ass?: boolean; col: string }[] = [
@@ -245,7 +255,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
       const fonte = d.src === 'B' ? v.prev : v.rows, voci = d.src === 'B' ? dati.spB : dati.spA
       const rs = fonte.filter(r => r.data === d.d)
       return {
-        titolo: fdl(d.d) + (d.src === 'B' ? `${cmp === 'yoy' ? ` ${d.d.slice(0, 4)}` : ''} · periodo B` : ''),
+        titolo: fdl(d.d) + (d.src === 'B' ? (traLocali ? ` · ${nomeLoc[cmpL!.b]?.nome ?? 'B'}` : `${cmp === 'yoy' ? ` ${d.d.slice(0, 4)}` : ''} · periodo B`) : ''),
         sotto: `${rs.length} ${rs.length === 1 ? 'chiusura confermata' : 'chiusure confermate'}`,
         stats: st4(aggrega(rs)),
         sezioni: rs.map(r => ({ h: nomeLoc[r.li]?.nome ?? '—', dot: nomeLoc[r.li]?.colore, righe: campi(aggrega([r]), [r], voci) })),
@@ -263,7 +273,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
       const m = MET[d.i]
       return {
         titolo: m.l, sotto: sottotitolo,
-        stats: [{ l: 'Periodo', v: m.fmt(m.f(v.rows)), tono: d.i === 3 ? (Math.abs(v.X.dif) < 0.005 ? 'ok' : 'neg') : undefined }, { l: cmpAttivo ? 'Periodo B' : 'Periodo prima', v: v.prev.length ? m.fmt(m.f(v.prev)) : '—' }],
+        stats: [{ l: traLocali ? (nomeLoc[cmpL!.a]?.nome ?? 'A') : 'Periodo', v: m.fmt(m.f(v.rows)), tono: d.i === 3 ? (Math.abs(v.X.dif) < 0.005 ? 'ok' : 'neg') : undefined }, { l: traLocali ? (nomeLoc[cmpL!.b]?.nome ?? 'B') : cmpAttivo ? 'Periodo B' : 'Periodo prima', v: v.prev.length ? m.fmt(m.f(v.prev)) : '—' }],
         sezioni: [
           { h: 'Per locale', righe: v.sedi.map(s => ({ tipo: 'link' as const, l: s.l.nome, dot: s.l.colore, s: `${s.rs.length} chiusure`, v: m.fmt(m.f(s.rs)), apri: () => vai({ k: 'loc', li: s.l.id }) })) },
           { h: v.mensile ? 'Per mese' : 'Per giorno', righe: v.bk.map((k, j) => ({ k, j, rs: v.rows.filter(r => inBucket(r.data, k)) })).filter(o => o.rs.length).reverse().map(o => ({
@@ -355,7 +365,8 @@ export function AnalisiClient({ restaurants, nome }: Props) {
     return { l: s.l.nome, dot: s.l.colore, v: pc(gv(x, k), s.x.ent), p: eu(gv(x, k), 0), figli: fornitori(s.l.id, k).map(([nm, o]) => ({ l: nm, s: `${o.n} ${o.n === 1 ? 'fattura' : 'fatture'}`, v: pc(o.v, s.x.ent) })) }
   }))
 
-  const c: Ctx = { v, dati, MET, tel, cmp, B, a, b, sel, setSel, apri, fumetto, fumPagamento, fumAsporto, fumCoperti, fumCategoria, fumGiornoSett, fumFattura, fumIncidenza, FA, FB, gv, etichettaB, nomeLoc }
+  const c: Ctx = { v, dati, MET, tel, cmp, B, a, b, sel, setSel, apri, fumetto, fumPagamento, fumAsporto, fumCoperti, fumCategoria, fumGiornoSett, fumFattura, fumIncidenza, FA, FB, gv, etichettaB, nomeLoc,
+    coppia: traLocali ? { a: nomeLoc[cmpL!.a]?.nome ?? 'A', b: nomeLoc[cmpL!.b]?.nome ?? 'B' } : null }
 
   // Intestazione del guscio: sottotitolo col periodo filtrato e scintilla
   // che apre l'assistente sui dati filtrati, come nel design.
@@ -373,12 +384,14 @@ export function AnalisiClient({ restaurants, nome }: Props) {
           Esporta). Qui niente ritiro allo scorrimento: la pagina scorre
           per intero e la testa esce già dallo schermo da sola. */}
       <div className={cn('relative z-[45] flex pb-3.5', tel ? 'flex-col items-stretch gap-2' : 'flex-nowrap items-center gap-3')}>
-        <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={sel} onCambia={setSel}
-          className={tel ? '' : 'mx-0 flex-[0_1_auto] px-0'} />
+        {/* Nel confronto tra locali i due locali si scelgono in Confronta. */}
+        {!traLocali && <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={sel} onCambia={setSel}
+          className={tel ? '' : 'mx-0 flex-[0_1_auto] px-0'} />}
         {!tel && <span className="flex-1" />}
         <BarraPeriodo periodo={periodo} onPeriodo={setPeriodo} mesi={mesi} oggi={oggi} tel={tel} />
         <div className={tel ? 'relative flex gap-2' : 'contents'}>
-        <MenuConfronto apriRef={apriConfronto} oggi={oggi} tel={tel} modo={cmp} onModo={setCmp} custom={cmpC} onCustom={setCmpC}
+        <MenuConfronto apriRef={apriConfronto} oggi={oggi} tel={tel} modo={cmp} onModo={m => setCmp(m)} custom={cmpC} onCustom={setCmpC}
+          locali={locali} coppia={cmpL} onCoppia={x => setCmp('locali', x)}
           opzioni={{ prev: intervallo(piuGiorni(a, -n), piuGiorni(a, -1)), yoy: intervallo(unAnnoPrima(a), unAnnoPrima(b)), customDefault: { a: piuGiorni(a, -n), b: piuGiorni(a, -1) } }} />
         <PulsanteEsporta tel={tel} disabilitato={!v.rows.length} onScegli={setEsporta} />
         </div>

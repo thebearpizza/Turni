@@ -10,7 +10,9 @@ import { MESI, capit, fd, giorni, intervallo, t, s } from '@/lib/analisi'
 
 export interface Intervallo { a: string; b: string }
 export type Periodo = { k: 'oggi' | 'sett' | 'mese' | 'anno' } | { k: 'mesi'; mese: string } | { k: 'custom'; r: Intervallo }
-export type ModoConfronto = null | 'prev' | 'yoy' | 'custom'
+export type ModoConfronto = null | 'prev' | 'yoy' | 'custom' | 'locali'
+/** Confronto tra locali: id del locale A e del locale B. */
+export interface CoppiaLocali { a: string; b: string }
 
 const USCITA = 320
 const SPUNTA = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="oklch(0.45 0.1 180)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
@@ -141,11 +143,14 @@ export function BarraPeriodo({ periodo, onPeriodo, mesi, oggi, tel }: {
   )
 }
 
-export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef, oggi, tel }: {
+export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef, oggi, tel, locali, coppia, onCoppia }: {
   modo: ModoConfronto
   onModo: (m: ModoConfronto) => void
   custom: Intervallo | null
   onCustom: (r: Intervallo) => void
+  locali: { id: string; nome: string; colore: string }[]
+  coppia: CoppiaLocali | null
+  onCoppia: (c: CoppiaLocali) => void
   opzioni: { prev: string; yoy: string; customDefault: Intervallo }
   apriRef?: React.MutableRefObject<(() => void) | null>
   oggi: string
@@ -153,12 +158,15 @@ export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef
 }) {
   const p = usePannello('[data-pop]')
   const [cal, setCal] = useState(false)
-  useEffect(() => { if (apriRef) apriRef.current = () => setTimeout(() => { setCal(modo === 'custom'); p.apri() }, 0) })
+  const [scegliLoc, setScegliLoc] = useState(false)
+  useEffect(() => { if (apriRef) apriRef.current = () => setTimeout(() => { setCal(modo === 'custom'); setScegliLoc(modo === 'locali'); p.apri() }, 0) })
+  const nome = (id?: string) => locali.find(l => l.id === id)?.nome ?? ''
   const voci: [ModoConfronto, string, string][] = [
     [null, 'Nessun confronto', ''],
     ['prev', 'Periodo precedente', opzioni.prev],
     ['yoy', 'Stesso periodo anno prima', opzioni.yoy],
     ['custom', 'Personalizzato', custom ? intervallo(custom.a, custom.b) : 'scegli le date'],
+    ...(locali.length > 1 ? [['locali', 'Tra locali', coppia ? `${nome(coppia.a)} contro ${nome(coppia.b)}, stesso periodo` : 'due locali nello stesso periodo'] as [ModoConfronto, string, string]] : []),
   ]
   const attivo = !!modo
   return (
@@ -166,7 +174,7 @@ export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef
     // riga intera (il contenitore "relative" in AnalisiClient), non al
     // pulsante, altrimenti largo quanto lo schermo uscirebbe a sinistra.
     <div data-pop className={tel ? 'flex flex-[1_1_0]' : 'relative flex-none'}>
-      <button type="button" onClick={() => { setCal(modo === 'custom'); p.alterna() }}
+      <button type="button" onClick={() => { setCal(modo === 'custom'); setScegliLoc(modo === 'locali'); p.alterna() }}
         className={cn('flex h-10 w-full cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-[8px] border px-3 text-[13px] font-medium transition-[background,color] duration-200 active:scale-[0.97]',
           attivo ? 'border-primary bg-primary text-primary-foreground' : 'border-[oklch(0.82_0.01_250)] bg-card text-foreground dark:border-line-strong')}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 4v16" /><path d="M3 8l4-4 4 4" /><path d="M17 20V4" /><path d="M13 16l4 4 4-4" /></svg>
@@ -177,22 +185,61 @@ export function MenuConfronto({ modo, onModo, custom, onCustom, opzioni, apriRef
           <div className="flex flex-col gap-0.5">
             {voci.map(([k, l, sub]) => (
               <button key={l} type="button"
-                onClick={() => { if (k === 'custom') { setCal(true); return } onModo(k); p.chiudi() }}
+                onClick={() => { if (k === 'custom') { setScegliLoc(false); setCal(true); return } if (k === 'locali') { setCal(false); setScegliLoc(true); return } onModo(k); p.chiudi() }}
                 className={cn('flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[8px] px-3 py-1 text-left active:scale-[0.98]', modo === k ? 'bg-[oklch(0.96_0.02_180)] dark:bg-[oklch(0.28_0.03_180)]' : 'bg-transparent')}>
                 <span className="flex flex-1 flex-col gap-px">
                   <span className="text-sm font-medium">{l}</span>
                   {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
                 </span>
-                {modo === k && !(k === 'custom' && cal) && SPUNTA}
+                {modo === k && !(k === 'custom' && cal) && !(k === 'locali' && scegliLoc) && SPUNTA}
               </button>
             ))}
           </div>
+          {scegliLoc && (
+            <SceltaCoppia locali={locali} iniziale={coppia} onApplica={c => { onCoppia(c); p.chiudi() }} />
+          )}
           {cal && (
             <Calendario bordo iniziale={custom ?? opzioni.customDefault} ultimo={oggi} riepilogoVuoto="Scegli il periodo B"
               onApplica={r => { onCustom(r); onModo('custom'); p.chiudi() }} />
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Scelta dei due locali da confrontare: A in alto, B sotto, mai lo stesso. */
+function SceltaCoppia({ locali, iniziale, onApplica }: { locali: { id: string; nome: string; colore: string }[]; iniziale: CoppiaLocali | null; onApplica: (c: CoppiaLocali) => void }) {
+  const [a, setA] = useState<string | null>(iniziale?.a ?? locali[0]?.id ?? null)
+  const [b, setB] = useState<string | null>(iniziale?.b ?? locali[1]?.id ?? null)
+  const riga = (l: 'A' | 'B', val: string | null, set: (id: string) => void, altro: string | null) => (
+    <div className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <span className={cn('inline-flex h-4 w-4 items-center justify-center rounded-[4px] text-[9px] font-semibold', l === 'A' ? 'bg-[oklch(0.58_0.12_180)] text-white' : 'bg-[oklch(0.76_0.012_250)] text-[oklch(0.25_0.01_250)]')}>{l}</span>
+        Locale {l}
+      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {locali.map(x => {
+          const on = val === x.id, off = altro === x.id
+          return (
+            <button key={x.id} type="button" disabled={off} onClick={() => set(x.id)}
+              className={cn('flex h-10 items-center gap-2 rounded-full border px-3.5 text-[13px] font-medium transition-[background] duration-200 active:scale-[0.97] disabled:opacity-35',
+                on ? 'border-foreground bg-foreground text-background' : 'border-[oklch(0.86_0.01_250)] bg-card dark:border-line-strong')}>
+              <span className="h-2 w-2 rounded-full" style={{ background: x.colore }} />{x.nome}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+  return (
+    <div className="flex flex-col gap-3 border-t border-[oklch(0.93_0.01_250)] pt-2.5 dark:border-border">
+      {riga('A', a, setA, b)}
+      {riga('B', b, setB, a)}
+      <div className="flex items-center gap-2 border-t border-[oklch(0.93_0.01_250)] pt-1.5 dark:border-border">
+        <span className="flex-1 text-xs font-medium text-[oklch(0.35_0.01_250)] dark:text-foreground/80">Stesso periodo per entrambi</span>
+        <button type="button" onClick={() => a && b && a !== b && onApplica({ a, b })} className="flex h-11 cursor-pointer items-center rounded-[10px] bg-primary px-[18px] text-sm font-medium text-primary-foreground transition-opacity duration-200 active:scale-[0.97]" style={{ opacity: a && b && a !== b ? 1 : 0.35 }}>Applica</button>
+      </div>
     </div>
   )
 }

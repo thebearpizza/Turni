@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState } from 'react'
+import { createContext, useContext, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
   giorni, giornoSett, mediaScontrino, inBucket, etichettaBucket, eu, fN, dV, k1, fdl, intervallo, delta, curva, WD, WDL,
@@ -77,11 +77,15 @@ function Pillola({ d }: { d: { testo: string; tono: Tono } }) {
   return <span className={cn('inline-flex h-[22px] flex-none items-center justify-self-end whitespace-nowrap rounded-full px-2 font-mono text-[11.5px] font-semibold', PILL_TONO[d.tono])}>{d.testo}</span>
 }
 
+// Etichette di A e B: "Periodo A/B", o i nomi dei locali nel confronto tra locali.
+const Etichette = createContext({ a: 'Periodo A', b: 'Periodo B' })
+
 function Legenda() {
+  const et = useContext(Etichette)
   return (
     <div className="flex items-center gap-[14px] text-[12px] font-medium text-(--t35)">
-      <span className="flex items-center gap-1.5"><Lettera l="A" />Periodo A</span>
-      <span className="flex items-center gap-1.5"><Lettera l="B" />Periodo B</span>
+      <span className="flex items-center gap-1.5"><Lettera l="A" />{et.a}</span>
+      <span className="flex items-center gap-1.5"><Lettera l="B" />{et.b}</span>
     </div>
   )
 }
@@ -134,6 +138,10 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
   const X = v.X, P = v.P
   const N = v.bk.length
   const yoy = c.cmp === 'yoy'
+  const et = c.coppia ?? { a: 'Periodo A', b: 'Periodo B' }
+  // Nel confronto tra locali B è un solo locale: le righe per locale si
+  // confrontano con tutto B, non con lo stesso locale in B.
+  const diB = (li: string) => (c.coppia ? v.prev : v.prev.filter(r => r.li === li))
 
   // Hover condiviso tra il grafico a barre e la cumulata (hi del prototipo).
   const [hiS, setHi] = useState<number | null>(null)
@@ -160,8 +168,10 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
   const nA = new Set(v.rows.map(r => r.data)).size, nB = new Set(v.prev.map(r => r.data)).size
   const durA = giorni(c.a, c.b), durB = giorni(c.B.a, c.B.b)
   const he = delta(X.ent, P.ent, 'su')
-  const tipoB = { prev: 'periodo precedente', yoy: 'anno prima', custom: 'personalizzato' }[c.cmp ?? 'prev']
-  const nota = durA !== durB
+  const tipoB = { prev: 'periodo precedente', yoy: 'anno prima', custom: 'personalizzato', locali: 'stesso periodo' }[c.cmp ?? 'prev']
+  const nota = c.coppia
+    ? `Stesso periodo per ${c.coppia.a} e ${c.coppia.b}: nei grafici ogni giorno di A sta accanto allo stesso giorno di B.`
+    : durA !== durB
     ? `A e B hanno durate diverse (${durA} e ${durB} giorni): nei grafici il 1° giorno di A sta accanto al 1° di B, e così via.`
     : 'Stessa durata: nei grafici ogni giorno di A sta accanto al corrispondente giorno di B.'
 
@@ -290,15 +300,16 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
   const testoDif = (x: number) => (Math.abs(x) < 0.005 ? 'text-ok' : 'text-neg')
 
   return (
+    <Etichette.Provider value={et}>
     <div className={cn('contents leading-[normal]', PALETTE)}>
       {/* Testata A · differenza · B */}
       <div className={cn(SWAP, 'grid gap-3')} style={{ gridTemplateColumns: L.cHead }}>
         <div className="flex items-center gap-[14px] rounded-[14px] bg-(--ta) px-[18px] py-4">
           <Lettera l="A" d={42} />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-(--tat)">Periodo A · analizzato</span>
-            <span className="text-[19px] font-semibold">{intervallo(c.a, c.b)}</span>
-            <span className="text-[13px] text-(--tas)">{nA} giorni · {v.rows.length} chiusure</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-(--tat)">{c.coppia ? 'Locale A' : 'Periodo A · analizzato'}</span>
+            <span className="text-[19px] font-semibold">{c.coppia ? c.coppia.a : intervallo(c.a, c.b)}</span>
+            <span className="text-[13px] text-(--tas)">{c.coppia ? `${intervallo(c.a, c.b)} · ` : ''}{nA} giorni · {v.rows.length} chiusure</span>
           </div>
         </div>
         <div className="flex flex-col items-center justify-center gap-1 rounded-[14px] border border-border bg-card p-3">
@@ -309,9 +320,9 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
         <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[10px] rounded-[14px] border-[1.5px] border-dashed border-(--bbd) bg-(--bbg) py-[14px] pl-[18px] pr-3">
           <Lettera l="B" d={42} />
           <div className="flex min-w-0 flex-[1_1_160px] flex-col gap-0.5">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Periodo B · {tipoB}</span>
-            <span className="text-[19px] font-semibold">{intervallo(c.B.a, c.B.b)}</span>
-            <span className="text-[13px] text-muted-foreground">{nB} giorni · {v.prev.length} chiusure</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{c.coppia ? 'Locale B · stesso periodo' : `Periodo B · ${tipoB}`}</span>
+            <span className="text-[19px] font-semibold">{c.coppia ? c.coppia.b : intervallo(c.B.a, c.B.b)}</span>
+            <span className="text-[13px] text-muted-foreground">{c.coppia ? `${intervallo(c.B.a, c.B.b)} · ` : ''}{nB} giorni · {v.prev.length} chiusure</span>
           </div>
           <button type="button" data-pop onClick={onCambia} className="ml-auto flex h-10 flex-none cursor-pointer items-center rounded-[10px] border border-line-strong bg-card px-[14px] text-[13px] font-medium active:scale-[0.97]">Cambia</button>
           <button type="button" onClick={onSpegni} aria-label="Togli il confronto" className="flex h-10 w-10 flex-none cursor-pointer items-center justify-center rounded-[20px] text-muted-foreground active:scale-[0.96]">
@@ -443,8 +454,8 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
           <Testata titolo="Sintesi" sotto="i numeri chiave affiancati" />
           <div className="grid items-center gap-3 pt-1" style={{ gridTemplateColumns: L.siCols }}>
             <span style={{ display: L.siHd }} />
-            <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground"><Lettera l="A" />Periodo A</span>
-            <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground"><Lettera l="B" />Periodo B</span>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground"><Lettera l="A" />{et.a}</span>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground"><Lettera l="B" />{et.b}</span>
             <span className="text-right text-[12px] font-medium text-muted-foreground">A vs B</span>
           </div>
           {sintesi.map(s => {
@@ -552,13 +563,13 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
             {v.locSel.map(l => [
               <span key={l.id} className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium">{l.nome}</span>,
               ...ORD.map(w => {
-                const ra = v.rows.filter(r => r.li === l.id && giornoSett(r.data) === w), rb = v.prev.filter(r => r.li === l.id && giornoSett(r.data) === w)
+                const ra = v.rows.filter(r => r.li === l.id && giornoSett(r.data) === w), rb = diB(l.id).filter(r => giornoSett(r.data) === w)
                 if (!ra.length || !rb.length) return <div key={`${l.id}${w}`} className="flex h-12 items-center justify-center rounded-[6px] font-mono text-[12px] font-medium text-muted-foreground" style={{ background: TRATTEGGIO }}>—</div>
                 const ma = sum(ra, r => r.ent) / ra.length, mb = sum(rb, r => r.ent) / rb.length, pv = ((ma - mb) / mb) * 100, tt = Math.min(1, Math.abs(pv) / 25), pos = pv >= 0
                 return (
                   <button key={`${l.id}${w}`} type="button"
                     onClick={c.fumetto(`${l.nome} · ${WDL[w].toLowerCase()}`, 'media entrate, A contro B', [
-                      { l: `Periodo A · ${ra.length} giorni`, v: eu0(ma), dot: TEAL }, { l: `Periodo B · ${rb.length} giorni`, v: eu0(mb), dot: COL_B },
+                      { l: `${et.a} · ${ra.length} giorni`, v: eu0(ma), dot: TEAL }, { l: `${et.b} · ${rb.length} giorni`, v: eu0(mb), dot: COL_B },
                       { l: 'Differenza', v: `${ma >= mb ? '+' : '−'}${eu0(Math.abs(ma - mb))}`, tono: ma >= mb ? 'ok' : 'neg', p: `${ma >= mb ? '+' : '−'}${fp1(Math.abs(pv))}%` },
                     ])}
                     className="flex h-12 cursor-pointer flex-col items-center justify-center gap-px rounded-[6px] active:scale-[0.98]"
@@ -596,12 +607,12 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
           <Testata titolo="Differenze di cassa" sotto={`totale per locale · giorni oltre ${SOGLIA_DIFFERENZA} €`} pb />
           <div className="grid items-center gap-3 pb-1 text-[12px] font-medium text-muted-foreground" style={{ gridTemplateColumns: L.dfCols }}>
             <span />
-            <span className="flex items-center justify-end gap-1.5"><Lettera l="A" />Periodo A</span>
-            <span className="flex items-center justify-end gap-1.5"><Lettera l="B" />Periodo B</span>
+            <span className="flex items-center justify-end gap-1.5"><Lettera l="A" />{et.a}</span>
+            <span className="flex items-center justify-end gap-1.5"><Lettera l="B" />{et.b}</span>
             <span className="text-right">A vs B</span>
           </div>
           {v.sedi.map(s => {
-            const ga = s.rs.filter(r => Math.abs(r.dif) >= SOGLIA_DIFFERENZA).length, gb = v.prev.filter(r => r.li === s.l.id && Math.abs(r.dif) >= SOGLIA_DIFFERENZA).length
+            const ga = s.rs.filter(r => Math.abs(r.dif) >= SOGLIA_DIFFERENZA).length, gb = diB(s.l.id).filter(r => Math.abs(r.dif) >= SOGLIA_DIFFERENZA).length
             return (
               <button key={s.l.id} type="button" onClick={() => c.apri(ga >= MIN_GIORNI_ALERT ? { k: 'alert', li: s.l.id } : { k: 'loc', li: s.l.id })}
                 className={RIGA} style={{ gridTemplateColumns: L.dfCols }}>
@@ -621,5 +632,6 @@ export function VistaConfronto({ c, onCambia, onSpegni }: { c: Ctx; onCambia: ()
         </section>
       </div>
     </div>
+    </Etichette.Provider>
   )
 }
