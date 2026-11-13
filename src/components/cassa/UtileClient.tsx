@@ -6,11 +6,11 @@ import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
-import { caricaChiusure } from '@/components/cassa/analisi/dati'
+import { caricaChiusure, caricaVoci } from '@/components/cassa/analisi/dati'
 import { CampoCassa, Foglio, IconaPiu, MenuScelta, NavMese, Pillola, eur, eur0, useApriChiudi, useTelefono } from '@/components/cassa/comuni'
 import {
   CATEGORIE_COSTO, IVA_RICAVI, RIFERIMENTI, contoEconomico, nomeCategoria, quota, valeNelMese,
-  type CategoriaCosto, type CostoGestione, type FatturaMese,
+  type CategoriaCosto, type CostoGestione, type FatturaMese, type SpesaContanti,
 } from '@/lib/utile'
 
 // Cassa → Utile: conto economico del mese per i locali scelti. Incassi,
@@ -61,7 +61,7 @@ export function UtileClient({ restaurants }: Props) {
 
   const [stato, setStato] = useState<'carica' | 'ok' | 'errore'>('carica')
   const [incassi, setIncassi] = useState(0)
-  const [contanti, setContanti] = useState(0)
+  const [contanti, setContanti] = useState<SpesaContanti[]>([])
   const [giorniChiusi, setGiorniChiusi] = useState(0)
   const [fatture, setFatture] = useState<FatturaMese[]>([])
   const [costi, setCosti] = useState<CostoGestione[]>([])
@@ -81,9 +81,13 @@ export function UtileClient({ restaurants }: Props) {
         .overlaps('restaurant_ids', ids).lte('mese_da', m01).or(`mese_a.is.null,mese_a.gte.${m01}`),
     ])
     if (n !== richiesta.current) return
-    if (ch.errore || fa.errore || co.error) { setStato('errore'); return }
+    // Spese in contanti con la loro categoria di cassa: finiscono nella
+    // voce corrispondente del conto (personale, merci, utenze...).
+    const sp = ch.errore ? { voci: [], errore: true } : await caricaVoci(sb, ch.righe, 'spese')
+    if (n !== richiesta.current) return
+    if (ch.errore || fa.errore || co.error || sp.errore) { setStato('errore'); return }
     setIncassi(ch.righe.reduce((t, r) => t + r.ent, 0))
-    setContanti(ch.righe.reduce((t, r) => t + r.sp, 0))
+    setContanti(sp.voci.map(v => ({ categoria: v.categoria, importo: v.importo })))
     setGiorniChiusi(new Set(ch.righe.map(r => r.data)).size)
     setFatture(fa.righe)
     setCosti(((co.data ?? []) as CostoGestione[]).map(c => ({ ...c, importo: Number(c.importo) || 0 })).filter(c => valeNelMese(c, m01)))
@@ -92,9 +96,9 @@ export function UtileClient({ restaurants }: Props) {
   useEffect(() => { carica() }, [carica])
 
   const insieme = useMemo(() => new Set(ids), [ids])
-  const ce = useMemo(() => contoEconomico({ incassi, speseContanti: contanti, fatture, costi, locali: insieme }), [incassi, contanti, fatture, costi, insieme])
+  const ce = useMemo(() => contoEconomico({ incassi, contanti, fatture, costi, locali: insieme }), [incassi, contanti, fatture, costi, insieme])
   const inCorso = mese === meseOggi
-  const senzaPersonale = stato === 'ok' && ce.personale === 0
+  const senzaPersonale = stato === 'ok' && ce.personaleMano === 0
 
   // ── Foglio della spesa ────────────────────────────────────────────────
   const foglio = useApriChiudi()
@@ -175,21 +179,22 @@ export function UtileClient({ restaurants }: Props) {
       t: 'Costo del venduto', righe: [
         { l: 'Food', s: 'fatture, netto', v: ce.food },
         { l: 'Beverage', s: 'fatture, netto', v: ce.beverage },
+        ...(ce.merciContanti > 0 ? [{ l: 'Merce pagata in contanti', s: 'spese di cassa: Fornitori', v: ce.merciContanti }] : []),
         { l: 'Costo merci', v: ce.merci, tipo: 'totale', rif: RIFERIMENTI.food },
       ],
     },
     {
       t: 'Personale', righe: [
-        { l: 'Personale', s: ce.personale ? 'stipendi, contributi, TFR' : 'non inserito · tocca per aggiungere', v: ce.personale, tipo: 'totale', rif: RIFERIMENTI.personale, on: ce.personale ? undefined : () => apriNuova('personale') },
+        { l: 'Buste paga e contributi', s: ce.personaleMano ? 'inseriti a mano' : 'non inseriti · tocca per aggiungere', v: ce.personaleMano, on: ce.personaleMano ? undefined : () => apriNuova('personale') },
+        { l: 'Personale in contanti', s: 'spese di cassa: Personale, Extra personale', v: ce.personaleContanti },
+        { l: 'Personale', v: ce.personale, tipo: 'totale', rif: RIFERIMENTI.personale },
         { l: 'Prime cost', s: 'merci + personale', v: ce.primeCost, tipo: 'totale', rif: RIFERIMENTI.primeCost },
       ],
     },
     {
       t: 'Costi operativi', righe: [
         { l: 'Detergenza e materiali', s: 'fatture, netto', v: ce.materiali },
-        { l: 'Spese in contanti', s: 'dalle chiusure', v: ce.contanti },
-        ...ce.dirette.map(d => ({ l: d.l, s: 'fatture senza articoli', v: d.v })),
-        ...ce.gestione.map(g => ({ l: g.l, s: 'inserite a mano', v: g.v })),
+        ...ce.operativi.map(o => ({ l: o.l, s: o.fonti.join(' + '), v: o.v })),
       ],
     },
   ]
@@ -234,7 +239,7 @@ export function UtileClient({ restaurants }: Props) {
           {(inCorso || senzaPersonale) && (
             <div className="anim-swapin rounded-[12px] bg-warn-tint px-4 py-3 text-[13px] leading-5 text-warn">
               {inCorso && 'Mese in corso: gli incassi sono parziali, mentre le spese mensili contano per intero. '}
-              {senzaPersonale && 'Il costo del personale non è ancora inserito: senza, l\'utile risulta più alto del reale.'}
+              {senzaPersonale && 'Buste paga e contributi non sono ancora inseriti: il personale conta solo la parte pagata in contanti e l\'utile risulta più alto del reale.'}
             </div>
           )}
 
@@ -325,7 +330,7 @@ export function UtileClient({ restaurants }: Props) {
           </div>
 
           <p className={cn('px-1 text-xs leading-5', MUTO)}>
-            Ricavi netti = incassi delle chiusure confermate senza IVA. Le fatture contano per la data del documento, al netto dell&apos;IVA; le spese in contanti per intero.
+            Ricavi netti = incassi delle chiusure confermate senza IVA. Le fatture contano per la data del documento, al netto dell&apos;IVA; le spese in contanti per intero, nella voce della loro categoria.
             Le fasce di riferimento sono indicative per un ristorante con servizio al tavolo.
           </p>
         </div>

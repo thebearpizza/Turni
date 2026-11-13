@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const { error } = await supabase.rpc('sostituisci_fattura', {
+  const parametri = {
     p_fattura_id: fattura_id,
     p_fornitore_id: fornitore.id,
     p_numero_documento: numero_documento.trim(),
@@ -127,8 +127,15 @@ export async function POST(request: Request) {
     p_totale_lordo_manuale: totale_lordo_manuale ?? null,
     p_totale_netto_manuale: totale_netto_manuale ?? null,
     p_vuoti_ritirati: vuoti_ritirati ?? null,
-    ...(percorsoXml ? { p_xml_path: percorsoXml } : {}),
-  })
+  }
+  let { error } = await supabase.rpc('sostituisci_fattura', { ...parametri, ...(percorsoXml ? { p_xml_path: percorsoXml } : {}) })
+  // Funzione del database ancora senza p_xml_path (migrazione
+  // 20261113_sostituisci_fattura_xml non applicata): si sostituisce con la
+  // versione di prima e il file XML si collega a parte.
+  if (error && percorsoXml && (error.code === 'PGRST202' || /p_xml_path|could not find the function/i.test(error.message))) {
+    ({ error } = await supabase.rpc('sostituisci_fattura', parametri))
+    if (!error) await supabase.from('fatture').update({ xml_path: percorsoXml }).eq('id', fattura_id)
+  }
 
   if (error) {
     const doppione = error.code === '23505'

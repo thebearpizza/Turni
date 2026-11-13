@@ -61,36 +61,72 @@ export interface FatturaMese {
   materiali: number
 }
 
+/** Spesa in contanti di una chiusura, con il nome della sua categoria di cassa. */
+export interface SpesaContanti { categoria: string; importo: number }
+
+type Destinazione = 'personale' | 'merci' | CategoriaCosto
+
+// Categorie di cassa e di fattura senza articoli che corrispondono a una
+// voce del conto economico, per nome esatto (minuscole, senza spazi ai
+// lati). Le altre restano voci a sé, col loro nome.
+const DA_CONTANTI: Record<string, Destinazione> = {
+  'personale': 'personale', 'extra personale': 'personale',
+  'fornitori': 'merci', 'fornitori/merce': 'merci',
+  'utenze/amministrazione': 'utenze', 'utenze': 'utenze',
+  'manutenzione': 'manutenzioni', 'manutenzioni': 'manutenzioni', 'manutenzione/attrezzature': 'manutenzioni',
+  'marketing': 'marketing',
+}
+const destinazione = (nome: string): Destinazione | null => DA_CONTANTI[nome.trim().toLowerCase()] ?? null
+
+/** Voce dei costi operativi con le sue provenienze (fatture, contanti, a mano). */
+export interface VoceCosto { l: string; v: number; fonti: string[] }
+
 export interface ContoEconomico {
   incassi: number
   ricavi: number
   food: number
   beverage: number
+  merciContanti: number
   merci: number
+  personaleMano: number
+  personaleContanti: number
   personale: number
   primeCost: number
   materiali: number
+  /** Costi operativi per voce: fatture senza articoli, contanti e spese a mano insieme. */
+  operativi: VoceCosto[]
   contanti: number
-  /** Fatture senza articoli per categoria (Utenze, Manutenzioni...). */
-  dirette: { l: string; v: number }[]
-  /** Spese inserite a mano, per categoria, personale escluso. */
-  gestione: { k: CategoriaCosto; l: string; v: number }[]
   costi: number
   utile: number
 }
 
 export function contoEconomico(x: {
   incassi: number
-  speseContanti: number
+  contanti: SpesaContanti[]
   fatture: FatturaMese[]
   costi: CostoGestione[]
   locali: Set<string>
 }): ContoEconomico {
   const ricavi = x.incassi / (1 + IVA_RICAVI)
-  let food = 0, beverage = 0, materiali = 0
-  const dirette = new Map<string, number>()
+  let food = 0, beverage = 0, materiali = 0, merciContanti = 0, personaleContanti = 0, personaleMano = 0
+  const voci = new Map<string, VoceCosto>()
+  const aggiungi = (l: string, v: number, fonte: string) => {
+    const k = l.trim().toLowerCase()
+    const o = voci.get(k) ?? { l, v: 0, fonti: [] }
+    o.v += v
+    if (!o.fonti.includes(fonte)) o.fonti.push(fonte)
+    voci.set(k, o)
+  }
+  const etichetta = (d: Destinazione, nome: string) => (d === 'personale' || d === 'merci' ? nome : nomeCategoria(d))
+
   for (const f of x.fatture) {
-    if (f.diretta !== null) { dirette.set(f.diretta, (dirette.get(f.diretta) ?? 0) + f.netto); continue }
+    if (f.diretta !== null) {
+      const d = destinazione(f.diretta)
+      if (d === 'personale') personaleMano += f.netto
+      else if (d === 'merci') food += f.netto
+      else aggiungi(d ? etichetta(d, f.diretta) : f.diretta, f.netto, 'fatture')
+      continue
+    }
     // Le righe danno la ripartizione per tipologia; il netto della fattura
     // (con sconti e arrotondamenti) è quello che si paga davvero.
     const righe = f.food + f.beverage + f.materiali
@@ -98,17 +134,26 @@ export function contoEconomico(x: {
     const k = f.netto / righe
     food += f.food * k; beverage += f.beverage * k; materiali += f.materiali * k
   }
-  const perCat = new Map<CategoriaCosto, number>()
-  for (const c of x.costi) perCat.set(c.categoria, (perCat.get(c.categoria) ?? 0) + quota(c, x.locali))
-  const personale = perCat.get('personale') ?? 0
-  const gestione = CATEGORIE_COSTO.filter(c => c.k !== 'personale' && (perCat.get(c.k) ?? 0) > 0).map(c => ({ k: c.k, l: c.l, v: perCat.get(c.k)! }))
-  const direttePerCat = [...dirette.entries()].filter(([, v]) => Math.abs(v) > 0.004).sort((a, b) => b[1] - a[1]).map(([l, v]) => ({ l, v }))
-  const merci = food + beverage
-  const costi = merci + personale + materiali + x.speseContanti
-    + direttePerCat.reduce((t, d) => t + d.v, 0) + gestione.reduce((t, g) => t + g.v, 0)
+  for (const s of x.contanti) {
+    const d = destinazione(s.categoria)
+    if (d === 'personale') personaleContanti += s.importo
+    else if (d === 'merci') merciContanti += s.importo
+    else aggiungi(d ? etichetta(d, s.categoria) : s.categoria, s.importo, 'contanti')
+  }
+  for (const c of x.costi) {
+    const v = quota(c, x.locali)
+    if (c.categoria === 'personale') personaleMano += v
+    else aggiungi(nomeCategoria(c.categoria), v, 'a mano')
+  }
+
+  const operativi = [...voci.values()].filter(o => Math.abs(o.v) > 0.004).sort((a, b) => b.v - a.v)
+  const merci = food + beverage + merciContanti
+  const personale = personaleMano + personaleContanti
+  const costi = merci + personale + materiali + operativi.reduce((t, o) => t + o.v, 0)
   return {
-    incassi: x.incassi, ricavi, food, beverage, merci, personale, primeCost: merci + personale,
-    materiali, contanti: x.speseContanti, dirette: direttePerCat, gestione, costi, utile: ricavi - costi,
+    incassi: x.incassi, ricavi, food, beverage, merciContanti, merci,
+    personaleMano, personaleContanti, personale, primeCost: merci + personale, materiali, operativi,
+    contanti: x.contanti.reduce((t, s) => t + s.importo, 0), costi, utile: ricavi - costi,
   }
 }
 
