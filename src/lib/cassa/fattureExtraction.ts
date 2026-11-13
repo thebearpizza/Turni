@@ -161,7 +161,11 @@ export const ArticoloEstrattoSchema = z.object({
     "espanderlo in un nome 'più pulito': questo testo verrà confrontato con un catalogo prodotti, quindi anche una " +
     "piccola differenza rispetto all'originale stampato è un problema concreto, non un dettaglio stilistico."
   ),
-  quantita: z.number(),
+  quantita: z.number().describe(
+    "Quantità della riga come numero. Molti gestionali stampano le quantità con TRE decimali: \"21,000\" o \"21.000\" " +
+    "nella colonna quantità significano 21 (ventuno), non 21000 — lo stesso per \"200,000\" = 200 e \"2,500\" = 2.5. " +
+    "Controlla che quantità × prezzo unitario stampato dia l'importo della riga."
+  ),
   prezzo_riga: z.number().describe(
     "Importo TOTALE della riga (quantità × prezzo unitario), MAI il prezzo unitario da solo. Molte fatture fornitori " +
     "italiane stampano DUE colonne di prezzo sulla stessa riga: una 'Prezzo Unitario' (o 'Prezzo', 'P.U.', spesso per " +
@@ -337,6 +341,21 @@ function calcolaIvaDaArticoli(articoli: z.infer<typeof ArticoloEstrattoSchema>[]
     })
 }
 
+/**
+ * Quantità stampate con tre decimali ("21,000" = 21) lette come migliaia:
+ * ne esce un prezzo unitario sotto il centesimo (94,50 € / 21000 pz), che
+ * nessun articolo da ristorante ha a quella scala. Se togliendo i tre zeri
+ * il prezzo unitario torna plausibile, la quantità era 1000 volte troppo
+ * grande. Le quantità che non finiscono con tre zeri non si toccano.
+ */
+export function correggiQuantitaMillesimi<T extends { quantita: number; prezzo_riga: number }>(a: T): T {
+  const q = a.quantita
+  const tot = Math.abs(a.prezzo_riga)
+  if (!(q >= 1000) || q % 1000 !== 0 || tot === 0) return a
+  if (tot / q >= 0.01) return a
+  return { ...a, quantita: q / 1000 }
+}
+
 function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   const primoValorizzato = (valori: (string | null)[]) => valori.find(v => v?.trim())?.trim() ?? ''
 
@@ -352,7 +371,7 @@ function unisciPagine(pagine: PaginaEstratta[]): FatturaEstratta {
   // salvata la fattura (fotoPathsGruppo in risolviFattura è costruito
   // nello stesso ordine di questo array `pagine`).
   const articoli: ArticoloEstrattoConPagina[] = pagine.flatMap((p, paginaIndice) =>
-    p.articoli.map(a => ({ ...a, pagina_indice: paginaIndice }))
+    p.articoli.map(a => ({ ...correggiQuantitaMillesimi(a), pagina_indice: paginaIndice }))
   )
 
   // Se il riepilogo non è stato trovato/letto ma ci sono articoli con
