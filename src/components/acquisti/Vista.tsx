@@ -278,6 +278,8 @@ export interface RigaDettaglio {
   on?: () => void
   matita?: boolean
   attiva?: boolean
+  /** Pillola accanto all'etichetta (es. "+68%" su un prezzo da verificare). */
+  pill?: { t: string; tono: Tono; titolo?: string }
 }
 export interface SezioneDettaglio { h: string; righe: RigaDettaglio[] }
 export interface AzioneDettaglio { l: string; tipo: 'primario' | 'secondario' | 'pericolo' | 'pericoloPieno'; on: () => void; disabled?: boolean }
@@ -364,7 +366,10 @@ export function Pannello({ tel, titolo, sotto, badge, messaggio, stats, spark, b
                 <Tag key={i} {...(x.on ? { type: 'button' as const, onClick: x.on } : {})}
                   className={cn('-mx-2 grid min-h-10 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-[6px] border-t border-[oklch(0.94_0.01_250)] px-2 text-left dark:border-border',
                     x.on ? 'cursor-pointer' : 'cursor-default', x.attiva && 'bg-[oklch(0.95_0.03_180)] dark:bg-[oklch(0.26_0.03_180)]')}>
-                  <span className={cn('py-2 text-sm leading-[1.35] text-[oklch(0.3_0.01_250)] dark:text-foreground/85', x.forte ? 'font-semibold' : 'font-normal')}>{x.l}</span>
+                  <span className={cn('py-2 text-sm leading-[1.35] text-[oklch(0.3_0.01_250)] dark:text-foreground/85', x.forte ? 'font-semibold' : 'font-normal')}>
+                    {x.l}
+                    {x.pill && <Badge tono={x.pill.tono} className="ml-1.5 inline-block px-[7px] py-px align-[1px] font-mono normal-case tracking-normal" ><span title={x.pill.titolo}>{x.pill.t}</span></Badge>}
+                  </span>
                   {x.o ? <span className="font-mono text-[13px] font-medium text-[oklch(0.55_0.01_250)] line-through">{x.o}</span> : <span />}
                   <span className={cn('whitespace-nowrap font-mono text-sm', x.forte ? 'font-semibold' : 'font-normal', x.tono && x.tono !== 'ink' ? TESTO[x.tono] : 'text-foreground')}>{x.v}</span>
                   {x.matita ? <IcoMatita /> : <span />}

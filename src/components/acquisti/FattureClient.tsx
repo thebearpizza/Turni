@@ -293,9 +293,26 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
   if (f) {
     const D0 = daVer(f)
     const unita = xr?.art?.unita_misura || 'pz'
+    // Gli avvisi di prezzo ("articolo:<testo della riga>") vanno sulla riga
+    // dell'articolo come pillola "+68%"; nel riquadro in alto resta una
+    // frase sola. Prima c'era l'elenco completo dei messaggi, senza dire a
+    // quale articolo si riferissero.
+    const chiaveRiga = (t: string) => t.trim().toLowerCase()
+    const prezzoDi = new Map<string, { t: string; titolo: string }>()
+    const altri: string[] = []
+    for (const v of f.verifiche) {
+      const m = v.campo.startsWith('articolo:') ? v.messaggio.match(/\(([+-]?\d+)%/) : null
+      if (m) prezzoDi.set(chiaveRiga(v.campo.slice('articolo:'.length)), { t: `${+m[1] > 0 ? '+' : m[1].startsWith('-') ? '−' : ''}${Math.abs(+m[1])}%`, titolo: v.messaggio })
+      else if (!altri.includes(v.messaggio)) altri.push(v.messaggio)
+    }
+    const righeSegnate = f.righe.filter(x => prezzoDi.has(chiaveRiga(x.testo_estratto))).length
+    const testoVerifica = [
+      ...altri,
+      ...(righeSegnate ? [`${righeSegnate === 1 ? 'Un prezzo diverso' : `${righeSegnate} prezzi diversi`} dall'ultimo acquisto: ${righeSegnate === 1 ? 'è segnato' : 'sono segnati'} nelle righe.`] : []),
+    ].join(' ')
     const messaggio = del
       ? { testo: `Eliminare la fattura n. ${f.numero_documento}? Spariranno anche i carichi in inventario e la spesa in Analisi.`, tono: 'neg' as const }
-      : D0 ? { testo: corrette.has(f.id) ? 'Importi corretti. Controlla il totale lordo con la fattura cartacea e conferma.' : f.verifiche.map(v => v.messaggio).join(' '), tono: 'warn' as const }
+      : D0 ? { testo: corrette.has(f.id) ? 'Importi corretti. Controlla il totale lordo con la fattura cartacea e conferma.' : testoVerifica || 'Controlla i dati e conferma.', tono: 'warn' as const }
       : null
     const ivaPer = [...f.ivaDett.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())].sort((p, q) => p[0] - q[0])
     const sezioni: SezioneDettaglio[] = []
@@ -305,6 +322,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
         righe: f.righe.map((x, i) => ({
           l: `${x.art?.nome_articolo ?? x.testo_estratto} · ${nf(x.quantita)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)}`,
           v: eu(x.prezzo_riga), matita: true, attiva: er === i,
+          pill: D0 && prezzoDi.has(chiaveRiga(x.testo_estratto)) ? { tono: 'warn' as const, ...prezzoDi.get(chiaveRiga(x.testo_estratto))! } : undefined,
           on: () => { setKp(null); setDel(false); setRd({}); setEr(er === i ? null : i) },
         })),
       })

@@ -63,7 +63,11 @@ export function SplashApertura() {
   const timer = useRef<ReturnType<typeof setTimeout>[]>([])
   const intervallo = useRef<ReturnType<typeof setInterval> | null>(null)
   const [fase, setFase] = useState<Fase>('visibile')
-  const [pronto, setPronto] = useState(true)
+  // Ferma (primo fotogramma, invisibile) finché tutti gli strati del logo
+  // non sono caricati. Prima partiva subito dalla pagina del server e dopo
+  // 0,1 s si metteva in pausa ad aspettare le immagini: sul telefono si
+  // vedeva un mezzo logo fermarsi e ripartire, come un doppio avvio.
+  const [pronto, setPronto] = useState(false)
   const logoRef = useRef<HTMLDivElement | null>(null)
   const voloRef = useRef<HTMLDivElement | null>(null)
   const [posa, setPosa] = useState<{ x: number; y: number; s: number } | null>(null)
@@ -111,7 +115,7 @@ export function SplashApertura() {
       if (inizio === null) {
         const immagini = Array.from(logoRef.current?.querySelectorAll('img') ?? [])
         const caricate = immagini.length > 0 && immagini.every(i => i.complete)
-        if (!caricate && Date.now() - avviato < 4000) { setPronto(false); return }
+        if (!caricate && Date.now() - avviato < 4000) return
         setPronto(true)
         inizio = Date.now()
       }
@@ -120,7 +124,7 @@ export function SplashApertura() {
       else if (senzaSkeletonDa === null) senzaSkeletonDa = Date.now()
       const pronta = senzaSkeletonDa !== null && Date.now() - senzaSkeletonDa >= STABILITA_MS
       if ((trascorso >= DURATA_MINIMA_MS && pronta) || trascorso >= DURATA_MASSIMA_MS) chiudi()
-    }, 100)
+    }, 50)
   }, [ferma, chiudi])
 
   useEffect(() => {
@@ -139,6 +143,8 @@ export function SplashApertura() {
   // primo disegno, nasconde subito lo splash renderizzato dal server.
   return (
     <>
+      {/* Strati del logo richiesti subito, insieme alla pagina. */}
+      {['fondo', 'interno', 'lettere', 'esterno', 'riflessi'].map(k => <link key={k} rel="preload" as="image" href={`/logo-animato-${k}.svg`} />)}
       <script
         dangerouslySetInnerHTML={{
           __html: "try{document.documentElement.dataset.splash=sessionStorage.getItem('splash-mostrata')==='1'?'no':'on'}catch(e){}",
