@@ -6,11 +6,11 @@ import { cn } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 import { coloreLocale } from '@/components/manager/RestaurantFilter'
 import { PilloleLocali } from '@/components/shared/PilloleLocali'
-import { caricaChiusure, caricaVoci } from '@/components/cassa/analisi/dati'
-import { CampoCassa, Foglio, IconaPiu, MenuScelta, NavMese, Pillola, eur, eur0, useApriChiudi, useTelefono } from '@/components/cassa/comuni'
+import { caricaUtile, chiaveCompleto, contoMese, type DatiUtile } from '@/components/cassa/utile/dati'
+import { CampoCassa, Foglio, IconaPiu, IconaSpunta, MenuScelta, NavMese, Pillola, eur, eur0, useApriChiudi, useTelefono } from '@/components/cassa/comuni'
 import {
-  CATEGORIE_COSTO, IVA_RICAVI, RIFERIMENTI, contoEconomico, nomeCategoria, quota, valeNelMese,
-  type CategoriaCosto, type CostoGestione, type FatturaMese, type SpesaContanti,
+  CATEGORIE_COSTO, IVA_RICAVI, RIFERIMENTI, nomeCategoria, quota, valeNelMese,
+  type CategoriaCosto, type CostoGestione,
 } from '@/lib/utile'
 
 // Cassa → Utile: conto economico del mese per i locali scelti. Incassi,
@@ -26,28 +26,7 @@ interface Props { restaurants: { id: string; name: string }[] }
 
 const pcTesto = (v: number, base: number) => (base > 0 ? `${((v / base) * 100).toFixed(1).replace('.', ',')}%` : '—')
 const mesePrima = (m: string) => { const [y, mm] = m.split('-').map(Number); return new Date(Date.UTC(y, mm - 2, 1)).toISOString().slice(0, 10) }
-
-async function caricaFatture(sb: ReturnType<typeof createClient>, locali: string[], a: string, b: string): Promise<{ righe: FatturaMese[]; errore: boolean }> {
-  if (!locali.length) return { righe: [], errore: false }
-  const { data, error } = await sb
-    .from('fatture')
-    .select('restaurant_id, totale_netto, ha_articoli, categoria:categorie_fatture_dirette(nome), fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))')
-    .in('restaurant_id', locali).gte('data', a).lte('data', b)
-  type R = { restaurant_id: string; totale_netto: number | null; ha_articoli: boolean; categoria: { nome: string } | null; fatture_articoli: { prezzo_riga: number; catalogo_articolo: { tipologia: string } | null }[] | null }
-  return {
-    errore: !!error,
-    righe: ((data ?? []) as unknown as R[]).map(f => {
-      const o: FatturaMese = { li: f.restaurant_id, netto: Number(f.totale_netto) || 0, diretta: f.ha_articoli ? null : (f.categoria?.nome ?? 'Altre fatture'), food: 0, beverage: 0, materiali: 0 }
-      for (const r of f.fatture_articoli ?? []) {
-        const v = Number(r.prezzo_riga) || 0, tp = r.catalogo_articolo?.tipologia
-        if (tp === 'food') o.food += v
-        else if (tp === 'beverage') o.beverage += v
-        else o.materiali += v
-      }
-      return o
-    }),
-  }
-}
+const VUOTO: DatiUtile = { incassi: [], fatture: [], contanti: [], costi: [], completi: new Set() }
 
 export function UtileClient({ restaurants }: Props) {
   const tel = useTelefono()
@@ -60,43 +39,41 @@ export function UtileClient({ restaurants }: Props) {
   const nomeDi = useMemo(() => new Map(restaurants.map(r => [r.id, r.name])), [restaurants])
 
   const [stato, setStato] = useState<'carica' | 'ok' | 'errore'>('carica')
-  const [incassi, setIncassi] = useState(0)
-  const [contanti, setContanti] = useState<SpesaContanti[]>([])
-  const [giorniChiusi, setGiorniChiusi] = useState(0)
-  const [fatture, setFatture] = useState<FatturaMese[]>([])
-  const [costi, setCosti] = useState<CostoGestione[]>([])
+  const [dati, setDati] = useState<DatiUtile>(VUOTO)
   const richiesta = useRef(0)
 
   const m01 = `${mese}-01`
   const carica = useCallback(async () => {
     const n = ++richiesta.current
     setStato(s => (s === 'ok' ? 'ok' : 'carica'))
-    const sb = createClient()
-    const [yy, mm] = mese.split('-').map(Number)
-    const fine = new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10)
-    const [ch, fa, co] = await Promise.all([
-      caricaChiusure(sb, ids, m01, fine),
-      caricaFatture(sb, ids, m01, fine),
-      sb.from('costi_gestione').select('id, restaurant_ids, categoria, descrizione, importo, ricorrente, mese_da, mese_a')
-        .overlaps('restaurant_ids', ids).lte('mese_da', m01).or(`mese_a.is.null,mese_a.gte.${m01}`),
-    ])
+    const r = await caricaUtile(createClient(), ids, m01, m01)
     if (n !== richiesta.current) return
-    // Spese in contanti con la loro categoria di cassa: finiscono nella
-    // voce corrispondente del conto (personale, merci, utenze...).
-    const sp = ch.errore ? { voci: [], errore: true } : await caricaVoci(sb, ch.righe, 'spese')
-    if (n !== richiesta.current) return
-    if (ch.errore || fa.errore || co.error || sp.errore) { setStato('errore'); return }
-    setIncassi(ch.righe.reduce((t, r) => t + r.ent, 0))
-    setContanti(sp.voci.map(v => ({ categoria: v.categoria, importo: v.importo })))
-    setGiorniChiusi(new Set(ch.righe.map(r => r.data)).size)
-    setFatture(fa.righe)
-    setCosti(((co.data ?? []) as CostoGestione[]).map(c => ({ ...c, importo: Number(c.importo) || 0 })).filter(c => valeNelMese(c, m01)))
+    if (r.errore) { setStato('errore'); return }
+    setDati(r.dati)
     setStato('ok')
-  }, [ids, mese, m01])
+  }, [ids, m01])
   useEffect(() => { carica() }, [carica])
 
   const insieme = useMemo(() => new Set(ids), [ids])
-  const ce = useMemo(() => contoEconomico({ incassi, contanti, fatture, costi, locali: insieme }), [incassi, contanti, fatture, costi, insieme])
+  const { ce, giorni: giorniChiusi } = useMemo(() => contoMese(dati, m01, insieme), [dati, m01, insieme])
+  const costi = useMemo(() => dati.costi.filter(c => valeNelMese(c, m01)), [dati.costi, m01])
+
+  // Mese completo (per locale): solo i mesi chiusi; con più locali scelti la
+  // spunta vale per tutti quelli scelti.
+  const completi = ids.filter(id => dati.completi.has(chiaveCompleto(id, m01)))
+  const tuttiCompleti = completi.length === ids.length && ids.length > 0
+  const [spunto, setSpunto] = useState(false)
+  async function cambiaCompleto() {
+    setSpunto(true)
+    const sb = createClient()
+    const { error } = tuttiCompleti
+      ? await sb.from('utile_mesi_completi').delete().in('restaurant_id', ids).eq('mese', m01)
+      : await sb.from('utile_mesi_completi').upsert(ids.map(id => ({ restaurant_id: id, mese: m01 })), { onConflict: 'restaurant_id,mese', ignoreDuplicates: true })
+    setSpunto(false)
+    if (error) { toast({ title: 'Operazione non riuscita. Riprova.', variant: 'destructive' }); return }
+    toast({ title: tuttiCompleti ? 'Mese riaperto' : 'Mese segnato come completo', description: tuttiCompleti ? undefined : 'Entra nel resoconto dell\'utile in Analisi' })
+    carica()
+  }
   const inCorso = mese === meseOggi
   const senzaPersonale = stato === 'ok' && ce.personaleMano === 0
 
@@ -236,6 +213,25 @@ export function UtileClient({ restaurants }: Props) {
         </div>
       ) : (
         <div className="flex flex-col gap-4">
+          {!inCorso && (
+            <div className={cn('anim-swapin flex items-center gap-3 rounded-[12px] border px-4 py-3',
+              tuttiCompleti ? 'border-transparent bg-ok-tint' : 'border-border bg-card')}>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className={cn('text-[15px] font-semibold', tuttiCompleti && 'text-ok')}>
+                  {tuttiCompleti ? 'Calcolo del mese completo' : completi.length ? `Completo per ${completi.length} di ${ids.length} locali` : 'Il calcolo del mese è completo?'}
+                </span>
+                <span className={cn('text-xs', MUTO)}>
+                  {tuttiCompleti ? 'Il mese è nel resoconto dell\'utile in Analisi' : 'Spuntalo quando hai inserito tutte le spese: entra nel resoconto in Analisi'}
+                </span>
+              </span>
+              <button type="button" disabled={spunto} onClick={cambiaCompleto} aria-pressed={tuttiCompleti}
+                className={cn('flex h-11 flex-none items-center gap-2 rounded-[10px] px-4 text-sm font-semibold active:scale-[0.97] disabled:opacity-60',
+                  tuttiCompleti ? 'border border-line-strong bg-card text-foreground' : 'bg-foreground text-background')}>
+                {tuttiCompleti ? 'Riapri' : <><IconaSpunta size={16} /> Segna completo</>}
+              </button>
+            </div>
+          )}
+
           {(inCorso || senzaPersonale) && (
             <div className="anim-swapin rounded-[12px] bg-warn-tint px-4 py-3 text-[13px] leading-5 text-warn">
               {inCorso && 'Mese in corso: gli incassi sono parziali, mentre le spese mensili contano per intero. '}

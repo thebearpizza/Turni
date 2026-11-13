@@ -17,6 +17,7 @@ import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { VistaNormale } from '@/components/cassa/analisi/VistaNormale'
+import { ResocontoUtile } from '@/components/cassa/utile/ResocontoUtile'
 import { impostaSottotitolo, impostaAssistente } from '@/components/shell/intestazioneDinamica'
 
 // Analisi cassa del manager (design Manager Analisi). Tutto si tocca:
@@ -406,7 +407,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
           <div key={`${periodo.k}|${a}|${b}|${chiaveTarget}|${cmp}`} className="flex flex-col gap-4">
             {cmpAttivo
               ? <VistaConfronto c={c} onCambia={() => apriConfronto.current?.()} onSpegni={() => setCmp(null)} />
-              : <VistaNormale c={c} />}
+              : <><VistaNormale c={c} /><ResocontoUtile ids={target} a={a} b={b} nomi={nomeLoc} tel={tel} /></>}
           </div>
         )}
         {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}
