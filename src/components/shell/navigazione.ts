@@ -73,6 +73,7 @@ const REPORT = S('report', 'Report', '/report', 'Report', 'Presenze e ore del me
 
 const CASSA_MANAGER: Sezione[] = [
   S('analisi', 'Analisi', '/cassa/analisi', 'Analisi', 'Incassi, spese e differenze', { sottotitoloTablet: 'Incassi, spese e differenze dei locali' }),
+  S('utile', 'Utile', '/cassa/utile', 'Utile', 'Conto economico del mese', { sottotitoloTablet: 'Conto economico e spese di gestione' }),
   S('chiusure', 'Chiusure', '/cassa/lista-chiusure', 'Chiusure', 'Chiusure di cassa inviate', { match: ['/cassa/lista-chiusure', '/cassa/chiusura'] }),
   S('approvazioni', 'Approvazioni', '/cassa/approvazioni', 'Approvazioni', 'Modifiche in revisione', { sottotitoloTablet: 'Modifiche a chiusure in revisione', badge: 'modifiche' }),
   S('buste', 'Buste', '/cassa/progressivo-buste', 'Buste', 'Progressivo versamenti', { sottotitoloTablet: 'Progressivo buste versamento' }),

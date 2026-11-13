@@ -113,17 +113,24 @@ export async function POST(request: Request) {
     perFornitore.set(r.fo.id, x)
   }
   const doppioni = new Set<string>()
+  // Fatture già a sistema caricate da foto (senza file XML): l'XML le
+  // sostituisce invece di essere scartato come doppione.
+  const daFoto = new Map<string, { id: string; restaurant_id: string; foto_paths: string[] }>()
   const mappe = new Map<string, Map<string, string>>()
   const catalogo = new Map<string, Map<string, string>>()
   // Liste lunghe divise in pezzi: finiscono nell'indirizzo della richiesta.
   const aPezzi = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n))
   await Promise.all([...perFornitore.entries()].map(async ([foId, x]) => {
     const [dop, map, cat] = await Promise.all([
-      Promise.all(aPezzi([...x.numeri], 60).map(nn => supabase.from('fatture').select('numero_documento').eq('fornitore_id', foId).in('numero_documento', nn))),
+      Promise.all(aPezzi([...x.numeri], 60).map(nn => supabase.from('fatture').select('id, numero_documento, restaurant_id, foto_paths, xml_path').eq('fornitore_id', foId).in('numero_documento', nn))),
       Promise.all(aPezzi([...x.testi], 40).map(tt => supabase.from('articoli_mappature_testo').select('testo_estratto, catalogo_articolo_id').eq('owner_id', x.owner).eq('fornitore_id', foId).in('testo_estratto', tt))),
       supabase.from('catalogo_articoli').select('id, nome_articolo').eq('owner_id', x.owner).eq('fornitore_id', foId),
     ])
-    dop.forEach(({ data }) => (data ?? []).forEach(d => doppioni.add(`${foId}|${d.numero_documento}`)))
+    dop.forEach(({ data }) => (data ?? []).forEach(d => {
+      const k = `${foId}|${d.numero_documento}`
+      if (d.xml_path) doppioni.add(k)
+      else daFoto.set(k, { id: d.id as string, restaurant_id: d.restaurant_id as string, foto_paths: (d.foto_paths as string[] | null) ?? [] })
+    }))
     mappe.set(foId, new Map(map.flatMap(({ data }) => (data ?? []).map(m => [m.testo_estratto as string, m.catalogo_articolo_id as string]))))
     catalogo.set(foId, new Map((cat.data ?? []).map(c => [norm(c.nome_articolo), c.id as string])))
   }))
@@ -141,7 +148,7 @@ export async function POST(request: Request) {
 
   const risultati = risolti.map(r => {
     const { f, fo, nuovo } = r
-    if (!fo) return { chiave: f.chiave, fornitore: { id: null, nome: f.fornitore, nuovo: true }, duplicato: false, righe: f.righe.map(() => ({ catalogo_articolo_id: null, sospetto: null, tipologia_proposta: null as string | null })), verifiche: [] as VerificaSospetta[] }
+    if (!fo) return { chiave: f.chiave, fornitore: { id: null, nome: f.fornitore, nuovo: true }, duplicato: false, sostituisce: null, righe: f.righe.map(() => ({ catalogo_articolo_id: null, sospetto: null, tipologia_proposta: null as string | null })), verifiche: [] as VerificaSospetta[] }
     const verifiche: VerificaSospetta[] = []
     const righe = f.righe.map(rg => {
       const id = abbina(r, rg.descrizione)
@@ -152,7 +159,7 @@ export async function POST(request: Request) {
       }
       return { catalogo_articolo_id: id, sospetto, tipologia_proposta: null as string | null }
     })
-    return { chiave: f.chiave, fornitore: { id: fo.id, nome: fo.nome, nuovo }, duplicato: doppioni.has(`${fo.id}|${f.numero.trim()}`), righe, verifiche }
+    return { chiave: f.chiave, fornitore: { id: fo.id, nome: fo.nome, nuovo }, duplicato: doppioni.has(`${fo.id}|${f.numero.trim()}`), sostituisce: daFoto.get(`${fo.id}|${f.numero.trim()}`) ?? null, righe, verifiche }
   })
   if (proponi) {
     const senza = risultati.flatMap((r, i) => r.duplicato ? [] : r.righe.flatMap((x, j) => (x.catalogo_articolo_id ? [] : [fatture[i].righe[j]?.descrizione ?? ''])))

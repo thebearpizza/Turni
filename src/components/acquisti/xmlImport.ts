@@ -12,6 +12,8 @@ export interface EsitoXml {
   chiave: string
   fornitore: { id: string | null; nome: string; nuovo: boolean }
   duplicato: boolean
+  /** Stessa fattura già caricata da foto: l'XML la sostituisce (righe, totali, IVA) e le foto si eliminano. */
+  sostituisce?: { id: string; restaurant_id: string; foto_paths: string[] } | null
   righe: { catalogo_articolo_id: string | null; sospetto: VerificaSospetta | null; tipologia_proposta?: ArticoloTipologia | null }[]
   verifiche: VerificaSospetta[]
 }
@@ -115,9 +117,11 @@ export async function importaXml(items: DaImportare[], avanzamento?: () => void)
     const { f } = x
     const e = risolti.get(f.chiave)
     if (!e?.fornitore.id || e.duplicato) { errori.push(e?.duplicato ? `${f.fornitore} n. ${f.numero}: già presente` : `${f.fornitore}: fornitore non registrato`); avanzamento?.(); return }
+    const sost = e.sostituisce ?? null
+    const restaurantId = sost?.restaurant_id ?? x.restaurantId
     let xmlPath = x.xmlPath ?? null, caricato = false
     if (!xmlPath && x.xml) {
-      const c = await conservaXml(x.restaurantId, x.xml)
+      const c = await conservaXml(restaurantId, x.xml)
       xmlPath = c.path; caricato = !!c.path
       if (c.errore) fileNonConservati++
     }
@@ -128,10 +132,11 @@ export async function importaXml(items: DaImportare[], avanzamento?: () => void)
     // Sconti e righe a zero non diventano articoli di catalogo: il
     // totale giusto resta quello del documento.
     const scavalco = Math.abs(somma - imp) > 0.02
-    const res = await fetch('/api/cassa/fatture/salva', {
+    const res = await fetch(sost ? '/api/cassa/fatture/sostituisci' : '/api/cassa/fatture/salva', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        restaurant_id: x.restaurantId, foto_paths: [], xml_path: xmlPath,
+        ...(sost ? { fattura_id: sost.id, da_xml: true } : {}),
+        restaurant_id: restaurantId, foto_paths: [], xml_path: xmlPath,
         fornitore: { id: e.fornitore.id, nome: e.fornitore.nome, partita_iva: f.piva },
         numero_documento: f.numero, data: f.data, ha_articoli: true, categoria_spesa_diretta_id: null,
         iva_dettaglio: rie.map(r => ({ aliquota: r.aliquota, imponibile: r.imponibile, iva: r.imposta })),
@@ -148,7 +153,10 @@ export async function importaXml(items: DaImportare[], avanzamento?: () => void)
         verifiche_sospette: e.verifiche,
       }),
     })
-    if (res.ok) { ok.push(f.chiave); if (e.verifiche.length) dv++ }
+    if (res.ok) {
+      ok.push(f.chiave); if (e.verifiche.length) dv++
+      if (sost?.foto_paths.length) createClient().storage.from('fatture_foto').remove(sost.foto_paths).then(() => {}, () => {})
+    }
     else {
       errori.push(`${f.fornitore} n. ${f.numero}: ${(await res.json().catch(() => null))?.error ?? `errore ${res.status}`}`)
       if (caricato && xmlPath) createClient().storage.from(BUCKET_XML).remove([xmlPath]).then(() => {}, () => {})

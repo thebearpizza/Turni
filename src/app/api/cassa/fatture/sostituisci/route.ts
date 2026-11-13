@@ -27,10 +27,14 @@ export async function POST(request: Request) {
   const {
     fattura_id, restaurant_id, fornitore, numero_documento, data, ha_articoli,
     categoria_spesa_diretta_id, verifiche_sospette, iva_dettaglio, articoli, foto_paths,
-    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati,
+    totale_lordo_manuale, totale_netto_manuale, vuoti_ritirati, xml_path, da_xml,
   } = body ?? {}
+  // Dall'import XML (fattura da foto rimpiazzata dal suo file): niente foto,
+  // c'è il file XML al loro posto.
+  const daXml = da_xml === true
+  const percorsoXml = typeof xml_path === 'string' && xml_path.length > 0 ? xml_path : null
 
-  if (!fattura_id || !restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio) || !Array.isArray(foto_paths) || foto_paths.length === 0) {
+  if (!fattura_id || !restaurant_id || !fornitore?.id || !numero_documento?.trim() || !data || !Array.isArray(iva_dettaglio) || !Array.isArray(foto_paths) || (foto_paths.length === 0 && !daXml)) {
     return NextResponse.json({ error: 'Parametri non validi' }, { status: 400 })
   }
   if (!ha_articoli && !categoria_spesa_diretta_id) {
@@ -42,7 +46,7 @@ export async function POST(request: Request) {
 
   const risolti: Array<{
     testo_estratto: string; quantita: number; prezzo_riga: number; catalogo_articolo_id: string
-    pagina_indice: number; riquadro: RiquadroArticolo | null
+    pagina_indice: number; riquadro: RiquadroArticolo | null; aliquota_iva: number | null
   }> = []
 
   if (ha_articoli && Array.isArray(articoli)) {
@@ -54,9 +58,10 @@ export async function POST(request: Request) {
       nuovo_articolo?: { nome_articolo: string; tipologia: string; unita_misura?: string }
       pagina_indice: number
       riquadro: RiquadroArticolo | null
+      aliquota_iva?: number | null
     }>) {
       if (a.catalogo_articolo_id) {
-        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
+        risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: a.catalogo_articolo_id, pagina_indice: a.pagina_indice, riquadro: a.riquadro, aliquota_iva: a.aliquota_iva ?? null })
         continue
       }
 
@@ -104,7 +109,7 @@ export async function POST(request: Request) {
         { onConflict: 'owner_id,fornitore_id,testo_estratto' }
       )
 
-      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro })
+      risolti.push({ testo_estratto: a.testo_estratto, quantita: a.quantita, prezzo_riga: a.prezzo_riga, catalogo_articolo_id: catalogoArticoloId, pagina_indice: a.pagina_indice, riquadro: a.riquadro, aliquota_iva: a.aliquota_iva ?? null })
     }
   }
 
@@ -122,6 +127,7 @@ export async function POST(request: Request) {
     p_totale_lordo_manuale: totale_lordo_manuale ?? null,
     p_totale_netto_manuale: totale_netto_manuale ?? null,
     p_vuoti_ritirati: vuoti_ritirati ?? null,
+    ...(percorsoXml ? { p_xml_path: percorsoXml } : {}),
   })
 
   if (error) {

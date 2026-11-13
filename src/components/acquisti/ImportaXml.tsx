@@ -81,7 +81,8 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
     }
   }
 
-  const localeDi = (f: FatturaXml) => smist.get(f.chiave)?.restaurant_id ?? null
+  // Una fattura da foto sostituita dall'XML resta nel locale dov'era.
+  const localeDi = (f: FatturaXml) => esiti.get(f.chiave)?.sostituisce?.restaurant_id ?? smist.get(f.chiave)?.restaurant_id ?? null
   const stato = (f: FatturaXml): Stato => {
     if (f.tipo === 'TD04' || !f.righe.some(r => r.prezzoTotale > 0) || !f.numero || !f.data) return 'esclusa'
     const e = esiti.get(f.chiave)
@@ -114,6 +115,7 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
   const nota = (f: FatturaXml): string | null => {
     if (f.tipo === 'TD04') return 'nota di credito: non importata'
     const e = esiti.get(f.chiave)
+    if (e?.sostituisce) return 'sostituisce la fattura da foto'
     const s = e?.righe.find(r => r.sospetto)?.sospetto
     if (s) { const i = e!.righe.findIndex(r => r.sospetto), m = s.messaggio.match(/\(([+−-]?\d+)%/); return `prezzo ${f.righe[i]?.descrizione.split(' ')[0].toLowerCase() ?? ''} ${m ? (m[1].startsWith('-') ? m[1] : '+' + m[1]) + '%' : 'fuori norma'}` }
     if (e && !e.duplicato && e.fornitore.nuovo) return 'fornitore nuovo'
