@@ -71,7 +71,7 @@ type Destinazione = 'personale' | 'merci' | CategoriaCosto
 // voce del conto economico, per nome esatto (minuscole, senza spazi ai
 // lati). Le altre restano voci a sé, col loro nome.
 const DA_CONTANTI: Record<string, Destinazione> = {
-  'personale': 'personale', 'extra personale': 'personale',
+  'personale': 'personale', 'extra personale': 'personale', 'rider/consegne': 'personale', 'rider': 'personale',
   'fornitori': 'merci', 'fornitori/merce': 'merci',
   'utenze/amministrazione': 'utenze', 'utenze': 'utenze',
   'manutenzione': 'manutenzioni', 'manutenzioni': 'manutenzioni', 'manutenzione/attrezzature': 'manutenzioni',

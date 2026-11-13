@@ -186,7 +186,7 @@ export function UtileClient({ restaurants }: Props) {
     {
       t: 'Personale', righe: [
         { l: 'Buste paga e contributi', s: ce.personaleMano ? 'inseriti a mano' : 'non inseriti · tocca per aggiungere', v: ce.personaleMano, on: ce.personaleMano ? undefined : () => apriNuova('personale') },
-        { l: 'Personale in contanti', s: 'spese di cassa: Personale, Extra personale', v: ce.personaleContanti },
+        { l: 'Personale in contanti', s: 'spese di cassa: Personale, Extra personale, Rider', v: ce.personaleContanti },
         { l: 'Personale', v: ce.personale, tipo: 'totale', rif: RIFERIMENTI.personale },
         { l: 'Prime cost', s: 'merci + personale', v: ce.primeCost, tipo: 'totale', rif: RIFERIMENTI.primeCost },
       ],
