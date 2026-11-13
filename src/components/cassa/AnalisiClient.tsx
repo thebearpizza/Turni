@@ -407,7 +407,7 @@ export function AnalisiClient({ restaurants, nome }: Props) {
           <div key={`${periodo.k}|${a}|${b}|${chiaveTarget}|${cmp}`} className="flex flex-col gap-4">
             {cmpAttivo
               ? <VistaConfronto c={c} onCambia={() => apriConfronto.current?.()} onSpegni={() => setCmp(null)} />
-              : <><VistaNormale c={c} /><ResocontoUtile ids={target} a={a} b={b} nomi={nomeLoc} tel={tel} /></>}
+              : <><VistaNormale c={c} /><ResocontoUtile ids={target} a={a} b={b} nomi={nomeLoc} tel={tel} fumetto={fumetto} /></>}
           </div>
         )}
         {sk !== 'no' && <ScheletroForma esce={sk === 'out'} />}

@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { Card } from '@/components/cassa/analisi/comuni'
-import { Foglio, eur, eur0, meseNome, useApriChiudi } from '@/components/cassa/comuni'
+import { eur, eur0, meseNome } from '@/components/cassa/comuni'
+import type { Figlio, RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
 import { RIFERIMENTI, VOCE_GRUPPO, type ContoEconomico, type Movimento } from '@/lib/utile'
 import { caricaUtile, chiaveCompleto, contoMese, type DatiUtile } from './dati'
 
@@ -47,7 +48,9 @@ function somma(xs: ContoEconomico[]): ContoEconomico {
 
 interface Mese { m01: string; locali: string[]; ce: ContoEconomico; mov: Movimento[] }
 
-export function ResocontoUtile({ ids, a, b, nomi, tel }: { ids: string[]; a: string; b: string; nomi: Record<string, { nome: string }>; tel: boolean }) {
+type ApriFumetto = (titolo: string, sotto: string, righe: RigaFumetto[]) => (e: React.MouseEvent<Element>) => void
+
+export function ResocontoUtile({ ids, a, b, nomi, tel, fumetto }: { ids: string[]; a: string; b: string; nomi: Record<string, { nome: string }>; tel: boolean; fumetto: ApriFumetto }) {
   const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
   // Solo mesi già finiti: quello in corso non può essere completo.
   const mesi = useMemo(() => mesiTra(a, b).filter(m => m.slice(0, 7) < meseOggi), [a, b, meseOggi])
@@ -83,24 +86,41 @@ export function ResocontoUtile({ ids, a, b, nomi, tel }: { ids: string[]; a: str
     return [...m.entries()].filter(([, v]) => v > 0.004).sort((p, q) => q[1] - p[1]).map(([l, v], i) => ({ l, v, c: cassaChartColor(i) }))
   }, [mov])
 
-  // ── Dettaglio di una voce ───────────────────────────────────────────
-  const foglio = useApriChiudi()
-  const [dett, setDett] = useState<{ titolo: string; voci: string[] } | null>(null)
-  const apri = (titolo: string, v: string[]) => { setDett({ titolo, voci: v }); foglio.apri() }
-  const righeDett = useMemo(() => {
-    if (!dett) return []
-    const g = new Map<string, { descr: string; fonte: string; n: number; v: number; date: Set<string>; locali: Set<string> }>()
-    for (const x of mov) {
-      if (!dett.voci.includes(x.voce)) continue
+  // ── Dettaglio: fumetto come nel resto di Analisi ───────────────────
+  // Una voce apre le sue sottocategorie (Costo merci → Food, Beverage,
+  // Merce pagata in contanti); toccando una sottocategoria si espandono le
+  // spese che la compongono, raggruppate per nome.
+  const figliDi = (xs: typeof mov): Figlio[] => {
+    const g = new Map<string, { descr: string; fonte: string; n: number; v: number; date: string[]; locali: Set<string> }>()
+    for (const x of xs) {
       const k = `${x.fonte}|${x.descr.trim().toLowerCase()}`
-      const o = g.get(k) ?? { descr: x.descr, fonte: x.fonte, n: 0, v: 0, date: new Set<string>(), locali: new Set<string>() }
+      const o = g.get(k) ?? { descr: x.descr, fonte: x.fonte, n: 0, v: 0, date: [], locali: new Set<string>() }
       o.n++; o.v += x.importo
-      if (x.data) o.date.add(x.data)
+      if (x.data && x.fonte !== 'a mano') o.date.push(x.data)
       if (x.li) o.locali.add(x.li)
       g.set(k, o)
     }
-    return [...g.values()].sort((p, q) => q.v - p.v)
-  }, [dett, mov])
+    return [...g.values()].sort((p, q) => q.v - p.v).map(r => {
+      const date = r.date.sort()
+      const quando = r.fonte === 'a mano' ? 'inserita a mano'
+        : r.n === 1 && date[0] ? new Date(`${date[0]}T12:00:00Z`).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })
+        : `${r.n} ${r.fonte === 'fattura' ? 'fatture' : 'spese'}`
+      const loc = ids.length > 1 && r.locali.size ? ` · ${[...r.locali].map(l => nomi[l]?.nome ?? '').join(', ')}` : ''
+      return { l: r.descr, s: `${quando}${loc}`, v: eur(r.v) }
+    })
+  }
+  const righeSotto = (vv: string[]): RigaFumetto[] => {
+    const g = new Map<string, typeof mov>()
+    for (const x of mov) if (vv.includes(x.voce)) g.set(x.sotto, [...(g.get(x.sotto) ?? []), x])
+    return [...g.entries()]
+      .map(([l, xs]) => ({ l, xs, v: xs.reduce((t, x) => t + x.importo, 0) }))
+      .sort((p, q) => q.v - p.v)
+      .map((r, i) => ({ l: r.l, v: eur0(r.v), p: pcT(r.v, tot.ricavi), dot: cassaChartColor(i), figli: figliDi(r.xs) }))
+  }
+  const apri = (titolo: string, vv: string[]) => {
+    const v = mov.filter(x => vv.includes(x.voce)).reduce((t, x) => t + x.importo, 0)
+    return fumetto(titolo, `${periodoTesto} · ${eur0(v)} · ${pcT(v, tot.ricavi)} dei ricavi · tocca per le spese`, righeSotto(vv))
+  }
 
   if (!serie.length) return null
 
@@ -184,7 +204,7 @@ export function ResocontoUtile({ ids, a, b, nomi, tel }: { ids: string[]; a: str
               const p = pc(x.v, tot.ricavi), scala = 80
               const fuori = p > x.rif.a
               return (
-                <button key={x.l} type="button" onClick={() => apri(x.l, x.voci)} className="flex flex-col gap-1 rounded-[8px] py-1.5 text-left active:bg-secondary/60">
+                <button key={x.l} type="button" onClick={apri(x.l, x.voci)} className="flex flex-col gap-1 rounded-[8px] py-1.5 text-left active:bg-secondary/60">
                   <span className="flex items-baseline gap-2 text-[13px]">
                     <span className="flex-1 font-medium">{x.l}</span>
                     <span className={cn('text-xs', MUTO)}>rif. {x.rif.da}–{x.rif.a}%</span>
@@ -209,14 +229,14 @@ export function ResocontoUtile({ ids, a, b, nomi, tel }: { ids: string[]; a: str
               {archi.map(v => (
                 <circle key={v.l} cx="75" cy="75" r={R} fill="none" stroke={v.c} strokeWidth="18"
                   strokeDasharray={`${Math.max(0, v.len - 1.5)} ${CIRC}`} strokeDashoffset={-v.off} transform="rotate(-90 75 75)"
-                  className="cursor-pointer" onClick={() => apri(v.l, [v.l])} />
+                  className="cursor-pointer" onClick={apri(v.l, [v.l])} />
               ))}
               <text x="75" y="72" textAnchor="middle" className="fill-muted-foreground text-[10px] font-semibold uppercase tracking-[.06em]">Costi</text>
               <text x="75" y="90" textAnchor="middle" className="fill-foreground font-mono text-[14px] font-semibold">{eur0(tot.costi)}</text>
             </svg>
             <div className="flex w-full min-w-0 flex-col">
               {voci.map(v => (
-                <button key={v.l} type="button" onClick={() => apri(v.l, [v.l])} className="flex items-center gap-2.5 rounded-[6px] px-1 py-1.5 text-left active:bg-secondary/60">
+                <button key={v.l} type="button" onClick={apri(v.l, [v.l])} className="flex items-center gap-2.5 rounded-[6px] px-1 py-1.5 text-left active:bg-secondary/60">
                   <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ background: v.c }} />
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{v.l}</span>
                   <span className={cn('font-mono text-[11px] tabular-nums', MUTO)}>{pcT(v.v, tot.ricavi)}</span>
@@ -228,28 +248,6 @@ export function ResocontoUtile({ ids, a, b, nomi, tel }: { ids: string[]; a: str
         </div>
       </div>
 
-      <Foglio aperto={foglio.aperto} esce={foglio.esce} onChiudi={foglio.chiudi} largo
-        titolo={dett?.titolo ?? ''} sotto={`${periodoTesto} · ${eur(righeDett.reduce((t, r) => t + r.v, 0))}`}>
-        <div className="-mx-5 -my-5 flex flex-col">
-          {righeDett.length === 0 && <div className={cn('px-5 py-8 text-center text-sm', MUTO)}>Nessuna spesa</div>}
-          {righeDett.map(r => {
-            const date = [...r.date].sort()
-            const quando = r.fonte === 'a mano' ? 'inserita a mano'
-              : r.n === 1 && date[0] ? new Date(`${date[0]}T12:00:00Z`).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })
-              : `${r.n} ${r.fonte === 'fattura' ? 'fatture' : 'spese'}`
-            const loc = ids.length > 1 && r.locali.size ? ` · ${[...r.locali].map(l => nomi[l]?.nome ?? '').join(', ')}` : ''
-            return (
-              <div key={`${r.fonte}|${r.descr}`} className="flex items-center gap-3 border-b border-border px-5 py-3 last:border-b-0">
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-medium">{r.descr}</span>
-                  <span className={cn('truncate text-xs', MUTO)}>{r.fonte === 'fattura' ? 'Fattura' : r.fonte === 'contanti' ? 'Contanti' : 'Spesa di gestione'} · {quando}{loc}</span>
-                </span>
-                <span className="font-mono text-[15px] tabular-nums">{eur(r.v)}</span>
-              </div>
-            )
-          })}
-        </div>
-      </Foglio>
     </Card>
   )
 }

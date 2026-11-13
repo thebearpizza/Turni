@@ -172,6 +172,8 @@ export const VOCE_GRUPPO: Record<Exclude<GruppoCosto, 'operativi'>, string> = {
 /** Singola uscita del conto economico, per il dettaglio di una voce. */
 export interface Movimento {
   voce: string
+  /** Sottocategoria della voce (Food, Beverage, categoria di cassa...). */
+  sotto: string
   gruppo: GruppoCosto
   fonte: 'fattura' | 'contanti' | 'a mano'
   descr: string
@@ -193,21 +195,23 @@ export function movimenti(x: { contanti: SpesaContanti[]; fatture: FatturaMese[]
   for (const f of x.fatture) {
     const descr = `${f.fornitore ?? 'Fattura'}${f.numero ? ` n. ${f.numero}` : ''}`
     const base = { fonte: 'fattura' as const, descr, li: f.li, data: f.data }
-    if (f.diretta !== null) { out.push({ ...base, ...voceDi(destinazione(f.diretta), f.diretta), importo: f.netto }); continue }
+    if (f.diretta !== null) { out.push({ ...base, ...voceDi(destinazione(f.diretta), f.diretta), sotto: `Fatture · ${f.diretta}`, importo: f.netto }); continue }
     const righe = f.food + f.beverage + f.materiali
-    if (righe <= 0) { out.push({ ...base, voce: VOCE_GRUPPO.materiali, gruppo: 'materiali', importo: f.netto }); continue }
+    if (righe <= 0) { out.push({ ...base, voce: VOCE_GRUPPO.materiali, sotto: 'Fatture', gruppo: 'materiali', importo: f.netto }); continue }
     const k = f.netto / righe
-    if (f.food + f.beverage) out.push({ ...base, voce: VOCE_GRUPPO.merci, gruppo: 'merci', importo: (f.food + f.beverage) * k })
-    if (f.materiali) out.push({ ...base, voce: VOCE_GRUPPO.materiali, gruppo: 'materiali', importo: f.materiali * k })
+    if (f.food) out.push({ ...base, voce: VOCE_GRUPPO.merci, sotto: 'Food', gruppo: 'merci', importo: f.food * k })
+    if (f.beverage) out.push({ ...base, voce: VOCE_GRUPPO.merci, sotto: 'Beverage', gruppo: 'merci', importo: f.beverage * k })
+    if (f.materiali) out.push({ ...base, voce: VOCE_GRUPPO.materiali, sotto: 'Fatture', gruppo: 'materiali', importo: f.materiali * k })
   }
   for (const s of x.contanti) {
-    out.push({ fonte: 'contanti', descr: s.nome ?? s.categoria, li: s.li, data: s.data, importo: s.importo, ...voceDi(destinazione(s.categoria), s.categoria) })
+    const d = destinazione(s.categoria)
+    out.push({ fonte: 'contanti', descr: s.nome ?? s.categoria, li: s.li, data: s.data, importo: s.importo, ...voceDi(d, s.categoria), sotto: d === 'merci' ? 'Merce pagata in contanti' : `Contanti · ${s.categoria}` })
   }
   for (const c of x.costi) {
     const v = quota(c, x.locali)
     if (v <= 0) continue
     out.push({
-      fonte: 'a mano', descr: c.descrizione || nomeCategoria(c.categoria), importo: v,
+      fonte: 'a mano', descr: c.descrizione || nomeCategoria(c.categoria), importo: v, sotto: 'Inserite a mano',
       ...(c.categoria === 'personale' ? { voce: VOCE_GRUPPO.personale, gruppo: 'personale' as const } : { voce: nomeCategoria(c.categoria), gruppo: 'operativi' as const }),
     })
   }
