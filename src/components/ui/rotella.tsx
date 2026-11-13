@@ -20,27 +20,54 @@ function format(hi: number, mi: number): string {
   return `${String(ora).padStart(2, '0')}:${String(mi).padStart(2, '0')}`
 }
 
+// Colonna stile iOS: l'aggancio alla riga è quello nativo del browser
+// (scroll-snap), che rispetta l'inerzia del dito; prima un timer forzava la
+// posizione durante lo scorrimento e la rotella andava a scatti. Le righe
+// si inclinano e sfumano allontanandosi dal centro: lo stile si scrive sul
+// DOM a ogni fotogramma, senza ridisegnare il componente. Il valore si
+// comunica solo quando la rotella si ferma.
 function Colonna({ n, offset, selezionato, onSelect, etichetta }: {
   n: number; offset: number; selezionato: number; onSelect: (i: number) => void; etichetta: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fermo = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const frame = useRef<number | null>(null)
   const iniziale = useRef(selezionato)
+  const ultimo = useRef(selezionato)
+  const avvisa = useRef(onSelect)
+  useEffect(() => { avvisa.current = onSelect }, [onSelect])
 
-  useEffect(() => {
-    requestAnimationFrame(() => { if (ref.current) ref.current.scrollTop = iniziale.current * ALTEZZA })
-  }, [])
-
-  function onScroll() {
+  const disegna = useCallback(() => {
+    frame.current = null
     const el = ref.current
     if (!el) return
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => {
-      const t = Math.round(el.scrollTop / ALTEZZA) * ALTEZZA
-      if (Math.abs(el.scrollTop - t) > 0.5) el.scrollTo({ top: t, behavior: 'smooth' })
-    }, 160)
-    const i = Math.max(0, Math.min(n - 1, Math.round(el.scrollTop / ALTEZZA)))
-    if (i !== selezionato) onSelect(i)
+    const centro = el.scrollTop / ALTEZZA
+    el.querySelectorAll<HTMLElement>('[data-i]').forEach(r => {
+      const d = Number(r.dataset.i) - centro
+      const a = Math.min(Math.abs(d), 3)
+      r.style.transform = `rotateX(${Math.max(-60, Math.min(60, -d * 20))}deg) scale(${1 - a * 0.07})`
+      r.style.opacity = String(1 - a * 0.28)
+      r.style.color = a < 0.5 ? 'var(--foreground)' : ''
+      r.style.fontWeight = a < 0.5 ? '600' : '500'
+    })
+  }, [])
+
+  useEffect(() => {
+    const el = ref.current
+    if (el) el.scrollTop = iniziale.current * ALTEZZA
+    disegna()
+    return () => { if (frame.current) cancelAnimationFrame(frame.current); if (fermo.current) clearTimeout(fermo.current) }
+  }, [disegna])
+
+  function onScroll() {
+    if (frame.current === null) frame.current = requestAnimationFrame(disegna)
+    if (fermo.current) clearTimeout(fermo.current)
+    fermo.current = setTimeout(() => {
+      const el = ref.current
+      if (!el) return
+      const i = Math.max(0, Math.min(n - 1, Math.round(el.scrollTop / ALTEZZA)))
+      if (i !== ultimo.current) { ultimo.current = i; navigator.vibrate?.(5); avvisa.current(i) }
+    }, 90)
   }
 
   return (
@@ -48,18 +75,16 @@ function Colonna({ n, offset, selezionato, onSelect, etichetta }: {
       ref={ref}
       onScroll={onScroll}
       aria-label={etichetta}
-      className="relative h-[200px] overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ maskImage: 'linear-gradient(transparent,#000 30%,#000 70%,transparent)', WebkitMaskImage: 'linear-gradient(transparent,#000 30%,#000 70%,transparent)' }}
+      className="relative h-[200px] snap-y snap-mandatory overflow-y-scroll overscroll-contain [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ perspective: '600px', maskImage: 'linear-gradient(transparent,#000 30%,#000 70%,transparent)', WebkitMaskImage: 'linear-gradient(transparent,#000 30%,#000 70%,transparent)' }}
     >
       <div style={{ height: 80 }} />
       {Array.from({ length: n }, (_, i) => (
         <div
           key={i}
+          data-i={i}
           onClick={() => ref.current?.scrollTo({ top: i * ALTEZZA, behavior: 'smooth' })}
-          className={cn(
-            'flex h-10 cursor-pointer items-center justify-center font-mono',
-            i === selezionato ? 'text-[22px] font-semibold text-foreground' : 'text-lg font-medium text-[oklch(0.6_0.01_250)]'
-          )}
+          className="flex h-10 cursor-pointer select-none snap-center items-center justify-center font-mono text-[21px] font-medium text-[oklch(0.6_0.01_250)] will-change-transform"
         >
           {String(i + offset).padStart(2, '0')}
         </div>

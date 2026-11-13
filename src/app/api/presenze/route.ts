@@ -52,16 +52,19 @@ export async function POST(request: NextRequest) {
 
   const { checkInIso, checkOutIso } = computeAttendanceIso(TZ, date, checkIn, checkOut)
 
-  const { data, error } = await supabase
-    .from('attendances')
-    .insert({
-      user_id: userId,
-      restaurant_id: empProfile?.restaurant_id ?? null,
-      check_in: checkInIso,
-      check_out: checkOutIso,
-    })
-    .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
-    .single()
+  // inserita_a_mano: la chiusura automatica delle uscite dimenticate
+  // (autoCloseStaleShifts) non la tocca. Senza la colonna (migrazione non
+  // ancora applicata) si salva come prima.
+  const riga = {
+    user_id: userId,
+    restaurant_id: empProfile?.restaurant_id ?? null,
+    check_in: checkInIso,
+    check_out: checkOutIso,
+  }
+  const inserisci = (r: object) => supabase.from('attendances').insert(r)
+    .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)').single()
+  let { data, error } = await inserisci({ ...riga, inserita_a_mano: true })
+  if (error && colonnaManuale(error)) ({ data, error } = await inserisci(riga))
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -110,23 +113,25 @@ export async function PATCH(request: NextRequest) {
 
   const { checkInIso, checkOutIso } = computeAttendanceIso(TZ, date, checkIn, checkOut)
 
-  let query = supabase
-    .from('attendances')
-    .update({ check_in: checkInIso, check_out: checkOutIso })
-    .eq('id', id)
-
-  // Direttore is hard-locked to its own restaurant's attendance records
-  if (isDirectore && callerProfile?.restaurant_id) {
-    query = query.eq('restaurant_id', callerProfile.restaurant_id)
+  // Una presenza corretta a mano non si chiude più da sola: se il manager
+  // lascia l'uscita vuota è una scelta sua (vedi POST).
+  const aggiorna = (campi: object) => {
+    let query = supabase.from('attendances').update(campi).eq('id', id)
+    // Direttore is hard-locked to its own restaurant's attendance records
+    if (isDirectore && callerProfile?.restaurant_id) query = query.eq('restaurant_id', callerProfile.restaurant_id)
+    return query.select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)').single()
   }
-
-  const { data, error } = await query
-    .select('*, profile:profiles(id, full_name, role), restaurant:restaurants(id, name)')
-    .single()
+  let { data, error } = await aggiorna({ check_in: checkInIso, check_out: checkOutIso, inserita_a_mano: true })
+  if (error && colonnaManuale(error)) ({ data, error } = await aggiorna({ check_in: checkInIso, check_out: checkOutIso }))
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
   return NextResponse.json({ attendance: data })
+}
+
+/** La colonna attendances.inserita_a_mano non c'è ancora (migrazione da applicare). */
+function colonnaManuale(e: { code?: string; message?: string }) {
+  return /inserita_a_mano/.test(e.message ?? '') || e.code === 'PGRST204' || e.code === '42703'
 }

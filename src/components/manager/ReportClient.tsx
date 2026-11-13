@@ -1,4 +1,5 @@
 'use client'
+import { CampoCodiceInps } from '@/components/shared/CampoCodiceInps'
 import { SelettoreMese } from '@/components/shared/SelettoreMese'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -40,7 +41,7 @@ interface Props {
 type Vista = 'ore' | 'pres'
 type Modo = 'work' | 'abs' | 'none'
 type Fascia = { a: string; b: string }
-interface Editor { empId: string; data: string; modo: Modo; fasce: Fascia[]; ty: CodiceAssenza }
+interface Editor { empId: string; data: string; modo: Modo; fasce: Fascia[]; ty: CodiceAssenza; cod: string }
 interface Dati { dip: DipendenteRep[]; pres: PresenzaRep[]; ass: AssenzaRep[] }
 
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
@@ -277,6 +278,8 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
       modo: g?.tipo === 'assenza' ? 'abs' : 'work',
       fasce: g?.tipo === 'lavoro' ? g.fasce.map(p => ({ a: hm(p.check_in), b: p.check_out ? hm(p.check_out) : '' })) : [{ a: '11:00', b: '15:00' }],
       ty: g?.tipo === 'assenza' ? g.codice : 'R',
+      // Codice INPS della malattia già registrata quel giorno, se c'è.
+      cod: dati.ass.find(a => a.user_id === e.id && a.start_date <= d && a.end_date >= d)?.certificate_code ?? '',
     })
   }
 
@@ -315,12 +318,16 @@ export function ReportClient({ restaurants, singolo, puoModificare, vedeOre, ute
         if (assGiorno) await liberaGiorno(assGiorno)
       } else if (ed.modo === 'abs') {
         await togliPresenze(presGiorno.map(p => p.id))
+        const codice = ed.ty === 'M' ? ed.cod.trim() || null : null
         if (!assGiorno || CODICE_DA_TIPO[assGiorno.type] !== ed.ty) {
           if (assGiorno) await liberaGiorno(assGiorno)
           ok(await sb.from('absences').insert({
             user_id: e.id, restaurant_id: e.restaurant_id, type: TIPO_DA_CODICE[ed.ty], start_date: d, end_date: d,
-            status: 'approved', created_by: utenteId,
+            certificate_code: codice, status: 'approved', created_by: utenteId,
           }))
+        } else if (ed.ty === 'M' && (assGiorno.certificate_code ?? null) !== codice) {
+          // Stessa malattia: si aggiorna solo il codice (vale per tutto il periodo).
+          ok(await sb.from('absences').update({ certificate_code: codice }).eq('id', assGiorno.id))
         }
       } else {
         if (assGiorno) await liberaGiorno(assGiorno)
@@ -622,6 +629,9 @@ function FoglioGiorno({ ed, esce, tel, k, kEsce, salva, nome, locale, onCambia, 
               })}
             </div>
           )}
+
+          {/* Malattia: il codice del certificato INPS, come in Assenze. */}
+          {ed.modo === 'abs' && ed.ty === 'M' && <CampoCodiceInps valore={ed.cod} onChange={v => onCambia(e => ({ ...e, cod: v }))} />}
 
           <span className="text-sm font-medium">{sum}</span>
           <div className="grid grid-cols-[1fr_2fr] gap-2.5">

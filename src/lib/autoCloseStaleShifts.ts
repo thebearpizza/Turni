@@ -21,15 +21,24 @@ export async function autoCloseStaleShifts(
 ): Promise<number> {
   const cutoffIso = new Date(Date.now() - STALE_AFTER_HOURS * 3_600_000).toISOString()
 
-  let query = client
-    .from('attendances')
-    .select('id, check_in')
-    .is('check_out', null)
-    .lt('check_in', cutoffIso)
+  // Le presenze inserite o corrette a mano dal manager non si chiudono da
+  // sole: un ingresso senza uscita lì è voluto. Prima un ingresso inserito
+  // a mano alle 16:30 diventava un'uscita alle 23:30 senza che nessuno la
+  // mettesse. Senza la colonna (migrazione non applicata) si ripiega sul
+  // comportamento di prima.
+  const leggi = (conFiltro: boolean) => {
+    let query = client
+      .from('attendances')
+      .select('id, check_in')
+      .is('check_out', null)
+      .lt('check_in', cutoffIso)
+    if (conFiltro) query = query.eq('inserita_a_mano', false)
+    if (userId) query = query.eq('user_id', userId)
+    return query
+  }
 
-  if (userId) query = query.eq('user_id', userId)
-
-  const { data: stale, error } = await query
+  let { data: stale, error } = await leggi(true)
+  if (error && (/inserita_a_mano/.test(error.message ?? '') || error.code === '42703')) ({ data: stale, error } = await leggi(false))
   if (error || !stale || stale.length === 0) return 0
 
   await Promise.all(

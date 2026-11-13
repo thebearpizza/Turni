@@ -1,8 +1,7 @@
 'use client'
+import { CampoCodiceInps } from '@/components/shared/CampoCodiceInps'
 import { useState, useEffect, useCallback } from 'react'
-import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { createClient } from '@/lib/supabase/client'
-import { Tastierino, type TastoTastierino } from '@/components/ui/tastierino'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -159,7 +158,7 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
             ))}
           </div>
 
-          {tipo === 'malattia' && <CampoCodice valore={codice} onChange={setCodice} />}
+          {tipo === 'malattia' && <CampoCodiceInps valore={codice} onChange={setCodice} />}
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Nota per il manager <span className="font-normal text-muted-foreground">(facoltativa)</span></span>
@@ -214,41 +213,3 @@ export function AbsenceRequestDialog({ userId, restaurantId, onClose }: Props) {
   )
 }
 
-// Codice del certificato INPS: solo cifre (fino a 12), con il tastierino
-// del design invece della tastiera nativa. Non è un numero: gli zeri
-// iniziali contano, quindi niente CampoNumerico.
-function CampoCodice({ valore, onChange }: { valore: string; onChange: (v: string) => void }) {
-  const [aperto, setAperto] = useState(false)
-  const [digitato, setDigitato] = useState(false)
-  const premi = (k: TastoTastierino) => {
-    const base = digitato ? valore : ''
-    setDigitato(true)
-    if (k === 'del') onChange(base.slice(0, -1))
-    else if (/^\d$/.test(k) && base.length < 12) onChange(base + k)
-    else onChange(base)
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium">Codice certificato INPS <span className="font-normal text-muted-foreground">(se ce l&apos;hai)</span></span>
-      <PopoverPrimitive.Root open={aperto} onOpenChange={o => { setAperto(o); if (o) setDigitato(false) }}>
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'flex h-[52px] items-center rounded-[6px] px-3.5 text-left font-mono text-lg font-medium tracking-[.04em]',
-              aperto ? 'border-[1.5px] border-[oklch(0.58_0.12_180)]' : 'border border-line-strong',
-              valore ? 'text-foreground' : 'text-muted-foreground'
-            )}
-          >
-            {valore || 'Tocca per inserire'}
-          </button>
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content side="bottom" align="center" sideOffset={8} collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()} className="anim-swapin z-[80] outline-none">
-            <Tastierino senzaVirgola onKey={premi} onDone={() => setAperto(false)} />
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
-    </div>
-  )
-}
