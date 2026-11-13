@@ -306,7 +306,9 @@ export function VistaNormale({ c }: { c: Ctx }) {
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
                   <span className={cn('text-xs', MUTO)}>Totale</span>
-                  <span className="font-mono text-[17px] font-semibold">{eu(totSp)}</span>
+                  {/* Nel foro (≈110 px) l'importo intero: con i centesimi un
+                      totale a 5 cifre toccava l'anello. */}
+                  <span className="max-w-[100px] truncate font-mono text-[16px] font-semibold">{eu(totSp, 0)}</span>
                 </div>
               </div>
               <div className="flex flex-col gap-2">
