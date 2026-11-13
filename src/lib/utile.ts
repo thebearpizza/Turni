@@ -10,7 +10,7 @@ export const IVA_RICAVI = 0.10
 
 export type CategoriaCosto =
   | 'personale' | 'affitto' | 'utenze' | 'marketing' | 'manutenzioni'
-  | 'consulenze' | 'assicurazioni' | 'commissioni' | 'noleggi' | 'altro'
+  | 'consulenze' | 'assicurazioni' | 'commissioni' | 'noleggi' | 'cambiali' | 'altro'
 
 export const CATEGORIE_COSTO: { k: CategoriaCosto; l: string; esempio: string }[] = [
   { k: 'personale', l: 'Personale', esempio: 'Stipendi, contributi, TFR, extra' },
@@ -22,6 +22,7 @@ export const CATEGORIE_COSTO: { k: CategoriaCosto; l: string; esempio: string }[
   { k: 'assicurazioni', l: 'Assicurazioni', esempio: 'Polizze del locale' },
   { k: 'commissioni', l: 'Commissioni', esempio: 'POS, delivery, prenotazioni' },
   { k: 'noleggi', l: 'Noleggi e leasing', esempio: 'Macchinari, auto, software' },
+  { k: 'cambiali', l: 'Cambiali', esempio: 'Cambiali e pagamenti a rate in scadenza nel mese' },
   { k: 'altro', l: 'Altro', esempio: 'Ogni altra spesa di gestione' },
 ]
 export const nomeCategoria = (k: string) => CATEGORIE_COSTO.find(c => c.k === k)?.l ?? k
@@ -75,6 +76,7 @@ const DA_CONTANTI: Record<string, Destinazione> = {
   'utenze/amministrazione': 'utenze', 'utenze': 'utenze',
   'manutenzione': 'manutenzioni', 'manutenzioni': 'manutenzioni', 'manutenzione/attrezzature': 'manutenzioni',
   'marketing': 'marketing',
+  'cambiali': 'cambiali',
 }
 const destinazione = (nome: string): Destinazione | null => DA_CONTANTI[nome.trim().toLowerCase()] ?? null
 
