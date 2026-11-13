@@ -7,6 +7,7 @@ import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { Card } from '@/components/cassa/analisi/comuni'
 import { eur, eur0, meseNome } from '@/components/cassa/comuni'
 import type { Figlio, RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
+import { InfoFumetto } from '@/components/cassa/analisi/InfoFumetto'
 import { RIFERIMENTI, VOCE_GRUPPO, type ContoEconomico, type Movimento } from '@/lib/utile'
 import { caricaUtile, chiaveCompleto, contoMese, type DatiUtile } from './dati'
 
@@ -134,9 +135,12 @@ export function ResocontoUtile({ ids, a, b, nomi, tel, fumetto }: { ids: string[
   const archi = voci.map((v, i) => ({ ...v, len: (v.v / totVoci) * CIRC, off: voci.slice(0, i).reduce((t, x) => t + (x.v / totVoci) * CIRC, 0) }))
 
   const indicatori = [
-    { l: 'Costo merci', v: tot.merci, rif: RIFERIMENTI.food, voci: [VOCE_GRUPPO.merci] },
-    { l: 'Personale', v: tot.personale, rif: RIFERIMENTI.personale, voci: [VOCE_GRUPPO.personale] },
-    { l: 'Prime cost', v: tot.primeCost, rif: RIFERIMENTI.primeCost, voci: [VOCE_GRUPPO.merci, VOCE_GRUPPO.personale] },
+    { l: 'Costo merci', v: tot.merci, rif: RIFERIMENTI.food, voci: [VOCE_GRUPPO.merci],
+      info: `Food e beverage delle fatture più la merce pagata in contanti, in percentuale sui ricavi netti. In un ristorante con servizio al tavolo di solito sta fra il ${RIFERIMENTI.food.da} e il ${RIFERIMENTI.food.a}%: sopra, controlla prezzi d'acquisto, sprechi e porzioni.` },
+    { l: 'Personale', v: tot.personale, rif: RIFERIMENTI.personale, voci: [VOCE_GRUPPO.personale],
+      info: `Buste paga e contributi inseriti a mano più il personale pagato in contanti (extra, lavapiatti, rider), in percentuale sui ricavi netti. Riferimento ${RIFERIMENTI.personale.da}–${RIFERIMENTI.personale.a}%.` },
+    { l: 'Prime cost', v: tot.primeCost, rif: RIFERIMENTI.primeCost, voci: [VOCE_GRUPPO.merci, VOCE_GRUPPO.personale],
+      info: `Costo merci + personale: le due spese più grandi e quelle su cui si può intervenire. Fra il ${RIFERIMENTI.primeCost.da} e il ${RIFERIMENTI.primeCost.a}% dei ricavi netti resta margine per affitto, utenze e utile; sopra il ${RIFERIMENTI.primeCost.a}% il locale fatica a guadagnare. La fascia verde sulla barra è il riferimento.` },
   ]
 
   return (
@@ -206,7 +210,7 @@ export function ResocontoUtile({ ids, a, b, nomi, tel, fumetto }: { ids: string[
               return (
                 <button key={x.l} type="button" onClick={apri(x.l, x.voci)} className="flex flex-col gap-1 rounded-[8px] py-1.5 text-left active:bg-secondary/60">
                   <span className="flex items-baseline gap-2 text-[13px]">
-                    <span className="flex-1 font-medium">{x.l}</span>
+                    <span className="flex flex-1 items-center gap-1 font-medium">{x.l}<InfoFumetto titolo={x.l} testo={x.info} /></span>
                     <span className={cn('text-xs', MUTO)}>rif. {x.rif.da}–{x.rif.a}%</span>
                     <span className={cn('w-14 text-right font-mono font-semibold tabular-nums', fuori ? 'text-neg' : 'text-foreground')}>{pcT(x.v, tot.ricavi)}</span>
                   </span>
