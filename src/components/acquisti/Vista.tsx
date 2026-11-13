@@ -280,6 +280,8 @@ export interface RigaDettaglio {
   attiva?: boolean
   /** Pillola accanto all'etichetta (es. "+68%" su un prezzo da verificare). */
   pill?: { t: string; tono: Tono; titolo?: string }
+  /** Gruppo di righe che si apre al tocco (freccia al posto della matita). */
+  apribile?: { aperto: boolean }
 }
 export interface SezioneDettaglio { h: string; righe: RigaDettaglio[] }
 export interface AzioneDettaglio { l: string; tipo: 'primario' | 'secondario' | 'pericolo' | 'pericoloPieno'; on: () => void; disabled?: boolean }
@@ -372,7 +374,7 @@ export function Pannello({ tel, titolo, sotto, badge, messaggio, stats, spark, b
                   </span>
                   {x.o ? <span className="font-mono text-[13px] font-medium text-[oklch(0.55_0.01_250)] line-through">{x.o}</span> : <span />}
                   <span className={cn('whitespace-nowrap font-mono text-sm', x.forte ? 'font-semibold' : 'font-normal', x.tono && x.tono !== 'ink' ? TESTO[x.tono] : 'text-foreground')}>{x.v}</span>
-                  {x.matita ? <IcoMatita /> : <span />}
+                  {x.apribile ? <IcoGiu className="text-muted-foreground transition-transform duration-300" style={{ transform: `rotate(${x.apribile.aperto ? 180 : 0}deg)` }} /> : x.matita ? <IcoMatita /> : <span />}
                 </Tag>
               )
             })}

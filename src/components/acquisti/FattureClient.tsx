@@ -10,7 +10,7 @@ import { PilloleLocali } from '@/components/shared/PilloleLocali'
 import { CampoNumerico, type TastoTastierino } from '@/components/ui/tastierino'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia, VerificaSospetta } from '@/types'
-import { Vista, Pannello, BloccoCampi, Scelte, type RigaVista, type SezioneDettaglio, type AzioneDettaglio } from './Vista'
+import { Vista, Pannello, BloccoCampi, Scelte, type RigaVista, type SezioneDettaglio, type RigaDettaglio, type AzioneDettaglio } from './Vista'
 import {
   ALIQUOTE, Bottone, IcoPiu, IcoScan, Modale, TZ, MESI_LUNGHI, arrotonda2, dataBreve, dataLunga, digita, eu, etichettaMese, fineMese,
   localiDa, nf, numeroDa, spostaMese, useToccoFuori, useUscita,
@@ -144,6 +144,7 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
 
   // Stato del dettaglio: riga in rettifica, bozza, tastierino, conferma eliminazione.
   const [er, setEr] = useState<number | null>(null)
+  const [gruppiAperti, setGruppiAperti] = useState<Set<string>>(new Set())
   const [rd, setRd] = useState<{ q?: number; pr?: number; al?: number | null; cat?: Cat }>({})
   const [kp, setKp] = useState<{ campo: 'q' | 'pr'; v: string; esce: boolean } | null>(null)
   const [del, setDel] = useState(false)
@@ -302,10 +303,14 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     const altri: string[] = []
     for (const v of f.verifiche) {
       const m = v.campo.startsWith('articolo:') ? v.messaggio.match(/\(([+-]?\d+)%/) : null
-      if (m) prezzoDi.set(chiaveRiga(v.campo.slice('articolo:'.length)), { t: `${+m[1] > 0 ? '+' : m[1].startsWith('-') ? '−' : ''}${Math.abs(+m[1])}%`, titolo: v.messaggio })
+      // L'avviso è di una riga precisa: articolo e prezzo unitario.
+      const pu = v.messaggio.match(/Prezzo unitario € ([\d.]+)/)?.[1]
+      if (m) prezzoDi.set(`${chiaveRiga(v.campo.slice('articolo:'.length))}|${pu ? (+pu).toFixed(2) : ''}`, { t: `${+m[1] > 0 ? '+' : m[1].startsWith('-') ? '−' : ''}${Math.abs(+m[1])}%`, titolo: v.messaggio })
       else if (!altri.includes(v.messaggio)) altri.push(v.messaggio)
     }
-    const righeSegnate = f.righe.filter(x => prezzoDi.has(chiaveRiga(x.testo_estratto))).length
+    const chiavePrezzo = (x: { testo_estratto: string; prezzo_unitario: number }) => `${chiaveRiga(x.testo_estratto)}|${Number(x.prezzo_unitario).toFixed(2)}`
+    // Si contano gli articoli, non le righe (le righe uguali sono raggruppate).
+    const righeSegnate = new Set(f.righe.filter(x => prezzoDi.has(chiavePrezzo(x))).map(chiavePrezzo)).size
     const testoVerifica = [
       ...altri,
       ...(righeSegnate ? [`${righeSegnate === 1 ? 'Un prezzo diverso' : `${righeSegnate} prezzi diversi`} dall'ultimo acquisto: ${righeSegnate === 1 ? 'è segnato' : 'sono segnati'} nelle righe.`] : []),
@@ -317,15 +322,48 @@ export function FattureClient({ ruolo, restaurants, categorieDirette, fornitori,
     const ivaPer = [...f.ivaDett.reduce((m, x) => m.set(x.aliquota, (m.get(x.aliquota) ?? 0) + x.iva), new Map<number, number>())].sort((p, q) => p[0] - q[0])
     const sezioni: SezioneDettaglio[] = []
     if (f.ha_articoli) {
-      sezioni.push({
-        h: 'Righe',
-        righe: f.righe.map((x, i) => ({
-          l: `${x.art?.nome_articolo ?? x.testo_estratto} · ${nf(x.quantita)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)}`,
-          v: eu(x.prezzo_riga), matita: true, attiva: er === i,
-          pill: D0 && prezzoDi.has(chiaveRiga(x.testo_estratto)) ? { tono: 'warn' as const, ...prezzoDi.get(chiaveRiga(x.testo_estratto))! } : undefined,
-          on: () => { setKp(null); setDel(false); setRd({}); setEr(er === i ? null : i) },
-        })),
+      // Righe dello stesso articolo allo stesso prezzo unitario raggruppate
+      // in una (quantità e importo sommati, "· 3 righe"): fatture di
+      // ortofrutta con decine di righe uguali diventano leggibili. Toccando
+      // il gruppo si apre e ogni riga si corregge ancora da sola.
+      const gruppi: { chiave: string; idx: number[] }[] = []
+      const perChiave = new Map<string, { chiave: string; idx: number[] }>()
+      f.righe.forEach((x, i) => {
+        const k = `${x.catalogo_articolo_id ?? chiaveRiga(x.testo_estratto)}|${Number(x.prezzo_unitario).toFixed(4)}`
+        const g = perChiave.get(k) ?? { chiave: k, idx: [] }
+        if (!perChiave.has(k)) { perChiave.set(k, g); gruppi.push(g) }
+        g.idx.push(i)
       })
+      const pillDi = (i: number) => {
+        const x = f.righe[i]
+        return D0 && prezzoDi.has(chiavePrezzo(x)) ? { tono: 'warn' as const, ...prezzoDi.get(chiavePrezzo(x))! } : undefined
+      }
+      const rigaSingola = (i: number, dentro = false): RigaDettaglio => {
+        const x = f.righe[i]
+        return {
+          l: dentro
+            ? `↳ ${nf(x.quantita)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)}`
+            : `${x.art?.nome_articolo ?? x.testo_estratto} · ${nf(x.quantita)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)}`,
+          v: eu(x.prezzo_riga), matita: true, attiva: er === i,
+          pill: dentro ? undefined : pillDi(i),
+          on: () => { setKp(null); setDel(false); setRd({}); setEr(er === i ? null : i) },
+        }
+      }
+      const righeVista: RigaDettaglio[] = []
+      for (const g of gruppi) {
+        if (g.idx.length === 1) { righeVista.push(rigaSingola(g.idx[0])); continue }
+        const x = f.righe[g.idx[0]]
+        const aperto = gruppiAperti.has(`${f.id}|${g.chiave}`) || g.idx.includes(er ?? -1)
+        const q = g.idx.reduce((t, i) => t + Number(f.righe[i].quantita), 0)
+        const tot = g.idx.reduce((t, i) => t + Number(f.righe[i].prezzo_riga), 0)
+        righeVista.push({
+          l: `${x.art?.nome_articolo ?? x.testo_estratto} · ${nf(Math.round(q * 1000) / 1000)} ${x.art?.unita_misura || 'pz'} × ${eu(x.prezzo_unitario)} · ${g.idx.length} righe`,
+          v: eu(Math.round(tot * 100) / 100), pill: pillDi(g.idx[0]), apribile: { aperto },
+          on: () => setGruppiAperti(s => { const n = new Set(s), k = `${f.id}|${g.chiave}`; if (n.has(k)) n.delete(k); else n.add(k); return n }),
+        })
+        if (aperto) g.idx.forEach(i => righeVista.push(rigaSingola(i, true)))
+      }
+      sezioni.push({ h: 'Righe', righe: righeVista })
     } else {
       sezioni.push({ h: 'Spesa diretta', righe: [{ l: 'Categoria', v: f.categoria ?? '—' }] })
     }
