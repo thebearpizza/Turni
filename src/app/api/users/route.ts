@@ -102,6 +102,12 @@ export async function POST(request: Request) {
   const body2 = body
   const consultant_restaurant_ids: string[] = body2.consultant_restaurant_ids ?? []
   const can_view_hours: boolean = body2.can_view_hours ?? false
+  // Controllo di gestione: uno o più locali; restaurant_id è il primo.
+  const gestione_restaurant_ids: string[] = Array.isArray(body2.gestione_restaurant_ids) ? body2.gestione_restaurant_ids.filter((x: unknown) => typeof x === 'string') : []
+  if (role === 'controllo_gestione') {
+    if (!gestione_restaurant_ids.length) return NextResponse.json({ error: 'Scegli almeno un locale' }, { status: 400 })
+    restaurant_id = gestione_restaurant_ids[0]
+  }
 
   if (!username || !password || !full_name || !role) {
     return NextResponse.json({ error: 'Campi obbligatori mancanti' }, { status: 400 })
@@ -112,18 +118,23 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
-  const requiresDept = role !== 'manager' && role !== 'consulente_lavoro' && role !== 'hostess'
+  const requiresDept = role !== 'manager' && role !== 'consulente_lavoro' && role !== 'hostess' && role !== 'controllo_gestione'
   if (requiresDept && !department) {
     return NextResponse.json({ error: 'Il reparto è obbligatorio' }, { status: 400 })
   }
 
   // Direttore (capo_servizio): cannot create managers or consulenti, confined to own restaurant.
   if (caller.role !== 'manager') {
-    if (role === 'manager' || role === 'consulente_lavoro') {
+    if (role === 'manager' || role === 'consulente_lavoro' || role === 'controllo_gestione') {
       return NextResponse.json({ error: 'Non autorizzato a creare questo ruolo' }, { status: 403 })
     }
     restaurant_id = caller.restaurant_id
     is_direttore = false
+  } else if (caller.managed_restaurant_ids !== null) {
+    // Manager non platform-owner: solo i propri locali.
+    const managed = caller.managed_restaurant_ids
+    if (restaurant_id && !managed.includes(restaurant_id)) return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
+    if (role === 'controllo_gestione' && !gestione_restaurant_ids.every(rid => managed.includes(rid))) return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
   }
   // is_direttore only applies to capo_servizio
   const isDirettore = role === 'capo_servizio' ? is_direttore === true : false
@@ -153,12 +164,13 @@ export async function POST(request: Request) {
       full_name,
       username,
       role,
-      department: role === 'consulente_lavoro' ? null : (department || null),
+      department: role === 'consulente_lavoro' || role === 'controllo_gestione' ? null : (department || null),
       restaurant_id: restaurant_id || null,
       can_post_bulletin: can_post_bulletin ?? false,
       is_direttore: isDirettore,
       consultant_restaurant_ids: role === 'consulente_lavoro' ? consultant_restaurant_ids : [],
       can_view_hours: role === 'consulente_lavoro' ? can_view_hours : false,
+      gestione_restaurant_ids: role === 'controllo_gestione' ? gestione_restaurant_ids : [],
       // Un manager creato da qui va SEMPRE scoped al ristorante scelto nel
       // form — mai lasciato implicito: la colonna non ha default e null
       // significa "platform owner" (accesso a tutti i ristoranti reali).
@@ -191,6 +203,11 @@ export async function PATCH(request: Request) {
   let { restaurant_id, is_direttore } = patchBody
   const consultant_restaurant_ids: string[] = patchBody.consultant_restaurant_ids ?? []
   const can_view_hours: boolean = patchBody.can_view_hours ?? false
+  const gestione_restaurant_ids: string[] = Array.isArray(patchBody.gestione_restaurant_ids) ? patchBody.gestione_restaurant_ids.filter((x: unknown) => typeof x === 'string') : []
+  if (role === 'controllo_gestione') {
+    if (!gestione_restaurant_ids.length) return NextResponse.json({ error: 'Scegli almeno un locale' }, { status: 400 })
+    restaurant_id = gestione_restaurant_ids[0]
+  }
 
   // ── Campi AI scheduling ─────────────────────────────────────────────
   const weekly_rest_days: number               = patchBody.weekly_rest_days ?? 1
@@ -217,7 +234,7 @@ export async function PATCH(request: Request) {
     if (!targetBefore || targetBefore.restaurant_id !== caller.restaurant_id || targetBefore.role === 'manager' || targetBefore.role === 'consulente_lavoro') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
     }
-    if (role === 'manager' || role === 'consulente_lavoro') {
+    if (role === 'manager' || role === 'consulente_lavoro' || role === 'controllo_gestione') {
       return NextResponse.json({ error: 'Non autorizzato a promuovere a questo ruolo' }, { status: 403 })
     }
     restaurant_id = caller.restaurant_id
@@ -240,6 +257,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
     }
     if (role === 'consulente_lavoro' && !consultant_restaurant_ids.every(rid => managed.includes(rid))) {
+      return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
+    }
+    if (role === 'controllo_gestione' && !gestione_restaurant_ids.every(rid => managed.includes(rid))) {
       return NextResponse.json({ error: 'Ristorante non autorizzato' }, { status: 403 })
     }
   }
@@ -268,12 +288,13 @@ export async function PATCH(request: Request) {
     .update({
       full_name,
       role,
-      department: role === 'consulente_lavoro' ? null : (department || null),
+      department: role === 'consulente_lavoro' || role === 'controllo_gestione' ? null : (department || null),
       restaurant_id: restaurant_id || null,
       can_post_bulletin: can_post_bulletin ?? false,
       is_direttore: isDirettore,
       consultant_restaurant_ids: role === 'consulente_lavoro' ? consultant_restaurant_ids : [],
       can_view_hours: role === 'consulente_lavoro' ? can_view_hours : false,
+      gestione_restaurant_ids: role === 'controllo_gestione' ? gestione_restaurant_ids : [],
       managed_restaurant_ids: managedRestaurantIds,
       // AI scheduling
       weekly_rest_days,

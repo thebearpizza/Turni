@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'capo_servizio' | 'dipendente' | 'consulente_lavoro' | 'cassiere' | 'hostess'
+export type Role = 'manager' | 'capo_servizio' | 'dipendente' | 'consulente_lavoro' | 'cassiere' | 'hostess' | 'controllo_gestione'
 export type AbsenceType = 'ferie' | 'malattia' | 'riposo' | 'assenza_ingiustificata'
 export type AbsenceStatus = 'pending' | 'approved' | 'rejected'
 export type BulletinTarget = 'all' | 'restaurant' | 'role' | 'users' | 'department'
@@ -43,6 +43,8 @@ export interface Profile {
   can_post_bulletin: boolean
   is_direttore: boolean
   consultant_restaurant_ids: string[]
+  /** Controllo di gestione: locali di cui vede l'area Cassa (sola lettura). */
+  gestione_restaurant_ids?: string[]
   can_view_hours: boolean
   last_active_at: string | null
   // ── AI scheduling fields ─────────────────────────────────────────
@@ -147,6 +149,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   consulente_lavoro: 'Consulente del Lavoro',
   cassiere: 'Cassiere',
   hostess: 'Hostess',
+  controllo_gestione: 'Controllo di gestione',
 }
 
 // ── Consultant Messaging ─────────────────────────────────────────────

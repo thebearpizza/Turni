@@ -22,13 +22,17 @@ const CARD = 'anim-swapin flex min-w-0 flex-col rounded-[12px] border border-bor
 const MUTO = 'text-muted-foreground'
 const MIN_MESE = '2025-01'
 
-interface Props { restaurants: { id: string; name: string }[] }
+interface Props {
+  restaurants: { id: string; name: string }[]
+  /** Controllo di gestione: vede il conto e le spese, non aggiunge né spunta nulla. */
+  solaLettura?: boolean
+}
 
 const pcTesto = (v: number, base: number) => (base > 0 ? `${((v / base) * 100).toFixed(1).replace('.', ',')}%` : '—')
 const mesePrima = (m: string) => { const [y, mm] = m.split('-').map(Number); return new Date(Date.UTC(y, mm - 2, 1)).toISOString().slice(0, 10) }
 const VUOTO: DatiUtile = { incassi: [], fatture: [], contanti: [], costi: [], completi: new Set() }
 
-export function UtileClient({ restaurants }: Props) {
+export function UtileClient({ restaurants, solaLettura = false }: Props) {
   const tel = useTelefono()
   const oggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd')
   const meseOggi = oggi.slice(0, 7)
@@ -162,7 +166,7 @@ export function UtileClient({ restaurants }: Props) {
     },
     {
       t: 'Personale', righe: [
-        { l: 'Buste paga e contributi', s: ce.personaleMano ? 'inseriti a mano' : 'non inseriti · tocca per aggiungere', v: ce.personaleMano, on: ce.personaleMano ? undefined : () => apriNuova('personale') },
+        { l: 'Buste paga e contributi', s: ce.personaleMano ? 'inseriti a mano' : solaLettura ? 'non inseriti' : 'non inseriti · tocca per aggiungere', v: ce.personaleMano, on: ce.personaleMano || solaLettura ? undefined : () => apriNuova('personale') },
         { l: 'Personale in contanti', s: 'spese di cassa: Personale, Extra personale, Rider', v: ce.personaleContanti },
         { l: 'Personale', v: ce.personale, tipo: 'totale', rif: RIFERIMENTI.personale },
         { l: 'Prime cost', s: 'merci + personale', v: ce.primeCost, tipo: 'totale', rif: RIFERIMENTI.primeCost },
@@ -196,10 +200,12 @@ export function UtileClient({ restaurants }: Props) {
         <PilloleLocali multipla tuttiComeVuoto locali={locali} selezionati={sel} onCambia={setSel} className={tel ? '' : 'mx-0 flex-[0_1_auto] px-0'} />
         {!tel && <span className="flex-1" />}
         <NavMese mese={mese} min={MIN_MESE} max={meseOggi} onCambia={setMese} />
-        <button type="button" onClick={() => apriNuova()}
-          className="flex h-11 flex-none items-center justify-center gap-2 rounded-[10px] bg-foreground px-4 text-sm font-semibold text-background active:scale-[0.97]">
-          <IconaPiu /> Nuova spesa
-        </button>
+        {!solaLettura && (
+          <button type="button" onClick={() => apriNuova()}
+            className="flex h-11 flex-none items-center justify-center gap-2 rounded-[10px] bg-foreground px-4 text-sm font-semibold text-background active:scale-[0.97]">
+            <IconaPiu /> Nuova spesa
+          </button>
+        )}
       </div>
 
       {stato === 'errore' ? (
@@ -221,14 +227,14 @@ export function UtileClient({ restaurants }: Props) {
                   {tuttiCompleti ? 'Calcolo del mese completo' : completi.length ? `Completo per ${completi.length} di ${ids.length} locali` : 'Il calcolo del mese è completo?'}
                 </span>
                 <span className={cn('text-xs', MUTO)}>
-                  {tuttiCompleti ? 'Il mese è nel resoconto dell\'utile in Analisi' : 'Spuntalo quando hai inserito tutte le spese: entra nel resoconto in Analisi'}
+                  {tuttiCompleti ? 'Il mese è nel resoconto dell\'utile in Analisi' : solaLettura ? 'Il manager non l\'ha ancora segnato come completo' : 'Spuntalo quando hai inserito tutte le spese: entra nel resoconto in Analisi'}
                 </span>
               </span>
-              <button type="button" disabled={spunto} onClick={cambiaCompleto} aria-pressed={tuttiCompleti}
+              {!solaLettura && <button type="button" disabled={spunto} onClick={cambiaCompleto} aria-pressed={tuttiCompleti}
                 className={cn('flex h-11 flex-none items-center gap-2 rounded-[10px] px-4 text-sm font-semibold active:scale-[0.97] disabled:opacity-60',
                   tuttiCompleti ? 'border border-line-strong bg-card text-foreground' : 'bg-foreground text-background')}>
                 {tuttiCompleti ? 'Riapri' : <><IconaSpunta size={16} /> Segna completo</>}
-              </button>
+              </button>}
             </div>
           )}
 
@@ -298,13 +304,13 @@ export function UtileClient({ restaurants }: Props) {
                 <div className="flex flex-col items-center gap-1 px-5 py-8 text-center">
                   <span className="text-[15px] font-semibold">Nessuna spesa per questo mese</span>
                   <span className={cn('text-[13px]', MUTO)}>Aggiungi personale, affitto, utenze, marketing e le altre spese che non passano da fatture o cassa.</span>
-                  <button type="button" onClick={() => apriNuova('personale')} className="mt-3 h-11 rounded-[12px] border border-line-strong bg-card px-[18px] text-sm font-semibold active:scale-[0.97]">Aggiungi il personale</button>
+                  {!solaLettura && <button type="button" onClick={() => apriNuova('personale')} className="mt-3 h-11 rounded-[12px] border border-line-strong bg-card px-[18px] text-sm font-semibold active:scale-[0.97]">Aggiungi il personale</button>}
                 </div>
               ) : vociOrdinate.map(c => {
                 const q = quota(c, insieme)
                 const condivisa = c.restaurant_ids.length > 1
                 return (
-                  <button key={c.id} type="button" onClick={() => apriVoce(c)} className="flex w-full items-center gap-3 border-b border-border px-5 py-3 text-left last:border-b-0 active:bg-secondary/60">
+                  <button key={c.id} type="button" disabled={solaLettura} onClick={() => apriVoce(c)} className="flex w-full items-center gap-3 border-b border-border px-5 py-3 text-left last:border-b-0 active:bg-secondary/60 disabled:cursor-default disabled:active:bg-transparent">
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex items-center gap-2">
                         <span className="truncate text-[15px] font-medium">{c.descrizione || nomeCategoria(c.categoria)}</span>

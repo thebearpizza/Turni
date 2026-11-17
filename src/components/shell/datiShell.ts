@@ -10,6 +10,7 @@ const ETICHETTE: Record<Ruolo, string> = {
   cassiere: 'Cassiere',
   hostess: 'Hostess',
   consulente_lavoro: 'Consulente del lavoro',
+  controllo_gestione: 'Controllo di gestione',
 }
 
 interface ProfiloMinimo {

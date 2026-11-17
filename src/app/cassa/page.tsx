@@ -11,5 +11,5 @@ export default async function CassaIndexPage() {
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
-  redirect(profile?.role === 'manager' ? '/cassa/analisi' : '/cassa/chiusura')
+  redirect(profile?.role === 'manager' || profile?.role === 'controllo_gestione' ? '/cassa/analisi' : '/cassa/chiusura')
 }

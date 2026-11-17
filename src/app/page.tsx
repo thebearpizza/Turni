@@ -21,6 +21,9 @@ export default async function HomePage() {
     // Il manager apre l'app sulle Analisi di cassa: è la schermata che
     // consulta ogni mattina; la Home resta un tocco più in là nel dock.
     redirect('/cassa/analisi')
+  } else if (profile.role === 'controllo_gestione') {
+    // Controllo di gestione: vede solo l'area Cassa.
+    redirect('/cassa/analisi')
   } else if (profile.role === 'cassiere' || profile.role === 'hostess') {
     redirect('/cassa')
   } else if (profile.role === 'capo_servizio' && profile.is_direttore === true) {

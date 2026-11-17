@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { vedeCassaManager, solaLetturaCassa } from '@/lib/ruoliCassa'
 import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { ListaChiusureClient } from '@/components/cassa/ListaChiusureClient'
 import { CassaManagerClient, type LocaleCassa } from '@/components/cassa/manager/CassaManagerClient'
@@ -16,7 +17,7 @@ export default async function ListaChiusurePage() {
   if (!profile) redirect('/login')
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
 
-  if (profile.role !== 'manager') {
+  if (!vedeCassaManager(profile.role)) {
     const { data: restaurant } = profile.restaurant_id
       ? await supabase.from('restaurants').select('id, name').eq('id', profile.restaurant_id).single()
       : { data: null }
@@ -26,5 +27,5 @@ export default async function ListaChiusurePage() {
   // Solo i locali attivi, oppure il solo locale aperto in archivio: i
   // dati della pagina seguono questo elenco ("Tutti" = questi id).
   const { data: restaurants } = await soloVisibili(supabase.from('restaurants').select('id, name, closing_days, nascosto'), await archivioAperto()).order('name')
-  return <CassaManagerClient sec="chiusure" restaurants={(restaurants ?? []) as LocaleCassa[]} />
+  return <CassaManagerClient sec="chiusure" restaurants={(restaurants ?? []) as LocaleCassa[]} solaLettura={solaLetturaCassa(profile.role)} />
 }

@@ -28,12 +28,12 @@ import { ConsulenteLavoroManager } from '@/components/manager/ConsulenteLavoroMa
 
 export type DipendenteRiga = Profile & { restaurant?: { id: string; name: string } | null }
 
-type RuoloK = 'dipendente' | 'capo' | 'direttore' | 'cassiere' | 'hostess' | 'manager'
-const RUOLO_L: Record<RuoloK, string> = { dipendente: 'Dipendente', capo: 'Capo servizio', direttore: 'Direttore', cassiere: 'Cassiere', hostess: 'Hostess', manager: 'Manager' }
+type RuoloK = 'dipendente' | 'capo' | 'direttore' | 'cassiere' | 'hostess' | 'manager' | 'gestione'
+const RUOLO_L: Record<RuoloK, string> = { dipendente: 'Dipendente', capo: 'Capo servizio', direttore: 'Direttore', cassiere: 'Cassiere', hostess: 'Hostess', manager: 'Manager', gestione: 'Controllo di gestione' }
 const ruoloDi = (p: Pick<Profile, 'role' | 'is_direttore'>): RuoloK =>
-  p.role === 'capo_servizio' ? (p.is_direttore ? 'direttore' : 'capo') : (p.role as RuoloK)
+  p.role === 'capo_servizio' ? (p.is_direttore ? 'direttore' : 'capo') : p.role === 'controllo_gestione' ? 'gestione' : (p.role as RuoloK)
 const TONO_RUOLO: Partial<Record<RuoloK, Tono>> = { direttore: 'tl', capo: 'warn' }
-const SENZA_REPARTO: RuoloK[] = ['manager', 'hostess']
+const SENZA_REPARTO: RuoloK[] = ['manager', 'hostess', 'gestione']
 // Lun → Dom (0 = domenica)
 const GIORNI = [1, 2, 3, 4, 5, 6, 0]
 
@@ -51,6 +51,8 @@ interface StatoForm {
   id: string | null
   t: string
   loc1: string | null
+  /** Controllo di gestione: i locali di cui vede la Cassa (uno o più). */
+  locs: string[]
   rep1: string | null
   role: RuoloK
   /** null = proposto dal nome. */
@@ -159,29 +161,31 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
 
   function apriNuovo() {
     setConfElimina(false)
-    f.apri({ id: null, t: '', loc1: single ? currentRestaurantId : loc, rep1: null, role: 'dipendente', u: null, pw: generaPassword(), bacheca: false, ore: null, riposi: 1, pref: null, fasce: [], jolly: [], senior: false })
+    f.apri({ id: null, t: '', loc1: single ? currentRestaurantId : loc, locs: loc ? [loc] : [], rep1: null, role: 'dipendente', u: null, pw: generaPassword(), bacheca: false, ore: null, riposi: 1, pref: null, fasce: [], jolly: [], senior: false })
   }
   function apriModifica(d: DipendenteRiga) {
     setConfElimina(false)
     f.apri({
-      id: d.id, t: d.full_name, loc1: d.restaurant_id, rep1: d.department, role: ruoloDi(d), u: d.username ?? '', pw: '',
+      id: d.id, t: d.full_name, loc1: d.restaurant_id, locs: d.gestione_restaurant_ids?.length ? d.gestione_restaurant_ids : d.restaurant_id ? [d.restaurant_id] : [], rep1: d.department, role: ruoloDi(d), u: d.username ?? '', pw: '',
       bacheca: d.can_post_bulletin, ore: d.weekly_hours_target, riposi: d.weekly_rest_days ?? 1, pref: d.preferred_rest_day,
       fasce: d.primary_slot_ids ?? [], jolly: (d.secondary_departments ?? []) as SecondaryDepartment[], senior: d.can_substitute_capo_servizio ?? false,
     })
   }
 
-  const ruoli: RuoloK[] = single ? ['dipendente', 'capo'] : ['dipendente', 'capo', 'direttore', 'cassiere', 'hostess', 'manager']
+  const ruoli: RuoloK[] = single ? ['dipendente', 'capo'] : ['dipendente', 'capo', 'direttore', 'cassiere', 'hostess', 'manager', 'gestione']
   if (NW && !ruoli.includes(NW.role)) ruoli.push(NW.role)
   const serveReparto = !!NW && !SENZA_REPARTO.includes(NW.role)
   const userMostrato = NW ? (NW.u != null ? NW.u : usernameDa(NW.t, usernames)) : ''
-  const ok = !!NW && !!NW.t.trim() && !!NW.loc1 && (!serveReparto || !!NW.rep1) && !!userMostrato
+  const gestione = NW?.role === 'gestione'
+  const ok = !!NW && !!NW.t.trim() && (gestione ? NW.locs.length > 0 : !!NW.loc1) && (!serveReparto || !!NW.rep1) && !!userMostrato
 
   async function salva() {
     if (!NW || !ok) return
     const edi = NW.id != null
-    const role = NW.role === 'capo' || NW.role === 'direttore' ? 'capo_servizio' : NW.role
+    const role = NW.role === 'capo' || NW.role === 'direttore' ? 'capo_servizio' : NW.role === 'gestione' ? 'controllo_gestione' : NW.role
     const base = {
-      full_name: NW.t.trim(), role, department: serveReparto ? NW.rep1 : null, restaurant_id: NW.loc1,
+      full_name: NW.t.trim(), role, department: serveReparto ? NW.rep1 : null, restaurant_id: NW.role === 'gestione' ? NW.locs[0] : NW.loc1,
+      ...(NW.role === 'gestione' ? { gestione_restaurant_ids: NW.locs } : {}),
       is_direttore: NW.role === 'direttore', can_post_bulletin: NW.role === 'direttore' || ((NW.role === 'capo') && NW.bacheca),
     }
     setSalvando(true)
@@ -250,7 +254,10 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
     const jolly = ((x.secondary_departments ?? []) as SecondaryDepartment[]).map(j => fascia.get(j.slot_id)).filter(Boolean).map(s => s!.department)
     d = {
       titolo: x.full_name, sotto: [RUOLO_L[r] ?? x.role, x.department, info(x.restaurant_id)?.nome].filter(Boolean).join(' · '), tag: RUOLO_L[r] ?? x.role, tono: 'neu',
-      sezioni: [
+      sezioni: r === 'gestione' ? [
+        { h: 'Account', righe: [{ l: 'Username', v: x.username ?? '—' }, { l: 'Accesso', v: 'Solo Cassa, in sola lettura' }] },
+        { h: 'Locali assegnati', righe: (x.gestione_restaurant_ids ?? []).map(id => ({ l: info(id)?.nome ?? 'Locale non visibile', v: '' })) },
+      ] : [
         { h: 'Account', righe: [{ l: 'Username', v: x.username ?? '—' }, { l: 'Permesso bacheca', v: sn(x.can_post_bulletin || r === 'direttore') }, { l: 'Direttore del locale', v: sn(r === 'direttore') }] },
         {
           h: 'Parametri turni', righe: [
@@ -315,7 +322,11 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
         {NW && (
           <CorpoFoglio>
             <Campo etichetta="Nome e cognome"><Testo value={NW.t} onChange={v => set({ t: v })} placeholder="Es. Mario Esposito" /></Campo>
-            {!single && <GruppoPillole etichetta="Locale" opzioni={restaurants.map(r => ({ v: r.id, l: r.name }))} scelte={NW.loc1 ? [NW.loc1] : []} onTocca={v => set({ loc1: v, fasce: [], jolly: [] })} />}
+            {!single && !gestione && <GruppoPillole etichetta="Locale" opzioni={restaurants.map(r => ({ v: r.id, l: r.name }))} scelte={NW.loc1 ? [NW.loc1] : []} onTocca={v => set({ loc1: v, fasce: [], jolly: [] })} />}
+            {!single && gestione && (
+              <GruppoPillole etichetta="Locali (uno o più)" opzioni={restaurants.map(r => ({ v: r.id, l: r.name }))} scelte={NW.locs}
+                onTocca={v => set({ locs: NW.locs.includes(v) ? NW.locs.filter(y => y !== v) : [...NW.locs, v] })} />
+            )}
             {serveReparto && <GruppoPillole etichetta="Reparto" opzioni={DEPARTMENTS.map(v => ({ v, l: v }))} scelte={NW.rep1 ? [NW.rep1] : []} onTocca={v => set({ rep1: v, fasce: [] })} />}
             <GruppoPillole etichetta="Ruolo" opzioni={ruoli.map(v => ({ v, l: RUOLO_L[v] }))} scelte={[NW.role]} onTocca={v => set({ role: v })} />
             <div className="grid gap-3" style={{ gridTemplateColumns: tel ? '1fr' : '1fr 1fr' }}>
@@ -331,7 +342,8 @@ export function DipendentiClient({ initialDipendenti, restaurants, fasce, single
               </Campo>
             </div>
             {NW.role === 'capo' && <GruppoPillole etichetta="Può pubblicare in bacheca" opzioni={[{ v: 'si', l: 'Sì' }, { v: 'no', l: 'No' }]} scelte={[NW.bacheca ? 'si' : 'no']} onTocca={v => set({ bacheca: v === 'si' })} />}
-            {edi && (
+            {gestione && <Nota>Vede solo l&apos;area Cassa (Analisi, Utile, Chiusure, Approvazioni, Buste) dei locali scelti, in sola lettura: non modifica né approva nulla.</Nota>}
+            {edi && !gestione && (
               // Parametri usati dalla generazione dei turni: nel prototipo si
               // vedono nel dettaglio, qui restano modificabili.
               <>

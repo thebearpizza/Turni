@@ -19,6 +19,7 @@ export default async function ManagerLayout({ children }: { children: React.Reac
   if (!profile || profile.role === 'dipendente') redirect('/home')
   if (profile.role === 'consulente_lavoro') redirect('/consulente/dashboard')
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
+  if (profile.role === 'controllo_gestione') redirect('/cassa/analisi')
   // Il cassiere ha solo Chiusura e Lista chiusure: senza questo rimando
   // apriva Turni, ODS, Bacheca e Report scrivendone l'indirizzo.
   if (profile.role === 'cassiere') redirect('/cassa/chiusura')

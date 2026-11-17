@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { vedeCassaManager } from '@/lib/ruoliCassa'
 import { archivioAperto, soloVisibili } from '@/lib/localiVisibili'
 import { AnalisiClient } from '@/components/cassa/AnalisiClient'
 
@@ -10,7 +11,7 @@ export default async function AnalisiCassaPage() {
 
   const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single()
   if (profile?.role === 'hostess') redirect('/cassa/prenotazioni')
-  if (profile?.role !== 'manager') redirect('/cassa/chiusura')
+  if (!vedeCassaManager(profile?.role)) redirect('/cassa/chiusura')
 
   // Solo i locali attivi, oppure il solo locale aperto in archivio: tutte
   // le serie di Analisi (anche confronto e AI) partono da questo elenco.

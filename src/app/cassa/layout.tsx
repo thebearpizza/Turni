@@ -21,7 +21,7 @@ export default async function CassaLayout({ children }: { children: React.ReactN
   const isDirettore = profile?.role === 'capo_servizio' && profile.is_direttore === true
   if (isDirettore) redirect('/acquisti/fatture')
 
-  if (!profile || !['manager', 'cassiere', 'hostess'].includes(profile.role)) redirect('/dashboard')
+  if (!profile || !['manager', 'cassiere', 'hostess', 'controllo_gestione'].includes(profile.role)) redirect('/dashboard')
 
   const shell = await datiShell(supabase, profile)
 

@@ -17,6 +17,7 @@ export default async function PrenotazioniPage({
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('role, full_name').eq('id', user.id).single()
+  if (profile?.role === 'controllo_gestione') redirect('/cassa/analisi')
   if (profile?.role !== 'manager' && profile?.role !== 'hostess') redirect('/cassa/chiusura')
 
   // Solo i locali con almeno un'insegna configurata hanno un libro

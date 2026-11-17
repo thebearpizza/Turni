@@ -56,7 +56,7 @@ interface Dettaglio {
 }
 interface Mod { id: string; chiusura_id: string; payload: unknown; created_at: string; richiesto_da: string | null; chi: string; letta: ModificaLetta | null; ch: CassaChiusura | null }
 
-export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: SezioneCassa; restaurants: LocaleCassa[]; selIniziale?: string }) {
+export function CassaManagerClient({ sec, restaurants, selIniziale, solaLettura = false }: { sec: SezioneCassa; restaurants: LocaleCassa[]; selIniziale?: string; /** Controllo di gestione: vede tutto, non modifica né approva. */ solaLettura?: boolean }) {
   const tel = useTelefono()
   const sopraDock = (n: React.ReactNode) => (tel && typeof document !== 'undefined' ? createPortal(n, document.body) : n)
   const router = useRouter()
@@ -397,6 +397,19 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
     }
   }
 
+  // Controllo di gestione: niente comandi che modificano (resta solo
+  // "Rivedi la modifica", che apre Approvazioni), e i testi non gli
+  // chiedono di fare cose che non può fare.
+  if (solaLettura && dett) {
+    const d0: Dettaglio = dett
+    dett = {
+      ...d0,
+      azioni: d0.azioni.filter(a => a.l === 'Rivedi la modifica'),
+      msg: d0.msg ? { ...d0.msg, testo: d0.msg.testo.replace(' Puoi sollecitarlo con una notifica o inserirla tu.', '').replace('della tua revisione', 'della revisione del manager') } : d0.msg,
+      colsAzioni: '1fr',
+    }
+  }
+
   // Spese della chiusura aperta (voce "Spese" espandibile): si caricano
   // alla prima apertura, anche quando la riga è stata scelta in automatico.
   const idSpese = chiusuraSel?.id ?? null
@@ -446,7 +459,7 @@ export function CassaManagerClient({ sec, restaurants, selIniziale }: { sec: Sez
           {/* Il manager inserisce una chiusura per qualunque locale e giorno: si
               apre Chiusura cassa sul giorno predefinito e sul locale scelto
               (giorno e locale si cambiano poi in alto). */}
-          {sec === 'chiusure' && (
+          {sec === 'chiusure' && !solaLettura && (
             <button type="button" data-sk-keep=""
               onClick={() => router.push(loc.length === 1 ? `/cassa/chiusura?restaurant_id=${loc[0]}` : '/cassa/chiusura')}
               className="flex h-11 flex-none items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground active:scale-[0.97]">

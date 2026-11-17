@@ -47,7 +47,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non autenticato' }, { status: 401 })
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'manager') return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
+  // Anche il Controllo di gestione esporta (sola lettura, i dati li limita il database).
+  if (profile?.role !== 'manager' && profile?.role !== 'controllo_gestione') return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
 
   const { restaurant_ids, start, end, format } = await request.json()
   if (!Array.isArray(restaurant_ids) || !restaurant_ids.length || !start || !end || !['pdf', 'xlsx'].includes(format)) {

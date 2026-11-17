@@ -4,7 +4,7 @@
 // Capo Servizio, Chiusura Tablet v2). Le rotte sono quelle esistenti: il
 // design cambia come ci si arriva, non dove stanno le pagine.
 
-export type Ruolo = 'manager' | 'direttore' | 'capo_servizio' | 'dipendente' | 'cassiere' | 'hostess' | 'consulente_lavoro'
+export type Ruolo = 'manager' | 'direttore' | 'capo_servizio' | 'dipendente' | 'cassiere' | 'hostess' | 'consulente_lavoro' | 'controllo_gestione'
 
 export type IconaChiave = 'home' | 'turni' | 'ods' | 'bacheca' | 'nessuna'
 
@@ -170,6 +170,15 @@ export const NAVIGAZIONE: Record<Ruolo, ConfigRuolo> = {
     profilo: 'tendina',
     aree: [
       { key: 'prenotazioni', label: 'Prenotazioni', icona: 'nessuna', href: '/cassa/prenotazioni', sezioni: [S('prenotazioni', 'Prenotazioni', '/cassa/prenotazioni', 'Prenotazioni', 'Agenda del servizio')] },
+    ],
+  },
+  // Controllo di gestione: solo l'area Cassa dei locali assegnati, in sola
+  // lettura (le pagine nascondono i comandi che modificano).
+  controllo_gestione: {
+    stile: 'pillola',
+    profilo: 'tendina',
+    aree: [
+      { key: 'cassa', label: 'Cassa', icona: 'nessuna', href: '/cassa/analisi', sezioni: CASSA_MANAGER },
     ],
   },
   consulente_lavoro: {

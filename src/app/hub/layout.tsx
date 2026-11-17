@@ -18,6 +18,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     .eq('id', user.id)
     .single()
   if (!profile) redirect('/login')
+  // Il Controllo di gestione vede solo l'area Cassa.
+  if (profile.role === 'controllo_gestione') redirect('/cassa/analisi')
 
   const shell = await datiShell(supabase, profile)
   return (

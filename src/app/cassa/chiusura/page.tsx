@@ -18,6 +18,8 @@ export default async function ChiusuraCassaPage() {
   // Senza questo la hostess "non manager" cadrebbe nella vista cassiere
   // qui sotto — quella cassa non le compete.
   if (profile.role === 'hostess') redirect('/cassa/prenotazioni')
+  // Il Controllo di gestione è in sola lettura: niente inserimento chiusure.
+  if (profile.role === 'controllo_gestione') redirect('/cassa/lista-chiusure')
 
   if (profile.role === 'manager') {
     // Il manager sceglie fra i locali attivi, o ha il solo locale aperto
