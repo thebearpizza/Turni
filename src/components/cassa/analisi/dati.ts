@@ -56,16 +56,23 @@ export async function caricaVoci(sb: Supa, chiusure: Chiusura[], tipo: 'spese' |
   return { voci, errore }
 }
 
-/** Fatture fornitori del periodo, divise per tipologia degli articoli. */
+/**
+ * Fatture fornitori del periodo, divise per tipologia degli articoli.
+ * Le righe danno la ripartizione, il netto della fattura l'importo: negli
+ * XML i resi di fusti e bombole (righe negative) non diventano articoli ma
+ * sono già scalati dal totale, e sommando le sole righe il beverage
+ * risultava più alto del pagato. Con la voce fissa del fornitore tutta la
+ * fattura va in quella tipologia.
+ */
 export async function caricaAcquisti(sb: Supa, locali: string[], a: string, b: string): Promise<Acquisto[]> {
   if (!locali.length || b < a) return []
   const { data } = await sb
     .from('fatture')
-    .select('data, restaurant_id, fornitore:fornitori(nome), fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))')
+    .select('data, restaurant_id, totale_netto, fornitore:fornitori(nome, voce_fissa), fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))')
     .in('restaurant_id', locali)
     .gte('data', a)
     .lte('data', b)
-  type R = { data: string; restaurant_id: string; fornitore: { nome: string } | null; fatture_articoli: { prezzo_riga: number; catalogo_articolo: { tipologia: string } | null }[] | null }
+  type R = { data: string; restaurant_id: string; totale_netto: number | null; fornitore: { nome: string; voce_fissa: string | null } | null; fatture_articoli: { prezzo_riga: number; catalogo_articolo: { tipologia: string } | null }[] | null }
   return ((data ?? []) as unknown as R[]).map(f => {
     const o: Acquisto = { data: f.data, li: f.restaurant_id, fornitore: f.fornitore?.nome ?? '—', fo: 0, be: 0, de: 0, an: 0 }
     for (const r of f.fatture_articoli ?? []) {
@@ -74,6 +81,14 @@ export async function caricaAcquisti(sb: Supa, locali: string[], a: string, b: s
       else if (tp === 'beverage') o.be += v
       else if (tp === 'detergenza') o.de += v
       else if (tp === 'altro_no_food') o.an += v
+    }
+    const righe = o.fo + o.be + o.de + o.an
+    const netto = Number(f.totale_netto)
+    if (righe > 0 && Number.isFinite(netto) && Math.abs(netto - righe) > 0.02) {
+      const fissa = f.fornitore?.voce_fissa
+      if (fissa === 'food' || fissa === 'beverage' || fissa === 'detergenza') { o.fo = o.be = o.de = o.an = 0; o[fissa === 'food' ? 'fo' : fissa === 'beverage' ? 'be' : 'de'] = netto }
+      else if (fissa) { o.fo = o.be = o.de = 0; o.an = netto }
+      else { const k = netto / righe; o.fo *= k; o.be *= k; o.de *= k; o.an *= k }
     }
     return o
   }).filter(o => o.fo + o.be + o.de + o.an > 0)
