@@ -5,7 +5,7 @@ import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
 import { ALIQUOTE, Badge, IcoGiu, MESI_LUNGHI, Modale, TIPOLOGIE, dataBreve, digita, eu, n2, nf, numeroDa, useToccoFuori, type Locale, type Tono } from './comuni'
-import { interpreta, leggiFile, type FatturaXml } from './fatturaXml'
+import { interpreta, leggiFile, motivoNonFattura, type FatturaXml, type Scartato } from './fatturaXml'
 import { anteprimaXml, importaXml, lordoXml, mettiInAttesa, riepilogoXml, smistaXml, type EsitoXml, type Smistamento } from './xmlImport'
 import { BadgeIa, GrigliaLocali, SceltaTipologia } from './Smistamento'
 
@@ -38,6 +38,8 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
 }) {
   const [fase, setFase] = useState<'pick' | 'read' | 'sum' | 'import'>('pick')
   const [nFile, setNFile] = useState(0)
+  const [scartati, setScartati] = useState<Scartato[]>([])
+  const [vediScartati, setVediScartati] = useState(false)
   const [fatture, setFatture] = useState<FatturaXml[]>([])
   const [testi, setTesti] = useState<Map<string, string>>(new Map())
   const [esiti, setEsiti] = useState<Map<string, EsitoXml>>(new Map())
@@ -58,9 +60,15 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
     if (!files.length) return
     setFase('read')
     try {
-      const lette = (await Promise.all(files.map(leggiFile))).flat()
-      const fs = lette.flatMap(x => interpreta(x.xml, x.nome))
-      if (!fs.length) throw new Error('Nessuna fattura elettronica trovata nei file scelti')
+      const sc: Scartato[] = []
+      const lette = (await Promise.all(files.map(f => leggiFile(f, sc)))).flat()
+      const fs = lette.flatMap(x => {
+        const r = interpreta(x.xml, x.nome)
+        if (!r.length) { const m = motivoNonFattura(x.xml); if (m) sc.push({ nome: x.nome.split('/').pop() ?? x.nome, motivo: m }) }
+        return r
+      })
+      setScartati(sc)
+      if (!fs.length) throw new Error(sc.length ? `Nessuna fattura leggibile: ${sc.length} file non letti (${sc[0].motivo})` : 'Nessuna fattura elettronica trovata nei file scelti')
       // Con un solo locale non c'è niente da smistare.
       const smistamento = single
         ? Promise.resolve(new Map(fs.map(f => [f.chiave, { restaurant_id: locali[0]?.id ?? null, via: 'unico' as const, motivo: 'Unico locale', candidati: tutti }])))
@@ -214,6 +222,18 @@ export function ImportaXml({ tel, esce, locali, onChiudi, onImportate }: {
               <div key={k.l} className="flex flex-col gap-0.5 rounded-[8px] border border-border px-3 py-2.5"><span className={cn('font-mono text-[22px] font-semibold', k.c)}>{k.v}</span><span className="text-xs text-muted-foreground">{k.l}</span></div>
             ))}
           </div>
+          {scartati.length > 0 && (
+            // Un file che non diventa fattura non deve sparire in silenzio.
+            <div className="flex flex-col gap-1 rounded-[8px] bg-warn-tint px-3.5 py-2.5 text-warn">
+              <button type="button" onClick={() => setVediScartati(v => !v)} className="flex items-center justify-between gap-2 text-left text-sm font-semibold">
+                {scartati.length} {scartati.length === 1 ? 'file non letto' : 'file non letti'}: le loro fatture non sono nel riepilogo
+                <span className="text-xs font-medium underline">{vediScartati ? 'Nascondi' : 'Vedi quali'}</span>
+              </button>
+              {vediScartati && scartati.slice(0, 200).map((x, i) => (
+                <span key={i} className="break-all text-xs"><span className="font-mono">{x.nome}</span> · {x.motivo}</span>
+              ))}
+            </div>
+          )}
           {!single && assegnabili.length > 1 && fase === 'sum' && (
             <div className="flex flex-col gap-1.5 rounded-[8px] border border-border px-3.5 py-2.5">
               <span className="text-[15px] font-semibold">Tutte di un solo locale?</span>

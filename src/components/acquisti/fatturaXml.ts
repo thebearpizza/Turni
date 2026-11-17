@@ -41,7 +41,7 @@ async function inflate(dati: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(out).arrayBuffer())
 }
 
-async function leggiZip(buf: Uint8Array): Promise<{ nome: string; dati: Uint8Array }[]> {
+async function leggiZip(buf: Uint8Array, scartati: Scartato[]): Promise<{ nome: string; dati: Uint8Array }[]> {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
   let eocd = -1
   for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break }
@@ -59,7 +59,9 @@ async function leggiZip(buf: Uint8Array): Promise<{ nome: string; dati: Uint8Arr
     const inizio = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true)
     const grezzo = buf.subarray(inizio, inizio + comp)
     if (metodo === 0) out.push({ nome, dati: grezzo })
-    else if (metodo === 8) out.push({ nome, dati: await inflate(grezzo) })
+    else if (metodo === 8) {
+      try { out.push({ nome, dati: await inflate(grezzo) }) } catch { scartati.push({ nome, motivo: 'file compresso danneggiato' }) }
+    } else scartati.push({ nome, motivo: `compressione non supportata (metodo ${metodo}): rifai lo ZIP o carica i file sciolti` })
   }
   return out
 }
@@ -67,10 +69,17 @@ async function leggiZip(buf: Uint8Array): Promise<{ nome: string; dati: Uint8Arr
 // ── P7M: il tracciato XML è dentro la busta CMS; si ritaglia fra il primo
 // tag e la chiusura di FatturaElettronica, togliendo se serve le
 // intestazioni dei blocchi DER che spezzano il contenuto. ──
-function daP7m(buf: Uint8Array): string | null {
+function daP7m(buf: Uint8Array, base64 = true): string | null {
   const bin = Array.from(buf, c => String.fromCharCode(c)).join('')
   const fine = bin.search(/<\/([A-Za-z0-9_]+:)?FatturaElettronica>/)
-  if (fine < 0) return null
+  if (fine < 0) {
+    // Alcuni intermediari consegnano il .p7m codificato in base64 (testo):
+    // si decodifica e si riprova una volta.
+    if (!base64) return null
+    const testo = bin.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')
+    if (!/^[A-Za-z0-9+/=]+$/.test(testo) || testo.length < 100) return null
+    try { const dec = atob(testo); return daP7m(Uint8Array.from(dec, c => c.charCodeAt(0)), false) } catch { return null }
+  }
   const chiusura = bin.slice(fine).match(/^<\/([A-Za-z0-9_]+:)?FatturaElettronica>/)![0]
   let inizio = bin.indexOf('<?xml')
   if (inizio < 0 || inizio > fine) inizio = bin.search(/<([A-Za-z0-9_]+:)?FatturaElettronica[\s>]/)
@@ -90,22 +99,46 @@ function daP7m(buf: Uint8Array): string | null {
 }
 const valido = (s: string) => !new DOMParser().parseFromString(s, 'application/xml').getElementsByTagName('parsererror').length
 
-export async function leggiFile(f: File): Promise<{ nome: string; xml: string }[]> {
+/** File dello ZIP (o caricato) che non è diventato una fattura, col perché. */
+export interface Scartato { nome: string; motivo: string }
+
+/**
+ * Legge i file scelti (anche ZIP annidati). Quello che non si riesce a
+ * leggere finisce in `scartati` invece di sparire: un fornitore mancante
+ * nel riepilogo deve avere una spiegazione.
+ */
+export async function leggiFile(f: File, scartati: Scartato[] = []): Promise<{ nome: string; xml: string }[]> {
   const buf = new Uint8Array(await f.arrayBuffer())
   const n = f.name.toLowerCase()
+  const breve = (x: string) => x.split('/').pop() ?? x
   if (n.endsWith('.zip')) {
-    const voci = await leggiZip(buf)
+    let voci: { nome: string; dati: Uint8Array }[]
+    try { voci = await leggiZip(buf, scartati) } catch { scartati.push({ nome: breve(f.name), motivo: 'archivio ZIP non leggibile' }); return [] }
     const out: { nome: string; xml: string }[] = []
     for (const v of voci) {
       const nv = v.nome.toLowerCase()
-      if (nv.endsWith('.zip')) out.push(...await leggiFile(new File([v.dati as BlobPart], v.nome)))
-      else if (nv.endsWith('.p7m')) { const x = daP7m(v.dati); if (x) out.push({ nome: v.nome, xml: x }) }
+      if (nv.endsWith('.zip')) out.push(...await leggiFile(new File([v.dati as BlobPart], v.nome), scartati))
+      else if (nv.endsWith('.p7m')) { const x = daP7m(v.dati); if (x) out.push({ nome: v.nome, xml: x }); else scartati.push({ nome: breve(v.nome), motivo: 'file firmato (.p7m) non leggibile' }) }
       else if (nv.endsWith('.xml')) out.push({ nome: v.nome, xml: new TextDecoder('utf-8').decode(v.dati) })
+      else if (!nv.split('/').pop()?.startsWith('.')) scartati.push({ nome: breve(v.nome), motivo: 'non è un file XML' })
     }
     return out
   }
-  if (n.endsWith('.p7m')) { const x = daP7m(buf); return x ? [{ nome: f.name, xml: x }] : [] }
+  if (n.endsWith('.p7m')) { const x = daP7m(buf); if (!x) scartati.push({ nome: f.name, motivo: 'file firmato (.p7m) non leggibile' }); return x ? [{ nome: f.name, xml: x }] : [] }
   return [{ nome: f.name, xml: new TextDecoder('utf-8').decode(buf) }]
+}
+
+/**
+ * Perché un XML letto non è una fattura. Metadati e ricevute del cassetto
+ * fiscale (uno per fattura nello ZIP) non sono un problema: null.
+ */
+export function motivoNonFattura(xml: string): string | null {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  if (doc.getElementsByTagName('parsererror').length) return 'XML non valido'
+  const r = doc.documentElement.localName
+  if (r === 'FatturaElettronica') return null
+  if (/^(FileMetadati|Ricevuta|Notifica|Esito|Attestazione|MetadatiInvioFile)/.test(r)) return null
+  return `non è una fattura elettronica (${r})`
 }
 
 // ── Tracciato ──
