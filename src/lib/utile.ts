@@ -60,6 +60,8 @@ export interface FatturaMese {
   food: number
   beverage: number
   materiali: number
+  /** Voce fissa del fornitore (fornitori.voce_fissa): vale per tutta la fattura. */
+  fissa?: string | null
   /** Per il dettaglio delle spese (resoconto in Analisi). */
   data?: string
   fornitore?: string
@@ -70,6 +72,13 @@ export interface FatturaMese {
 export interface SpesaContanti { categoria: string; importo: number; nome?: string; data?: string; li?: string }
 
 type Destinazione = 'personale' | 'merci' | CategoriaCosto
+const TIPOLOGIE_MATERIALI = ['detergenza', 'altro_no_food']
+
+/** Voci fisse di un fornitore (fornitori.voce_fissa), nell'ordine del menu. */
+export const VOCI_FISSE: { k: string; l: string }[] = [
+  { k: 'food', l: 'Food' }, { k: 'beverage', l: 'Beverage' }, { k: 'detergenza', l: 'Detergenza' }, { k: 'altro_no_food', l: 'Altro no food' },
+  ...CATEGORIE_COSTO.filter(c => c.k !== 'personale').map(c => ({ k: c.k as string, l: c.l })),
+]
 
 // Categorie di cassa e di fattura senza articoli che corrispondono a una
 // voce del conto economico, per nome esatto (minuscole, senza spazi ai
@@ -126,6 +135,13 @@ export function contoEconomico(x: {
   const etichetta = (d: Destinazione, nome: string) => (d === 'personale' || d === 'merci' ? nome : nomeCategoria(d))
 
   for (const f of x.fatture) {
+    if (f.fissa) {
+      if (f.fissa === 'food') food += f.netto
+      else if (f.fissa === 'beverage') beverage += f.netto
+      else if (TIPOLOGIE_MATERIALI.includes(f.fissa)) materiali += f.netto
+      else aggiungi(nomeCategoria(f.fissa), f.netto, 'fatture')
+      continue
+    }
     if (f.diretta !== null) {
       const d = destinazione(f.diretta)
       if (d === 'personale') personaleMano += f.netto
@@ -195,6 +211,13 @@ export function movimenti(x: { contanti: SpesaContanti[]; fatture: FatturaMese[]
   for (const f of x.fatture) {
     const descr = `${f.fornitore ?? 'Fattura'}${f.numero ? ` n. ${f.numero}` : ''}`
     const base = { fonte: 'fattura' as const, descr, li: f.li, data: f.data }
+    if (f.fissa) {
+      out.push(f.fissa === 'food' ? { ...base, voce: VOCE_GRUPPO.merci, sotto: 'Food', gruppo: 'merci', importo: f.netto }
+        : f.fissa === 'beverage' ? { ...base, voce: VOCE_GRUPPO.merci, sotto: 'Beverage', gruppo: 'merci', importo: f.netto }
+        : TIPOLOGIE_MATERIALI.includes(f.fissa) ? { ...base, voce: VOCE_GRUPPO.materiali, sotto: 'Fatture', gruppo: 'materiali', importo: f.netto }
+        : { ...base, voce: nomeCategoria(f.fissa), sotto: 'Fatture', gruppo: 'operativi', importo: f.netto })
+      continue
+    }
     if (f.diretta !== null) { out.push({ ...base, ...voceDi(destinazione(f.diretta), f.diretta), sotto: `Fatture · ${f.diretta}`, importo: f.netto }); continue }
     const righe = f.food + f.beverage + f.materiali
     if (righe <= 0) { out.push({ ...base, voce: VOCE_GRUPPO.materiali, sotto: 'Fatture', gruppo: 'materiali', importo: f.netto }); continue }

@@ -11,6 +11,7 @@ import { corrisponde } from '@/components/shared/CampoRicerca'
 import { cn } from '@/lib/utils'
 import type { ArticoloTipologia } from '@/types'
 import { Vista, Pannello, type RigaVista } from './Vista'
+import { VOCI_FISSE } from '@/lib/utile'
 import { Bottone, MESI_LUNGHI, Modale, TIPOLOGIE, TZ, dataBreve, etichettaMese, eu, fineMese, localiDa, spostaMese, useUscita } from './comuni'
 
 // Fornitori (MTAcquisti, sezione "fornitori"): chi ha fatturato nel mese
@@ -21,7 +22,7 @@ import { Bottone, MESI_LUNGHI, Modale, TIPOLOGIE, TZ, dataBreve, etichettaMese, 
 
 interface Props { restaurants: { id: string; name: string }[]; canEdit: boolean; single: boolean }
 interface FatturaF { id: string; restaurant_id: string; fornitore_id: string; numero: string; data: string; netto: number; lordo: number; categoria: string | null }
-interface FornitoreF { id: string; nome: string; piva: string | null }
+interface FornitoreF { id: string; nome: string; piva: string | null; fissa: string | null }
 interface ArticoloCat { id: string; nome_articolo: string; tipologia: ArticoloTipologia; unita_misura: string | null; prezzo_corrente: number | null }
 
 export function FornitoriClient({ restaurants, canEdit, single }: Props) {
@@ -36,6 +37,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
   const [sel, setSel] = useState<string | null>(null)
   const [cerca, setCerca] = useState('')
   const [catalogo, setCatalogo] = useState<{ id: string; righe: ArticoloCat[] } | null>(null)
+  const [conVoce, setConVoce] = useState(true)
   const { stato: sk, avvia, pronto } = useScheletro()
 
   const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
@@ -50,7 +52,8 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     const [f, c, a] = await Promise.all([
       sb.from('fatture').select('id, restaurant_id, fornitore_id, numero_documento, data, totale_netto, totale_lordo, categoria_diretta:categorie_fatture_dirette(nome)').in('restaurant_id', ids).gte('data', `${mese}-01`).lte('data', fineMese(mese)).order('data', { ascending: false }),
       sb.from('catalogo_articoli').select('fornitore_id, tipologia'),
-      sb.from('fornitori').select('id, nome, partita_iva'),
+      // Voce fissa: senza la colonna (migrazione non applicata) si legge come prima.
+      sb.from('fornitori').select('id, nome, partita_iva, voce_fissa').then(r => (r.error && /voce_fissa/.test(r.error.message ?? '') ? sb.from('fornitori').select('id, nome, partita_iva') : r)),
     ])
     if (mio !== req.current) return
     if (f.error) { setErrore(friendlySaveError(f.error)); setCaricamento(false); pronto(); return }
@@ -63,7 +66,9 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
       const m = conti.get(r.fornitore_id) ?? new Map(); m.set(r.tipologia, (m.get(r.tipologia) ?? 0) + 1); conti.set(r.fornitore_id, m)
     }
     setTipi(new Map([...conti].map(([k, m]) => [k, [...m].sort((p, q) => q[1] - p[1])[0][0]])))
-    setAnag(new Map(((a.data ?? []) as { id: string; nome: string; partita_iva: string | null }[]).map(x => [x.id, { id: x.id, nome: x.nome, piva: x.partita_iva }])))
+    const righeA = (a.data ?? []) as { id: string; nome: string; partita_iva: string | null; voce_fissa?: string | null }[]
+    setConVoce(righeA.some(x => 'voce_fissa' in x) || righeA.length === 0)
+    setAnag(new Map(righeA.map(x => [x.id, { id: x.id, nome: x.nome, piva: x.partita_iva, fissa: x.voce_fissa ?? null }])))
     setCaricamento(false); pronto()
   }, [restaurants, mese, pronto])
   useEffect(() => { carica() }, [carica])
@@ -74,6 +79,9 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     .sort((p, q) => q.net - p.net)
   const tot = agg.reduce((t, x) => t + x.net, 0)
   const tipoDi = (id: string, fs: FatturaF[]) => {
+    // La voce fissa del fornitore vince su tutto.
+    const fissa = anag.get(id)?.fissa
+    if (fissa) return { l: VOCI_FISSE.find(v => v.k === fissa)?.l ?? fissa, c: fissa in TIPOLOGIE ? TIPOLOGIE[fissa as ArticoloTipologia].c : TIPOLOGIE.altro_no_food.c }
     const t = tipi.get(id)
     if (t) return { l: TIPOLOGIE[t].l, c: TIPOLOGIE[t].c }
     return { l: fs.find(f => f.categoria)?.categoria ?? 'Altro no food', c: TIPOLOGIE.altro_no_food.c }
@@ -100,7 +108,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     return () => { annullato = true }
   }, [selEff])
 
-  const mod = useUscita<{ id: string; nome: string; piva: string }>()
+  const mod = useUscita<{ id: string; nome: string; piva: string; fissa: string }>()
   const uni = useUscita<{ id: string; nome: string; verso: string | null }>()
   const [lavoro, setLavoro] = useState(false)
 
@@ -108,7 +116,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
     const d = mod.dati
     if (!d || !d.nome.trim()) { toast({ title: 'La ragione sociale non può essere vuota', variant: 'destructive' }); return }
     setLavoro(true)
-    const { error } = await createClient().from('fornitori').update({ nome: d.nome.trim(), partita_iva: d.piva.trim() || null }).eq('id', d.id)
+    const { error } = await createClient().from('fornitori').update({ nome: d.nome.trim(), partita_iva: d.piva.trim() || null, ...(conVoce ? { voce_fissa: d.fissa || null } : {}) }).eq('id', d.id)
     setLavoro(false)
     if (error) { toast({ title: `Salvataggio non riuscito: ${friendlySaveError(error)}`, variant: 'destructive' }); return }
     mod.chiudi(); toast({ title: 'Fornitore aggiornato' }); carica()
@@ -143,7 +151,7 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
         ]}
         azioni={canEdit ? [
           { l: 'Unisci', tipo: 'secondario', on: () => uni.apri({ id: x.id, nome: x.fo?.nome ?? '', verso: null }) },
-          { l: 'Modifica dati', tipo: 'secondario', on: () => mod.apri({ id: x.id, nome: x.fo?.nome ?? '', piva: x.fo?.piva ?? '' }) },
+          { l: 'Modifica dati', tipo: 'secondario', on: () => mod.apri({ id: x.id, nome: x.fo?.nome ?? '', piva: x.fo?.piva ?? '', fissa: x.fo?.fissa ?? '' }) },
         ] : undefined}
         colonneAzioni="1fr 1fr"
       />
@@ -172,6 +180,16 @@ export function FornitoriClient({ restaurants, canEdit, single }: Props) {
           <div className={cn('flex flex-col gap-3.5 py-4', px)}>
             <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Ragione sociale</span><input value={mod.dati.nome} onChange={e => mod.setDati(d => (d ? { ...d, nome: e.target.value } : d))} className={CAMPO} /></label>
             <label className="flex flex-col gap-1.5"><span className="text-[13px] font-medium">Partita IVA</span><input value={mod.dati.piva} onChange={e => mod.setDati(d => (d ? { ...d, piva: e.target.value } : d))} className={cn(CAMPO, 'font-mono')} /></label>
+            {conVoce && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-medium">Voce fissa</span>
+                <select value={mod.dati.fissa} onChange={e => mod.setDati(d => (d ? { ...d, fissa: e.target.value } : d))} className={CAMPO}>
+                  <option value="">Nessuna: decidono gli articoli</option>
+                  {VOCI_FISSE.map(v => <option key={v.k} value={v.k}>{v.l}</option>)}
+                </select>
+                <span className="text-xs leading-[1.4] text-muted-foreground">Tutte le fatture del fornitore contano sempre in questa voce, in Analisi e nell&apos;utile. Con Food, Beverage, Detergenza o Altro no food anche i suoi articoli prendono quella tipologia.</span>
+              </label>
+            )}
           </div>
         </Modale>
       )}

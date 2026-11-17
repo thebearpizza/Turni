@@ -24,11 +24,18 @@ export async function caricaUtile(sb: Supa, ids: string[], a: string, b: string)
   const vuoto: DatiUtile = { incassi: [], fatture: [], contanti: [], costi: [], completi: new Set() }
   if (!ids.length || b < a) return { dati: vuoto, errore: false }
   const fine = fineMese(b)
+  // Con la voce fissa del fornitore; senza la colonna (migrazione non
+  // applicata) si legge come prima.
+  const leggiFatture = async () => {
+    const q = (f: string) => sb.from('fatture')
+      .select(`data, numero_documento, restaurant_id, totale_netto, ha_articoli, fornitore:fornitori(${f}), categoria:categorie_fatture_dirette(nome), fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))`)
+      .in('restaurant_id', ids).gte('data', a).lte('data', fine)
+    const r = await q('nome, voce_fissa')
+    return r.error && /voce_fissa/.test(r.error.message ?? '') ? q('nome') : r
+  }
   const [ch, fa, co, cm] = await Promise.all([
     caricaChiusure(sb, ids, a, fine),
-    sb.from('fatture')
-      .select('data, numero_documento, restaurant_id, totale_netto, ha_articoli, fornitore:fornitori(nome), categoria:categorie_fatture_dirette(nome), fatture_articoli(prezzo_riga, catalogo_articolo:catalogo_articoli(tipologia))')
-      .in('restaurant_id', ids).gte('data', a).lte('data', fine),
+    leggiFatture(),
     sb.from('costi_gestione').select('id, restaurant_ids, categoria, descrizione, importo, ricorrente, mese_da, mese_a')
       .overlaps('restaurant_ids', ids).lte('mese_da', b).or(`mese_a.is.null,mese_a.gte.${a}`),
     sb.from('utile_mesi_completi').select('restaurant_id, mese').in('restaurant_id', ids).gte('mese', a).lte('mese', b),
@@ -38,11 +45,11 @@ export async function caricaUtile(sb: Supa, ids: string[], a: string, b: string)
   const sp = ch.errore ? { voci: [], errore: true } : await caricaVoci(sb, ch.righe, 'spese')
   if (ch.errore || fa.error || co.error || sp.errore) return { dati: vuoto, errore: true }
 
-  type R = { data: string; numero_documento: string; restaurant_id: string; totale_netto: number | null; ha_articoli: boolean; fornitore: { nome: string } | null; categoria: { nome: string } | null; fatture_articoli: { prezzo_riga: number; catalogo_articolo: { tipologia: string } | null }[] | null }
+  type R = { data: string; numero_documento: string; restaurant_id: string; totale_netto: number | null; ha_articoli: boolean; fornitore: { nome: string; voce_fissa?: string | null } | null; categoria: { nome: string } | null; fatture_articoli: { prezzo_riga: number; catalogo_articolo: { tipologia: string } | null }[] | null }
   const fatture = ((fa.data ?? []) as unknown as R[]).map(f => {
     const o: FatturaMese = {
       li: f.restaurant_id, netto: Number(f.totale_netto) || 0, diretta: f.ha_articoli ? null : (f.categoria?.nome ?? 'Altre fatture'),
-      food: 0, beverage: 0, materiali: 0, data: f.data, fornitore: f.fornitore?.nome ?? undefined, numero: f.numero_documento,
+      food: 0, beverage: 0, materiali: 0, data: f.data, fornitore: f.fornitore?.nome ?? undefined, numero: f.numero_documento, fissa: f.fornitore?.voce_fissa ?? null,
     }
     for (const r of f.fatture_articoli ?? []) {
       const v = Number(r.prezzo_riga) || 0, tp = r.catalogo_articolo?.tipologia
