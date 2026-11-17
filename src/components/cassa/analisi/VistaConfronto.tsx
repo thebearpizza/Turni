@@ -114,7 +114,9 @@ function Barre({ wa, wb }: { wa: number; wb: number }) {
 function RigaAB({ l, dot, a, b, wa, wb, d, cols, onClick }: { l: string; dot?: string; a: string; b: string; wa: number; wb: number; d: { testo: string; tono: Tono }; cols: string; onClick: (e: React.MouseEvent<Element>) => void }) {
   return (
     <button type="button" onClick={onClick} className={RIGA} style={{ gridTemplateColumns: cols }}>
-      <span className="flex min-w-0 items-center gap-2 text-[14px] font-medium">{dot && <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ background: dot }} />}{l}</span>
+      {/* Nomi lunghi senza spazi ("Utenze/Amministrazione") andavano sopra
+          le barre: vanno a capo dopo la "/" e, se serve, ovunque. */}
+      <span className="flex min-w-0 items-center gap-2 text-[14px] font-medium">{dot && <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ background: dot }} />}<span className="min-w-0 leading-[1.25] [overflow-wrap:anywhere]">{l.replace(/\//g, '/\u200b')}</span></span>
       <Barre wa={wa} wb={wb} />
       <div className="flex flex-col items-end gap-px">
         <span className="whitespace-nowrap font-mono text-[13.5px] font-medium">{a}</span>

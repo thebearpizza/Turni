@@ -37,6 +37,7 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
   const [evid, setEvid] = useState(0)
   const [invio, setInvio] = useState(false)
   const [errore, setErrore] = useState<string | null>(null)
+  const [tentato, setTentato] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -61,7 +62,11 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
 
   async function salva() {
     const testo = nome.trim()
-    if (!testo || !importo || importo <= 0) { setErrore('Inserisci una descrizione e un importo maggiore di zero.'); return }
+    // La categoria è obbligatoria: le spese senza categoria finivano in una
+    // voce a parte di Analisi e Utile, fuori da personale e merci.
+    const manca = [!testo && 'una descrizione', !categoriaId && categorie.length > 0 && 'la categoria', !(importo && importo > 0) && 'un importo maggiore di zero'].filter(Boolean) as string[]
+    if (manca.length) { setTentato(true); setErrore(`Inserisci ${manca.length > 1 ? `${manca.slice(0, -1).join(', ')} e ${manca[manca.length - 1]}` : manca[0]}.`); return }
+    if (!importo) return
     setErrore(null)
     setInvio(true)
     let nomeFinale = testo, cat = categoriaId
@@ -83,7 +88,7 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
     }
     const ok = await onSalva({ nome: nomeFinale, categoriaId: cat, importo, foto })
     setInvio(false)
-    if (ok) { setNome(''); setCategoriaId(null); setImporto(null); setFoto(null); setSugg([]) }
+    if (ok) { setNome(''); setCategoriaId(null); setImporto(null); setFoto(null); setSugg([]); setTentato(false) }
   }
 
   const aperti = mostra && sugg.length > 0
@@ -126,11 +131,13 @@ export function FormSpesa({ restaurantId, categorie, titolo, destra, cta, onSalv
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <span className="flex items-baseline justify-between text-sm font-medium">Categoria{gestisciCategorie}</span>
-          <MenuScelta valore={categoriaId} opzioni={categorie.map(c => ({ k: c.id, l: c.nome }))} onScegli={setCategoriaId} />
+          <div className={cn('rounded-[12px]', tentato && !categoriaId && categorie.length > 0 && 'ring-[1.5px] ring-[oklch(0.6_0.13_25)]')}>
+            <MenuScelta valore={categoriaId} opzioni={categorie.map(c => ({ k: c.id, l: c.nome }))} onScegli={c => { setCategoriaId(c); setErrore(null) }} vuoto="Scegli" />
+          </div>
         </div>
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">Importo</span>
-          <CampoCassa valore={importo} onCambia={setImporto} taglia="l" />
+          <CampoCassa valore={importo} onCambia={setImporto} taglia="l" errore={tentato && !(importo && importo > 0)} />
         </div>
       </div>
       {conFoto && (

@@ -1,22 +1,19 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { formatInTimeZone } from 'date-fns-tz'
-import { createClient } from '@/lib/supabase/client'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { cassaChartColor } from '@/components/cassa/chartPalette'
 import { Card } from '@/components/cassa/analisi/comuni'
 import { eur, eur0, meseNome } from '@/components/cassa/comuni'
 import type { Figlio, RigaFumetto } from '@/components/cassa/analisi/Sovrapposizioni'
 import { InfoFumetto } from '@/components/cassa/analisi/InfoFumetto'
-import { RIFERIMENTI, VOCE_GRUPPO, type ContoEconomico, type Movimento } from '@/lib/utile'
-import { caricaUtile, chiaveCompleto, contoMese, type DatiUtile } from './dati'
+import { RIFERIMENTI, VOCE_GRUPPO } from '@/lib/utile'
+import { somma, useSerieUtile } from './serie'
 
 // Resoconto dell'utile in Analisi: solo i mesi che il manager ha segnato
 // come completi in Cassa → Utile, per i locali scelti. Tutto si tocca: un
 // mese filtra ripartizione e indicatori, una voce apre il dettaglio delle
 // spese che la compongono.
 
-const TZ = 'Europe/Rome'
 const MUTO = 'text-muted-foreground'
 const C_RICAVI = 'oklch(0.8 0.01 250)'
 const C_COSTI = 'oklch(0.72 0.12 75)'
@@ -27,55 +24,10 @@ const pc = (v: number, base: number) => (base > 0 ? (v / base) * 100 : 0)
 const pcT = (v: number, base: number) => (base > 0 ? `${pc(v, base).toFixed(1).replace('.', ',')}%` : '—')
 const segnato = (v: number) => `${v < 0 ? '−' : ''}${eur0(v)}`
 
-function mesiTra(a: string, b: string): string[] {
-  const out: string[] = []
-  let [y, m] = a.slice(0, 7).split('-').map(Number)
-  const fine = b.slice(0, 7)
-  for (let i = 0; i < 60; i++) {
-    const k = `${y}-${String(m).padStart(2, '0')}`
-    if (k > fine) break
-    out.push(`${k}-01`)
-    m++; if (m > 12) { m = 1; y++ }
-  }
-  return out
-}
-
-const SOMMABILI = ['incassi', 'ricavi', 'food', 'beverage', 'merciContanti', 'merci', 'personaleMano', 'personaleContanti', 'personale', 'primeCost', 'materiali', 'contanti', 'costi', 'utile'] as const
-function somma(xs: ContoEconomico[]): ContoEconomico {
-  const o = { operativi: [] } as unknown as ContoEconomico
-  for (const k of SOMMABILI) (o as unknown as Record<string, number>)[k] = xs.reduce((t, x) => t + x[k], 0)
-  return o
-}
-
-interface Mese { m01: string; locali: string[]; ce: ContoEconomico; mov: Movimento[] }
-
-type ApriFumetto = (titolo: string, sotto: string, righe: RigaFumetto[]) => (e: React.MouseEvent<Element>) => void
+export type ApriFumetto = (titolo: string, sotto: string, righe: RigaFumetto[]) => (e: React.MouseEvent<Element>) => void
 
 export function ResocontoUtile({ ids, a, b, nomi, tel, fumetto }: { ids: string[]; a: string; b: string; nomi: Record<string, { nome: string }>; tel: boolean; fumetto: ApriFumetto }) {
-  const meseOggi = formatInTimeZone(new Date(), TZ, 'yyyy-MM')
-  // Solo mesi già finiti: quello in corso non può essere completo.
-  const mesi = useMemo(() => mesiTra(a, b).filter(m => m.slice(0, 7) < meseOggi), [a, b, meseOggi])
-  const [dati, setDati] = useState<DatiUtile | null>(null)
-  const req = useRef(0)
-  const chiave = ids.join(',')
-  const carica = useCallback(async () => {
-    const n = ++req.current
-    const lista = chiave ? chiave.split(',') : []
-    if (!mesi.length || !lista.length) { setDati(null); return }
-    const r = await caricaUtile(createClient(), lista, mesi[0], mesi[mesi.length - 1])
-    if (n === req.current) setDati(r.errore ? null : r.dati)
-  }, [chiave, mesi])
-  useEffect(() => { carica() }, [carica])
-
-  const serie: Mese[] = useMemo(() => {
-    if (!dati) return []
-    return mesi.flatMap(m01 => {
-      const locali = ids.filter(id => dati.completi.has(chiaveCompleto(id, m01)))
-      if (!locali.length) return []
-      const { ce, mov } = contoMese(dati, m01, new Set(locali))
-      return [{ m01, locali, ce, mov }]
-    })
-  }, [dati, mesi, ids])
+  const { serie } = useSerieUtile(ids, a, b)
 
   const [meseSel, setMeseSel] = useState<string | null>(null)
   const scelti = meseSel ? serie.filter(s => s.m01 === meseSel) : serie

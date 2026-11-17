@@ -18,6 +18,7 @@ import { ScheletroForma } from '@/components/shared/ScheletroForma'
 import { useScheletro } from '@/components/shared/useScheletro'
 import { VistaNormale } from '@/components/cassa/analisi/VistaNormale'
 import { ResocontoUtile } from '@/components/cassa/utile/ResocontoUtile'
+import { ConfrontoUtile } from '@/components/cassa/utile/ConfrontoUtile'
 import { impostaSottotitolo, impostaAssistente } from '@/components/shell/intestazioneDinamica'
 
 // Analisi cassa del manager (design Manager Analisi). Tutto si tocca:
@@ -419,7 +420,11 @@ export function AnalisiClient({ restaurants, nome }: Props) {
         ) : (
           <div key={`${periodo.k}|${a}|${b}|${chiaveTarget}|${cmp}`} className="flex flex-col gap-4">
             {cmpAttivo
-              ? <VistaConfronto c={c} onCambia={() => apriConfronto.current?.()} onSpegni={() => setCmp(null)} />
+              ? <>
+                  <VistaConfronto c={c} onCambia={() => apriConfronto.current?.()} onSpegni={() => setCmp(null)} />
+                  <ConfrontoUtile idsA={target} idsB={chiaveTargetB ? chiaveTargetB.split(',') : []} A={{ a, b }} B={B}
+                    et={c.coppia ?? { a: 'Periodo A', b: 'Periodo B' }} nomi={nomeLoc} tel={tel} fumetto={fumetto} />
+                </>
               : <><VistaNormale c={c} /><ResocontoUtile ids={target} a={a} b={b} nomi={nomeLoc} tel={tel} fumetto={fumetto} /></>}
           </div>
         )}
