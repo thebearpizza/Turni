@@ -302,7 +302,10 @@ export function AppShell({ ruolo, nome, descrizione, locale, ristoranti = [], is
             aria-current={att ? 'page' : undefined}
             className={cn(
               'relative flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-[background-color,color] duration-200 active:scale-[0.97]',
-              telefono ? cn('h-10 rounded-[10px] px-2.5 text-[13px]', segmenti.length > 4 ? 'flex-none' : 'min-w-0 flex-[1_1_auto]') : 'h-12 w-[112px] rounded-[11px] text-sm',
+              // Con molte schede crescono senza stringersi: se non ci stanno la
+              // barra scorre, se ci stanno la riempiono in modo uniforme invece
+              // di lasciare un vuoto a destra.
+              telefono ? cn('h-10 rounded-[10px] px-2.5 text-[13px]', segmenti.length > 4 ? 'flex-[1_0_auto]' : 'min-w-0 flex-[1_1_auto]') : 'h-12 w-[112px] rounded-[11px] text-sm',
               att ? 'bg-primary text-primary-foreground' : 'text-foreground'
             )}
             data-attiva={att ? '' : undefined}
